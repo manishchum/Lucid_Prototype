@@ -67,8 +67,11 @@ export default function TrainingPlanPage() {
     return <div className="min-h-screen flex items-center justify-center">Loading training plan...</div>;
   }
 
-  // Defensive: If plan is not an object, show fallback
-  if (!plan || !plan.modules || !Array.isArray(plan.modules)) {
+  // Defensive: Support both plan.modules and plan.learning_plan.modules
+  const modules = plan?.modules || plan?.learning_plan?.modules;
+  const overallRecommendations = plan?.overall_recommendations || plan?.learning_plan?.overall_recommendations;
+
+  if (!plan || !modules || !Array.isArray(modules)) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 px-4 py-8">
         <div className="max-w-3xl mx-auto">
@@ -98,10 +101,10 @@ export default function TrainingPlanPage() {
             <div className="flex flex-col md:flex-row gap-6">
               {/* Tabs List */}
               <div className="w-full md:w-72 shrink-0">
-                <Tabs defaultValue={plan.modules[0]?.id || ""} className="flex flex-col md:flex-row">
+                <Tabs defaultValue={modules[0]?.id || ""} className="flex flex-col md:flex-row">
                     {/* Left Sidebar Tabs List */}
                     <TabsList className="md:w-72 w-full flex flex-col bg-white rounded-lg shadow p-2 sticky top-4 h-fit">
-                        {plan.modules.map((mod: any) => (
+                        {modules.map((mod: any) => (
                         <TabsTrigger
                             key={mod.id}
                             value={mod.id}
@@ -115,7 +118,7 @@ export default function TrainingPlanPage() {
 
                     {/* Right Content Panel */}
                     <div className="flex-1 mt-6 md:mt-0 md:ml-6">
-                        {plan.modules.map((mod: any) => (
+                        {modules.map((mod: any) => (
                         <TabsContent key={mod.id} value={mod.id} className="bg-white rounded-lg shadow p-6">
                             <div className="mb-4">
                             <div className="text-2xl font-bold mb-2">{mod.title}</div>
@@ -148,10 +151,10 @@ export default function TrainingPlanPage() {
                 </Tabs>
               </div>
             </div>
-            {plan.overall_recommendations && (
+            {overallRecommendations && (
               <div className="mt-8 p-4 bg-blue-50 rounded-lg text-blue-900">
                 <div className="font-bold mb-2">Overall Recommendations</div>
-                <div>{plan.overall_recommendations}</div>
+                <div>{Array.isArray(overallRecommendations) ? overallRecommendations.join("\n") : overallRecommendations}</div>
               </div>
             )}
           </CardContent>

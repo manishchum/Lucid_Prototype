@@ -89,13 +89,16 @@ export async function POST(req: NextRequest) {
     console.warn("[Training Plan API] Could not parse plan JSON, storing raw response.");
   }
 
-  // Step 1: Check if a learning plan already exists for this employee
-  console.log("[Training Plan API] Checking for existing learning plan...");
+  // Step 1: Check if a learning plan already exists for this employee (latest assigned)
+  console.log("[Training Plan API] Checking for latest assigned learning plan...");
   const { data: existingPlan, error: existingPlanError } = await supabase
     .from("learning_plan")
     .select("id, plan_json, status, assessment_hash")
     .eq("employee_id", employee_id)
-    .single();
+    .eq("status", "assigned")
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
   if (existingPlanError && existingPlanError.code !== "PGRST116") { // PGRST116: No rows found
     console.error("[Training Plan API] Error checking existing plan:", existingPlanError);
     return NextResponse.json({ error: existingPlanError.message }, { status: 500 });
