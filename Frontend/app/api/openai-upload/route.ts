@@ -8,11 +8,6 @@ import { supabase } from "../../../lib/supabase";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
 
 export async function POST(req: Request) {
   let tempFilePath: string | undefined;
