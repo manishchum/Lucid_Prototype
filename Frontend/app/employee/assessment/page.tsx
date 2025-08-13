@@ -27,10 +27,22 @@ const AssessmentPage = () => {
       setLoading(true);
       setError("");
       try {
-        // Get employee's company modules
+        // Get employee's company_id first
+        let companyId: string | null = null;
+        if (user?.email) {
+          const { data: empData } = await supabase
+            .from("employees")
+            .select("company_id")
+            .eq("email", user.email)
+            .maybeSingle();
+          companyId = empData?.company_id || null;
+        }
+        if (!companyId) throw new Error("Could not find company for user");
+        // Get modules for this company only
         const { data, error } = await supabase
           .from("training_modules")
           .select("id, title, ai_modules")
+          .eq("company_id", companyId)
           .order("created_at", { ascending: true });
         if (error) throw error;
         setModules(data || []);
@@ -41,7 +53,7 @@ const AssessmentPage = () => {
       }
     };
     fetchModules();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     const getMCQQuiz = async () => {
@@ -49,12 +61,25 @@ const AssessmentPage = () => {
       setLoading(true);
       setError("");
       try {
+        // Get employee's company_id and id
+        let companyId: string | null = null;
+        let employeeId: string | null = null;
+        if (user?.email) {
+          const { data: empData } = await supabase
+            .from("employees")
+            .select("id, company_id")
+            .eq("email", user.email)
+            .maybeSingle();
+          companyId = empData?.company_id || null;
+          employeeId = empData?.id || null;
+        }
+        if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
         // Use all module IDs for baseline assessment
         const moduleIds = modules.map((m) => m.id);
         const res = await fetch("/api/gpt-mcq-quiz", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ moduleIds }),
+          body: JSON.stringify({ moduleIds, companyId, employeeId }),
         });
         const data = await res.json();
         if (data.quiz) setMcqQuestions(data.quiz);
@@ -66,7 +91,7 @@ const AssessmentPage = () => {
       }
     };
     if (modules.length > 0) getMCQQuiz();
-  }, [modules]);
+  }, [modules, user]);
 
   const handleMCQSubmit = async (result: { score: number; answers: number[]; feedback: string[] }) => {
     console.log("handleMCQSubmit called with result successfully.");

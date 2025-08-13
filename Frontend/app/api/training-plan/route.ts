@@ -13,6 +13,18 @@ export async function POST(req: NextRequest) {
     console.error("[Training Plan API] Missing employee_id");
     return NextResponse.json({ error: "Missing employee_id" }, { status: 400 });
   }
+  // Fetch company_id for this employee
+  let company_id = null;
+  const { data: empRecord, error: empError } = await supabase
+    .from("employees")
+    .select("company_id")
+    .eq("id", employee_id)
+    .maybeSingle();
+  if (empError || !empRecord?.company_id) {
+    console.error("[Training Plan API] Could not find company for employee");
+    return NextResponse.json({ error: "Could not find company for employee" }, { status: 400 });
+  }
+  company_id = empRecord.company_id;
 
   // Fetch all assessments for this employee, including baseline
   console.log("[Training Plan API] Fetching assessments for employee...");
@@ -48,16 +60,22 @@ export async function POST(req: NextRequest) {
     .digest("hex");
   console.log("[Training Plan API] assessmentHash:", assessmentHash);
 
-  // Fetch all modules/objectives
-  console.log("[Training Plan API] Fetching processed modules...");
+  // Fetch all processed modules for this company by joining training_modules
+  console.log("[Training Plan API] Fetching processed modules for company_id:", company_id);
   const { data: modules, error: modError } = await supabase
     .from("processed_modules")
-    .select("id, title, content, order_index");
+    .select("id, title, content, order_index, original_module_id, training_modules(company_id)")
+    .in("original_module_id", (
+      await supabase
+        .from("training_modules")
+        .select("id")
+        .eq("company_id", company_id)
+    ).data?.map((mod: any) => mod.id) || [])
   if (modError) {
     console.error("[Training Plan API] Error fetching modules:", modError);
     return NextResponse.json({ error: modError.message }, { status: 500 });
   }
-  console.log("[Training Plan API] Modules:", modules);
+  console.log("[Training Plan API] Modules for company_id:", company_id, modules);
 
   // Compose prompt for GPT
   const prompt = `You are an expert corporate trainer. Given the following:\n1. All baseline assessment scores and feedback for the employee:\n${JSON.stringify(baselineAssessments, null, 2)}\n2. All module assessment scores and feedback for the employee:\n${JSON.stringify(moduleAssessments, null, 2)}\n3. The available training modules:\n${JSON.stringify(modules, null, 2)}\n\nGenerate a personalized JSON learning plan for this employee. The plan should:\n- Identify weak areas based on baseline and module scores/feedback\n- Match module objectives to weaknesses\n- Specify what to study, in what order, and how much time for each\n- Output a JSON object with: modules (ordered), objectives, recommended time (hours), and any tips or recommendations\n\nOutput only the JSON plan.`;

@@ -35,7 +35,7 @@ export default function ScoreHistoryPage() {
       }
       const { data: assessments } = await supabase
         .from("employee_assessments")
-        .select("score, feedback, question_feedback, assessment_id, completed_at, assessments(type, questions)")
+        .select("score, max_score, feedback, question_feedback, assessment_id, completed_at, assessments(type, questions)")
         .eq("employee_id", employeeData.id)
         .order("completed_at", { ascending: false });
       setScoreHistory(assessments || []);
@@ -81,7 +81,7 @@ export default function ScoreHistoryPage() {
                         <div className="flex items-center gap-2">
                           <span className="font-semibold">{item.assessments?.type === 'baseline' ? 'Baseline Assessment' : 'Module Assessment'}</span>
                           <span className="text-sm text-gray-400">{item.completed_at ? new Date(item.completed_at).toLocaleString() : ''}</span>
-                          <span className="ml-2">Score: <span className="font-semibold">{item.score} / {item.assessments?.questions ? item.assessments.questions.length : '?'}</span></span>
+                          <span className="ml-2">Score: <span className="font-semibold">{item.score} / {item.max_score ?? '?'}</span></span>
                         </div>
                         <button
                           aria-label={isExpanded ? 'Collapse details' : 'Expand details'}
