@@ -186,7 +186,7 @@ export async function POST(req: Request) {
     const { data, error } = await supabase
       .from("training_modules")
       .update({
-        gpt_summary: summary,
+        gpt_summary: message,
         ai_modules: ai_modules,
         ai_topics: ai_topics,
         ai_objectives: ai_objectives,
