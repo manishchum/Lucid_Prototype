@@ -1,8 +1,5 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
-/node_modules
-
 # next.js
 /.next/
 /out/
@@ -25,6 +22,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+
+# dependencies
+/node_modules
 
 #Secret keys
 Frontend\tts-prototype-468309-54562721c4e0.jsontts-prototype-468309-54562721c4e0.json
