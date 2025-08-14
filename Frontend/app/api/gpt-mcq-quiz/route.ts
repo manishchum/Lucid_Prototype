@@ -1,6 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
+// Deep comparison helpers for modules
+function normalizeModules(modules: any[]) {
+  if (!Array.isArray(modules)) return [];
+  // Only keep objects with a title property
+  const validModules = modules.filter(m => m && typeof m === 'object' && typeof m.title === 'string');
+  return validModules
+    .map(m => ({
+      ...m,
+      topics: Array.isArray(m.topics) ? [...m.topics].sort() : [],
+      objectives: Array.isArray(m.objectives) ? [...m.objectives].sort() : [],
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function areModulesEqual(modulesA: any[], modulesB: any[]) {
+  return JSON.stringify(normalizeModules(modulesA)) === JSON.stringify(normalizeModules(modulesB));
+}
+
 // Helper to call OpenAI for MCQ quiz generation
 async function generateMCQQuiz(summary: string, modules: any[], objectives: any[]): Promise<any[]> {
   const prompt = `You are an expert instructional designer. Given the following training content summary, modules, and objectives, generate a 10-12 question multiple-choice quiz. Each question should have 4 options, only one correct answer, and cover a range of topics. Return as JSON array with: {question, options, correctIndex, explanation (optional)}.
@@ -90,8 +108,8 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ quiz });
   }
-  // Baseline (multi-module) quiz generation (existing logic)
-  const { moduleIds, companyId } = body;
+  // Baseline (multi-module) quiz generation with modules_snapshot logic
+  const { moduleIds, companyId, trainingId } = body;
   if (!moduleIds || !Array.isArray(moduleIds) || moduleIds.length === 0) {
     return NextResponse.json({ error: 'moduleIds (array) required' }, { status: 400 });
   }
@@ -105,115 +123,64 @@ export async function POST(request: NextRequest) {
     .in('id', moduleIds)
     .eq('company_id', companyId);
   if (error || !data || data.length === 0) return NextResponse.json({ error: 'Modules not found' }, { status: 404 });
-  // 2. Check if a baseline assessment already exists for this company
-  const { data: assessment, error: assessmentError } = await supabase
+  // 2. Prepare normalized snapshot
+  const currentModules = data.flatMap((mod) => mod.ai_modules ? JSON.parse(mod.ai_modules) : []);
+  const normalizedSnapshot = JSON.stringify(normalizeModules(currentModules));
+  // 3. Check for existing assessment with snapshot
+  const { data: existingAssessment, error: assessmentError } = await supabase
     .from('assessments')
-    .select('id, questions, company_id')
+    .select('id, questions, company_id, modules_snapshot')
     .eq('type', 'baseline')
     .eq('company_id', companyId)
+    .order('created_at', { ascending: false })
     .limit(1)
-    .maybeSingle();
+    .single();
 
-  if (assessment && assessment.questions) {
-    try {
-      if (assessment.company_id !== companyId) {
-        console.log(`[gpt-mcq-quiz] Baseline assessment found for wrong company. assessment.company_id=${assessment.company_id}, requested companyId=${companyId}`);
-        return NextResponse.json({ error: 'Baseline assessment does not belong to your company.' }, { status: 403 });
-      }
-      // Compare current modules with stored questions BEFORE any quiz generation
-      let storedQuestions;
+  if (existingAssessment && existingAssessment.modules_snapshot) {
+    if (existingAssessment.modules_snapshot === normalizedSnapshot) {
+      // No change → return the existing quiz
       try {
-        storedQuestions = JSON.parse(assessment.questions);
+        const quizData = typeof existingAssessment.questions === 'string'
+          ? JSON.parse(existingAssessment.questions)
+          : existingAssessment.questions;
+        return NextResponse.json({ quiz: quizData, source: 'db' });
       } catch {
-        storedQuestions = [];
+        // If parse fails, treat as missing and regenerate below
       }
-      // Extract module IDs from stored questions and current modules
-      const getModuleIdSet = (arr: any[]) => new Set(arr.map((q: any) => q.module_id || q.id));
-      const storedModuleIdsSet = Array.isArray(storedQuestions) ? getModuleIdSet(storedQuestions) : new Set();
-      const currentModuleIdsSet = getModuleIdSet(data);
-      // Only update if the sets of module IDs differ
-      const modulesChanged = storedModuleIdsSet.size !== currentModuleIdsSet.size ||
-        [...storedModuleIdsSet].some(id => !currentModuleIdsSet.has(id)) ||
-        [...currentModuleIdsSet].some(id => !storedModuleIdsSet.has(id));
-      if (!modulesChanged) {
-        // Modules are the same, return existing quiz
-        console.log("[gpt-mcq-quiz] Returning existing baseline quiz for companyId:", companyId);
-        return NextResponse.json({ quiz: storedQuestions });
-      }
-      // Modules have changed, regenerate quiz and update assessment
-      const combinedSummary = data.map((mod) => mod.gpt_summary).filter(Boolean).join('\n');
-      const combinedModules = data.flatMap((mod) => mod.ai_modules ? JSON.parse(mod.ai_modules) : []);
-      const combinedObjectives = data.flatMap((mod) => mod.ai_objectives ? JSON.parse(mod.ai_objectives) : []);
-      const quiz = await generateMCQQuiz(
-        combinedSummary,
-        combinedModules,
-        combinedObjectives
-      );
-      const { data: updatedAssessment, error: updateError } = await supabase
-        .from('assessments')
-        .update({ questions: JSON.stringify(quiz) })
-        .eq('id', assessment.id)
-        .eq('company_id', companyId)
-        .select('id, questions, company_id')
-        .single();
-      if (updatedAssessment && updatedAssessment.questions) {
-        console.log("[gpt-mcq-quiz] Updated baseline quiz for companyId:", companyId);
-        return NextResponse.json({ quiz: JSON.parse(updatedAssessment.questions) });
-      } else {
-        console.log("[gpt-mcq-quiz] Failed to update baseline quiz.");
-        return NextResponse.json({ error: 'Failed to update baseline quiz.' }, { status: 500 });
-      }
-    } catch (e) {
-      console.log("[gpt-mcq-quiz] Failed to parse existing baseline quiz:", e);
-      // If parse fails, treat as missing and regenerate below
-    }
-  } else {
-    // Insert new baseline assessment for this company
-    const combinedSummary = data.map((mod) => mod.gpt_summary).filter(Boolean).join('\n');
-    const combinedModules = data.flatMap((mod) => mod.ai_modules ? JSON.parse(mod.ai_modules) : []);
-    const combinedObjectives = data.flatMap((mod) => mod.ai_objectives ? JSON.parse(mod.ai_objectives) : []);
-    const quiz = await generateMCQQuiz(
-      combinedSummary,
-      combinedModules,
-      combinedObjectives
-    );
-    const { data: newAssessment, error: newAssessmentError } = await supabase
-      .from('assessments')
-      .insert({ type: 'baseline', questions: JSON.stringify(quiz), company_id: companyId })
-      .select('id, questions, company_id')
-      .single();
-    if (newAssessment && newAssessment.questions) {
-      console.log("[gpt-mcq-quiz] Inserted new baseline quiz for companyId:", companyId);
-      return NextResponse.json({ quiz: JSON.parse(newAssessment.questions) });
-    } else {
-      console.log("[gpt-mcq-quiz] Failed to insert new baseline quiz.");
-      return NextResponse.json({ error: 'Failed to insert baseline quiz.' }, { status: 500 });
     }
   }
-  // 3. If not found, generate and insert baseline quiz
+  // 4. Generate new quiz and update or insert assessment
   const combinedSummary = data.map((mod) => mod.gpt_summary).filter(Boolean).join('\n');
-  const combinedModules = data.flatMap((mod) => mod.ai_modules ? JSON.parse(mod.ai_modules) : []);
   const combinedObjectives = data.flatMap((mod) => mod.ai_objectives ? JSON.parse(mod.ai_objectives) : []);
-  // 4. Generate quiz using GPT
   const quiz = await generateMCQQuiz(
     combinedSummary,
-    combinedModules,
+    currentModules,
     combinedObjectives
   );
-  // 5. Double-check again before insert (race condition protection)
-  const { data: existingBaseline } = await supabase
-    .from('assessments')
-    .select('id')
-    .eq('type', 'baseline')
-    .limit(1)
-    .maybeSingle();
-  if (!existingBaseline) {
-    const insertResult = await supabase
+  if (existingAssessment && existingAssessment.id) {
+    // Update the existing assessment
+    await supabase
       .from('assessments')
-      .insert({ type: 'baseline', questions: JSON.stringify(quiz) });
-    console.log("[gpt-mcq-quiz] Inserted baseline quiz:", insertResult);
+      .update({
+        questions: JSON.stringify(quiz),
+        modules_snapshot: normalizedSnapshot,
+        training_id: trainingId
+      })
+      .eq('id', existingAssessment.id)
+      .eq('company_id', companyId);
   } else {
-    console.log("[gpt-mcq-quiz] Baseline quiz already exists, not inserting again.");
+    // Insert new assessment
+    await supabase
+      .from('assessments')
+      .insert([
+        {
+          type: 'baseline',
+          questions: JSON.stringify(quiz),
+          company_id: companyId,
+          training_id: trainingId,
+          modules_snapshot: normalizedSnapshot
+        }
+      ]);
   }
-  return NextResponse.json({ quiz });
+  return NextResponse.json({ quiz, source: 'generated' });
 }
