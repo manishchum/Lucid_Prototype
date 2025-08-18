@@ -21,13 +21,20 @@ export default function EmployeeWelcome() {
   const [employee, setEmployee] = useState<Employee | null>(null)
   const [loading, setLoading] = useState(true)
   const [scoreHistory, setScoreHistory] = useState<any[]>([])
+  const [moduleProgress, setModuleProgress] = useState<any[]>([])
   const router = useRouter()
+  // LOG: Initial state
+  console.log("[EmployeeWelcome] Initial user:", user)
+  console.log("[EmployeeWelcome] Initial moduleProgress:", moduleProgress)
 
   useEffect(() => {
+    console.log("[EmployeeWelcome] useEffect fired. authLoading:", authLoading, "user:", user)
     if (!authLoading) {
       if (!user) {
+        console.log("[EmployeeWelcome] No user, redirecting to login.")
         router.push("/employee/login")
       } else {
+        console.log("[EmployeeWelcome] User found, calling checkEmployeeAccess().")
         checkEmployeeAccess()
       }
     }
@@ -37,7 +44,8 @@ export default function EmployeeWelcome() {
     if (!user?.email) return
 
     try {
-      // Get employee data from Supabase
+      // LOG: Fetching employee data
+      console.log("[EmployeeWelcome] Fetching employee data for email:", user.email)
       const { data: employeeData, error: employeeError } = await supabase
         .from("employees")
         .select("*")
@@ -45,11 +53,15 @@ export default function EmployeeWelcome() {
         .single()
 
       if (employeeError || !employeeData) {
+        console.error("[EmployeeWelcome] Employee fetch error:", employeeError)
         router.push("/employee/login")
         return
       }
 
       setEmployee(employeeData)
+      // LOG: Employee data fetched
+      console.log("[EmployeeWelcome] Employee data:", employeeData)
+
       // Fetch all assessment results for this employee (history)
       const { data: assessments, error: assessmentError } = await supabase
         .from("employee_assessments")
@@ -57,6 +69,20 @@ export default function EmployeeWelcome() {
         .eq("employee_id", employeeData.id)
         .order("created_at", { ascending: false })
       setScoreHistory(assessments || [])
+      // LOG: Assessment history fetched
+      console.log("[EmployeeWelcome] Assessment history:", assessments)
+
+      // Fetch module progress for this employee, join processed_modules for title
+      // LOG: Fetching module_progress for employee_id:", employeeData.id)
+      const { data: progressData, error: progressError } = await supabase
+        .from("module_progress")
+        .select("*, processed_modules(title)")
+        .eq("employee_id", employeeData.id)
+      if (progressError) {
+        console.error("[EmployeeWelcome] module_progress fetch error:", progressError)
+      }
+      console.log("[EmployeeWelcome] module_progress data:", progressData)
+      setModuleProgress(progressData || [])
     } catch (error) {
       console.error("Employee access check failed:", error)
       router.push("/employee/login")
@@ -177,32 +203,46 @@ export default function EmployeeWelcome() {
             </Card>
           </div>
 
-          {/* Status Card */}
+          {/* Progress Tracker Card */}
           <Card>
             <CardHeader>
-              <CardTitle>System Status</CardTitle>
-              <CardDescription>Current module implementation status</CardDescription>
+              <CardTitle>Module Progress Tracker</CardTitle>
+              <CardDescription>
+                Track your progress for each training module<br />
+                {/* <span className="text-xs text-gray-400">(Fetched from <b>module_progress</b> table)</span> */}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-                  <span className="font-medium text-green-800">Module 1: Employee Onboarding</span>
-                  <span className="px-2 py-1 bg-green-200 text-green-800 rounded-full text-xs font-medium">
-                    ✓ Complete
-                  </span>
-                </div>
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <span className="font-medium text-gray-600">Module 2: Content Ingestion</span>
-                  <span className="px-2 py-1 bg-gray-200 text-gray-600 rounded-full text-xs font-medium">
-                    Coming Soon
-                  </span>
-                </div>
-                <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-                  <span className="font-medium text-green-800">Module 3: AI Processing</span>
-                  <span className="px-2 py-1 bg-green-200 text-green-800 rounded-full text-xs font-medium">
-                    ✓ Complete
-                  </span>
-                </div>
+                {moduleProgress.length === 0 ? (
+                  <div className="text-gray-500">No module progress tracked yet.</div>
+                ) : (
+                  moduleProgress.map((mod, idx) => {
+                    // LOG: Each module progress row
+                    console.log(`[EmployeeWelcome] Rendering moduleProgress[${idx}]:`, mod)
+                    return (
+                      <div key={mod.processed_module_id} className={`flex items-center justify-between p-3 rounded-lg ${mod.completed_at ? "bg-green-50" : "bg-gray-50"}`}>
+                        <span className={`font-medium ${mod.completed_at ? "text-green-800" : "text-gray-600"}`}>{mod.processed_modules?.title || `Module ${mod.processed_module_id}`}</span>
+                        <div className="flex gap-2 items-center">
+                          {mod.viewed_at && (
+                            <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">Viewed</span>
+                          )}
+                          {mod.audio_listen_duration > 0 && (
+                            <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">Audio: {mod.audio_listen_duration}s</span>
+                          )}
+                          {mod.quiz_score !== null && (
+                            <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">Quiz: {mod.quiz_score}</span>
+                          )}
+                          {mod.completed_at ? (
+                            <span className="px-2 py-1 bg-green-200 text-green-800 rounded-full text-xs font-medium">✓ Complete</span>
+                          ) : (
+                            <span className="px-2 py-1 bg-gray-200 text-gray-600 rounded-full text-xs font-medium">In Progress</span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
               </div>
             </CardContent>
           </Card>

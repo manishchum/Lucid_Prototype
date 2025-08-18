@@ -15,7 +15,8 @@ export async function POST(req: NextRequest) {
       completed_at,
       audio_listen_duration, // seconds to add
       quiz_score,
-      max_score,
+      // max_score,
+      quiz_feedback,
     } = body;
 
     if (!employee_id || !processed_module_id) {
@@ -36,12 +37,13 @@ export async function POST(req: NextRequest) {
 
     // Build patch
     const patch: any = {};
-    if (module_id) patch.module_id = module_id; // optional legacy linkage
-    if (typeof viewed_at === 'string') patch.viewed_at = viewed_at;
-    if (typeof started_at === 'string') patch.started_at = started_at;
-    if (typeof completed_at === 'string') patch.completed_at = completed_at;
-    if (typeof quiz_score === 'number') patch.quiz_score = quiz_score;
-    if (typeof max_score === 'number') patch.max_score = max_score;
+  if (module_id) patch.module_id = module_id; // optional legacy linkage
+  if (typeof viewed_at === 'string') patch.viewed_at = viewed_at;
+  if (typeof started_at === 'string') patch.started_at = started_at;
+  if (typeof completed_at === 'string') patch.completed_at = completed_at;
+  if (typeof quiz_score === 'number') patch.quiz_score = quiz_score;
+  // if (typeof max_score === 'number') patch.max_score = max_score;
+  if (typeof quiz_feedback === 'string') patch.quiz_feedback = quiz_feedback;
 
     if (!existing) {
       // Insert new row
@@ -56,8 +58,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ data });
     } else {
       // Update existing: accumulate audio duration
-      const newDuration = (existing.audio_listen_duration || 0) + (typeof audio_listen_duration === 'number' ? audio_listen_duration : 0);
-      const updatePayload = { ...patch, audio_listen_duration: newDuration };
+  const newDuration = (existing.audio_listen_duration || 0) + (typeof audio_listen_duration === 'number' ? audio_listen_duration : 0);
+  const updatePayload = { ...patch, audio_listen_duration: newDuration };
       const { data, error } = await supabase
         .from('module_progress')
         .update(updatePayload)

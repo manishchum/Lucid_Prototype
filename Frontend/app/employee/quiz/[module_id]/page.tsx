@@ -165,16 +165,18 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             .eq('email', employeeEmail)
             .maybeSingle();
           if (emp?.id) {
-            await fetch('/api/module-progress', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                employee_id: emp.id,
-                processed_module_id: moduleId,
-                quiz_score: correct,
-                max_score: quiz.length,
-              }),
-            });
+              await fetch('/api/module-progress', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  employee_id: emp.id,
+                  processed_module_id: moduleId,
+                  quiz_score: correct,
+                  max_score: quiz.length,
+                  quiz_feedback: feedbackText,
+                  completed_at: new Date().toISOString(), // Ensure completion time is tracked
+                }),
+              });
           }
         }
       } catch (e) {

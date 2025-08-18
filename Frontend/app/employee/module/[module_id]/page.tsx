@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import AudioPlayer from "./AudioPlayer";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
@@ -9,39 +10,54 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const moduleId = params.module_id;
   const [module, setModule] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [employee, setEmployee] = useState<any>(null);
   const router = useRouter();
 
   useEffect(() => {
     const fetchModule = async () => {
       setLoading(true);
+      // Fetch employee info first
+      let empObj = null;
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        const employeeEmail = userData?.user?.email || null;
+        if (employeeEmail) {
+          const { data: emp } = await supabase
+            .from('employees')
+            .select('id')
+            .eq('email', employeeEmail)
+            .maybeSingle();
+          if (emp?.id) {
+            empObj = emp;
+            setEmployee(emp);
+          }
+        }
+      } catch (e) {
+        console.log('[module] employee fetch error', e);
+      }
+      // Fetch module info
       const { data, error } = await supabase
         .from("processed_modules")
-        .select("id, title, content, audio_url")
+        .select("id, title, content, audio_url, original_module_id")
         .eq("id", moduleId)
         .single();
       if (!error && data) {
         setModule(data);
-        // Log view to module_progress using processed_module_id
+        // Log view to module_progress using processed_module_id and module_id, and started_at
         try {
-          const { data: userData } = await supabase.auth.getUser();
-          const employeeEmail = userData?.user?.email || null;
-          if (employeeEmail) {
-            const { data: emp } = await supabase
-              .from('employees')
-              .select('id')
-              .eq('email', employeeEmail)
-              .maybeSingle();
-            if (emp?.id) {
-              await fetch('/api/module-progress', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  employee_id: emp.id,
-                  processed_module_id: data.id,
-                  viewed_at: new Date().toISOString(),
-                }),
-              });
-            }
+          if (empObj?.id) {
+            await fetch('/api/module-progress', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                employee_id: empObj.id,
+                processed_module_id: data.id,
+                module_id: data.original_module_id,
+                viewed_at: new Date().toISOString(),
+                started_at: new Date().toISOString(),
+                audio_url: data.audio_url,
+              }),
+            });
           }
         } catch (e) {
           console.log('[module] progress log error', e);
@@ -79,9 +95,12 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             {/* Audio section */}
             <div className="mt-8">
               {module.audio_url ? (
-                <audio controls src={module.audio_url} className="w-full">
-                  Your browser does not support the audio element.
-                </audio>
+                <AudioPlayer
+                  employeeId={employee?.id}
+                  processedModuleId={module.id}
+                  moduleId={module.original_module_id}
+                  audioUrl={module.audio_url}
+                />
               ) : (
                 <GenerateAudioButton moduleId={module.id} onAudioGenerated={url => setModule((m: any) => ({ ...m, audio_url: url }))} />
               )}
