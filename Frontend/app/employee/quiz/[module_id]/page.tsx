@@ -1,78 +1,141 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 export default function ModuleQuizPage({ params }: { params: { module_id: string } }) {
+  const { user, loading: authLoading } = useAuth();
+  // Handler for quiz submission
+  const handleSubmit = async () => {
+    if (!quiz || !Array.isArray(quiz)) return;
+    // Ensure assessmentId is set before submission
+    if (!assessmentId) {
+      setFeedback("Error: Could not identify assessment. Please refresh and try again.");
+      return;
+    }
+    setSubmitted(true);
+    let correct = 0;
+    // Normalize answers for all question types
+    const userAnswers = answers.map((ans, i) => {
+      const q = quiz[i];
+      if (q.type === 'multiple select') {
+        // Convert selected indices to option values
+        return Array.isArray(ans) ? ans.map((idx: number) => q.options[idx]) : [];
+      }
+      if (q.type === 'matching') {
+        // Return object mapping keys to selected values
+        return typeof ans === 'object' && ans !== null ? ans : {};
+      }
+      if (q.type === 'ordering') {
+        // Return array of ordered values
+        if (typeof ans === 'string') {
+          return ans.split(',').map(s => s.trim());
+        }
+        return [];
+      }
+      if (q.type === 'true/false' || q.type === 'mcq' || q.type === 'multiple choice') {
+        return typeof ans === 'number' ? q.options[ans] : '';
+      }
+      // Fill-in-the-blank, open-ended
+      return typeof ans === 'string' ? ans : '';
+    });
+    const feedbackArr: string[] = [];
+    quiz.forEach((q, i) => {
+      // Only score MCQ and true/false for now
+      if (q.type === 'mcq' || q.type === 'multiple choice' || q.type === 'true/false') {
+        if (typeof answers[i] === 'number' && q.options && q.correctAnswer && q.options[answers[i]] === q.correctAnswer) {
+          correct++;
+          feedbackArr.push('Correct');
+        } else {
+          feedbackArr.push('Incorrect');
+        }
+      } else {
+        feedbackArr.push('Submitted');
+      }
+    });
+    setScore(correct);
+    // Always fetch user info before API call
+    let employeeId: string | null = null;
+    let employeeName: string | null = null;
+    if (!authLoading && user?.email) {
+      try {
+        const { data: emp } = await supabase
+          .from('employees')
+          .select('id')
+          .eq('email', user.email)
+          .single();
+        employeeId = emp?.id || null;
+        employeeName = user?.user_metadata?.name || user.email || null;
+      } catch (err) {
+        console.log('[QUIZ] Error fetching employee record:', err);
+      }
+    }
+    if (!employeeId) {
+      setFeedback("Error: Could not identify employee. Please refresh and try again.");
+      return;
+    }
+    const payload = {
+      quiz,
+      userAnswers,
+      score: correct,
+      maxScore: quiz.length,
+      answers: userAnswers,
+      feedback: feedbackArr,
+      modules: [{ module_id: moduleId }],
+      employee_id: employeeId,
+      employee_name: employeeName,
+      assessment_id: assessmentId,
+    };
+    let feedbackText = "";
+    try {
+      const res = await fetch("/api/gpt-feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await res.json();
+      feedbackText = result.feedback || "";
+      setFeedback(feedbackText);
+      // Log quiz taken into module_progress
+      try {
+        await fetch('/api/module-progress', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employee_id: employeeId,
+            processed_module_id: moduleId,
+            quiz_score: correct,
+            max_score: quiz.length,
+            quiz_feedback: feedbackText,
+            completed_at: new Date().toISOString(),
+          }),
+        });
+      } catch (e) {
+        console.log('[QUIZ] progress log error', e);
+      }
+    } catch (err) {
+      feedbackText = "Could not generate feedback.";
+      setFeedback(feedbackText);
+    }
+  };
+// ...existing code...
+
   const moduleId = params.module_id;
   const [quiz, setQuiz] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [answers, setAnswers] = useState<number[]>([]);
+  // answers can be: number (mcq), string (open-ended), number[] (multiple select), Record<string, string> (matching)
+  const [answers, setAnswers] = useState<Array<number | string | number[] | Record<string, string>>>([]);
   const [submitted, setSubmitted] = useState(false);
   const [score, setScore] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [assessmentId, setAssessmentId] = useState<string | null>(null);
   const router = useRouter();
 
-  useEffect(() => {
-    const fetchOrGenerateQuiz = async () => {
-      setLoading(true);
-      setError(null);
-      // 1. Try to fetch existing quiz for this module (processed_modules.id)
-      const { data: assessment, error: fetchError } = await supabase
-        .from("assessments")
-        .select("id, questions")
-        .eq("type", "module")
-        .eq("module_id", moduleId)
-        .maybeSingle();
-      if (assessment && assessment.questions) {
-        try {
-          const quizData = Array.isArray(assessment.questions) ? assessment.questions : JSON.parse(assessment.questions);
-          setQuiz(quizData);
-          setAnswers(new Array(quizData.length).fill(-1));
-          setAssessmentId(assessment.id);
-        } catch {
-          setQuiz(null);
-          setError("Failed to parse quiz data.");
-        }
-        setLoading(false);
-        return;
-      }
-      // 2. If not found, call API to generate quiz for this module
-      try {
-        const res = await fetch("/api/gpt-mcq-quiz", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ moduleId }),
-        });
-        const result = await res.json();
-        if (result.quiz) {
-          setQuiz(result.quiz);
-          setAnswers(new Array(result.quiz.length).fill(-1));
-          // Fetch assessment id for the newly created quiz
-          const { data: newAssessment } = await supabase
-            .from("assessments")
-            .select("id")
-            .eq("type", "module")
-            .eq("module_id", moduleId)
-            .maybeSingle();
-          if (newAssessment && newAssessment.id) setAssessmentId(newAssessment.id);
-        } else {
-          setQuiz(null);
-          setError(result.error || "Quiz generation failed.");
-        }
-      } catch (err) {
-        setQuiz(null);
-        setError("Quiz generation failed.");
-      }
-      setLoading(false);
-    };
-    if (moduleId) fetchOrGenerateQuiz();
-  }, [moduleId]);
-
+  // Handler for MCQ selection
   const handleSelect = (qIdx: number, oIdx: number) => {
     if (submitted) return;
     setAnswers((prev) => {
@@ -82,121 +145,136 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     });
   };
 
-  const handleSubmit = async () => {
-    if (!quiz) return;
-    setSubmitted(true);
-    // Score locally
-    let correct = 0;
-    const userAnswers = answers;
-    const correctAnswers = quiz.map((q) => q.correctIndex);
-    for (let i = 0; i < quiz.length; i++) {
-      if (userAnswers[i] === correctAnswers[i]) correct++;
-    }
-    setScore(correct);
-    console.log("[QUIZ] User answers:", userAnswers);
-    console.log("[QUIZ] Correct answers:", correctAnswers);
-    // Always fetch user info and assessmentId before API call
-    let userEmail = null;
-    let employeeId = null;
-    let employeeName = null;
-    let finalAssessmentId = assessmentId;
-    try {
-      const { data: userData } = await supabase.auth.getUser();
-      userEmail = userData?.user?.email || null;
-      employeeName = userData?.user?.user_metadata?.name || userEmail || null;
-      if (userEmail) {
-        // Fetch correct employee_id from employees table using email
-        const { data: employeeRecord, error: employeeError } = await supabase
-          .from("employees")
-          .select("id")
-          .eq("email", userEmail)
-          .maybeSingle();
-        if (employeeError) {
-          console.log("[QUIZ] Error fetching employee record:", employeeError);
-        }
-        employeeId = employeeRecord?.id || null;
-      }
-    } catch (err) {
-      console.log("[QUIZ] Error fetching user info or employee record:", err);
-    }
-    // If either is missing, block submission and show error
-    if (!employeeId || !finalAssessmentId) {
-      setFeedback("Error: Could not identify employee or assessment. Please refresh and try again.");
-      console.log("[QUIZ] Missing employeeId or assessmentId, not submitting to backend.");
+  // Handler for open-ended text answers
+  const handleTextAnswer = (qIdx: number, value: string) => {
+    if (submitted) return;
+    setAnswers((prev) => {
+      const next = [...prev];
+      next[qIdx] = value;
+      return next;
+    });
+  };
+
+  // Handler for quiz submission (already present)
+  // ...existing handleSubmit function...
+
+  useEffect(() => {
+    // Validate moduleId from route params
+    if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
+      setError('Invalid or missing module id. Please navigate from the Training Plan page.');
+      setLoading(false);
       return;
     }
-    // Prepare all required fields for backend
-    const payload = {
-      quiz,
-      userAnswers,
-      score: correct,
-      maxScore: quiz.length,
-      answers: userAnswers,
-      feedback: quiz.map((q, i) => userAnswers[i] === q.correctIndex ? "Correct" : "Incorrect"),
-      modules: [{ module_id: moduleId }],
-      employee_id: employeeId,
-      employee_name: employeeName,
-      assessment_id: finalAssessmentId,
-    };
-    // Call feedback API and let backend handle DB insert/update
-    let feedbackText = "";
-    try {
-      console.log("[QUIZ] Calling GPT feedback API (with assessment storage)... Payload:", payload);
-      const res = await fetch("/api/gpt-feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const result = await res.json();
-      feedbackText = result.feedback || "";
-      setFeedback(feedbackText);
-      console.log("[QUIZ] GPT feedback received:", feedbackText);
-      if (result.insertResult) {
-        console.log("[QUIZ] Assessment storage result:", result.insertResult);
-      }
-      // Log quiz taken into module_progress
-      try {
-        const { data: userData } = await supabase.auth.getUser();
-        const employeeEmail = userData?.user?.email || null;
-        if (employeeEmail) {
+    const fetchOrGenerateQuiz = async () => {
+      setLoading(true);
+      setError(null);
+      let learningStyle: string | null = null;
+      if (!authLoading && user?.email) {
+        try {
           const { data: emp } = await supabase
             .from('employees')
             .select('id')
-            .eq('email', employeeEmail)
-            .maybeSingle();
+            .eq('email', user.email)
+            .single();
           if (emp?.id) {
-              await fetch('/api/module-progress', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  employee_id: emp.id,
-                  processed_module_id: moduleId,
-                  quiz_score: correct,
-                  max_score: quiz.length,
-                  quiz_feedback: feedbackText,
-                  completed_at: new Date().toISOString(), // Ensure completion time is tracked
-                }),
-              });
+            const { data: styleData } = await supabase
+              .from('employee_learning_style')
+              .select('learning_style')
+              .eq('employee_id', emp.id)
+              .maybeSingle();
+            if (styleData?.learning_style) {
+              learningStyle = styleData.learning_style;
+            }
           }
+        } catch (e) {
+          console.log('[quiz] employee fetch error', e);
         }
-      } catch (e) {
-        console.log('[QUIZ] progress log error', e);
       }
-    } catch (err) {
-      feedbackText = "Could not generate feedback.";
-      setFeedback(feedbackText);
-      console.log("[QUIZ] GPT feedback error:", err);
-    }
-  };
+      if (!learningStyle) {
+        setError('Could not determine your learning style.');
+        setLoading(false);
+        return;
+      }
+      // 1. Try to fetch existing quiz for this module and learning style
+      let query = supabase
+        .from("assessments")
+        .select("id, questions")
+        .eq("type", "module")
+        .eq("module_id", moduleId)
+        .eq("learning_style", learningStyle);
+      const { data: assessment } = await query.maybeSingle();
+      console.log('[QUIZ DEBUG] Assessment fetch result:', assessment);
+      if (assessment && assessment.questions) {
+        try {
+          const quizData = Array.isArray(assessment.questions) ? assessment.questions : JSON.parse(assessment.questions);
+          console.log('[QUIZ DEBUG] Parsed quizData from assessment:', quizData);
+          setQuiz(quizData);
+          setAnswers(new Array(quizData.length).fill(-1));
+          setAssessmentId(assessment.id);
+        } catch (e) {
+          console.log('[QUIZ DEBUG] Failed to parse quiz data:', e, assessment.questions);
+          setQuiz(null);
+          setError("Failed to parse quiz data.");
+        }
+        setLoading(false);
+        return;
+      }
+      try {
+        const res = await fetch("/api/gpt-mcq-quiz", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ moduleId, learningStyle }),
+        });
+        const result = await res.json();
+        console.log('[QUIZ DEBUG] /api/gpt-mcq-quiz result:', result);
+        if (result.quiz) {
+          setQuiz(result.quiz);
+          setAnswers(new Array(result.quiz.length).fill(-1));
+          const { data: newAssessment } = await supabase
+            .from("assessments")
+            .select("id")
+            .eq("type", "module")
+            .eq("module_id", moduleId)
+            .eq("learning_style", learningStyle)
+            .maybeSingle();
+          console.log('[QUIZ DEBUG] New assessment after quiz generation:', newAssessment);
+          if (newAssessment && newAssessment.id) setAssessmentId(newAssessment.id);
+        } else {
+          setQuiz(null);
+          setError(result.error || "Quiz generation failed.");
+        }
+      } catch (err) {
+        console.log('[QUIZ DEBUG] Error during quiz generation:', err);
+        setQuiz(null);
+        setError("Quiz generation failed.");
+      }
+      setLoading(false);
+    };
+  if (!authLoading && user?.email && moduleId && moduleId !== 'undefined' && moduleId !== 'null') fetchOrGenerateQuiz();
+  }, [user, authLoading, moduleId]);
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading quiz...</div>;
+  if (authLoading || loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading quiz...</p>
+        </div>
+      </div>
+    );
   }
+
   if (error) {
-    return <div className="min-h-screen flex items-center justify-center text-red-600">{error}</div>;
-  }
-  if (!quiz || quiz.length === 0) {
-    return <div className="min-h-screen flex items-center justify-center text-gray-600">No quiz available for this module.</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-600 font-semibold mb-2">{error}</div>
+          <Button variant="outline" onClick={() => router.back()}>
+            Back
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -205,39 +283,165 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Module Quiz</CardTitle>
-            <CardDescription>Test your knowledge for this module</CardDescription>
+            <CardDescription>Answer the questions below. Your learning style is used to personalize this quiz.</CardDescription>
           </CardHeader>
           <CardContent>
-            <ol className="space-y-8">
-              {quiz.map((q, idx) => (
-                <li key={idx} className="bg-white rounded-lg shadow p-4">
-                  <div className="font-semibold mb-2">Q{idx + 1}. {q.question}</div>
-                  <ul className="space-y-2">
-                    {q.options?.map((opt: string, oidx: number) => (
-                      <li key={oidx} className="flex items-center">
-                        <label className="flex items-center cursor-pointer">
+            <ol className="list-decimal ml-6">
+              {quiz && quiz.map((q, idx) => (
+                <li key={idx} className="mb-6">
+                  <div className="font-semibold mb-2">{q.question}</div>
+                  {/* MCQ (case-insensitive) */}
+                  {["mcq", "MCQ", "multiple choice", "Multiple Choice"].includes(q.type) ? (
+                    <div>
+                      {(Array.isArray(q.options) && q.options.length > 0) ? (
+                        q.options.map((opt: string, oIdx: number) => (
+                          <label key={oIdx} className="block mb-2">
+                            <input
+                              type="radio"
+                              name={`q${idx}`}
+                              checked={answers[idx] === oIdx}
+                              onChange={() => handleSelect(idx, oIdx)}
+                              disabled={submitted}
+                              className="mr-2"
+                            />
+                            {opt}
+                          </label>
+                        ))
+                      ) : (
+                        <div className="text-red-600 text-sm">No options available for this question.</div>
+                      )}
+                    </div>
+                  ) : null}
+                  {/* Multiple Select */}
+                  {q.type === 'multiple select' ? (
+                    <div>
+                      {q.options && q.options.map((opt: string, oIdx: number) => (
+                        <label key={oIdx} className="block mb-2">
+                          <input
+                            type="checkbox"
+                            name={`q${idx}`}
+                            checked={Array.isArray(answers[idx]) && answers[idx].includes(oIdx)}
+                            onChange={() => {
+                              if (submitted) return;
+                              setAnswers((prev) => {
+                                const next = [...prev];
+                                let arr = Array.isArray(next[idx]) ? [...next[idx]] : [];
+                                if (arr.includes(oIdx)) {
+                                  arr = arr.filter((v: number) => v !== oIdx);
+                                } else {
+                                  arr.push(oIdx);
+                                }
+                                next[idx] = arr;
+                                return next;
+                              });
+                            }}
+                            disabled={submitted}
+                            className="mr-2"
+                          />
+                          {opt}
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
+                  {/* Open-ended */}
+                  {q.type === 'open-ended' ? (
+                    <textarea
+                      className="w-full border rounded p-2 mt-2"
+                      rows={4}
+                      value={typeof answers[idx] === 'string' ? answers[idx] : ''}
+                      onChange={e => handleTextAnswer(idx, e.target.value)}
+                      disabled={submitted}
+                      placeholder="Type your answer here..."
+                    />
+                  ) : null}
+                  {/* Fill-in-the-blank */}
+                  {q.type === 'fill-in-the-blank' ? (
+                    <input
+                      type="text"
+                      className="w-full border rounded p-2 mt-2"
+                      value={typeof answers[idx] === 'string' ? answers[idx] : ''}
+                      onChange={e => handleTextAnswer(idx, e.target.value)}
+                      disabled={submitted}
+                      placeholder="Type your answer here..."
+                    />
+                  ) : null}
+                  {/* True/False */}
+                  {q.type === 'true/false' ? (
+                    <div>
+                      {q.options && q.options.map((opt: string, oIdx: number) => (
+                        <label key={oIdx} className="block mb-2">
                           <input
                             type="radio"
                             name={`q${idx}`}
-                            checked={answers[idx] === oidx}
-                            onChange={() => handleSelect(idx, oidx)}
+                            checked={answers[idx] === oIdx}
+                            onChange={() => handleSelect(idx, oIdx)}
                             disabled={submitted}
+                            className="mr-2"
                           />
-                          <span className="ml-2">{String.fromCharCode(65 + oidx)}. {opt}</span>
+                          {opt}
                         </label>
-                      </li>
-                    ))}
-                  </ul>
+                      ))}
+                    </div>
+                  ) : null}
+                  {/* Ordering */}
+                  {q.type === 'ordering' ? (
+                    <div>
+                      <span className="block mb-2 text-sm text-gray-600">Drag to reorder (enter comma-separated order below):</span>
+                      <input
+                        type="text"
+                        className="w-full border rounded p-2 mt-2"
+                        value={typeof answers[idx] === 'string' ? answers[idx] : ''}
+                        onChange={e => handleTextAnswer(idx, e.target.value)}
+                        disabled={submitted}
+                        placeholder={q.options ? q.options.join(', ') : 'Enter order'}
+                      />
+                    </div>
+                  ) : null}
+                  {/* Matching */}
+                  {q.type === 'matching' && q.options && typeof q.options === 'object' ? (
+                    <div className="space-y-2 mt-2">
+                      {/* Collect all possible options for matching */}
+                      {(() => {
+                        // Flatten all options arrays into a unique set
+                        const allOptions: string[] = Array.from(new Set((Object.values(q.options).flat() as string[])));
+                        return Object.entries(q.options).map(([key, opts]) => (
+                          <div key={key} className="flex items-center gap-2">
+                            <span className="font-semibold w-40">{key}</span>
+                            <select
+                              className="border rounded p-2"
+                              value={typeof answers[idx] === 'object' && answers[idx] !== null ? (answers[idx] as Record<string, string>)[key] || '' : ''}
+                              onChange={e => {
+                                if (submitted) return;
+                                setAnswers((prev) => {
+                                  const next = [...prev];
+                                  const matchObj: Record<string, string> = typeof next[idx] === 'object' && next[idx] !== null ? { ...(next[idx] as Record<string, string>) } : {};
+                                  matchObj[key] = e.target.value;
+                                  next[idx] = matchObj;
+                                  return next;
+                                });
+                              }}
+                              disabled={submitted}
+                            >
+                              <option value="">Select</option>
+                              {allOptions.map((opt, oIdx) => (
+                                <option key={oIdx} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ol>
             {!submitted ? (
-              <Button className="mt-8" variant="default" onClick={handleSubmit} disabled={answers.includes(-1)}>
+              <Button className="mt-8" variant="default" onClick={handleSubmit} disabled={answers.some(a => a === -1 || a === '' || (Array.isArray(a) && a.length === 0) || (typeof a === 'object' && a !== null && Object.values(a).some(v => !v)))}>
                 Submit Quiz
               </Button>
             ) : (
               <div className="mt-8">
-                <div className="text-lg font-semibold mb-2">Your Score: {score} / {quiz.length}</div>
+                <div className="text-lg font-semibold mb-2">Your Score: {score} / {quiz && quiz.filter(q => q.type === 'mcq' || q.type === 'multiple choice').length}</div>
                 {feedback && <div className="bg-blue-50 p-4 rounded text-blue-900 whitespace-pre-line">{feedback}</div>}
                 <Button className="mt-4" variant="outline" onClick={() => router.back()}>
                   Back to Training Plan

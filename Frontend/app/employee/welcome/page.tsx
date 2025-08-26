@@ -203,6 +203,8 @@ export default function EmployeeWelcome() {
             </Card>
           </div>
 
+          <Button className="mb-6" onClick={() => router.push("/employee/learning-style")}>Check your learning style</Button>
+
           {/* Progress Tracker Card */}
           <Card>
             <CardHeader>

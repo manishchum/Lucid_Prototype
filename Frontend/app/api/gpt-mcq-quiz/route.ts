@@ -57,57 +57,86 @@ Objectives: ${JSON.stringify(objectives)}
 export async function POST(request: NextRequest) {
   const body = await request.json();
   console.log("[gpt-mcq-quiz] POST body:", body);
-  // Per-module quiz generation
   if (body.moduleId) {
-    const moduleId = body.moduleId;
-    console.log("[gpt-mcq-quiz] Per-module quiz requested for moduleId:", moduleId);
-    // 1. Try to fetch existing quiz for this module
-    const { data: assessment, error: fetchError } = await supabase
-      .from('assessments')
-      .select('id, questions')
-      .eq('type', 'module')
-      .eq('module_id', moduleId)
-      .maybeSingle();
-    console.log("[gpt-mcq-quiz] Assessment fetch result:", assessment, fetchError);
-    if (assessment && assessment.questions) {
-      try {
-        console.log("[gpt-mcq-quiz] Returning existing quiz for moduleId:", moduleId);
-        return NextResponse.json({ quiz: JSON.parse(assessment.questions) });
-      } catch (e) {
-        console.log("[gpt-mcq-quiz] Failed to parse existing quiz:", e);
-        // If parse fails, treat as missing and regenerate below
-      }
+    const moduleId = String(body.moduleId);
+    if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
+      return NextResponse.json({ error: 'Invalid moduleId' }, { status: 400 });
     }
-    // 2. If not found, generate and insert quiz
+    const learningStyle = body.learningStyle || null;
+    if (!learningStyle) {
+      return NextResponse.json({ error: 'Missing learningStyle in request.' }, { status: 400 });
+    }
+    console.log(`[gpt-mcq-quiz] Per-module quiz requested for moduleId: ${moduleId}, learningStyle: ${learningStyle}`);
+    // Fetch module info  
     const { data: moduleData, error: moduleError } = await supabase
       .from('processed_modules')
       .select('id, title, content')
       .eq('id', moduleId)
       .maybeSingle();
-    console.log("[gpt-mcq-quiz] Processed module fetch result:", moduleData, moduleError);
     if (moduleError || !moduleData) return NextResponse.json({ error: 'Module not found' }, { status: 404 });
-    // 3. Feed content to GPT for quiz generation
-    const summary = moduleData.title || '';
-    const modules = [moduleData.title];
-    const objectives = [moduleData.content];
-    const quiz = await generateMCQQuiz(summary, modules, objectives);
-    // 4. Double-check again before insert (race condition protection)
-    const { data: existingQuiz } = await supabase
+
+    // Check if quiz already exists for this module and learning style
+    const { data: assessment, error: fetchError } = await supabase
       .from('assessments')
-      .select('id')
+      .select('id, questions')
       .eq('type', 'module')
       .eq('module_id', moduleId)
+      .eq('learning_style', learningStyle)
       .maybeSingle();
-    if (!existingQuiz) {
-      const insertResult = await supabase
-        .from('assessments')
-        .insert({ type: 'module', module_id: moduleId, questions: JSON.stringify(quiz) });
-      console.log("[gpt-mcq-quiz] Inserted quiz for moduleId:", moduleId, insertResult);
-    } else {
-      console.log("[gpt-mcq-quiz] Quiz already exists for moduleId, not inserting again.");
+    if (assessment) {
+      // Always return existing quiz, regardless of questions content
+      try {
+        const quiz = Array.isArray(assessment.questions) ? assessment.questions : JSON.parse(assessment.questions);
+        return NextResponse.json({ quiz });
+      } catch (e) {
+        // If parse fails, return raw questions
+        return NextResponse.json({ quiz: assessment.questions });
+      }
     }
+    // Compose prompt for the user's learning style
+  const prompt = `You are an expert instructional designer. Given the following training content summary, modules, and objectives, generate a 10-12 question quiz tailored for the ${learningStyle} learning style. Use a mix of question types (MCQ, open-ended, scenario, matching, etc.) that best fit this style.\n\nEach question object must follow this format:\n{\n  "question": string,\n  "type": string,\n  "options": array or object (if applicable),\n  "correctAnswer": string, array, or object (if applicable),\n  "explanation": string (optional)\n}\n\nReturn ONLY a valid JSON array of question objects, with no extra text, markdown, code blocks, or formatting. Do not include any explanations, headers, or comments outside the JSON array.\n\nSummary: ${moduleData.title}\nModules: ${JSON.stringify([moduleData.title])}\nObjectives: ${JSON.stringify([moduleData.content])}`;
+    console.log(`[gpt-mcq-quiz] Calling OpenAI for moduleId: ${moduleId} with learning style: ${learningStyle}`);
+    // Call OpenAI API
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1',
+        messages: [{ role: 'system', content: prompt }],
+        temperature: 0.3,
+        max_tokens: 20000,
+      }),
+    });
+    const data = await response.json();
+    console.log('[gpt-mcq-quiz][DEBUG] Raw GPT response:', JSON.stringify(data, null, 2));
+    let quiz = [];
+    if (data.choices && Array.isArray(data.choices) && data.choices.length > 0 && data.choices[0].message && data.choices[0].message.content) {
+      try {
+        quiz = JSON.parse(data.choices[0].message.content);
+      } catch (e) {
+        console.log('[gpt-mcq-quiz][DEBUG] Failed to parse GPT response:', e, data.choices[0].message.content);
+        quiz = [];
+      }
+    } else {
+      console.log('[gpt-mcq-quiz][DEBUG] GPT response missing choices or content:', data);
+    }
+    console.log('[gpt-mcq-quiz][DEBUG] Generated quiz:', quiz);
+    // Save quiz for this learning style
+    const { data: insertResult, error: insertError } = await supabase
+      .from('assessments')
+      .insert({
+        type: 'module',
+        module_id: moduleId,
+        questions: JSON.stringify(quiz),
+        learning_style: learningStyle
+      });
+    console.log('[gpt-mcq-quiz][DEBUG] Insert result:', insertResult, 'Insert error:', insertError);
     return NextResponse.json({ quiz });
   }
+
   // Baseline (multi-module) quiz generation with modules_snapshot logic
   const { moduleIds, companyId, trainingId } = body;
   if (!moduleIds || !Array.isArray(moduleIds) || moduleIds.length === 0) {

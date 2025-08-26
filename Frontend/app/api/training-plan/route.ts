@@ -3,8 +3,6 @@ import { supabase } from "@/lib/supabase";
 import OpenAI from "openai";
 import crypto from "crypto";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Request received");
   const { employee_id } = await req.json();
@@ -12,6 +10,11 @@ export async function POST(req: NextRequest) {
   if (!employee_id) {
     console.error("[Training Plan API] Missing employee_id");
     return NextResponse.json({ error: "Missing employee_id" }, { status: 400 });
+  }
+  // Validate OpenAI API key early to avoid opaque 500s later
+  if (!process.env.OPENAI_API_KEY) {
+    console.error("[Training Plan API] OPENAI_API_KEY is not set");
+    return NextResponse.json({ error: "Server misconfiguration: OPENAI_API_KEY is missing." }, { status: 500 });
   }
   // Fetch company_id for this employee
   let company_id = null;
@@ -39,17 +42,13 @@ export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Assessments:", assessments);
 
   // Separate all baseline and all module assessments
-  const baselineAssessments = (assessments || []).filter(a => {
-    if (Array.isArray(a.assessments)) {
-      return a.assessments.some((ass: any) => ass.type === "baseline");
-    }
-    return a.assessments?.type === "baseline";
+  const baselineAssessments = (assessments || []).filter((a: any) => {
+    const arr = Array.isArray(a?.assessments) ? a.assessments : [a?.assessments].filter(Boolean);
+    return arr.some((ass: any) => ass?.type === "baseline");
   });
-  const moduleAssessments = (assessments || []).filter(a => {
-    if (Array.isArray(a.assessments)) {
-      return a.assessments.some((ass: any) => ass.type !== "baseline");
-    }
-    return a.assessments?.type !== "baseline";
+  const moduleAssessments = (assessments || []).filter((a: any) => {
+    const arr = Array.isArray(a?.assessments) ? a.assessments : [a?.assessments].filter(Boolean);
+    return arr.some((ass: any) => ass?.type !== "baseline");
   });
   console.log("[Training Plan API] Baseline assessments:", baselineAssessments);
   console.log("[Training Plan API] Module assessments:", moduleAssessments);
@@ -60,75 +59,165 @@ export async function POST(req: NextRequest) {
     .digest("hex");
   console.log("[Training Plan API] assessmentHash:", assessmentHash);
 
-  // Fetch all processed modules for this company by joining training_modules
+  // Fetch all processed modules for this company by joining training_modules, handling empty lists safely
   console.log("[Training Plan API] Fetching processed modules for company_id:", company_id);
-  const { data: modules, error: modError } = await supabase
-    .from("processed_modules")
-    .select("id, title, content, order_index, original_module_id, training_modules(company_id)")
-    .in("original_module_id", (
-      await supabase
-        .from("training_modules")
-        .select("id")
-        .eq("company_id", company_id)
-    ).data?.map((mod: any) => mod.id) || [])
-  if (modError) {
-    console.error("[Training Plan API] Error fetching modules:", modError);
-    return NextResponse.json({ error: modError.message }, { status: 500 });
+  const { data: trainingModuleRows, error: tmError } = await supabase
+    .from("training_modules")
+    .select("id")
+    .eq("company_id", company_id);
+  if (tmError) {
+    console.error("[Training Plan API] Error fetching training modules:", tmError);
+    return NextResponse.json({ error: tmError.message }, { status: 500 });
+  }
+  const tmIds = (trainingModuleRows || []).map((m: any) => m.id);
+  let modules: any[] = [];
+  if (tmIds.length > 0) {
+    const { data: pmRows, error: modError } = await supabase
+      .from("processed_modules")
+      .select("id, title, content, order_index, original_module_id, training_modules(company_id)")
+      .in("original_module_id", tmIds);
+    if (modError) {
+      console.error("[Training Plan API] Error fetching modules:", modError);
+      return NextResponse.json({ error: modError.message }, { status: 500 });
+    }
+    modules = pmRows || [];
+  } else {
+    console.log("[Training Plan API] No training modules found for company; proceeding with empty module list");
   }
   console.log("[Training Plan API] Modules for company_id:", company_id, modules);
 
-  // Compose prompt for GPT
-  const prompt = `You are an expert corporate trainer. Given the following:\n1. All baseline assessment scores and feedback for the employee:\n${JSON.stringify(baselineAssessments, null, 2)}\n2. All module assessment scores and feedback for the employee:\n${JSON.stringify(moduleAssessments, null, 2)}\n3. The available training modules:\n${JSON.stringify(modules, null, 2)}\n\nGenerate a personalized JSON learning plan for this employee. The plan should:\n- Identify weak areas based on baseline and module scores/feedback\n- Match module objectives to weaknesses\n- Specify what to study, in what order, and how much time for each\n- Output a JSON object with: modules (ordered), objectives, recommended time (hours), and any tips or recommendations\n\nOutput only the JSON plan.`;
-  console.log("[Training Plan API] Prompt for GPT:", prompt);
-
-  // Call GPT-4.1
-  console.log("[Training Plan API] Calling GPT-4.1...");
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4.1-mini-2025-04-14",
-    messages: [
-      { role: "system", content: "You are an expert corporate trainer and instructional designer." },
-      { role: "user", content: prompt },
-    ],
-    max_tokens: 2048,
-    temperature: 0.7,
-  });
-  let planJsonRaw = completion.choices[0]?.message?.content?.trim() || "";
-  console.log("[Training Plan API] GPT raw response:", planJsonRaw);
-
-  // Remove Markdown code block markers if present
-  planJsonRaw = planJsonRaw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
-
-  let planJson;
-  try {
-    planJson = JSON.parse(planJsonRaw);
-    console.log("[Training Plan API] Parsed plan JSON:", planJson);
-  } catch {
-    planJson = { raw: planJsonRaw };
-    console.warn("[Training Plan API] Could not parse plan JSON, storing raw response.");
+  const { data: lsData, error: lsError } = await supabase
+    .from("employee_learning_style")
+    .select("learning_style, gpt_analysis")
+    .eq("employee_id", employee_id)
+    .single();
+  let gptText = "";
+  if (lsData) {
+    gptText = `Learning Style: ${lsData.learning_style}\nAnalysis: ${lsData.gpt_analysis}`;
   }
 
-  // Step 1: Check if a learning plan already exists for this employee (latest assigned)
+  // Step 1.5: Check if a learning plan already exists and matches the current assessment state (avoid unnecessary GPT calls)
   console.log("[Training Plan API] Checking for latest assigned learning plan...");
   const { data: existingPlan, error: existingPlanError } = await supabase
     .from("learning_plan")
-    .select("id, plan_json, status, assessment_hash")
+    .select("id, plan_json, reasoning, status, assessment_hash")
     .eq("employee_id", employee_id)
     .eq("status", "assigned")
     .order("id", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (existingPlanError && existingPlanError.code !== "PGRST116") { // PGRST116: No rows found
+  if (existingPlanError && (existingPlanError as any).code !== "PGRST116") { // PGRST116: No rows found
     console.error("[Training Plan API] Error checking existing plan:", existingPlanError);
     return NextResponse.json({ error: existingPlanError.message }, { status: 500 });
   }
-
-  // Step 2: Only update/insert if assessmentHash has changed
   if (existingPlan && existingPlan.assessment_hash === assessmentHash) {
-    console.log("[Training Plan API] No change in assessments. Returning existing plan.");
-    return NextResponse.json({ plan: existingPlan.plan_json });
+    console.log("[Training Plan API] No change in assessments. Returning existing plan (pre-GPT).");
+    return NextResponse.json({ plan: existingPlan.plan_json, reasoning: existingPlan.reasoning });
   }
 
-  // ...existing code for generating planJson...
+  // Compose prompt for GPT
+
+  const prompt =
+    "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan.\n\n" +
+    gptText + "\n\n" +
+    "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n" +
+    "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
+    "The plan should:\n- Identify weak areas based on scores and feedback\n- Match module objectives to weaknesses\n- Specify what to study, in what order, and how much time for each\n- Output a JSON object with: modules (ordered), objectives, recommended time (hours), and any tips or recommendations\n- Ensure all recommendations and tips are personalized to the employee's learning style\n\n" +
+    "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, and learning style factors influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, and learning style\n\n" +
+    "Assessment Results:\n" + JSON.stringify(assessments, null, 2) + "\n\n" +
+    "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
+    "Output ONLY a single JSON object with two top-level keys: plan and reasoning. Do NOT include any other text, explanation, or formatting. Example: '{ \"plan\": { ... }, \"reasoning\": { ... } }'";
+  console.log("[Training Plan API] Prompt for GPT:", prompt);
+
+  // Call OpenAI with a widely supported model and safe token limits
+  console.log("[Training Plan API] Calling OpenAI (gpt-4o-mini)...");
+  let planJsonRaw = "";
+  try {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "You are an expert corporate trainer and instructional designer." },
+        { role: "user", content: prompt },
+      ],
+      // Keep output size reasonable to reduce errors; adjust if needed
+      max_tokens: 3000,
+      temperature: 0.7,
+    });
+    planJsonRaw = completion.choices[0]?.message?.content?.trim() || "";
+    console.log("[Training Plan API] GPT raw response:", planJsonRaw);
+  } catch (err: any) {
+    console.error("[Training Plan API] OpenAI call failed:", err?.response?.data || err?.message || err);
+    return NextResponse.json({ error: "OpenAI call failed", details: err?.message || String(err) }, { status: 500 });
+  }
+
+  // Remove Markdown code block markers if present
+  planJsonRaw = planJsonRaw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+
+  // Hardened parsing with sanitation and fallbacks
+  let plan: any = null;
+  let reasoning: any = null;
+
+  const sanitizeJson = (s: string): string => {
+    let out = s.trim();
+    // Normalize smart quotes and apostrophes
+    out = out.replace(/[“”]/g, '"').replace(/[’]/g, "'");
+    // Merge keys like "Key1" and "Key2": into a single valid JSON key
+    out = out.replace(/"([^"\n]+)"\s+and\s+"([^"\n]+)"\s*:/g, '"$1 and $2":');
+    // Remove trailing commas before } or ]
+    out = out.replace(/,\s*([}\]])/g, '$1');
+    // Ensure there is only one top-level JSON object
+    const firstBrace = out.indexOf('{');
+    const lastBrace = out.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      out = out.slice(firstBrace, lastBrace + 1);
+    }
+    return out;
+  };
+
+  const tryParse = (raw: string): { plan?: any; reasoning?: any } | null => {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed.plan || parsed.reasoning) {
+        return { plan: parsed.plan ?? null, reasoning: parsed.reasoning ?? null };
+      }
+      return { plan: parsed, reasoning: null };
+    } catch {
+      return null;
+    }
+  };
+
+  // Attempt 1: strict parse
+  let parsed = tryParse(planJsonRaw);
+  if (!parsed) {
+    // Attempt 2: sanitize and parse
+    const cleaned = sanitizeJson(planJsonRaw);
+    parsed = tryParse(cleaned);
+    if (!parsed) {
+      // Attempt 3: extract plan and reasoning blocks separately
+      const cleaned2 = sanitizeJson(planJsonRaw);
+      let planBlock: any = null;
+      let reasoningBlock: any = null;
+      const planMatch = cleaned2.match(/"plan"\s*:\s*({[\s\S]*?})\s*(,|})/);
+      const reasoningMatch = cleaned2.match(/"reasoning"\s*:\s*({[\s\S]*?})\s*(,|})/);
+      try { planBlock = planMatch ? JSON.parse(sanitizeJson(planMatch[1])) : null; } catch { planBlock = null; }
+      try { reasoningBlock = reasoningMatch ? JSON.parse(sanitizeJson(reasoningMatch[1])) : null; } catch { reasoningBlock = null; }
+      if (planBlock || reasoningBlock) {
+        parsed = { plan: planBlock, reasoning: reasoningBlock };
+      }
+    }
+  }
+
+  if (!parsed) {
+    console.error("[Training Plan API] Could not parse GPT response as JSON after sanitation. Raw response:", planJsonRaw);
+    return NextResponse.json({ error: "Could not parse GPT response as JSON.", raw: planJsonRaw }, { status: 500 });
+  }
+  plan = parsed.plan ?? null;
+  reasoning = parsed.reasoning ?? null;
+  console.log("[Training Plan API] Parsed plan:", plan);
+  console.log("[Training Plan API] Parsed reasoning:", reasoning);
+
+  // Step 2: Only update/insert if assessmentHash has changed (existingPlan already fetched above)
 
   // Step 3: If plan exists, update it. If not, insert new.
   let dbResult;
@@ -136,13 +225,13 @@ export async function POST(req: NextRequest) {
     console.log("[Training Plan API] Existing plan found. Updating...");
     dbResult = await supabase
       .from("learning_plan")
-      .update({ plan_json: planJson, status: "assigned", assessment_hash: assessmentHash })
+      .update({ plan_json: plan, reasoning: reasoning, status: "assigned", assessment_hash: assessmentHash })
       .eq("id", existingPlan.id);
   } else {
     console.log("[Training Plan API] No existing plan. Inserting new...");
     dbResult = await supabase
       .from("learning_plan")
-      .insert({ employee_id, plan_json: planJson, status: "assigned", assessment_hash: assessmentHash });
+      .insert({ employee_id, plan_json: plan, reasoning: reasoning, status: "assigned", assessment_hash: assessmentHash });
   }
   if (dbResult.error) {
     console.error("[Training Plan API] Error saving plan:", dbResult.error);
@@ -150,5 +239,6 @@ export async function POST(req: NextRequest) {
   }
   console.log("[Training Plan API] Plan saved successfully.");
 
-  return NextResponse.json({ plan: planJson });
+  // Always return parsed plan and reasoning
+  return NextResponse.json({ plan, reasoning });
 }

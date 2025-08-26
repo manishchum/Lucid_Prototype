@@ -11,13 +11,14 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const [module, setModule] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [employee, setEmployee] = useState<any>(null);
+  const [learningStyle, setLearningStyle] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
     const fetchModule = async () => {
       setLoading(true);
-      // Fetch employee info first
       let empObj = null;
+      let style = null;
       try {
         const { data: userData } = await supabase.auth.getUser();
         const employeeEmail = userData?.user?.email || null;
@@ -30,17 +31,30 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           if (emp?.id) {
             empObj = emp;
             setEmployee(emp);
+            // Fetch learning style for employee
+            const { data: styleData } = await supabase
+              .from('employee_learning_style')
+              .select('learning_style')
+              .eq('employee_id', emp.id)
+              .maybeSingle();
+            if (styleData?.learning_style) {
+              style = styleData.learning_style;
+              setLearningStyle(style);
+            }
           }
         }
       } catch (e) {
         console.log('[module] employee fetch error', e);
       }
-      // Fetch module info
-      const { data, error } = await supabase
+      // Fetch module info for employee's learning style
+      let query = supabase
         .from("processed_modules")
-        .select("id, title, content, audio_url, original_module_id")
-        .eq("id", moduleId)
-        .single();
+        .select("id, title, content, audio_url, original_module_id, learning_style")
+        .eq("original_module_id", moduleId);
+      if (style) {
+        query = query.eq("learning_style", style);
+      }
+      const { data, error } = await query.single();
       if (!error && data) {
         setModule(data);
         // Log view to module_progress using processed_module_id and module_id, and started_at
