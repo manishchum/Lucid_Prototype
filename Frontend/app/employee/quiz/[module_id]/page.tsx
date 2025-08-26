@@ -17,46 +17,24 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       return;
     }
     setSubmitted(true);
-    let correct = 0;
-    // Normalize answers for all question types
+    // Normalize answers for all question types (send values, not indices)
     const userAnswers = answers.map((ans, i) => {
       const q = quiz[i];
       if (q.type === 'multiple select') {
-        // Convert selected indices to option values
         return Array.isArray(ans) ? ans.map((idx: number) => q.options[idx]) : [];
       }
       if (q.type === 'matching') {
-        // Return object mapping keys to selected values
         return typeof ans === 'object' && ans !== null ? ans : {};
       }
       if (q.type === 'ordering') {
-        // Return array of ordered values
-        if (typeof ans === 'string') {
-          return ans.split(',').map(s => s.trim());
-        }
+        if (typeof ans === 'string') return ans.split(',').map(s => s.trim());
         return [];
       }
       if (q.type === 'true/false' || q.type === 'mcq' || q.type === 'multiple choice') {
         return typeof ans === 'number' ? q.options[ans] : '';
       }
-      // Fill-in-the-blank, open-ended
       return typeof ans === 'string' ? ans : '';
     });
-    const feedbackArr: string[] = [];
-    quiz.forEach((q, i) => {
-      // Only score MCQ and true/false for now
-      if (q.type === 'mcq' || q.type === 'multiple choice' || q.type === 'true/false') {
-        if (typeof answers[i] === 'number' && q.options && q.correctAnswer && q.options[answers[i]] === q.correctAnswer) {
-          correct++;
-          feedbackArr.push('Correct');
-        } else {
-          feedbackArr.push('Incorrect');
-        }
-      } else {
-        feedbackArr.push('Submitted');
-      }
-    });
-    setScore(correct);
     // Always fetch user info before API call
     let employeeId: string | null = null;
     let employeeName: string | null = null;
@@ -68,7 +46,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           .eq('email', user.email)
           .single();
         employeeId = emp?.id || null;
-        employeeName = user?.user_metadata?.name || user.email || null;
+  employeeName = (user as any)?.displayName || user.email || null;
       } catch (err) {
         console.log('[QUIZ] Error fetching employee record:', err);
       }
@@ -80,14 +58,11 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     const payload = {
       quiz,
       userAnswers,
-      score: correct,
-      maxScore: quiz.length,
-      answers: userAnswers,
-      feedback: feedbackArr,
-      modules: [{ module_id: moduleId }],
+      // Let the API score module quizzes using GPT
       employee_id: employeeId,
       employee_name: employeeName,
       assessment_id: assessmentId,
+      modules: [{ module_id: moduleId }],
     };
     let feedbackText = "";
     try {
@@ -98,6 +73,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       });
       const result = await res.json();
       feedbackText = result.feedback || "";
+      if (typeof result.score === 'number') setScore(result.score);
+      if (typeof result.maxScore === 'number') setMaxScore(result.maxScore);
       setFeedback(feedbackText);
       // Log quiz taken into module_progress
       try {
@@ -107,8 +84,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           body: JSON.stringify({
             employee_id: employeeId,
             processed_module_id: moduleId,
-            quiz_score: correct,
-            max_score: quiz.length,
+            quiz_score: typeof result.score === 'number' ? result.score : null,
+            max_score: typeof result.maxScore === 'number' ? result.maxScore : quiz.length,
             quiz_feedback: feedbackText,
             completed_at: new Date().toISOString(),
           }),
@@ -131,6 +108,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   const [answers, setAnswers] = useState<Array<number | string | number[] | Record<string, string>>>([]);
   const [submitted, setSubmitted] = useState(false);
   const [score, setScore] = useState<number | null>(null);
+  const [maxScore, setMaxScore] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [assessmentId, setAssessmentId] = useState<string | null>(null);
   const router = useRouter();
@@ -441,7 +419,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
               </Button>
             ) : (
               <div className="mt-8">
-                <div className="text-lg font-semibold mb-2">Your Score: {score} / {quiz && quiz.filter(q => q.type === 'mcq' || q.type === 'multiple choice').length}</div>
+                <div className="text-lg font-semibold mb-2">Your Score: {score} / {maxScore ?? (quiz ? quiz.length : 0)}</div>
                 {feedback && <div className="bg-blue-50 p-4 rounded text-blue-900 whitespace-pre-line">{feedback}</div>}
                 <Button className="mt-4" variant="outline" onClick={() => router.back()}>
                   Back to Training Plan

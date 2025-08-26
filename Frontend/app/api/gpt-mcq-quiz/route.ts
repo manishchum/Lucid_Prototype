@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import crypto from 'crypto';
 
 // Deep comparison helpers for modules
 function normalizeModules(modules: any[]) {
@@ -75,22 +76,24 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     if (moduleError || !moduleData) return NextResponse.json({ error: 'Module not found' }, { status: 404 });
 
-    // Check if quiz already exists for this module and learning style
-    const { data: assessment, error: fetchError } = await supabase
+    // Check if quiz already exists for this module and learning style (robust to duplicates)
+    const { data: assessmentsList } = await supabase
       .from('assessments')
       .select('id, questions')
       .eq('type', 'module')
       .eq('module_id', moduleId)
       .eq('learning_style', learningStyle)
-      .maybeSingle();
-    if (assessment) {
+      .order('id', { ascending: false })
+      .limit(1);
+    const existing = Array.isArray(assessmentsList) ? assessmentsList[0] : null;
+    if (existing) {
       // Always return existing quiz, regardless of questions content
       try {
-        const quiz = Array.isArray(assessment.questions) ? assessment.questions : JSON.parse(assessment.questions);
+        const quiz = Array.isArray(existing.questions) ? existing.questions : JSON.parse(existing.questions);
         return NextResponse.json({ quiz });
       } catch (e) {
         // If parse fails, return raw questions
-        return NextResponse.json({ quiz: assessment.questions });
+        return NextResponse.json({ quiz: existing.questions });
       }
     }
     // Compose prompt for the user's learning style
@@ -124,16 +127,46 @@ export async function POST(request: NextRequest) {
       console.log('[gpt-mcq-quiz][DEBUG] GPT response missing choices or content:', data);
     }
     console.log('[gpt-mcq-quiz][DEBUG] Generated quiz:', quiz);
-    // Save quiz for this learning style
+    // Save quiz for this learning style, using a deterministic UUID to avoid race-condition duplicates
+    const stableIdSeed = `module:${moduleId}|style:${learningStyle}`;
+    const hash = crypto.createHash('sha1').update(stableIdSeed).digest('hex');
+    const stableId = `${hash.substring(0,8)}-${hash.substring(8,12)}-${hash.substring(12,16)}-${hash.substring(16,20)}-${hash.substring(20,32)}`;
     const { data: insertResult, error: insertError } = await supabase
       .from('assessments')
       .insert({
+        id: stableId,
         type: 'module',
         module_id: moduleId,
         questions: JSON.stringify(quiz),
         learning_style: learningStyle
       });
-    console.log('[gpt-mcq-quiz][DEBUG] Insert result:', insertResult, 'Insert error:', insertError);
+    if (insertError) {
+      // If another concurrent request inserted the same row, return that one
+      if ((insertError as any).code === '23505' || (insertError as any).code === '409') {
+        const { data: existingListAfter } = await supabase
+          .from('assessments')
+          .select('id, questions')
+          .eq('type', 'module')
+          .eq('module_id', moduleId)
+          .eq('learning_style', learningStyle)
+          .order('id', { ascending: false })
+          .limit(1);
+        const existingAfter = Array.isArray(existingListAfter) ? existingListAfter[0] : null;
+        if (existingAfter) {
+          try {
+            const quizExisting = Array.isArray(existingAfter.questions) ? existingAfter.questions : JSON.parse(existingAfter.questions);
+            return NextResponse.json({ quiz: quizExisting });
+          } catch {
+            return NextResponse.json({ quiz: existingAfter.questions });
+          }
+        }
+        // Fallback: still return the generated quiz
+        return NextResponse.json({ quiz });
+      }
+      console.log('[gpt-mcq-quiz][DEBUG] Insert error (non-duplicate):', insertError);
+      return NextResponse.json({ error: 'Failed to save assessment' }, { status: 500 });
+    }
+    console.log('[gpt-mcq-quiz][DEBUG] Insert result:', insertResult);
     return NextResponse.json({ quiz });
   }
 
@@ -163,7 +196,10 @@ export async function POST(request: NextRequest) {
     .eq('company_id', companyId)
     .order('created_at', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
+  if (assessmentError && (assessmentError as any).code !== 'PGRST116') {
+    console.warn('[gpt-mcq-quiz] existing baseline lookup warning:', assessmentError);
+  }
 
   if (existingAssessment && existingAssessment.modules_snapshot) {
     if (existingAssessment.modules_snapshot === normalizedSnapshot) {
@@ -188,28 +224,37 @@ export async function POST(request: NextRequest) {
   );
   if (existingAssessment && existingAssessment.id) {
     // Update the existing assessment
-    await supabase
+    const { error: updateError } = await supabase
       .from('assessments')
       .update({
         questions: JSON.stringify(quiz),
-        modules_snapshot: normalizedSnapshot,
-        training_id: trainingId
+        modules_snapshot: normalizedSnapshot
       })
       .eq('id', existingAssessment.id)
       .eq('company_id', companyId);
+    if (updateError) {
+      console.error('[gpt-mcq-quiz] Failed to update baseline assessment:', updateError);
+      return NextResponse.json({ error: 'Failed to save baseline assessment (update).' }, { status: 500 });
+    }
   } else {
     // Insert new assessment
-    await supabase
+    const { data: insertData, error: insertError } = await supabase
       .from('assessments')
       .insert([
         {
           type: 'baseline',
           questions: JSON.stringify(quiz),
           company_id: companyId,
-          training_id: trainingId,
           modules_snapshot: normalizedSnapshot
         }
-      ]);
+      ])
+      .select('id')
+      .maybeSingle();
+    if (insertError) {
+      console.error('[gpt-mcq-quiz] Failed to insert baseline assessment:', insertError);
+      return NextResponse.json({ error: 'Failed to save baseline assessment (insert).' }, { status: 500 });
+    }
+    console.log('[gpt-mcq-quiz] Inserted baseline assessment id:', insertData?.id);
   }
   return NextResponse.json({ quiz, source: 'generated' });
 }

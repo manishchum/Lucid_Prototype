@@ -120,21 +120,46 @@ export default function TrainingPlanPage() {
   };
 
   const router = useRouter();
-  // Helper: resolve a usable processed_module_id for navigation
+  // Helper: resolve a usable processed_modules.id for navigation
   const resolveModuleId = async (mod: any): Promise<string | null> => {
-    const direct = mod?.id ?? mod?.original_module_id;
-    if (direct && direct !== 'undefined' && direct !== 'null') return String(direct);
-    // Fallback: try to resolve by title in processed_modules
-    if (mod?.title) {
-      try {
-        const { data } = await supabase
+    try {
+      // 1) Prefer an explicit processed module id if present and valid
+      const candidates: string[] = [];
+      if (mod?.processed_module_id) candidates.push(String(mod.processed_module_id));
+      if (mod?.id) candidates.push(String(mod.id));
+
+      for (const cand of candidates) {
+        if (!cand || cand === 'undefined' || cand === 'null') continue;
+        const { data: pmById } = await supabase
           .from('processed_modules')
-          .select('id, title')
+          .select('id')
+          .eq('id', cand)
+          .maybeSingle();
+        if (pmById?.id) return pmById.id;
+      }
+
+      // 2) Try mapping from original_module_id to processed_modules.id
+      if (mod?.original_module_id && mod.original_module_id !== 'undefined' && mod.original_module_id !== 'null') {
+        const { data: pmByOriginal } = await supabase
+          .from('processed_modules')
+          .select('id')
+          .eq('original_module_id', mod.original_module_id)
+          .maybeSingle();
+        if (pmByOriginal?.id) return pmByOriginal.id;
+      }
+
+      // 3) Fallback: resolve by title (best-effort)
+      if (mod?.title) {
+        const { data: pmByTitle } = await supabase
+          .from('processed_modules')
+          .select('id')
           .ilike('title', mod.title)
           .limit(1)
           .maybeSingle();
-        if (data?.id) return String(data.id);
-      } catch {}
+        if (pmByTitle?.id) return pmByTitle.id;
+      }
+    } catch (e) {
+      // swallow and return null below
     }
     return null;
   };

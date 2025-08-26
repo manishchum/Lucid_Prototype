@@ -17,6 +17,12 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   useEffect(() => {
     const fetchModule = async () => {
       setLoading(true);
+      // Validate incoming module id
+      if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
+        setModule(null);
+        setLoading(false);
+        return;
+      }
       let empObj = null;
       let style = null;
       try {
@@ -46,17 +52,52 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       } catch (e) {
         console.log('[module] employee fetch error', e);
       }
-      // Fetch module info for employee's learning style
-      let query = supabase
-        .from("processed_modules")
-        .select("id, title, content, audio_url, original_module_id, learning_style")
-        .eq("original_module_id", moduleId);
-      if (style) {
-        query = query.eq("learning_style", style);
-      }
-      const { data, error } = await query.single();
-      if (!error && data) {
-        setModule(data);
+      // Fetch module info, supporting both processed_modules.id and original_module_id and style fallbacks
+      const selectCols = "id, title, content, audio_url, original_module_id, learning_style";
+      const tryFetch = async () => {
+        // 1) Try by processed_modules.id with style
+        if (style) {
+          const { data } = await supabase
+            .from('processed_modules')
+            .select(selectCols)
+            .eq('id', moduleId)
+            .eq('learning_style', style)
+            .maybeSingle();
+          if (data) return data;
+        }
+        // 2) Try by original_module_id with style
+        if (style) {
+          const { data } = await supabase
+            .from('processed_modules')
+            .select(selectCols)
+            .eq('original_module_id', moduleId)
+            .eq('learning_style', style)
+            .maybeSingle();
+          if (data) return data;
+        }
+        // 3) Try by original_module_id without style
+        {
+          const { data } = await supabase
+            .from('processed_modules')
+            .select(selectCols)
+            .eq('original_module_id', moduleId)
+            .maybeSingle();
+          if (data) return data;
+        }
+        // 4) Try by processed_modules.id without style
+        {
+          const { data } = await supabase
+            .from('processed_modules')
+            .select(selectCols)
+            .eq('id', moduleId)
+            .maybeSingle();
+          if (data) return data;
+        }
+        return null;
+      };
+      const data = await tryFetch();
+      if (data) {
+        setModule(data as any);
         // Log view to module_progress using processed_module_id and module_id, and started_at
         try {
           if (empObj?.id) {

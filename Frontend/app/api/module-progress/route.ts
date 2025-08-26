@@ -42,8 +42,7 @@ export async function POST(req: NextRequest) {
   if (typeof started_at === 'string') patch.started_at = started_at;
   if (typeof completed_at === 'string') patch.completed_at = completed_at;
   if (typeof quiz_score === 'number') patch.quiz_score = quiz_score;
-  // if (typeof max_score === 'number') patch.max_score = max_score;
-  if (typeof quiz_feedback === 'string') patch.quiz_feedback = quiz_feedback;
+  // if (typeof max_score === 'number') patch.max_score = max_score;  if (typeof quiz_feedback === 'string') patch.quiz_feedback = quiz_feedback;
 
     if (!existing) {
       // Insert new row

@@ -17,17 +17,17 @@ export default function ScoreHistoryPage() {
 
   useEffect(() => {
     if (!authLoading && user?.email) {
-      fetchEmployeeAndHistory();
+      fetchEmployeeAndHistory(user.email);
     }
   }, [user, authLoading]);
 
-  const fetchEmployeeAndHistory = async () => {
+  const fetchEmployeeAndHistory = async (email: string) => {
     setLoading(true);
     try {
       const { data: employeeData } = await supabase
         .from("employees")
         .select("id")
-        .eq("email", user.email)
+        .eq("email", email)
         .single();
       if (!employeeData?.id) {
         setLoading(false);
@@ -35,9 +35,9 @@ export default function ScoreHistoryPage() {
       }
       const { data: assessments } = await supabase
         .from("employee_assessments")
-        .select("score, max_score, feedback, question_feedback, assessment_id, completed_at, assessments(type, questions)")
+        .select("id, score, max_score, feedback, question_feedback, assessment_id, assessments(type, questions)")
         .eq("employee_id", employeeData.id)
-        .order("completed_at", { ascending: false });
+        .order("id", { ascending: false });
       setScoreHistory(assessments || []);
     } catch (err) {
       // handle error
@@ -80,7 +80,7 @@ export default function ScoreHistoryPage() {
                       <div className="flex items-center justify-between mb-2 cursor-pointer" onClick={() => toggleExpand(idx)}>
                         <div className="flex items-center gap-2">
                           <span className="font-semibold">{item.assessments?.type === 'baseline' ? 'Baseline Assessment' : 'Module Assessment'}</span>
-                          <span className="text-sm text-gray-400">{item.completed_at ? new Date(item.completed_at).toLocaleString() : ''}</span>
+                          <span className="text-sm text-gray-400">ID: {item.id?.slice?.(0,8) || ''}</span>
                           <span className="ml-2">Score: <span className="font-semibold">{item.score} / {item.max_score ?? '?'}</span></span>
                         </div>
                         <button

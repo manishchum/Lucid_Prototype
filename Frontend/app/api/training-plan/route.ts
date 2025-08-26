@@ -53,9 +53,9 @@ export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Baseline assessments:", baselineAssessments);
   console.log("[Training Plan API] Module assessments:", moduleAssessments);
 
-  // Compute hash of all assessment scores and feedback
+  // Compute hash only from baseline assessments so module quizzes don't change the plan
   const assessmentHash = crypto.createHash("sha256")
-    .update(JSON.stringify({ baselineAssessments, moduleAssessments }))
+    .update(JSON.stringify({ baselineAssessments }))
     .digest("hex");
   console.log("[Training Plan API] assessmentHash:", assessmentHash);
 
@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
     "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
     "The plan should:\n- Identify weak areas based on scores and feedback\n- Match module objectives to weaknesses\n- Specify what to study, in what order, and how much time for each\n- Output a JSON object with: modules (ordered), objectives, recommended time (hours), and any tips or recommendations\n- Ensure all recommendations and tips are personalized to the employee's learning style\n\n" +
     "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, and learning style factors influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, and learning style\n\n" +
-    "Assessment Results:\n" + JSON.stringify(assessments, null, 2) + "\n\n" +
+  "Assessment Results (baseline only):\n" + JSON.stringify(baselineAssessments, null, 2) + "\n\n" +
     "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
     "Output ONLY a single JSON object with two top-level keys: plan and reasoning. Do NOT include any other text, explanation, or formatting. Example: '{ \"plan\": { ... }, \"reasoning\": { ... } }'";
   console.log("[Training Plan API] Prompt for GPT:", prompt);

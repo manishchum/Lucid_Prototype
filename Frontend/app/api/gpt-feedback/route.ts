@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
   if (body.quiz && body.userAnswers && (!body.employee_id || !body.assessment_id)) {
     try {
       console.log('[API] Lightweight feedback mode');
-      const questions = body.quiz.map((q, i) => ({
+  const questions = (body.quiz as any[]).map((q: any, i: number) => ({
         question: q.question,
         options: q.options,
         correctIndex: q.correctIndex,
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Original assessment feedback logic
-  const { score, maxScore, answers, feedback, modules, employee_id, employee_name, assessment_id } = body;
+  let { score, maxScore, answers, feedback, modules, employee_id, employee_name, assessment_id, quiz, userAnswers } = body;
   console.log('[API] Assessment Submission');
   console.log('[API] Employee ID:', employee_id);
   console.log('[API] Employee Name:', employee_name);
@@ -81,6 +81,58 @@ export async function POST(request: NextRequest) {
   console.log('[API] Employee Feedback (per question):', Array.isArray(feedback) ? feedback.join('\n') : feedback);
   console.log('[API] Assessment ID:', assessment_id);
   console.log('[API] Modules:', JSON.stringify(modules));
+
+  // If module quiz did not provide score, compute with GPT using quiz + userAnswers
+  if ((score === undefined || score === null) && Array.isArray(quiz) && Array.isArray(userAnswers)) {
+    try {
+      const rubricPrompt = `You are an assessment grader. Given the following quiz questions and the user's submitted answers, grade each question as correct or incorrect and return a JSON object with:
+{
+  "perQuestion": [true|false, ...],
+  "score": number, 
+  "maxScore": number,
+  "explanations": [string, ...] // brief explanation per question (especially for incorrect)
+}
+
+Rules:
+- Treat any question type fairly. For MCQ/True-False, match exact answers. For other types (open-ended, fill-in-the-blank, matching, ordering, multiple select), infer correctness reasonably. If insufficient info, mark false.
+- maxScore = number of questions.
+- Only return JSON. No extra text.
+Questions: ${JSON.stringify(quiz)}
+UserAnswers: ${JSON.stringify(userAnswers)}`;
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4',
+          messages: [{ role: 'system', content: rubricPrompt }],
+          temperature: 0.0,
+          max_tokens: 800,
+        }),
+      });
+      const grading = await resp.json();
+      let graded: any = null;
+      try {
+        graded = JSON.parse(grading.choices?.[0]?.message?.content || '{}');
+      } catch {}
+      if (graded && typeof graded.score === 'number' && typeof graded.maxScore === 'number') {
+        score = graded.score;
+        maxScore = graded.maxScore;
+        // Hydrate feedback if not provided
+        if (!Array.isArray(feedback)) {
+          feedback = Array.isArray(graded.explanations) ? graded.explanations : [];
+        }
+        // Normalize answers to store
+        if (!answers) answers = userAnswers;
+      }
+    } catch (e) {
+      // Fallback: basic scoring disabled; leave score undefined
+    }
+  }
+  // Log resolved score after potential GPT grading
+  console.log('[API] Resolved Score (post-grading):', score, '/', maxScore);
 
   // 1. Generate feedback
   let aiFeedback = '';
@@ -121,7 +173,7 @@ export async function POST(request: NextRequest) {
       }
       assessmentType = assessmentMeta?.type || null;
       console.log('[API] Assessment type:', assessmentType);
-      if (assessmentType === 'baseline') {
+  if (assessmentType === 'baseline') {
         // Always insert new row for baseline (allow multiple attempts)
         console.log('[API] Inserting baseline employee_assessment...');
         insertResult = await supabase.from('employee_assessments').insert(assessmentRecord);
@@ -159,5 +211,5 @@ export async function POST(request: NextRequest) {
     console.log('[API] Missing employee_id or assessment_id, skipping DB insert.');
   }
 
-  return NextResponse.json({ feedback: aiFeedback, insertResult });
+  return NextResponse.json({ feedback: aiFeedback, score, maxScore, question_feedback: feedback, insertResult });
 }

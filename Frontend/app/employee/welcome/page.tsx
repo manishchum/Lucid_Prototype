@@ -5,6 +5,7 @@ import ScoreFeedbackCard from "../assessment/score-feedback"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
 import { Users, LogOut, BookOpen, Clock } from "lucide-react"
@@ -22,6 +23,9 @@ export default function EmployeeWelcome() {
   const [loading, setLoading] = useState(true)
   const [scoreHistory, setScoreHistory] = useState<any[]>([])
   const [moduleProgress, setModuleProgress] = useState<any[]>([])
+  const [learningStyle, setLearningStyle] = useState<string | null>(null)
+  const [baselineScore, setBaselineScore] = useState<number | null>(null)
+  const [allAssignedCompleted, setAllAssignedCompleted] = useState<boolean>(false)
   const router = useRouter()
   // LOG: Initial state
   console.log("[EmployeeWelcome] Initial user:", user)
@@ -62,15 +66,139 @@ export default function EmployeeWelcome() {
       // LOG: Employee data fetched
       console.log("[EmployeeWelcome] Employee data:", employeeData)
 
+      // Fetch employee learning style
+      try {
+        const { data: styleData, error: styleError } = await supabase
+          .from("employee_learning_style")
+          .select("learning_style")
+          .eq("employee_id", employeeData.id)
+          .maybeSingle()
+        if (styleError) {
+          console.warn("[EmployeeWelcome] learning style fetch warning:", styleError)
+        }
+        if (styleData?.learning_style) {
+          setLearningStyle(styleData.learning_style)
+        } else {
+          setLearningStyle(null)
+        }
+      } catch (e) {
+        console.warn("[EmployeeWelcome] learning style fetch error:", e)
+        setLearningStyle(null)
+      }
+
       // Fetch all assessment results for this employee (history)
+      // Note: employee_assessments does not have created_at; avoid selecting/ordering by it
       const { data: assessments, error: assessmentError } = await supabase
         .from("employee_assessments")
-        .select("score, feedback, question_feedback, assessment_id, created_at, assessments(type, questions)")
+        .select("id, score, feedback, question_feedback, assessment_id, assessments(type, questions)")
         .eq("employee_id", employeeData.id)
-        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
       setScoreHistory(assessments || [])
       // LOG: Assessment history fetched
       console.log("[EmployeeWelcome] Assessment history:", assessments)
+
+      // Determine baseline completion by checking the company's baseline assessment ID
+      try {
+        const companyId = (employeeData as any)?.company_id
+        if (companyId) {
+          const { data: baselineAssessment, error: baError } = await supabase
+            .from('assessments')
+            .select('id')
+            .eq('type', 'baseline')
+            .eq('company_id', companyId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          if (baError) {
+            console.warn('[EmployeeWelcome] baseline assessment lookup warning:', baError)
+          }
+          if (baselineAssessment?.id) {
+            const { data: baselineEAList, error: beaError } = await supabase
+              .from('employee_assessments')
+              .select('score')
+              .eq('employee_id', employeeData.id)
+              .eq('assessment_id', baselineAssessment.id)
+              .order('id', { ascending: false })
+              .limit(1)
+            if (beaError) {
+              console.warn('[EmployeeWelcome] baseline employee_assessments lookup warning:', beaError)
+            }
+            const baselineEA = Array.isArray(baselineEAList) ? baselineEAList[0] : null
+            if (baselineEA && baselineEA.score !== null && baselineEA.score !== undefined) {
+              const s = typeof baselineEA.score === 'number' ? baselineEA.score : parseFloat(String(baselineEA.score))
+              if (!Number.isNaN(s)) setBaselineScore(s)
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[EmployeeWelcome] baseline completion check failed:', e)
+      }
+
+      // Fallback: derive latest baseline by joined type if direct lookup didn’t set it
+      if (baselineScore === null) {
+        try {
+          const baselineRows = (assessments || []).filter((row: any) => {
+            const arr = Array.isArray(row?.assessments) ? row.assessments : [row?.assessments].filter(Boolean)
+            return arr.some((a: any) => a?.type === 'baseline')
+          })
+          const latestBaseline = baselineRows?.[0]
+          const s = typeof latestBaseline?.score === 'number' ? latestBaseline.score : parseFloat(String(latestBaseline?.score))
+          if (!Number.isNaN(s)) setBaselineScore(s)
+        } catch (e) {
+          console.warn('[EmployeeWelcome] baseline score derivation failed:', e)
+        }
+      }
+
+      // Determine if assigned learning plan modules are all completed
+      try {
+        const { data: planRow } = await supabase
+          .from('learning_plan')
+          .select('id, status, plan_json')
+          .eq('employee_id', employeeData.id)
+          .eq('status', 'assigned')
+          .order('id', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        let completed = false
+        if (planRow?.plan_json) {
+          let planObj: any = planRow.plan_json
+          if (typeof planObj === 'string') {
+            try { planObj = JSON.parse(planObj) } catch {}
+          }
+          // Unwrap common shapes
+          const mods = planObj?.modules || planObj?.learning_plan?.modules || planObj?.plan?.modules
+          if (Array.isArray(mods) && mods.length > 0) {
+            const processedIds = Array.from(new Set(mods.map((m: any) => m?.id).filter(Boolean))).map(String)
+            const originalIds = Array.from(new Set(mods.map((m: any) => m?.original_module_id).filter(Boolean))).map(String)
+            let completedCount = 0
+            const required = mods.length
+            if (processedIds.length > 0) {
+              const { data: progP } = await supabase
+                .from('module_progress')
+                .select('processed_module_id, completed_at')
+                .eq('employee_id', employeeData.id)
+                .in('processed_module_id', processedIds)
+              const completedSet = new Set((progP || []).filter(r => r.completed_at).map(r => String(r.processed_module_id)))
+              completedCount += completedSet.size
+            }
+            if (originalIds.length > 0) {
+              const { data: progO } = await supabase
+                .from('module_progress')
+                .select('module_id, completed_at')
+                .eq('employee_id', employeeData.id)
+                .in('module_id', originalIds)
+              const completedSet = new Set((progO || []).filter(r => r.completed_at).map(r => String(r.module_id)))
+              // Merge: assume overlap minimal; union approximate
+              completedCount = Math.max(completedCount, completedSet.size)
+            }
+            completed = completedCount >= required
+          }
+        }
+        setAllAssignedCompleted(completed)
+      } catch (e) {
+        console.warn('[EmployeeWelcome] assigned modules completion check failed:', e)
+        setAllAssignedCompleted(false)
+      }
 
       // Fetch module progress for this employee, join processed_modules for title
       // LOG: Fetching module_progress for employee_id:", employeeData.id)
@@ -176,11 +304,29 @@ export default function EmployeeWelcome() {
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-gray-500 mb-4">AI-generated assessments will help track your progress.</p>
-                <a href="/employee/assessment">
-                  <Button className="w-full">
-                    Start Baseline Assessment
-                  </Button>
-                </a>
+                {baselineScore !== null ? (
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-gray-700">
+                      <div className="font-medium">Baseline assessment completed</div>
+                      <div>Score: <b>{baselineScore}</b></div>
+                    </div>
+                    {allAssignedCompleted ? (
+                      <Button className="w-44" onClick={() => router.push('/employee/assessment')} title="You can retake the baseline after completing assigned modules">
+                        Retake Baseline
+                      </Button>
+                    ) : (
+                      <Button className="w-44" disabled title="Baseline already completed; finish your assigned modules to retake">
+                        Baseline Completed
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <a href="/employee/assessment">
+                    <Button className="w-full">
+                      Start Baseline Assessment
+                    </Button>
+                  </a>
+                )}
               </CardContent>
             </Card>
 
@@ -203,7 +349,39 @@ export default function EmployeeWelcome() {
             </Card>
           </div>
 
-          <Button className="mb-6" onClick={() => router.push("/employee/learning-style")}>Check your learning style</Button>
+          {/* Learning Style Card */}
+          <Card className="border border-blue-200 bg-white/80 backdrop-blur">
+            <CardHeader>
+              <CardTitle>Your Learning Style</CardTitle>
+              <CardDescription>
+                Personalized recommendations are tuned to your learning style
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {learningStyle ? (
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Badge className="text-sm px-2 py-1">{learningStyle}</Badge>
+                      <span className="text-gray-600">Saved to your profile</span>
+                    </div>
+                    <LearningStyleBlurb styleCode={learningStyle} />
+                  </div>
+                  <Button disabled title={`Learning style: ${learningStyle}`} variant="outline">
+                    Check your learning style
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium mb-1">Not set yet</div>
+                    <div className="text-sm text-gray-600">Take a 5-minute survey to personalize your plan.</div>
+                  </div>
+                  <Button onClick={() => router.push("/employee/learning-style")}>Check your learning style</Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Progress Tracker Card */}
           <Card>
@@ -252,4 +430,34 @@ export default function EmployeeWelcome() {
       </div>
     </div>
   )
+}
+
+// Small helper component for a friendly style description
+function LearningStyleBlurb({ styleCode }: { styleCode: string }) {
+  const meta: Record<string, { label: string; blurb: string }> = {
+    CS: {
+      label: "Concrete Sequential",
+      blurb: "Prefers structure, clear steps, and hands‑on practice. Your plan emphasizes checklists, examples, and measurable milestones.",
+    },
+    AS: {
+      label: "Abstract Sequential",
+      blurb: "Thinks analytically and values logic. Your plan focuses on theory, frameworks, and evidence‑based decision making.",
+    },
+    AR: {
+      label: "Abstract Random",
+      blurb: "Learns through connections and stories. Your plan highlights collaboration, reflection, and real‑world context.",
+    },
+    CR: {
+      label: "Concrete Random",
+      blurb: "Enjoys experimentation and rapid iteration. Your plan leans into challenges, scenarios, and creative problem solving.",
+    },
+  };
+  const info = meta[styleCode as keyof typeof meta];
+  if (!info) return null;
+  return (
+    <div className="text-sm text-gray-700">
+      <div className="font-semibold">{info.label}</div>
+      <div>{info.blurb}</div>
+    </div>
+  );
 }
