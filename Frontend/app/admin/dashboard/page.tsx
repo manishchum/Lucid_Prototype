@@ -1,25 +1,144 @@
+interface Employee {
+  id: string;
+  email: string;
+  name: string | null;
+  joined_at: string;
+}
+
 "use client"
 
-import type React from "react"
-import { useState, useEffect, useCallback } from "react"
-import { useRouter } from "next/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { useAuth } from "@/contexts/auth-context"
-import { supabase } from "@/lib/supabase"
-import { Building2, Users, Plus, Trash2, LogOut } from "lucide-react"
-import { ContentUpload } from "./content-upload"
-import { UploadedFilesList } from "./uploaded-files-list"
-import { Toaster } from "react-hot-toast" // Import Toaster
+import { useState, useEffect, useCallback } from "react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
-interface Employee {
-  id: string
-  email: string
-  name: string | null
-  joined_at: string
+import { useRouter } from "next/navigation";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { useAuth } from "@/contexts/auth-context";
+import { supabase } from "@/lib/supabase";
+import { Building2, Users, Plus, Trash2, LogOut } from "lucide-react";
+import { ContentUpload } from "./content-upload";
+import { UploadedFilesList } from "./uploaded-files-list";
+import { Toaster } from "react-hot-toast";
+// --- KPI Scores Upload UI Component ---
+function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Admin | null }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const [preview, setPreview] = useState<string[][]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [result, setResult] = useState<{ created?: number; updated?: number; skipped?: { row: number; reason: string }[]; affectedEmployees?: string[] } | null>(null);
+  const [error, setError] = useState("");
+
+  // Parse file for preview
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    setResult(null);
+    setError("");
+    const f = e.target.files?.[0] || null;
+    setFile(f);
+    if (!f) return setPreview([]);
+    try {
+      const arrayBuffer = await f.arrayBuffer();
+      if (f.name.endsWith(".csv")) {
+        const text = new TextDecoder().decode(arrayBuffer);
+        const rows = text.split(/\r?\n/).map(line => line.split(",").map(cell => cell.trim()));
+        setPreview(rows.slice(0, 10));
+      } else if (f.name.endsWith(".xlsx")) {
+        // Dynamically import xlsx for preview
+        const xlsx = await import("xlsx");
+        const workbook = xlsx.read(arrayBuffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+        setPreview((rows as string[][]).slice(0, 10));
+      } else {
+        setError("Unsupported file type. Only CSV or XLSX allowed.");
+        setPreview([]);
+      }
+    } catch (err) {
+      setError("Failed to parse file for preview.");
+      setPreview([]);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!file || !companyId) return;
+    setUploading(true);
+    setResult(null);
+    setError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      // For prototype, send companyId in header (never in prod)
+      const res = await fetch("/api/admin/kpi/upload-scores", {
+        method: "POST",
+        body: formData,
+        headers: {
+          "x-company-id": companyId,
+          ...(admin?.id ? { "x-admin-id": admin.id } : {})
+        },
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error || "Upload failed");
+      } else {
+        setResult(json);
+        // Reset file input after successful upload
+        setFile(null);
+        setPreview([]);
+        setFileInputKey(prev => prev + 1);
+      }
+    } catch (err) {
+      setError("Upload failed.");
+      // Reset file input after failed upload
+      setFile(null);
+      setPreview([]);
+      setFileInputKey(prev => prev + 1);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex gap-2 items-center mb-2">
+        <Input key={fileInputKey} type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
+        <Button onClick={handleUpload} disabled={!file || uploading}>
+          {uploading ? "Uploading..." : "Upload"}
+        </Button>
+      </div>
+      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+      {preview.length > 0 && (
+        <div className="mb-2">
+          <div className="font-semibold mb-1">Preview (first 10 rows):</div>
+          <table className="text-sm border">
+            <tbody>
+              {preview.map((row, i) => (
+                <tr key={i}>{row.map((cell, j) => <td key={j} className="border px-2 py-1">{cell}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {result && (
+        <div className="mt-2">
+          <div className="font-semibold">Upload Result:</div>
+          <div>Created: {result.created || 0}, Updated: {result.updated || 0}</div>
+          {result.skipped && result.skipped.length > 0 && (
+            <div className="mt-1 text-xs text-gray-500">
+            </div>
+          )}
+          {result.affectedEmployees && (
+            <div className="mt-1 text-xs text-gray-500">
+              Affected Employees:
+              <ul>
+                {result.affectedEmployees.map((id, i) => <li key={i}>{id}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface Admin {
@@ -42,6 +161,116 @@ interface TrainingModule {
   ai_topics: string | null
   ai_objectives: string | null
   processing_status: string
+}
+
+type KPIUploadResult = {
+  created?: number;
+  updated?: number;
+  skipped?: { row: number; reason: string }[];
+};
+
+// --- KPI Definitions Upload UI Component ---
+function KPIDefinitionsUpload({ companyId }: { companyId?: string }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string[][]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [result, setResult] = useState<KPIUploadResult | null>(null);
+  const [error, setError] = useState("");
+
+  // Parse file for preview
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    setResult(null);
+    setError("");
+    const f = e.target.files?.[0] || null;
+    setFile(f);
+    if (!f) return setPreview([]);
+    try {
+      const arrayBuffer = await f.arrayBuffer();
+      if (f.name.endsWith(".csv")) {
+        const text = new TextDecoder().decode(arrayBuffer);
+        const rows = text.split(/\r?\n/).map(line => line.split(",").map(cell => cell.trim()));
+        setPreview(rows.slice(0, 10));
+      } else if (f.name.endsWith(".xlsx")) {
+        // Dynamically import xlsx for preview
+        const xlsx = await import("xlsx");
+        const workbook = xlsx.read(arrayBuffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+        setPreview((rows as string[][]).slice(0, 10));
+      } else {
+        setError("Unsupported file type. Only CSV or XLSX allowed.");
+        setPreview([]);
+      }
+    } catch (err) {
+      setError("Failed to parse file for preview.");
+      setPreview([]);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!file || !companyId) return;
+    setUploading(true);
+    setResult(null);
+    setError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      // For prototype, send companyId in header (never in prod)
+      const res = await fetch("/api/admin/kpi/upload-definitions", {
+        method: "POST",
+        body: formData,
+        headers: { "x-company-id": companyId },
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error || "Upload failed");
+      } else {
+        setResult(json);
+      }
+    } catch (err) {
+      setError("Upload failed.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex gap-2 items-center mb-2">
+        <Input type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
+        <Button onClick={handleUpload} disabled={!file || uploading}>
+          {uploading ? "Uploading..." : "Upload"}
+        </Button>
+      </div>
+      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+      {preview.length > 0 && (
+        <div className="mb-2">
+          <div className="font-semibold mb-1">Preview (first 10 rows):</div>
+          <table className="text-sm border">
+            <tbody>
+              {preview.map((row, i) => (
+                <tr key={i}>{row.map((cell, j) => <td key={j} className="border px-2 py-1">{cell}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {result && (
+        <div className="mt-2">
+          <div className="font-semibold">Upload Result:</div>
+          <div>Created: {result.created || 0}, Updated: {result.updated || 0}</div>
+          {result.skipped && result.skipped.length > 0 && (
+            <div className="mt-1 text-xs text-gray-500">
+              Skipped rows:
+              <ul>
+                {result.skipped.map((s, i) => <li key={i}>Row {s.row}: {s.reason}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function AdminDashboard() {
@@ -207,6 +436,26 @@ export default function AdminDashboard() {
       </div>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid gap-8">
+          {/* KPI Definitions Upload Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">KPI Definitions Upload</CardTitle>
+              <CardDescription>Upload a CSV or XLSX file with KPI definitions (KPI, Description)</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <KPIDefinitionsUpload companyId={admin?.company_id} />
+            </CardContent>
+          </Card>
+          {/* KPI Scores Upload Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">KPI Scores Upload</CardTitle>
+              <CardDescription>Upload a CSV or XLSX file with KPI scores (Company_Employee_ID, Email, KPI, Score)</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <KPIScoresUpload companyId={admin?.company_id} admin={admin} />
+            </CardContent>
+          </Card>
           {/* Add Employee Section */}
           <Card>
             <CardHeader>

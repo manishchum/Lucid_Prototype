@@ -321,8 +321,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                       ))}
                     </div>
                   ) : null}
-                  {/* Open-ended */}
-                  {q.type === 'open-ended' ? (
+                  {/* Open-ended and scenario-based */}
+                  {(q.type === 'open-ended' || q.type === 'scenario') ? (
                     <textarea
                       className="w-full border rounded p-2 mt-2"
                       rows={4}
@@ -410,6 +410,17 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                       })()}
                     </div>
                   ) : null}
+                  {/* Fallback: unknown question type */}
+                  {["mcq", "MCQ", "multiple choice", "Multiple Choice", "multiple select", "open-ended", "scenario", "fill-in-the-blank", "true/false", "ordering", "matching"].includes(q.type) ? null : (
+                    <textarea
+                      className="w-full border rounded p-2 mt-2"
+                      rows={4}
+                      value={typeof answers[idx] === 'string' ? answers[idx] : ''}
+                      onChange={e => handleTextAnswer(idx, e.target.value)}
+                      disabled={submitted}
+                      placeholder="Type your answer here..."
+                    />
+                  )}
                 </li>
               ))}
             </ol>

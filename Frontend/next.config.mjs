@@ -9,6 +9,13 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  transpilePackages: [
+    "firebase",
+    "@firebase/app",
+    "@firebase/auth",
+    "@firebase/auth-compat",
+    "@firebase/util",
+  ],
 }
 
 export default nextConfig

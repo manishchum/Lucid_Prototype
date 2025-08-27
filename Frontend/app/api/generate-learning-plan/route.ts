@@ -44,7 +44,7 @@
 //   const completion = await openai.chat.completions.create({
 //     model: "gpt-4-turbo",
 //     messages: [
-//       { role: "system", content: "You are an expert corporate trainer and instructional designer." },
+//       { role: "system", content: "You are an expert corporate trainer and instructional desigWner." },
 //       { role: "user", content: prompt },
 //     ],
 //     max_tokens: 2048,

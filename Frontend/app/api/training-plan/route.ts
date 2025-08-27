@@ -115,16 +115,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ plan: existingPlan.plan_json, reasoning: existingPlan.reasoning });
   }
 
-  // Compose prompt for GPT
+  // Fetch employee KPIs (description and score)
+  const { data: kpiRows, error: kpiError } = await supabase
+    .from("employee_kpi")
+    .select("score, kpis(description)")
+    .eq("employee_id", employee_id);
+  let kpiText = "";
+  if (kpiRows && kpiRows.length > 0) {
+    kpiText = "Employee KPIs (description and score):\n" +
+      kpiRows.map((row: any) => `KPI: ${row.kpis?.description || "N/A"}, Score: ${row.score}`).join("\n");
+  }
 
+  // Compose prompt for GPT
   const prompt =
-    "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan.\n\n" +
+    "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan. If KPI scores (description and score) are available, use them; otherwise, rely only on baseline assessments.\n\n" +
     gptText + "\n\n" +
+    (kpiText ? kpiText + "\n\n" : "") +
     "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n" +
     "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
     "The plan should:\n- Identify weak areas based on scores and feedback\n- Match module objectives to weaknesses\n- Specify what to study, in what order, and how much time for each\n- Output a JSON object with: modules (ordered), objectives, recommended time (hours), and any tips or recommendations\n- Ensure all recommendations and tips are personalized to the employee's learning style\n\n" +
-    "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, and learning style factors influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, and learning style\n\n" +
-  "Assessment Results (baseline only):\n" + JSON.stringify(baselineAssessments, null, 2) + "\n\n" +
+    "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, learning style, and KPI factors (if present) influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, learning style, and KPIs (if present)\n\n" +
+    "Assessment Results (baseline only):\n" + JSON.stringify(baselineAssessments, null, 2) + "\n\n" +
     "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
     "Output ONLY a single JSON object with two top-level keys: plan and reasoning. Do NOT include any other text, explanation, or formatting. Example: '{ \"plan\": { ... }, \"reasoning\": { ... } }'";
   console.log("[Training Plan API] Prompt for GPT:", prompt);
