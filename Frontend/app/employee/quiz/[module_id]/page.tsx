@@ -365,13 +365,16 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                   {q.type === 'ordering' ? (
                     <div>
                       <span className="block mb-2 text-sm text-gray-600">Drag to reorder (enter comma-separated order below):</span>
+                      {q.options && Array.isArray(q.options) && q.options.length > 0 && (
+                        <div className="mb-2 text-sm text-gray-800">Options: {q.options.join(', ')}</div>
+                      )}
                       <input
                         type="text"
                         className="w-full border rounded p-2 mt-2"
                         value={typeof answers[idx] === 'string' ? answers[idx] : ''}
                         onChange={e => handleTextAnswer(idx, e.target.value)}
                         disabled={submitted}
-                        placeholder={q.options ? q.options.join(', ') : 'Enter order'}
+                        placeholder="Enter order"
                       />
                     </div>
                   ) : null}
@@ -430,7 +433,16 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
               </Button>
             ) : (
               <div className="mt-8">
-                <div className="text-lg font-semibold mb-2">Your Score: {score} / {maxScore ?? (quiz ? quiz.length : 0)}</div>
+                <div className="text-lg font-semibold mb-2">
+                  {score === null || maxScore === null ? (
+                    <div className="flex items-center gap-2">
+                      <span>Grading...</span>
+                      <span className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600"></span>
+                    </div>
+                  ) : (
+                    <>Your Score: {score} / {maxScore}</>
+                  )}
+                </div>
                 {feedback && <div className="bg-blue-50 p-4 rounded text-blue-900 whitespace-pre-line">{feedback}</div>}
                 <Button className="mt-4" variant="outline" onClick={() => router.back()}>
                   Back to Training Plan

@@ -225,6 +225,26 @@ export async function POST(req: NextRequest) {
   }
   plan = parsed.plan ?? null;
   reasoning = parsed.reasoning ?? null;
+
+  // 🔹 sanitize plan for frontend safety
+  const sanitizePlan = (p: any) => {
+    if (!p) return p;
+    if (Array.isArray(p.modules)) {
+      p.modules = p.modules.map((m: any) => ({
+        ...m,
+        objectives: Array.isArray(m.objectives)
+          ? m.objectives.map((obj: any) =>
+              typeof obj === "object" && obj !== null ? JSON.stringify(obj) : obj
+            )
+          : typeof m.objectives === "object" && m.objectives !== null
+          ? [JSON.stringify(m.objectives)]
+          : m.objectives,
+      }));
+    }
+    return p;
+  };
+
+  plan = sanitizePlan(plan);
   console.log("[Training Plan API] Parsed plan:", plan);
   console.log("[Training Plan API] Parsed reasoning:", reasoning);
 

@@ -28,7 +28,11 @@ export default function TrainingPlanPage() {
             <div className="font-semibold text-blue-900 mb-1">{key.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}</div>
             {Array.isArray(value) ? (
               <ul className="list-disc pl-6 text-gray-700">
-                {value.map((v, i) => <li key={i}>{v}</li>)}
+                {value.map((v, i) => (
+                  <li key={i}>
+                    {typeof v === 'object' && v !== null ? JSON.stringify(v) : v}
+                  </li>
+                ))}
               </ul>
             ) : typeof value === "object" ? (
               renderReasoning(value)
@@ -272,11 +276,35 @@ export default function TrainingPlanPage() {
                             </div>
                             <div className="mb-4">
                             <div className="font-semibold mb-1">Objectives:</div>
-                            <ul className="list-disc pl-6 text-gray-700">
-                                {mod.objectives?.map((obj: string, idx: number) => (
-                                <li key={`${mod._tabValue}-obj-${idx}`}>{obj}</li>
+                            {Array.isArray(mod.objectives) ? (
+                              <ul className="list-disc pl-6 text-gray-700">
+                                {mod.objectives.map((obj: any, idx: number) => (
+                                  typeof obj === 'string' || typeof obj === 'number' ? (
+                                    <li key={`${mod._tabValue}-obj-${idx}`}>{obj}</li>
+                                  ) : typeof obj === 'object' && obj !== null ? (
+                                    <li key={`${mod._tabValue}-obj-${idx}`}>
+                                      {Object.entries(obj).map(([k, v], i) => (
+                                        <div key={i}>
+                                          <span className="font-semibold">{k}:</span> {typeof v === 'string' || typeof v === 'number' ? v : JSON.stringify(v)}
+                                        </div>
+                                      ))}
+                                    </li>
+                                  ) : null
                                 ))}
-                            </ul>
+                              </ul>
+                            ) : mod.objectives && typeof mod.objectives === 'object' ? (
+                              <ul className="list-disc pl-6 text-gray-700">
+                                {Object.entries(mod.objectives).map(([k, v], i) => (
+                                  <li key={`${mod._tabValue}-obj-single-${i}`}>
+                                    <span className="font-semibold">{k}:</span> {typeof v === 'string' || typeof v === 'number' ? v : JSON.stringify(v)}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : mod.objectives ? (
+                              <div className="text-gray-700">{mod.objectives}</div>
+                            ) : (
+                              <div className="text-gray-400 italic">No objectives listed.</div>
+                            )}
                             </div>
                             <div className="flex gap-4 mt-6">
                             <Button

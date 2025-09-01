@@ -47,7 +47,9 @@ const AssessmentPage = () => {
         if (error) throw error;
         setModules(data || []);
       } catch (err: any) {
-        setError("Failed to load modules: " + err.message);
+  setError("Failed to load modules: " + err.message);
+  // Add delay before clearing error
+  setTimeout(() => setError(""), 1200);
       } finally {
         setLoading(false);
       }
