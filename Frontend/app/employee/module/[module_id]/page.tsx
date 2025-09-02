@@ -5,6 +5,7 @@ import AudioPlayer from "./AudioPlayer";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
+import EmployeeNavigation from "@/components/employee-navigation";
 
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
   const moduleId = params.module_id;
@@ -136,6 +137,9 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 px-4 py-8">
       <div className="max-w-3xl mx-auto">
+        {/* Navigation */}
+        <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} />
+        
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>{module.title}</CardTitle>

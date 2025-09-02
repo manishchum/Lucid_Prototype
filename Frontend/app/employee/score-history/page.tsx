@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
+import EmployeeNavigation from "@/components/employee-navigation";
 
 export default function ScoreHistoryPage() {
   const { user, loading: authLoading } = useAuth();
@@ -64,6 +65,9 @@ export default function ScoreHistoryPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 px-4 py-8">
       <div className="max-w-3xl mx-auto">
+        {/* Navigation */}
+        <EmployeeNavigation showForward={false} />
+        
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Score & Feedback History</CardTitle>

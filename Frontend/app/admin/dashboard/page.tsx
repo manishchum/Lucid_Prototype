@@ -456,7 +456,7 @@ export default function AdminDashboard() {
               <KPIScoresUpload companyId={admin?.company_id} admin={admin} />
             </CardContent>
           </Card>
-          {/* Add Employee Section */}
+          {/* Add Employee Section
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
@@ -483,9 +483,9 @@ export default function AdminDashboard() {
                 <Button type="submit" disabled={addingEmployee}>
                   {addingEmployee ? "Adding..." : "Add Employee"}
                 </Button>
-              </form>
+              </form> */}
 
-              {error && (
+              {/* {error && ( 
                 <Alert variant="destructive" className="mt-4">
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>

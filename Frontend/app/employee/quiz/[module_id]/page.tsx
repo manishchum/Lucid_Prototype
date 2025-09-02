@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import EmployeeNavigation from "@/components/employee-navigation";
 
 export default function ModuleQuizPage({ params }: { params: { module_id: string } }) {
   const { user, loading: authLoading } = useAuth();
@@ -258,6 +259,12 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 px-4 py-8">
       <div className="max-w-3xl mx-auto">
+        {/* Navigation */}
+        <EmployeeNavigation 
+          customBackPath={`/employee/module/${params.module_id}`}
+          showForward={false}
+        />
+        
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Module Quiz</CardTitle>

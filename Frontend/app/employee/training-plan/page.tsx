@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
+import EmployeeNavigation from "@/components/employee-navigation";
 
 export default function TrainingPlanPage() {
   // Helper to render reasoning in a readable format
@@ -229,6 +230,9 @@ export default function TrainingPlanPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 px-4 py-8">
       <div className="max-w-5xl mx-auto">
+        {/* Navigation */}
+        <EmployeeNavigation showForward={false} />
+        
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Personalized Training Plan</CardTitle>

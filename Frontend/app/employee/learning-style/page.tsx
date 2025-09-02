@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import EmployeeNavigation from "@/components/employee-navigation"
 
 const questions = [
   "I like having written directions before starting a task.",
@@ -110,6 +111,9 @@ export default function LearningStyleSurvey() {
   }
   return (
     <div className="max-w-3xl mx-auto py-10 px-4">
+      {/* Navigation */}
+      <EmployeeNavigation showForward={false} />
+      
       <h1 className="text-2xl font-bold mb-6">Learning Style Survey</h1>
       <form onSubmit={handleSubmit}>
         <div className="space-y-6">

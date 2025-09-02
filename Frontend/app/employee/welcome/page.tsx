@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
 import { Users, LogOut, BookOpen, Clock } from "lucide-react"
+import EmployeeNavigation from "@/components/employee-navigation"
 
 interface Employee {
   id: string
@@ -257,6 +258,9 @@ export default function EmployeeWelcome() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Navigation */}
+        <EmployeeNavigation showBack={false} showForward={false} />
+        
         <div className="grid gap-8">
           {/* Welcome Card */}
           <Card className="bg-gradient-to-r from-green-500 to-blue-600 text-white">
@@ -274,26 +278,87 @@ export default function EmployeeWelcome() {
             </CardContent>
           </Card>
 
-          {/* Coming Soon Cards */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <Card className="">
-              <CardHeader>
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
-                  <BookOpen className="w-6 h-6 text-blue-600" />
+          {/* Getting Started Flow Guide */}
+          <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200">
+            <CardHeader>
+              <CardTitle className="text-blue-900">Getting Started Guide</CardTitle>
+              <CardDescription className="text-blue-700">
+                Follow these steps to maximize your learning experience
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="flex-1 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-medium">1</div>
+                    <div>
+                      <div className="font-medium text-blue-900">Complete Learning Style Survey</div>
+                      <div className="text-sm text-blue-700">Helps us personalize your training content</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-medium">2</div>
+                    <div>
+                      <div className="font-medium text-blue-900">Take Baseline Assessment</div>
+                      <div className="text-sm text-blue-700">Assesses your current knowledge level</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-medium">3</div>
+                    <div>
+                      <div className="font-medium text-blue-900">Follow Your Training Plan</div>
+                      <div className="text-sm text-blue-700">AI-generated plan based on your assessment</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-medium">4</div>
+                    <div>
+                      <div className="font-medium text-blue-900">Track Your Progress</div>
+                      <div className="text-sm text-blue-700">Monitor scores and feedback history</div>
+                    </div>
+                  </div>
                 </div>
-                <CardTitle>Score & Feedback History</CardTitle>
-                <CardDescription>View all your assessment results and AI feedback</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-gray-500 mb-4">
-                  See your full history of scores and feedback for all assessments.
-                </p>
-                <Button className="w-full" onClick={() => router.push("/employee/score-history") }>
-                  View Score & Feedback History
-                </Button>
-              </CardContent>
-            </Card>
+              </div>
+            </CardContent>
+          </Card>
 
+          {/* Learning Style Card - moved to top */}
+          <Card className="border border-blue-200 bg-white/80 backdrop-blur">
+            <CardHeader>
+              <CardTitle>Your Learning Style</CardTitle>
+              <CardDescription>
+                Personalized recommendations are tuned to your learning style
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {learningStyle ? (
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Badge className="text-sm px-2 py-1">{learningStyle}</Badge>
+                      <span className="text-gray-600">Saved to your profile</span>
+                    </div>
+                    <LearningStyleBlurb styleCode={learningStyle} />
+                  </div>
+                  <Button disabled title={`Learning style: ${learningStyle}`} variant="outline">
+                    Check your learning style
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium mb-1">Not set yet</div>
+                    <div className="text-sm text-gray-600">Take a 5-minute survey to personalize your plan.</div>
+                  </div>
+                  <Button onClick={() => router.push("/employee/learning-style")}>Check your learning style</Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Main Cards - Baseline, Learning Plan, Score & Feedback */}
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Assessments (Baseline) - moved to first */}
             <Card className="">
               <CardHeader>
                 <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
@@ -330,6 +395,7 @@ export default function EmployeeWelcome() {
               </CardContent>
             </Card>
 
+            {/* Learning Plan - moved to second */}
             <Card className="">
               <CardHeader>
                 <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mb-4">
@@ -347,43 +413,28 @@ export default function EmployeeWelcome() {
                 </Button>
               </CardContent>
             </Card>
+
+            {/* Score & Feedback History - moved to last */}
+            <Card className="">
+              <CardHeader>
+                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
+                  <BookOpen className="w-6 h-6 text-blue-600" />
+                </div>
+                <CardTitle>Score & Feedback History</CardTitle>
+                <CardDescription>View all your assessment results and AI feedback</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-gray-500 mb-4">
+                  See your full history of scores and feedback for all assessments.
+                </p>
+                <Button className="w-full" onClick={() => router.push("/employee/score-history") }>
+                  View Score & Feedback History
+                </Button>
+              </CardContent>
+            </Card>
           </div>
 
-          {/* Learning Style Card */}
-          <Card className="border border-blue-200 bg-white/80 backdrop-blur">
-            <CardHeader>
-              <CardTitle>Your Learning Style</CardTitle>
-              <CardDescription>
-                Personalized recommendations are tuned to your learning style
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {learningStyle ? (
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge className="text-sm px-2 py-1">{learningStyle}</Badge>
-                      <span className="text-gray-600">Saved to your profile</span>
-                    </div>
-                    <LearningStyleBlurb styleCode={learningStyle} />
-                  </div>
-                  <Button disabled title={`Learning style: ${learningStyle}`} variant="outline">
-                    Check your learning style
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium mb-1">Not set yet</div>
-                    <div className="text-sm text-gray-600">Take a 5-minute survey to personalize your plan.</div>
-                  </div>
-                  <Button onClick={() => router.push("/employee/learning-style")}>Check your learning style</Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Progress Tracker Card */}
+          {/* Progress Tracker Card (unchanged) */}
           <Card>
             <CardHeader>
               <CardTitle>Module Progress Tracker</CardTitle>

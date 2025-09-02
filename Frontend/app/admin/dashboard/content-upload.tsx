@@ -384,7 +384,7 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
           </div>
         )}
 
-        {/* Temporary button for manual OpenAI upload testing */}
+        {/* Temporary button for manual OpenAI upload testing
         {file && (
           <Button
             type="button"
@@ -406,11 +406,11 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
           >
             {openaiUploading ? "Processing with OpenAI..." : "Test OpenAI Assistants API"}
           </Button>
-        )}
+        )} */}
         {/* Show OpenAI result for debugging */}
         {openaiResult && (
           <div className="mt-4 p-4 bg-gray-100 rounded text-xs max-h-60 overflow-y-auto">
-            <pre>{JSON.stringify(openaiResult, null, 2)}</pre>
+            <pre className="whitespace-pre-line break-words overflow-hidden text-ellipsis max-h-40 max-w-60">{JSON.stringify(openaiResult, null, 2)}</pre>
           </div>
         )}
 

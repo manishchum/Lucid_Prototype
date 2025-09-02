@@ -271,4 +271,4 @@ export function AIAnalysisView({ module }: AIAnalysisViewProps) {
       </DialogContent>
     </Dialog>
   )
-} 
+}

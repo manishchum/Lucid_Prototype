@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import MCQQuiz from "./mcq-quiz";
 import ScoreFeedbackCard from "./score-feedback";
 import { useAuth } from "@/contexts/auth-context";
+import EmployeeNavigation from "@/components/employee-navigation";
 
 interface TrainingModule {
   id: string;
@@ -172,6 +173,9 @@ const AssessmentPage = () => {
 
   return (
     <div className="max-w-2xl mx-auto py-10">
+      {/* Navigation */}
+      <EmployeeNavigation showForward={false} />
+      
       <h1 className="text-3xl font-bold mb-4">Baseline Assessment</h1>
       <p className="mb-6 text-gray-700">
         Welcome! This adaptive assessment will help us understand your current knowledge. Please answer the following questions to the best of your ability.
