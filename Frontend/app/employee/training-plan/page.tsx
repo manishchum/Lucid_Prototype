@@ -10,6 +10,41 @@ import { supabase } from "@/lib/supabase";
 import EmployeeNavigation from "@/components/employee-navigation";
 
 export default function TrainingPlanPage() {
+  // Track completed modules for the user
+  const [completedModules, setCompletedModules] = useState<string[]>([]);
+  
+  const { user, loading: authLoading } = useAuth();
+  const [plan, setPlan] = useState<any>(null);
+  const [reasoning, setReasoning] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch completed modules from Supabase (same logic as employee/welcome)
+  useEffect(() => {
+    async function fetchCompletedModules() {
+      if (!user?.email) return;
+      // Get employee id
+      const { data: employeeData } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("email", user.email)
+        .single();
+      if (!employeeData?.id) return;
+      
+      // Get completed modules for employee (match employee/welcome logic)
+      const { data: progressData } = await supabase
+        .from("module_progress")
+        .select("processed_module_id, completed_at")
+        .eq("employee_id", employeeData.id)
+        .not("completed_at", "is", null);
+        
+      if (progressData) {
+        // Store completed processed_module_ids
+        setCompletedModules(progressData.map((row: any) => String(row.processed_module_id)));
+      }
+    }
+    fetchCompletedModules();
+  }, [user]);
+
   // Helper to render reasoning in a readable format
   function renderReasoning(reasoning: any) {
     if (!reasoning) return null;
@@ -24,32 +59,61 @@ export default function TrainingPlanPage() {
     // If it's an object, render each key/value
     return (
       <div>
-        {Object.entries(reasoning).map(([key, value], idx) => (
-          <div key={idx} className="mb-2">
-            <div className="font-semibold text-blue-900 mb-1">{key.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}</div>
-            {Array.isArray(value) ? (
-              <ul className="list-disc pl-6 text-gray-700">
-                {value.map((v, i) => (
-                  <li key={i}>
-                    {typeof v === 'object' && v !== null ? JSON.stringify(v) : v}
-                  </li>
-                ))}
-              </ul>
-            ) : typeof value === "object" ? (
-              renderReasoning(value)
-            ) : (
-              <div className="text-gray-800">{typeof value === "string" ? value : value !== undefined ? JSON.stringify(value) : ""}</div>
-            )}
-          </div>
-        ))}
+        {Object.entries(reasoning).map(([key, value], idx) => {
+          // Custom rendering for Time Allocation and Module Selection
+          const sectionTitle = key.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+          // If value is array of objects with 'module' and 'justification', render nicely
+          if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0] !== null && ('module' in value[0] && 'justification' in value[0])) {
+            return (
+              <div key={idx} className="mb-4">
+                <div className="font-semibold text-blue-900 mb-1">{sectionTitle}</div>
+                <ul className="list-disc pl-6 text-gray-700">
+                  {value.map((item: any, i: number) => (
+                    <li key={i}>
+                      <span className="font-semibold">{item.module}:</span> {item.justification}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          }
+          // If value is array of strings, render as bullet points
+          if (Array.isArray(value) && typeof value[0] === 'string') {
+            return (
+              <div key={idx} className="mb-4">
+                <div className="font-semibold text-blue-900 mb-1">{sectionTitle}</div>
+                <ul className="list-disc pl-6 text-gray-700">
+                  {value.map((v, i) => (
+                    <li key={i}>{v}</li>
+                  ))}
+                </ul>
+              </div>
+            );
+          }
+          // Fallback: default rendering
+          return (
+            <div key={idx} className="mb-2">
+              <div className="font-semibold text-blue-900 mb-1">{sectionTitle}</div>
+              {Array.isArray(value) ? (
+                <ul className="list-disc pl-6 text-gray-700">
+                  {value.map((v, i) => (
+                    <li key={i}>
+                      {typeof v === 'object' && v !== null ? JSON.stringify(v) : v}
+                    </li>
+                  ))}
+                </ul>
+              ) : typeof value === "object" ? (
+                renderReasoning(value)
+              ) : (
+                <div className="text-gray-800">{typeof value === "string" ? value : value !== undefined ? JSON.stringify(value) : ""}</div>
+              )}
+            </div>
+          );
+        })}
       </div>
     );
   }
-  const { user, loading: authLoading } = useAuth();
-  const [plan, setPlan] = useState<any>(null);
-  const [reasoning, setReasoning] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
+  
   useEffect(() => {
     if (!authLoading && user?.email) {
       fetchPlan();
@@ -224,8 +288,20 @@ export default function TrainingPlanPage() {
   const normalizedModules = (modules as any[]).map((mod: any, idx: number) => {
     const fallback = `${idx}-${mod?.title || 'module'}`;
     const tabValue = String(mod?.id ?? mod?.original_module_id ?? fallback);
-    return { ...mod, _tabValue: tabValue };
+    
+    // Check completion using processed_module_id to match employee/welcome logic
+    let isCompleted = false;
+    const processedModuleId = String(mod?.processed_module_id ?? mod?.id ?? mod?.original_module_id);
+    if (processedModuleId && processedModuleId !== 'undefined' && processedModuleId !== 'null') {
+      isCompleted = completedModules.includes(processedModuleId);
+    }
+    
+    console.log("Processed Module ID:", processedModuleId, "Is Completed:", isCompleted);
+    return { ...mod, _tabValue: tabValue, _isCompleted: isCompleted };
   });
+
+
+  console.log("Color Green");
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 px-4 py-8">
@@ -246,14 +322,15 @@ export default function TrainingPlanPage() {
                     {/* Left Sidebar Tabs List */}
                     <TabsList className="md:w-72 w-full flex flex-col bg-white rounded-lg shadow p-2 sticky top-4 h-fit">
                         {normalizedModules.map((mod: any) => (
-                        <TabsTrigger
-                            key={mod._tabValue}
-                            value={mod._tabValue}
-                            className="text-left py-3 px-4 rounded-lg mb-2 border hover:bg-blue-50 whitespace-normal"
-                        >
-                            <div className="font-semibold text-base md:text-lg">{mod.title}</div>
-                            <div className="text-xs text-gray-500">{mod.objectives?.length || 0} objectives</div>
-                        </TabsTrigger>
+            <TabsTrigger
+              key={mod._tabValue}
+              value={mod._tabValue}
+              className="text-left py-3 px-4 rounded-lg mb-2 border hover:bg-blue-50 whitespace-normal"
+            >
+              <div className={"font-semibold text-base md:text-lg " + (mod._isCompleted ? "text-green-600" : "text-gray-900")}>{mod.title}</div>
+
+              <div className="text-xs text-gray-500">{mod.objectives?.length || 0} objectives</div>
+            </TabsTrigger>
                         ))}
                     </TabsList>
 

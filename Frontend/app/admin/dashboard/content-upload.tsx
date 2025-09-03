@@ -394,6 +394,16 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
             onClick={async () => {
               setOpenaiUploading(true);
               try {
+                const result = await uploadToOpenAIAssistant(file,        {/* Temporary button for manual OpenAI upload testing
+        {file && (
+          <Button
+            type="button"
+            variant="secondary"
+            className="mt-4"
+            disabled={openaiUploading}
+            onClick={async () => {
+              setOpenaiUploading(true);
+              try {
                 const result = await uploadToOpenAIAssistant(file, moduleId);
                 setOpenaiResult(result);
                 toast.success("OpenAI Assistants API processing complete!");
@@ -407,11 +417,11 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
             {openaiUploading ? "Processing with OpenAI..." : "Test OpenAI Assistants API"}
           </Button>
         )} */}
-        {/* Show OpenAI result for debugging */}
+        {/* Success message after upload and processing */}
         {openaiResult && (
-          <div className="mt-4 p-4 bg-gray-100 rounded text-xs max-h-60 overflow-y-auto">
-            <pre className="whitespace-pre-line break-words overflow-hidden text-ellipsis max-h-40 max-w-60">{JSON.stringify(openaiResult, null, 2)}</pre>
-          </div>
+          <Alert variant="success" className="mt-4">
+            <AlertDescription>Training content uploaded and processed successfully!</AlertDescription>
+          </Alert>
         )}
 
         <div className="mt-4 text-xs text-gray-500">
