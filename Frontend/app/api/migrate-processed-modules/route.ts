@@ -26,16 +26,20 @@ export async function POST(req: NextRequest) {
     for (let i = 0; i < aiModulesArr.length; i++) {
       const aiMod = aiModulesArr[i];
       const { title, content, section_type } = aiMod;
-      const { error: insertError } = await supabase
-        .from("processed_modules")
-        .insert({
-          original_module_id: mod.id,
-          title: title || `Module ${i + 1}`,
-          content: content || "",
-          section_type: section_type || null,
-          order_index: i,
-        });
-      if (!insertError) inserted++;
+      const learningStyles = ["CS", "CR", "AS", "AR"];
+      for (const style of learningStyles) {
+        const { error: insertError } = await supabase
+          .from("processed_modules")
+          .insert({
+            original_module_id: mod.id,
+            title: title || `Module ${i + 1}`,
+            content: content || "",
+            section_type: section_type || null,
+            order_index: i,
+            learning_style: style,
+          });
+        if (!insertError) inserted++;
+      }
     }
   }
   return NextResponse.json({ message: `Inserted ${inserted} processed modules.` });

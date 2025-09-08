@@ -275,85 +275,10 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
               {quiz && quiz.map((q, idx) => (
                 <li key={idx} className="mb-6">
                   <div className="font-semibold mb-2">{q.question}</div>
-                  {/* MCQ (case-insensitive) */}
-                  {["mcq", "MCQ", "multiple choice", "Multiple Choice"].includes(q.type) ? (
+                  {/* Only MCQ options displayed. All other question types commented out. */}
+                  {(Array.isArray(q.options) && q.options.length > 0) ? (
                     <div>
-                      {(Array.isArray(q.options) && q.options.length > 0) ? (
-                        q.options.map((opt: string, oIdx: number) => (
-                          <label key={oIdx} className="block mb-2">
-                            <input
-                              type="radio"
-                              name={`q${idx}`}
-                              checked={answers[idx] === oIdx}
-                              onChange={() => handleSelect(idx, oIdx)}
-                              disabled={submitted}
-                              className="mr-2"
-                            />
-                            {opt}
-                          </label>
-                        ))
-                      ) : (
-                        <div className="text-red-600 text-sm">No options available for this question.</div>
-                      )}
-                    </div>
-                  ) : null}
-                  {/* Multiple Select */}
-                  {q.type === 'multiple select' ? (
-                    <div>
-                      {q.options && q.options.map((opt: string, oIdx: number) => (
-                        <label key={oIdx} className="block mb-2">
-                          <input
-                            type="checkbox"
-                            name={`q${idx}`}
-                            checked={Array.isArray(answers[idx]) && answers[idx].includes(oIdx)}
-                            onChange={() => {
-                              if (submitted) return;
-                              setAnswers((prev) => {
-                                const next = [...prev];
-                                let arr = Array.isArray(next[idx]) ? [...next[idx]] : [];
-                                if (arr.includes(oIdx)) {
-                                  arr = arr.filter((v: number) => v !== oIdx);
-                                } else {
-                                  arr.push(oIdx);
-                                }
-                                next[idx] = arr;
-                                return next;
-                              });
-                            }}
-                            disabled={submitted}
-                            className="mr-2"
-                          />
-                          {opt}
-                        </label>
-                      ))}
-                    </div>
-                  ) : null}
-                  {/* Open-ended and scenario-based */}
-                  {(q.type === 'open-ended' || q.type === 'scenario') ? (
-                    <textarea
-                      className="w-full border rounded p-2 mt-2"
-                      rows={4}
-                      value={typeof answers[idx] === 'string' ? answers[idx] : ''}
-                      onChange={e => handleTextAnswer(idx, e.target.value)}
-                      disabled={submitted}
-                      placeholder="Type your answer here..."
-                    />
-                  ) : null}
-                  {/* Fill-in-the-blank */}
-                  {q.type === 'fill-in-the-blank' ? (
-                    <input
-                      type="text"
-                      className="w-full border rounded p-2 mt-2"
-                      value={typeof answers[idx] === 'string' ? answers[idx] : ''}
-                      onChange={e => handleTextAnswer(idx, e.target.value)}
-                      disabled={submitted}
-                      placeholder="Type your answer here..."
-                    />
-                  ) : null}
-                  {/* True/False */}
-                  {q.type === 'true/false' ? (
-                    <div>
-                      {q.options && q.options.map((opt: string, oIdx: number) => (
+                      {q.options.map((opt: string, oIdx: number) => (
                         <label key={oIdx} className="block mb-2">
                           <input
                             type="radio"
@@ -367,70 +292,19 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                         </label>
                       ))}
                     </div>
-                  ) : null}
-                  {/* Ordering */}
-                  {q.type === 'ordering' ? (
-                    <div>
-                      <span className="block mb-2 text-sm text-gray-600">Drag to reorder (enter comma-separated order below):</span>
-                      {q.options && Array.isArray(q.options) && q.options.length > 0 && (
-                        <div className="mb-2 text-sm text-gray-800">Options: {q.options.join(', ')}</div>
-                      )}
-                      <input
-                        type="text"
-                        className="w-full border rounded p-2 mt-2"
-                        value={typeof answers[idx] === 'string' ? answers[idx] : ''}
-                        onChange={e => handleTextAnswer(idx, e.target.value)}
-                        disabled={submitted}
-                        placeholder="Enter order"
-                      />
-                    </div>
-                  ) : null}
-                  {/* Matching */}
-                  {q.type === 'matching' && q.options && typeof q.options === 'object' ? (
-                    <div className="space-y-2 mt-2">
-                      {/* Collect all possible options for matching */}
-                      {(() => {
-                        // Flatten all options arrays into a unique set
-                        const allOptions: string[] = Array.from(new Set((Object.values(q.options).flat() as string[])));
-                        return Object.entries(q.options).map(([key, opts]) => (
-                          <div key={key} className="flex items-center gap-2">
-                            <span className="font-semibold w-40">{key}</span>
-                            <select
-                              className="border rounded p-2"
-                              value={typeof answers[idx] === 'object' && answers[idx] !== null ? (answers[idx] as Record<string, string>)[key] || '' : ''}
-                              onChange={e => {
-                                if (submitted) return;
-                                setAnswers((prev) => {
-                                  const next = [...prev];
-                                  const matchObj: Record<string, string> = typeof next[idx] === 'object' && next[idx] !== null ? { ...(next[idx] as Record<string, string>) } : {};
-                                  matchObj[key] = e.target.value;
-                                  next[idx] = matchObj;
-                                  return next;
-                                });
-                              }}
-                              disabled={submitted}
-                            >
-                              <option value="">Select</option>
-                              {allOptions.map((opt, oIdx) => (
-                                <option key={oIdx} value={opt}>{opt}</option>
-                              ))}
-                            </select>
-                          </div>
-                        ));
-                      })()}
-                    </div>
-                  ) : null}
-                  {/* Fallback: unknown question type */}
-                  {["mcq", "MCQ", "multiple choice", "Multiple Choice", "multiple select", "open-ended", "scenario", "fill-in-the-blank", "true/false", "ordering", "matching"].includes(q.type) ? null : (
-                    <textarea
-                      className="w-full border rounded p-2 mt-2"
-                      rows={4}
-                      value={typeof answers[idx] === 'string' ? answers[idx] : ''}
-                      onChange={e => handleTextAnswer(idx, e.target.value)}
-                      disabled={submitted}
-                      placeholder="Type your answer here..."
-                    />
+                  ) : (
+                    <div className="text-red-600 text-sm">No options available for this question.</div>
                   )}
+                  {/*
+                  // Other question types are commented out for MCQ-only display
+                  // {q.type === 'multiple select' ? ...}
+                  // {(q.type === 'open-ended' || q.type === 'scenario') ? ...}
+                  // {q.type === 'fill-in-the-blank' ? ...}
+                  // {q.type === 'true/false' ? ...}
+                  // {q.type === 'ordering' ? ...}
+                  // {q.type === 'matching' && ...}
+                  // Fallback: unknown question type
+                  */}
                 </li>
               ))}
             </ol>

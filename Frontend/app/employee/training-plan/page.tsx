@@ -60,17 +60,18 @@ export default function TrainingPlanPage() {
     return (
       <div>
         {Object.entries(reasoning).map(([key, value], idx) => {
-          // Custom rendering for Time Allocation and Module Selection
           const sectionTitle = key.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
-          // If value is array of objects with 'module' and 'justification', render nicely
-          if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0] !== null && ('module' in value[0] && 'justification' in value[0])) {
+          // Custom rendering for module_selection array
+          if (key === "module_selection" && Array.isArray(value) && value.length > 0 && typeof value[0] === 'object') {
             return (
               <div key={idx} className="mb-4">
-                <div className="font-semibold text-blue-900 mb-1">{sectionTitle}</div>
+                <div className="font-semibold text-blue-900 mb-1">Module Selection</div>
                 <ul className="list-disc pl-6 text-gray-700">
-                  {value.map((item: any, i: number) => (
-                    <li key={i}>
-                      <span className="font-semibold">{item.module}:</span> {item.justification}
+                  {value.map((mod: any, i: number) => (
+                    <li key={mod.module_name || i} className="mb-2">
+                      <div><span className="font-semibold">Module Name:</span> {mod.module_name}</div>
+                      <div><span className="font-semibold">Justification:</span> {mod.justification}</div>
+                      <div><span className="font-semibold">Recommended Time:</span> {mod.recommended_time} hours</div>
                     </li>
                   ))}
                 </ul>
@@ -322,15 +323,30 @@ export default function TrainingPlanPage() {
                     {/* Left Sidebar Tabs List */}
                     <TabsList className="md:w-72 w-full flex flex-col bg-white rounded-lg shadow p-2 sticky top-4 h-fit">
                         {normalizedModules.map((mod: any) => (
-            <TabsTrigger
-              key={mod._tabValue}
-              value={mod._tabValue}
-              className="text-left py-3 px-4 rounded-lg mb-2 border hover:bg-blue-50 whitespace-normal"
-            >
-              <div className={"font-semibold text-base md:text-lg " + (mod._isCompleted ? "text-green-600" : "text-gray-900")}>{mod.title}</div>
+            // <TabsTrigger
+            //   key={mod._tabValue}
+            //   value={mod._tabValue}
+            //   className="text-left py-3 px-4 rounded-lg mb-2 border hover:bg-blue-50 whitespace-normal"
+            // >
+            //   <div className={"font-semibold text-base md:text-lg " + (mod._isCompleted ? "text-green-600" : "text-gray-900")}>{mod.title}</div>
 
-              <div className="text-xs text-gray-500">{mod.objectives?.length || 0} objectives</div>
+            //   <div className="text-xs text-gray-500">{mod.objectives?.length || 0} objectives</div>
+            // </TabsTrigger>
+
+            <TabsTrigger
+
+              key={mod._tabValue}
+
+              value={mod._tabValue}
+
+              className={`text-left py-3 px-4 rounded-lg mb-2 border whitespace-normal
+
+                ${mod._isCompleted ? "bg-green-100 text-green-800 border-green-300" : "bg-white text-gray-900 hover:bg-blue-50"}`}
+            >
+            <div className="font-semibold text-base md:text-lg">{mod.title}</div>
+            <div className="text-xs text-gray-500">{mod.objectives?.length || 0} objectives</div>
             </TabsTrigger>
+ 
                         ))}
                     </TabsList>
 
@@ -341,7 +357,7 @@ export default function TrainingPlanPage() {
                             <div className="mb-4">
                             <div className="text-2xl font-bold mb-2">{mod.title}</div>
                             <div className="text-gray-600 mb-2">
-                                Recommended Time: <span className="font-semibold">{mod.recommended_time_hours} hours</span>
+                                Recommended Time: <span className="font-semibold">{mod.recommended_time} hours</span>
                             </div>
                             <div className="text-gray-600 mb-2">
                                 Tips: {Array.isArray(mod.tips) ? (

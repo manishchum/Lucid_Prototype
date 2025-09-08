@@ -56,4 +56,51 @@ export function ProcessingStatusComponent({ moduleId, initialStatus, onStatusCha
   }, [moduleId, status, onStatusChange])
 
   return getProcessingStatusBadge(status)
-} 
+}
+
+interface ContentGenerationProgressProps {
+  moduleId: string
+}
+
+export function ContentGenerationProgress({ moduleId }: ContentGenerationProgressProps) {
+  const [progress, setProgress] = useState(0)
+  const [completed, setCompleted] = useState(0)
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout
+    const fetchProgress = async () => {
+      try {
+        const res = await fetch(`/api/content-generation-progress?module_id=${moduleId}`)
+        const data = await res.json()
+        setProgress(data.percent || 0)
+        setCompleted(data.completed || 0)
+        setTotal(data.total || 0)
+        setLoading(false)
+        if (data.percent >= 100 && interval) {
+          clearInterval(interval)
+        }
+      } catch (err) {
+        setLoading(false)
+      }
+    }
+    fetchProgress()
+    interval = setInterval(fetchProgress, 5000) // poll every 5 seconds
+    return () => clearInterval(interval)
+  }, [moduleId])
+
+  return (
+    <div style={{ margin: "1rem 0" }}>
+      <h3>Content Generation Progress</h3>
+      {loading ? (
+        <p>Loading progress...</p>
+      ) : (
+        <>
+          <progress value={progress} max={100} style={{ width: "100%" }} />
+          <p>{progress}% ({completed} of {total} modules completed)</p>
+        </>
+      )}
+    </div>
+  )
+}

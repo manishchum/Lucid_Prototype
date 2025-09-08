@@ -89,7 +89,66 @@ export async function POST(req: NextRequest) {
       // Pair each question with its answer
       let qaPairs = questions.map((q, i) => `Q${i+1}: ${q}\nA${i+1}: ${answers[i] || ""}`).join("\n");
   console.log("[LearningStyle] QA Pairs:", qaPairs);
-  const prompt = `You are an expert in learning styles. Given the following 40 survey questions and the user's answers (1-5 scale), analyze and classify the user's dominant learning style as one of the following: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\nFor your response:\n1. Return the best-fit learning style as one of CS, CR, AS, or AR.\n2. Provide a detailed analysis justifying the classification and describing how the user learns best according to this style.\nReturn JSON: { learning_style: \"...\", analysis: \"...\" }\n\nSurvey Responses:\n${qaPairs}`;
+  const prompt = `You are an expert educational psychologist specializing in learning style models. Your goal is to administer the Gregorc Learning Style Delineator, analyze the user's responses, calculate their scores, and generate a detailed and empathetic report on their dominant learning style(s).
+
+Background on the Model: The Gregorc model defines four learning styles based on how individuals perceive and order information:
+1. Concrete Sequential (CS): The organizer. Learns through hands-on experience, logical sequence, structured environments, and practicality. Prefers clear instructions, deadlines, and facts.
+2. Abstract Sequential (AS): The thinker. Learns through analysis, intellectual exploration, theoretical models, and critical thinking. Prefers lectures, reading, research, and independent work.
+3. Abstract Random (AR): The empathizer. Learns through reflection, emotional connection, group harmony, and holistic understanding. Prefers group discussions, open-ended activities, and personal relationships with instructors.
+4. Concrete Random (CR): The innovator. Learns through experimentation, intuition, discovery, and solving problems in unconventional ways. Prefers trial-and-error, options, flexibility, and challenging the status quo.
+Most people have a blend but with a dominant preference.
+
+Step 1- Assess the learning style
+You are an expert in learning style assessment and data analysis. Your task is to calculate and interpret the results of a learning style assessment questionnaire based on Gregorc Learning Style
+The Background:
+• The questionnaire is based on Dr. Anthony Gregorc's model.
+• It measures four distinct learning styles: Concrete Sequential (CS), Abstract Sequential (AS), Abstract Random (AR), and Concrete Random (CR).
+• The test consists of 40 total questions.
+• There are 10 questions dedicated to each of the four learning styles.
+• Respondents answer using a Likert scale (e.g., from 1 = "Least Like Me" to 5 = "Most Like Me").
+• For each learning style there are 10 questions. Mapping of the questions to learning style is:
+  - Concrete Sequential (CS): Questions 1-10
+  - Abstract Sequential (AS): Questions 11-20
+  - Abstract Random (AR): Questions 21-30
+  - Concrete Random (CR): Questions 31-40
+
+Your Step-by-Step Task:
+1. Calculate the Scores:
+  - For each of the four styles, calculate the total sum of the scores for its corresponding 10 questions.
+  - Present the four totals clearly. The maximum possible score for any style is 50 (10 questions * 5). The minimum is 10.
+2. Identify Dominant and Secondary Styles:
+  - Dominant Style: The style with the highest total score is the dominant learning style.
+  - Secondary Style(s): The style with the second-highest score is a strong secondary preference. If scores are very close (e.g., within 2-3 points), note that the person has a strong blend of those styles.
+  - Use the following class intervals to describe the strength of the preference for each style:
+    • 40-50 Points: Very Strong Preference
+    • 30-39 Points: Strong Preference
+    • 20-29 Points: Moderate Preference
+    • 10-19 Points: Low Preference
+
+Step 2: Generate the User Report
+Generate the learning style assessment report with the following structure.
+Title: Your Personal Learning Style Insights
+
+Based on your answers, here’s what we discovered about how you learn best. Use these insights to understand your strengths and find learning plans that work for you.
+1. Your Natural Learning Style:
+  • "Your approach to learning is most like that of The [Organizer/Thinker/Connector/Innovator]."
+  • Provide a 2-3 paragraph engaging description of dominant learning style.
+2. How You Thrive:
+  • Ideal Learning Environment: List 4-5 conditions.
+  • Your Superpowers: List 3-4 strengths.
+3. Tips to Make Learning Easier:
+  • If you feel stuck, try: List 3-4 actionable strategies.
+  • What to Look For: Suggest content types.
+
+Return JSON: {
+  scores: { CS: number, AS: number, AR: number, CR: number },
+  dominant_style: "CS|AS|AR|CR",
+  secondary_style: "CS|AS|AR|CR",
+  report: "...full user report..."
+}
+
+Survey Responses:
+${qaPairs}`;
       //   console.log("[LearningStyle] OpenAI prompt:", prompt)
       const completion = await openai.chat.completions.create({
         model: "gpt-4.1",
@@ -125,12 +184,15 @@ export async function POST(req: NextRequest) {
     }
 
     // Save GPT result (learning style classification and analysis) in employee_learning_style
-    if (gptResult && gptResult.learning_style && gptResult.analysis) {
+    if (gptResult && (gptResult.dominant_style || gptResult.learning_style) && gptResult.report) {
       await adminClient
         .from("employee_learning_style")
-        .update({ learning_style: gptResult.learning_style, gpt_analysis: gptResult.analysis })
+        .update({
+          learning_style: gptResult.dominant_style || gptResult.learning_style,
+          gpt_analysis: gptResult.report
+        })
         .eq("employee_id", employee_id)
-        console.log("GPT Analysis")
+      console.log("GPT Analysis saved to Supabase")
     }
 
     return NextResponse.json({ success: true, gpt: gptResult })
