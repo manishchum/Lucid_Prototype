@@ -22,8 +22,48 @@ function areModulesEqual(modulesA: any[], modulesB: any[]) {
 
 // Helper to call OpenAI for MCQ quiz generation
 async function generateMCQQuiz(summary: string, modules: any[], objectives: any[]): Promise<any[]> {
-  const prompt = `You are an expert instructional designer. Given the following training content summary, modules, and objectives, generate a 10-12 question multiple-choice quiz. Each question should have 4 options, only one correct answer, and cover a range of topics. Return as JSON array with: {question, options, correctIndex, explanation (optional)}.
+  const prompt = `You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom’s Taxonomy.
 
+Input: A learning asset (text, notes, or structured content).
+
+Output: A set of 30 MCQs (Multiple Choice Questions) distributed across difficulty levels based on Bloom’s Taxonomy.
+
+Easy → Remember & Understand (default: 20%)
+Average → Apply & Analyze (default: 50%)
+Difficult → Evaluate & Create (default: 30%)
+
+Bloom’s Level Mapping:
+Remember: Define, List, Identify, Recall, Name, Label, Recognize, State, Match, Repeat, Select
+Understand: Explain, Summarize, Describe, Interpret, Restate, Paraphrase, Classify, Discuss, Illustrate, Compare (basic), Report
+Apply: Solve, Demonstrate, Use, Implement, Apply, Execute, Practice, Show, Operate, Employ, Perform
+Analyze: Differentiate, Compare, Contrast, Organize, Examine, Break down, Categorize, Investigate, Distinguish, Attribute, Diagram
+Evaluate: Judge, Critique, Justify, Recommend, Assess, Evaluate, Defend, Support, Argue, Prioritize, Appraise, Rate, Validate
+Create: Design, Generate, Propose, Develop, Formulate, Construct, Invent, Plan, Compose, Produce, Hypothesize, Integrate, Originate
+
+Exhaustive Question-Type Bank (Stems/Patterns):
+Remember: “What is…?”, “Which of the following defines…?”, “Identify…”, “Who discovered…?”, “When/Where did…?”, “Match the term with…”
+Understand: “Which best explains…?”, “Summarize…”, “What does this mean…?”, “Which example illustrates…?”, “Why does…happen?”
+Apply: “Which principle would you use if…?”, “What is the correct method to…?”, “How would you solve…?”, “Which tool/technique applies to…?”, “Which step comes next…?”
+Analyze: “Which factor contributes most to…?”, “What pattern best explains…?”, “Which cause-effect relationship is correct…?”, “What evidence supports…?”, “Which statement best differentiates between…?”
+Evaluate: “Which option provides the best justification…?”, “Which solution is most effective and why?”, “Which argument is strongest?”, “Which evidence best supports…?”, “What decision is most appropriate…?”
+Create: “What new approach could be developed…?”, “Which design achieves…?”, “How would you improve…?”, “Which combination of ideas solves…?”, “What hypothesis could you form…?”
+
+Question Design Rules:
+- Each question must explicitly map to its Bloom’s level.
+- Provide 4 answer choices (A–D).
+- Clearly mark the correct answer.
+- Avoid ambiguity; test one concept per question. Ensure every concept is tested.
+
+Return ONLY a valid JSON array of 30 question objects, with no extra text, markdown, code blocks, or formatting. Each object must include:
+{
+  "question": string,
+  "bloomLevel": string,
+  "options": [string, string, string, string],
+  "correctIndex": number,
+  "explanation": string (optional)
+}
+
+Learning Content:
 Summary: ${summary}
 Modules: ${JSON.stringify(modules)}
 Objectives: ${JSON.stringify(objectives)}
@@ -38,17 +78,22 @@ Objectives: ${JSON.stringify(objectives)}
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4',
+      model: 'gpt-4.1',
       messages: [{ role: 'system', content: prompt }],
-      temperature: 0.3,
-      max_tokens: 2000,
+      temperature: 0.7,
+      max_tokens: 8000,
     }),
   });
   const data = await response.json();
+  console.log('[gpt-mcq-quiz][DEBUG] Raw OpenAI response:', JSON.stringify(data, null, 2));
   let quiz;
   try {
     quiz = JSON.parse(data.choices[0].message.content);
-  } catch {
+    if (!Array.isArray(quiz) || quiz.length === 0) {
+      console.warn('[gpt-mcq-quiz][WARN] Parsed quiz is empty or not an array:', quiz);
+    }
+  } catch (err) {
+    console.error('[gpt-mcq-quiz][ERROR] Failed to parse GPT response:', err, data.choices?.[0]?.message?.content);
     quiz = [];
   }
   return quiz;
@@ -96,8 +141,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ quiz: existing.questions });
       }
     }
-    // Compose prompt for the user's learning style
-  const prompt = `You are an expert instructional designer. Given the following training content summary, modules, and objectives, generate a 10-12 question quiz tailored for the ${learningStyle} learning style. Use a mix of question types (MCQ, open-ended, scenario, matching, etc.) that best fit this style.\n\nEach question object must follow this format:\n{\n  "question": string,\n  "type": string,\n  "options": array or object (if applicable),\n  "correctAnswer": string, array, or object (if applicable),\n  "explanation": string (optional)\n}\n\nReturn ONLY a valid JSON array of question objects, with no extra text, markdown, code blocks, or formatting. Do not include any explanations, headers, or comments outside the JSON array.\n\nSummary: ${moduleData.title}\nModules: ${JSON.stringify([moduleData.title])}\nObjectives: ${JSON.stringify([moduleData.content])}`;
+  // Compose prompt for per-module MCQ quiz (no mixed question types)
+  const prompt = `You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom’s Taxonomy.\n\nInput: A learning asset (text, notes, or structured content).\n\nOutput: A set of 10-13 MCQs (Multiple Choice Questions) distributed across difficulty levels based on Bloom’s Taxonomy.\n\nEasy → Remember & Understand (default: 20%)\nAverage → Apply & Analyze (default: 50%)\nDifficult → Evaluate & Create (default: 30%)\n\nBloom’s Level Mapping:\nRemember: Define, List, Identify, Recall, Name, Label, Recognize, State, Match, Repeat, Select\nUnderstand: Explain, Summarize, Describe, Interpret, Restate, Paraphrase, Classify, Discuss, Illustrate, Compare (basic), Report\nApply: Solve, Demonstrate, Use, Implement, Apply, Execute, Practice, Show, Operate, Employ, Perform\nAnalyze: Differentiate, Compare, Contrast, Organize, Examine, Break down, Categorize, Investigate, Distinguish, Attribute, Diagram\nEvaluate: Judge, Critique, Justify, Recommend, Assess, Evaluate, Defend, Support, Argue, Prioritize, Appraise, Rate, Validate\nCreate: Design, Generate, Propose, Develop, Formulate, Construct, Invent, Plan, Compose, Produce, Hypothesize, Integrate, Originate\n\nExhaustive Question-Type Bank (Stems/Patterns):\nRemember: “What is…?”, “Which of the following defines…?”, “Identify…”, “Who discovered…?”, “When/Where did…?”, “Match the term with…”\nUnderstand: “Which best explains…?”, “Summarize…”, “What does this mean…?”, “Which example illustrates…?”, “Why does…happen?”\nApply: “Which principle would you use if…?”, “What is the correct method to…?”, “How would you solve…?”, “Which tool/technique applies to…?”, “Which step comes next…?”\nAnalyze: “Which factor contributes most to…?”, “What pattern best explains…?”, “Which cause-effect relationship is correct…?”, “What evidence supports…?”, “Which statement best differentiates between…?”\nEvaluate: “Which option provides the best justification…?”, “Which solution is most effective and why?”, “Which argument is strongest?”, “Which evidence best supports…?”, “What decision is most appropriate…?”\nCreate: “What new approach could be developed…?”, “Which design achieves…?”, “How would you improve…?”, “Which combination of ideas solves…?”, “What hypothesis could you form…?”\n\nQuestion Design Rules:\n- Each question must explicitly map to its Bloom’s level.\n- Provide 4 answer choices (A–D).\n- Clearly mark the correct answer.\n- Avoid ambiguity; test one concept per question. Ensure every concept is tested.\n\nReturn ONLY a valid JSON array of 10-13 question objects, with no extra text, markdown, code blocks, or formatting. Each object must include:\n{\n  "question": string,\n  "bloomLevel": string,\n  "options": [string, string, string, string],\n  "correctIndex": number,\n  "explanation": string (optional)\n}\n\nLearning Content:\nSummary: ${moduleData.title}\nModules: ${JSON.stringify([moduleData.title])}\nObjectives: ${JSON.stringify([moduleData.content])}`;
     console.log(`[gpt-mcq-quiz] Calling OpenAI for moduleId: ${moduleId} with learning style: ${learningStyle}`);
     // Call OpenAI API
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -109,7 +154,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         model: 'gpt-4.1',
         messages: [{ role: 'system', content: prompt }],
-        temperature: 0.3,
+        temperature: 0.7,
         max_tokens: 20000,
       }),
     });
@@ -222,6 +267,10 @@ export async function POST(request: NextRequest) {
     currentModules,
     combinedObjectives
   );
+  if (!Array.isArray(quiz) || quiz.length === 0) {
+    console.error('[gpt-mcq-quiz][ERROR] Quiz array is empty or invalid. Not storing.');
+    return NextResponse.json({ error: 'Quiz generation failed or returned empty array.', rawResponse: quiz }, { status: 500 });
+  }
   if (existingAssessment && existingAssessment.id) {
     // Update the existing assessment
     const { error: updateError } = await supabase

@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   // Fetch all processed_modules with empty or placeholder content
   const { data: modules, error } = await supabase
     .from("processed_modules")
-    .select("id, title, content, original_module_id, training_modules(ai_modules, ai_topics, ai_objectives)")
+    .select("id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives)")
     .or("content.is.null,content.eq.'',content.eq.\"\"");
 
   if (error) {
@@ -55,43 +55,57 @@ export async function POST(req: NextRequest) {
         ? `Objectives for this module:\n${objectives.map((obj: string, idx: number) => `${idx + 1}. ${obj}`).join("\n")}`
         : "";
 
-      // Learning styles
-      const learningStyles = ["CS", "CR", "AS", "AR"];
-      for (const style of learningStyles) {
-        // Compose prompt for each learning style
-        const stylePrompt = `Generate detailed training content for the module titled: \"${mod.title}\".\n${topicsText}\n${objectivesText}\nThe content should cover all topics from basic to advanced. Structure the content clearly, use explanations, examples, and practical tips. Make it suitable for new hires in a corporate setting. Adapt the content for the following learning style: ${style}.`;
-        console.log(`Calling OpenAI for module: ${mod.title} (${mod.id}) with learning style: ${style}`);
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4-turbo",
-          messages: [
-            { role: "system", content: "You are an expert corporate trainer and instructional designer." },
-            { role: "user", content: stylePrompt },
-          ],
-          max_tokens: 2048,
-          temperature: 0.7,
-        });
-        const aiContent = completion.choices[0]?.message?.content?.trim() || "";
-        if (!aiContent) {
-          console.warn(`No content generated for module: ${mod.id} style: ${style}`);
-          continue;
-        }
-        // Insert a new processed_modules row for each learning style
-        const { error: insertError } = await supabase
-          .from("processed_modules")
-          .insert({
-            original_module_id: mod.original_module_id || mod.id,
-            title: mod.title,
-            content: aiContent,
-            learning_style: style,
-            section_type: null,
-            order_index: null
-          });
-        if (insertError) {
-          console.error(`Failed to insert content for module ${mod.id} style ${style}:`, insertError);
-        } else {
-          updated++;
-          console.log(`Inserted module ${mod.id} with AI content for style ${style}.`);
-        }
+      // Compose prompt for the learning style of this row
+      const style = mod.learning_style;
+      const stylePrompt = `You are an expert instructional designer. Your task is to write a complete, self-contained training module for new hires, as if it were a chapter in a professional textbook.
+
+Module Title: "${mod.title}"
+${topicsText}
+${objectivesText}
+
+Instructions:
+1. Structure the content with clear sections, logical flow, and progressive depth (from basic to advanced).
+2. For each topic and objective, provide:
+  - Detailed explanations
+  - Practical examples and case studies
+  - Step-by-step exercises and activities
+  - Actionable tips and best practices
+3. Ensure the module is fully self-contained: all information, context, and learning activities must be included so the learner does not need to reference any other material.
+4. Adapt the content for the following Gregorc learning style: ${style}
+  - CS (Concrete Sequential): Use hands-on activities, clear instructions, logical sequence, deadlines, and factual information.
+  - CR (Concrete Random): Encourage experimentation, discovery, trial-and-error, flexibility, and problem-solving.
+  - AS (Abstract Sequential): Focus on analysis, intellectual exploration, theoretical models, and independent research.
+  - AR (Abstract Random): Foster reflection, emotional connection, group harmony, open-ended activities, and personal engagement.
+5. Write in a professional, engaging, and instructional tone suitable for new hires in a corporate setting.
+6. Output only the full module content, ready for direct use in training. Do not include meta commentary or instructions—just the content itself.
+7. If relevant, include section headings, subheadings, and formatting for readability.
+
+Goal: The output should be a comprehensive, ready-to-use training module that fully addresses the topics and objectives, tailored to the specified learning style, and suitable for direct delivery to learners.`;
+      console.log(`Calling OpenAI for module: ${mod.title} (${mod.id}) with learning style: ${style}`);
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4.1",
+        messages: [
+          { role: "system", content: "You are an expert corporate trainer and instructional designer." },
+          { role: "user", content: stylePrompt },
+        ],
+        max_tokens: 8000,
+        temperature: 0.7,
+      });
+      const aiContent = completion.choices[0]?.message?.content?.trim() || "";
+      if (!aiContent) {
+        console.warn(`No content generated for module: ${mod.id} style: ${style}`);
+        continue;
+      }
+      // Update the processed_modules row for this module and learning style
+      const { error: updateError } = await supabase
+        .from("processed_modules")
+        .update({ content: aiContent })
+        .eq("id", mod.id);
+      if (updateError) {
+        console.error(`Failed to update content for module ${mod.id} style ${style}:`, updateError);
+      } else {
+        updated++;
+        console.log(`Updated module ${mod.id} with AI content for style ${style}.`);
       }
     } catch (err) {
       console.error(`Error processing module ${mod.id}:`, err);

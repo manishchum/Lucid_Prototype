@@ -44,14 +44,37 @@ export async function POST(req: Request) {
 
     const thread = await openai.beta.threads.create();
 
-    await openai.beta.threads.messages.create(thread.id, {
-      role: "user",
-      content: "Summarize this document and break it into modules, topics, and objectives.",
-      attachments: [{
-        file_id: openaiFile.id,
-        tools: [{ type: "file_search" }],
-      }],
-    });
+   await openai.beta.threads.messages.create(thread.id, {
+    role: "user",
+    content: `You are an expert instructional designer. Your job is to decompose any single learning asset (text, slide deck, video series, mixed media, or course) into a clear sequence of self-contained learning modules that together cover the entire subject matter. Follow these exact steps and output formats. Do not deviate.
+
+Processing steps (apply exactly):
+1. Identify Overall Learning Goal
+  - State a single concise end competency or performance outcome learners should achieve after completing the whole module. Phrase it as a measurable competency (e.g., "Create, test, and deploy a REST API that meets company security standards").
+2. Segment into Themes
+  - Read the file and cluster related ideas into one single module
+3. Apply One Core Idea Rule
+  - Ensure each module is centered on one core concept. If a module contains unrelated ideas, split it.
+4. Apply Module Splitting Checks (for every module)
+  - Time-to-Mastery Rule: estimate how much complex the topic is. If high complexity, split.
+  - Single-Outcome Rule: if module yields more than one distinct learning outcome, split into separate modules.
+  - Cognitive Load Rule: if the module introduces >3–5 new concepts, split into smaller modules.
+  - For each module, list which (if any) rules triggered a split and what you did.
+5. Arrange Modules Logically
+  - Order modules from foundational → intermediate → advanced, or simple → complex. Provide sequencing rationale.
+6. Validate Module Independence
+  - For each module, ensure it is self-contained and delivers one clear learning outcome that can be assessed independently.
+
+Additional instructions to maximize quality:
+- If source is incomplete or ambiguous, list specific clarifying questions to help refine modulization (e.g., target proficiency level, mandatory compliance items, preferred duration).
+- Keep module durations realistic for active learning (typical module: 45–60 minutes reading time unless justified).
+- Ensure nothing from the source that is a distinct subject-matter point is omitted; explicitly call out any gaps between source content and the stated Overall Learning Goal.
+`,
+    attachments: [{
+      file_id: openaiFile.id,
+      tools: [{ type: "file_search" }],
+    }],
+   });
 
     const assistantId = process.env.OPENAI_ASSISTANT_ID;
     if (!assistantId) throw new Error("OPENAI_ASSISTANT_ID is not set");
@@ -97,30 +120,36 @@ export async function POST(req: Request) {
     let ai_objectives: string[] = [];
 
     if (message) {
-      // Try to find a summary before any module headings
-      // Remove unsupported 's' flag and use [\s\S] for multiline matching
-      const summaryMatch = message.match(/^(.*?)(?=(?:###|\d+\.\s|\*\*Module|Module\s\d+:))/);
-      if (summaryMatch) {
-        summary = summaryMatch[1].trim();
-      } else {
-        // Fallback: try to match up to first module heading using [\s\S]
-        const fallbackMatch = message.match(/^(.*?)(?=(###|\d+\.\s|\*\*Module|Module\s\d+:))/);
-        summary = fallbackMatch ? fallbackMatch[1].trim() : "";
+      // Only parse modules under 'Learning Modules and Structure' section
+      let modulesSection = message;
+      // Find the start of modules section
+      const modulesStart = modulesSection.match(/Learning Modules and Structure/i);
+      if (modulesStart) {
+        modulesSection = modulesSection.substring(modulesStart.index!);
       }
-
-      // Find module blocks by various heading styles
-      const moduleRegex = /(?:###\s*Module\s*\d+:|\*\*Module\s*\d+:|Module\s*\d+:|\d+\.\s\*\*Module\*\*|\d+\.\s)([\s\S]*?)(?=(?:###\s*Module\s*\d+:|\*\*Module\s*\d+:|Module\s*\d+:|\d+\.\s\*\*Module\*\*|\d+\.\s|$))/gi;
+      // Cut off at first non-module section (e.g., 'Module Splitting Checks', 'Sequencing', etc.)
+      const cutoffRegex = /(Module Splitting Checks|Sequencing|Module Independence|Additional Clarifying Questions)/i;
+      const cutoffMatch = modulesSection.match(cutoffRegex);
+      if (cutoffMatch) {
+        modulesSection = modulesSection.substring(0, cutoffMatch.index!);
+      }
+      // Find module blocks by strict heading: 'Module X:' or '#### Module X:'
+      const moduleRegex = /(####\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|$))/gi;
       let moduleMatches = [];
       let match;
-      while ((match = moduleRegex.exec(message)) !== null) {
-        moduleMatches.push(match[1].trim());
+      while ((match = moduleRegex.exec(modulesSection)) !== null) {
+        moduleMatches.push(match[2].trim());
       }
-
-      // If no module blocks found, fallback to topics/objectives extraction from the whole message
+      // If no module blocks found, fallback to previous logic but ignore non-module sections
       if (moduleMatches.length === 0) {
-        moduleMatches = [message];
+        // Fallback: try to find all 'Module X:' headings in the whole message
+        const fallbackRegex = /(####\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|$))/gi;
+        let fallbackMatches = [];
+        while ((match = fallbackRegex.exec(message)) !== null) {
+          fallbackMatches.push(match[2].trim());
+        }
+        moduleMatches = fallbackMatches;
       }
-
       for (let i = 0; i < moduleMatches.length; i++) {
         const block = moduleMatches[i];
         // Try to extract module title
@@ -128,7 +157,6 @@ export async function POST(req: Request) {
         const title = titleMatch ? titleMatch[1].trim() : `Module ${i + 1}`;
         const topics: string[] = [];
         const objectives: string[] = [];
-
         // Find topics section
         const topicsSection = block.match(/topics?:\s*([\s\S]*?)(?=objectives?:|$)/i);
         if (topicsSection && topicsSection[1]) {
@@ -140,7 +168,6 @@ export async function POST(req: Request) {
             .filter(Boolean)
           );
         }
-
         // Find objectives section
         const objectivesSection = block.match(/objectives?:\s*([\s\S]*)/i);
         if (objectivesSection && objectivesSection[1]) {
@@ -152,7 +179,6 @@ export async function POST(req: Request) {
             .filter(Boolean)
           );
         }
-
         // Fallback: If topics/objectives not found, try to extract bullet points
         if (topics.length === 0) {
           topics.push(...block.split(/\n|\r/)
@@ -200,61 +226,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Failed to update Supabase", detail: error }, { status: 500 });
     }
 
-    // Insert each ai_module into processed_modules
-    let processedCount = 0;
-    let processedModuleIds: string[] = [];
-    for (let i = 0; i < ai_modules.length; i++) {
-      const mod = ai_modules[i];
-      const { title, topics, objectives } = mod;
-      const content = JSON.stringify({ topics, objectives });
-      const { data: insertData, error: procErr } = await supabase
-        .from("processed_modules")
-        .insert({
-          original_module_id: moduleId,
-          title: title || `Module ${i + 1}`,
-          content: "", // leave content empty for now
-          section_type: null,
-          order_index: i,
-        })
-        .select();
-      if (!procErr && insertData && insertData[0]?.id) {
-        processedCount++;
-        processedModuleIds.push(insertData[0].id);
-      }
-    }
-
-    // Automatically generate content for each processed module
-    let updated = 0;
-    for (const id of processedModuleIds) {
-      try {
-        // Fetch module title
-        const { data: modData, error: fetchErr } = await supabase
-          .from("processed_modules")
-          .select("id, title, content")
-          .eq("id", id)
-          .single();
-        if (fetchErr || !modData) continue;
-        const prompt = `Generate detailed training content for the module titled: "${modData.title}". The content should cover all topics from basic to advanced. Structure the content clearly, use explanations, examples, and practical tips. Make it suitable for new hires in a corporate setting.`;
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4-turbo",
-          messages: [
-            { role: "system", content: "You are an expert corporate trainer and instructional designer." },
-            { role: "user", content: prompt },
-          ],
-          max_tokens: 2048,
-          temperature: 0.7,
-        });
-        const aiContent = completion.choices[0]?.message?.content?.trim() || "";
-        if (!aiContent) continue;
-        const { error: updateError } = await supabase
-          .from("processed_modules")
-          .update({ content: aiContent })
-          .eq("id", id);
-        if (!updateError) updated++;
-      } catch (err) {
-        // log error but continue
-        console.error(`Error generating content for module ${id}:`, err);
-      }
+    // Call long-running content generation endpoint
+    const baseUrl = process.env.INTERNAL_API_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+    let startGenResult: any = null;
+    try {
+      const startRes = await fetch(`${baseUrl}/api/start-content-generation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ module_id: moduleId }),
+      });
+      startGenResult = await startRes.json().catch(() => null);
+    } catch (e) {
+      console.error("Failed to call start-content-generation:", e);
     }
 
     return NextResponse.json({
@@ -263,8 +246,7 @@ export async function POST(req: Request) {
       ai_topics,
       ai_objectives,
       supabaseResult: data,
-      processedModulesInserted: processedCount,
-      processedModulesContentGenerated: updated,
+      startGenResult,
     });
   } catch (err) {
     console.error("❌ Fatal Error:", err);
@@ -279,4 +261,4 @@ export async function POST(req: Request) {
     );
   }
 }
- 
+
