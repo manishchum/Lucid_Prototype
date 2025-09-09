@@ -1,6 +1,61 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect } from "react";
+
+interface StepButtonProps {
+  step: number;
+  label: string;
+  completed: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  record: string;
+}
+
+function StepButton({ step, label, completed, disabled, onClick, record }: StepButtonProps) {
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      className="relative flex flex-col items-center z-10"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <button
+        className={`flex items-center justify-center w-16 h-16 rounded-full border-4 transition-all duration-300 focus:outline-none mb-3
+          ${completed ? "bg-green-500 border-green-500 text-white shadow-lg" : "bg-white border-blue-400 text-blue-600"}
+          ${disabled ? "cursor-not-allowed" : "hover:scale-110 cursor-pointer"}`}
+        disabled={disabled}
+        onClick={onClick}
+        type="button"
+        aria-disabled={disabled}
+      >
+        {completed ? (
+          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+          </svg>
+        ) : (
+          <span className="text-xl font-bold">{step}</span>
+        )}
+      </button>
+      <div className={`text-center px-2 transition-colors duration-300 ${completed ? "text-green-600" : "text-gray-700"}`}>
+        <div className="font-semibold text-sm leading-tight">{label}</div>
+      </div>
+      {hover && (
+        <div className="absolute left-1/2 -translate-x-1/2 top-full mt-3 px-4 py-2 bg-gray-900 text-white text-sm rounded-lg shadow-2xl z-30 max-w-xs w-max text-center whitespace-normal" role="tooltip">
+          {record}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConnectorLine({ completed }: { completed: boolean }) {
+  return (
+    <div className="flex items-center justify-center flex-1 mx-4">
+      <div className={`h-1 w-full rounded transition-colors duration-500 ${completed ? "bg-green-500" : "bg-gray-300"}`}></div>
+    </div>
+  );
+}
+
 import ScoreFeedbackCard from "../assessment/score-feedback"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -8,7 +63,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
-import { Users, LogOut, BookOpen, Clock } from "lucide-react"
+import { Users, LogOut, BookOpen, Clock, User, ChevronDown } from "lucide-react"
 import EmployeeNavigation from "@/components/employee-navigation"
 
 interface Employee {
@@ -26,7 +81,9 @@ export default function EmployeeWelcome() {
   const [moduleProgress, setModuleProgress] = useState<any[]>([])
   const [learningStyle, setLearningStyle] = useState<string | null>(null)
   const [baselineScore, setBaselineScore] = useState<number | null>(null)
+  const [baselineMaxScore, setBaselineMaxScore] = useState<number | null>(null)
   const [allAssignedCompleted, setAllAssignedCompleted] = useState<boolean>(false)
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false)
   const router = useRouter()
   // LOG: Initial state
   console.log("[EmployeeWelcome] Initial user:", user)
@@ -91,7 +148,7 @@ export default function EmployeeWelcome() {
       // Note: employee_assessments does not have created_at; avoid selecting/ordering by it
       const { data: assessments, error: assessmentError } = await supabase
         .from("employee_assessments")
-        .select("id, score, feedback, question_feedback, assessment_id, assessments(type, questions)")
+        .select("id, score, max_score, feedback, question_feedback, assessment_id, assessments(type, questions)")
         .eq("employee_id", employeeData.id)
         .order("id", { ascending: false })
       setScoreHistory(assessments || [])
@@ -116,7 +173,7 @@ export default function EmployeeWelcome() {
           if (baselineAssessment?.id) {
             const { data: baselineEAList, error: beaError } = await supabase
               .from('employee_assessments')
-              .select('score')
+              .select('score, max_score')
               .eq('employee_id', employeeData.id)
               .eq('assessment_id', baselineAssessment.id)
               .order('id', { ascending: false })
@@ -128,6 +185,11 @@ export default function EmployeeWelcome() {
             if (baselineEA && baselineEA.score !== null && baselineEA.score !== undefined) {
               const s = typeof baselineEA.score === 'number' ? baselineEA.score : parseFloat(String(baselineEA.score))
               if (!Number.isNaN(s)) setBaselineScore(s)
+              const ms = (baselineEA as any)?.max_score
+              if (ms !== null && ms !== undefined) {
+                const msv = typeof ms === 'number' ? ms : parseFloat(String(ms))
+                if (!Number.isNaN(msv)) setBaselineMaxScore(msv)
+              }
             }
           }
         }
@@ -145,6 +207,11 @@ export default function EmployeeWelcome() {
           const latestBaseline = baselineRows?.[0]
           const s = typeof latestBaseline?.score === 'number' ? latestBaseline.score : parseFloat(String(latestBaseline?.score))
           if (!Number.isNaN(s)) setBaselineScore(s)
+          const ms = (latestBaseline as any)?.max_score
+          if (ms !== null && ms !== undefined) {
+            const msv = typeof ms === 'number' ? ms : parseFloat(String(ms))
+            if (!Number.isNaN(msv)) setBaselineMaxScore(msv)
+          }
         } catch (e) {
           console.warn('[EmployeeWelcome] baseline score derivation failed:', e)
         }
@@ -237,9 +304,9 @@ export default function EmployeeWelcome() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100" onClick={() => setShowProfileDropdown(false)}>
       {/* Header */}
-      <div className="bg-white shadow-sm border-b">
+      <div className="bg-white shadow-sm border-b" onClick={(e) => e.stopPropagation()}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center">
@@ -249,10 +316,55 @@ export default function EmployeeWelcome() {
                 <p className="text-sm text-gray-600">Welcome to your training dashboard</p>
               </div>
             </div>
-            <Button onClick={handleLogout} variant="outline">
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
-            </Button>
+            <div className="relative">
+              <button
+                onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+              >
+                <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white">
+                  <User className="w-5 h-5" />
+                </div>
+                <span className="text-sm font-medium text-gray-700">
+                  {employee?.name || user?.displayName || "Profile"}
+                </span>
+                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${showProfileDropdown ? 'rotate-180' : ''}`} />
+              </button>
+              
+              {showProfileDropdown && (
+                <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                  <div className="px-4 py-3 border-b border-gray-100">
+                    <div className="font-medium text-gray-900">
+                      {employee?.name || user?.displayName || "User"}
+                    </div>
+                    <div className="text-sm text-gray-500">{user?.email}</div>
+                  </div>
+                  
+                  <div className="py-1">
+                    <button
+                      onClick={() => {
+                        setShowProfileDropdown(false)
+                        router.push("/employee/account")
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
+                      <User className="w-4 h-4" />
+                      Account Settings
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        setShowProfileDropdown(false)
+                        handleLogout()
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Logout
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -265,7 +377,7 @@ export default function EmployeeWelcome() {
           {/* Welcome Card */}
           <Card className="bg-gradient-to-r from-green-500 to-blue-600 text-white">
             <CardHeader>
-              <CardTitle className="text-3xl">Welcome, {user?.displayName || employee?.name || user?.email}!</CardTitle>
+              <CardTitle className="text-3xl">Welcome, {employee?.name || user?.email}!</CardTitle>
               <CardDescription className="text-green-100">
                 You've successfully logged into your personalized training portal
               </CardDescription>
@@ -279,45 +391,53 @@ export default function EmployeeWelcome() {
           </Card>
 
           {/* Getting Started Flow Guide */}
+          {/* Arrow-based horizontal flow for onboarding steps */}
           <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200">
             <CardHeader>
               <CardTitle className="text-blue-900">Getting Started Guide</CardTitle>
-              <CardDescription className="text-blue-700">
-                Follow these steps to maximize your learning experience
-              </CardDescription>
+              <CardDescription className="text-blue-700">Follow these steps to maximize your learning experience</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-col md:flex-row gap-4">
-                <div className="flex-1 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-medium">1</div>
-                    <div>
-                      <div className="font-medium text-blue-900">Complete Learning Style Survey</div>
-                      <div className="text-sm text-blue-700">Helps us personalize your training content</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-medium">2</div>
-                    <div>
-                      <div className="font-medium text-blue-900">Take Baseline Assessment</div>
-                      <div className="text-sm text-blue-700">Assesses your current knowledge level</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-medium">3</div>
-                    <div>
-                      <div className="font-medium text-blue-900">Follow Your Training Plan</div>
-                      <div className="text-sm text-blue-700">AI-generated plan based on your assessment</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-medium">4</div>
-                    <div>
-                      <div className="font-medium text-blue-900">Track Your Progress</div>
-                      <div className="text-sm text-blue-700">Monitor scores and feedback history</div>
-                    </div>
-                  </div>
-                </div>
+              <div className="flex items-center justify-between py-8 px-4 max-w-2xl mx-auto">
+                {/* Step 1: Learning Style */}
+                <StepButton
+                  step={1}
+                  label="Learning Style"
+                  completed={!!learningStyle}
+                  disabled={!!learningStyle}
+                  onClick={() => !learningStyle && router.push("/employee/learning-style")}
+                  record={learningStyle ? `${learningStyle} - ${(() => {
+                    const meta = {
+                      CS: "Prefers structure, clear steps, and hands‑on practice.",
+                      AS: "Thinks analytically and values logic.",
+                      AR: "Learns through connections and stories.",
+                      CR: "Enjoys experimentation and rapid iteration."
+                    };
+                    return meta[learningStyle as keyof typeof meta] || "";
+                  })()}` : "Complete learning style to see details"}
+                />
+                <ConnectorLine completed={!!learningStyle} />
+                
+                {/* Step 2: Baseline Assessment */}
+                <StepButton
+                  step={2}
+                  label="Baseline Assessment"
+                  completed={baselineScore !== null}
+                  disabled={baselineScore !== null}
+                  onClick={() => baselineScore === null && router.push("/employee/assessment")}
+                  record={baselineScore !== null ? `Score: ${baselineScore}${baselineMaxScore ? ` / ${baselineMaxScore}` : ""}` : "Complete baseline assessment to see score"}
+                />
+                <ConnectorLine completed={baselineScore !== null} />
+                
+                {/* Step 3: Learning Plan */}
+                <StepButton
+                  step={3}
+                  label="Learning Plan"
+                  completed={allAssignedCompleted}
+                  disabled={baselineScore === null}
+                  onClick={() => baselineScore !== null && router.push("/employee/training-plan")}
+                  record={allAssignedCompleted ? "Learning plan completed!" : (baselineScore !== null ? "View and complete your learning plan" : "Complete previous steps")}
+                />
               </div>
             </CardContent>
           </Card>
@@ -373,7 +493,7 @@ export default function EmployeeWelcome() {
                   <div className="flex items-center justify-between">
                     <div className="text-sm text-gray-700">
                       <div className="font-medium">Baseline assessment completed</div>
-                      <div>Score: <b>{baselineScore}</b></div>
+                      <div>Score: <b>{baselineScore}</b>{baselineMaxScore ? <span> / {baselineMaxScore}</span> : null}</div>
                     </div>
                     {allAssignedCompleted ? (
                       <Button className="w-44" onClick={() => router.push('/employee/assessment')} title="You can retake the baseline after completing assigned modules">
