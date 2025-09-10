@@ -4,6 +4,7 @@ import { Inter } from "next/font/google"
 import "./globals.css"
 import { AuthProvider } from "@/contexts/auth-context"
 import { Toaster } from "react-hot-toast" // Import Toaster
+import { Toaster as ShadcnToaster } from "@/components/ui/toaster"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -23,6 +24,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <AuthProvider>{children}</AuthProvider>
         <Toaster /> {/* Add Toaster component here */}
+        <ShadcnToaster />
       </body>
     </html>
   )
