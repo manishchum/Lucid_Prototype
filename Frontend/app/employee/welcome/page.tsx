@@ -21,7 +21,8 @@ function StepButton({ step, label, completed, disabled, onClick, record }: StepB
     >
       <button
         className={`flex items-center justify-center w-16 h-16 rounded-full border-4 transition-all duration-300 focus:outline-none mb-3
-          ${completed ? "bg-green-500 border-green-500 text-white shadow-lg" : "bg-white border-blue-400 text-blue-600"}
+          ${completed ? "bg-green-500 border-green-500 text-white shadow-lg" : 
+            disabled ? "bg-gray-200 border-gray-300 text-gray-400" : "bg-white border-blue-400 text-blue-600"}
           ${disabled ? "cursor-not-allowed" : "hover:scale-110 cursor-pointer"}`}
         disabled={disabled}
         onClick={onClick}
@@ -36,7 +37,9 @@ function StepButton({ step, label, completed, disabled, onClick, record }: StepB
           <span className="text-xl font-bold">{step}</span>
         )}
       </button>
-      <div className={`text-center px-2 transition-colors duration-300 ${completed ? "text-green-600" : "text-gray-700"}`}>
+      <div className={`text-center px-2 transition-colors duration-300 ${
+        completed ? "text-green-600" : disabled ? "text-gray-400" : "text-gray-700"
+      }`}>
         <div className="font-semibold text-sm leading-tight">{label}</div>
       </div>
       {hover && (
@@ -399,7 +402,7 @@ export default function EmployeeWelcome() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center justify-between py-8 px-4 max-w-2xl mx-auto">
-                {/* Step 1: Learning Style */}
+                {/* Step 1: Learning Style - Always clickable if not completed */}
                 <StepButton
                   step={1}
                   label="Learning Style"
@@ -418,31 +421,33 @@ export default function EmployeeWelcome() {
                 />
                 <ConnectorLine completed={!!learningStyle} />
                 
-                {/* Step 2: Baseline Assessment */}
+                {/* Step 2: Baseline Assessment - Only clickable if learning style is completed */}
                 <StepButton
                   step={2}
                   label="Baseline Assessment"
                   completed={baselineScore !== null}
-                  disabled={baselineScore !== null}
-                  onClick={() => baselineScore === null && router.push("/employee/assessment")}
-                  record={baselineScore !== null ? `Score: ${baselineScore}${baselineMaxScore ? ` / ${baselineMaxScore}` : ""}` : "Complete baseline assessment to see score"}
+                  disabled={!learningStyle || baselineScore !== null}
+                  onClick={() => learningStyle && baselineScore === null && router.push("/employee/assessment")}
+                  record={baselineScore !== null ? `Score: ${baselineScore}${baselineMaxScore ? ` / ${baselineMaxScore}` : ""}` : 
+                    !learningStyle ? "Complete learning style first" : "Complete baseline assessment to see score"}
                 />
                 <ConnectorLine completed={baselineScore !== null} />
                 
-                {/* Step 3: Learning Plan */}
+                {/* Step 3: Learning Plan - Only clickable if both previous steps are completed */}
                 <StepButton
                   step={3}
                   label="Learning Plan"
                   completed={allAssignedCompleted}
-                  disabled={baselineScore === null}
-                  onClick={() => baselineScore !== null && router.push("/employee/training-plan")}
-                  record={allAssignedCompleted ? "Learning plan completed!" : (baselineScore !== null ? "View and complete your learning plan" : "Complete previous steps")}
+                  disabled={!learningStyle || baselineScore === null}
+                  onClick={() => learningStyle && baselineScore !== null && router.push("/employee/training-plan")}
+                  record={allAssignedCompleted ? "Learning plan completed!" : 
+                    (!learningStyle || baselineScore === null) ? "Complete previous steps first" : "View and complete your learning plan"}
                 />
               </div>
             </CardContent>
           </Card>
 
-          {/* Learning Style Card - moved to top */}
+          {/* Learning Style Card with sequential logic */}
           <Card className="border border-blue-200 bg-white/80 backdrop-blur">
             <CardHeader>
               <CardTitle>Your Learning Style</CardTitle>
@@ -461,7 +466,7 @@ export default function EmployeeWelcome() {
                     <LearningStyleBlurb styleCode={learningStyle} />
                   </div>
                   <Button disabled title={`Learning style: ${learningStyle}`} variant="outline">
-                    Check your learning style
+                    ✓ Completed
                   </Button>
                 </div>
               ) : (
@@ -476,20 +481,30 @@ export default function EmployeeWelcome() {
             </CardContent>
           </Card>
 
-          {/* Main Cards - Baseline, Learning Plan, Score & Feedback */}
+          {/* Main Cards with sequential activation */}
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Assessments (Baseline) - moved to first */}
-            <Card className="">
+            {/* Assessments (Baseline) - Only enabled if learning style is completed */}
+            <Card className={!learningStyle ? "opacity-60" : ""}>
               <CardHeader>
-                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
-                  <Users className="w-6 h-6 text-purple-600" />
+                <div className={`w-12 h-12 rounded-lg flex items-center justify-center mb-4 ${
+                  !learningStyle ? "bg-gray-100" : "bg-purple-100"
+                }`}>
+                  <Users className={`w-6 h-6 ${!learningStyle ? "text-gray-400" : "text-purple-600"}`} />
                 </div>
-                <CardTitle>Assessments</CardTitle>
-                <CardDescription>Take baseline and module assessments</CardDescription>
+                <CardTitle className={!learningStyle ? "text-gray-500" : ""}>Assessments</CardTitle>
+                <CardDescription className={!learningStyle ? "text-gray-400" : ""}>
+                  Take baseline and module assessments
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-gray-500 mb-4">AI-generated assessments will help track your progress.</p>
-                {baselineScore !== null ? (
+                <p className={`text-sm mb-4 ${!learningStyle ? "text-gray-400" : "text-gray-500"}`}>
+                  AI-generated assessments will help track your progress.
+                </p>
+                {!learningStyle ? (
+                  <Button className="w-full" disabled>
+                    Complete Learning Style First
+                  </Button>
+                ) : baselineScore !== null ? (
                   <div className="flex items-center justify-between">
                     <div className="text-sm text-gray-700">
                       <div className="font-medium">Baseline assessment completed</div>
@@ -501,40 +516,58 @@ export default function EmployeeWelcome() {
                       </Button>
                     ) : (
                       <Button className="w-44" disabled title="Baseline already completed; finish your assigned modules to retake">
-                        Baseline Completed
+                        ✓ Completed
                       </Button>
                     )}
                   </div>
                 ) : (
-                  <a href="/employee/assessment">
-                    <Button className="w-full">
-                      Start Baseline Assessment
-                    </Button>
-                  </a>
+                  <Button className="w-full" onClick={() => router.push("/employee/assessment")}>
+                    Start Baseline Assessment
+                  </Button>
                 )}
               </CardContent>
             </Card>
 
-            {/* Learning Plan - moved to second */}
-            <Card className="">
+            {/* Learning Plan - Only enabled if both learning style and baseline are completed */}
+            <Card className={(!learningStyle || baselineScore === null) ? "opacity-60" : ""}>
               <CardHeader>
-                <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mb-4">
-                  <Clock className="w-6 h-6 text-orange-600" />
+                <div className={`w-12 h-12 rounded-lg flex items-center justify-center mb-4 ${
+                  (!learningStyle || baselineScore === null) ? "bg-gray-100" : "bg-orange-100"
+                }`}>
+                  <Clock className={`w-6 h-6 ${
+                    (!learningStyle || baselineScore === null) ? "text-gray-400" : "text-orange-600"
+                  }`} />
                 </div>
-                <CardTitle>Learning Plan</CardTitle>
-                <CardDescription>View your personalized learning path</CardDescription>
+                <CardTitle className={(!learningStyle || baselineScore === null) ? "text-gray-500" : ""}>
+                  Learning Plan
+                </CardTitle>
+                <CardDescription className={(!learningStyle || baselineScore === null) ? "text-gray-400" : ""}>
+                  View your personalized learning path
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-gray-500 mb-4">
+                <p className={`text-sm mb-4 ${
+                  (!learningStyle || baselineScore === null) ? "text-gray-400" : "text-gray-500"
+                }`}>
                   AI will create a custom learning plan based on your assessment.
                 </p>
-                <Button className="w-full" onClick={() => router.push("/employee/training-plan") }>
-                  View Learning Plan
-                </Button>
+                {!learningStyle ? (
+                  <Button className="w-full" disabled>
+                    Complete Learning Style First
+                  </Button>
+                ) : baselineScore === null ? (
+                  <Button className="w-full" disabled>
+                    Complete Baseline Assessment First
+                  </Button>
+                ) : (
+                  <Button className="w-full" onClick={() => router.push("/employee/training-plan")}>
+                    View Learning Plan
+                  </Button>
+                )}
               </CardContent>
             </Card>
 
-            {/* Score & Feedback History - moved to last */}
+            {/* Score & Feedback History - Always available */}
             <Card className="">
               <CardHeader>
                 <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
@@ -547,7 +580,7 @@ export default function EmployeeWelcome() {
                 <p className="text-sm text-gray-500 mb-4">
                   See your full history of scores and feedback for all assessments.
                 </p>
-                <Button className="w-full" onClick={() => router.push("/employee/score-history") }>
+                <Button className="w-full" onClick={() => router.push("/employee/score-history")}>
                   View Score & Feedback History
                 </Button>
               </CardContent>
