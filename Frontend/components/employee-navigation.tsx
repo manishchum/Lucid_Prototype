@@ -164,6 +164,7 @@ const EmployeeNavigation = ({
         </div>
         {/* Menu */}
         <nav className="flex flex-col gap-1 px-2 py-6 flex-1">
+          {/* Phase 1 (Learning Style Only): Only dashboard link visible */}
           <Link 
             href="/employee/welcome" 
             className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
@@ -175,28 +176,7 @@ const EmployeeNavigation = ({
             <LayoutDashboard className="w-5 h-5" />
             Dashboard
           </Link>
-          <Link 
-            href="/employee/training-plan" 
-            className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
-              isActiveRoute('/employee/training-plan') 
-                ? 'text-blue-600 bg-blue-100' 
-                : 'text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            <BookOpen className="w-5 h-5" />
-            My Learning Plan
-          </Link>
-          <Link 
-            href="/employee/account" 
-            className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
-              isActiveRoute('/employee/account') 
-                ? 'text-blue-600 bg-blue-100' 
-                : 'text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            <User className="w-5 h-5" />
-            My Profile
-          </Link>
+
           <Link 
             href="/employee/score-history" 
             className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
@@ -208,10 +188,33 @@ const EmployeeNavigation = ({
             <FileText className="w-5 h-5" />
             Reports
           </Link>
-          {/* <Link href="/employee/change-password" className="flex items-center gap-3 px-4 py-3 rounded-lg font-medium text-gray-700 hover:bg-gray-100">
-            <KeyRound className="w-5 h-5" />
-            Change Password
-          </Link> */}
+
+          {/* Phase 3 (Enable with learning plan rollout)
+          <Link 
+            href="/employee/training-plan" 
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
+              isActiveRoute('/employee/training-plan') 
+                ? 'text-blue-600 bg-blue-100' 
+                : 'text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            <BookOpen className="w-5 h-5" />
+            My Learning Plan
+          </Link>
+          */}
+          
+          <Link 
+            href="/employee/account" 
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
+              isActiveRoute('/employee/account') 
+                ? 'text-blue-600 bg-blue-100' 
+                : 'text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            <User className="w-5 h-5" />
+            My Profile
+          </Link>
+
         </nav>
         {/* Logout */}
         <div className="px-6 py-6 border-t">
