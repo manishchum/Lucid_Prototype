@@ -4,8 +4,11 @@ import { useState, useEffect } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Badge } from "@/components/ui/badge"
 import EmployeeNavigation from "@/components/employee-navigation"
-import { BookOpen, Smile, Meh, Frown, ChevronLeft, ChevronRight, CheckCircle } from "lucide-react"
+import { BookOpen, Smile, Meh, Frown, ChevronLeft, ChevronRight, CheckCircle, Star, Target, Lightbulb, Trophy } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 const questions = [
@@ -50,6 +53,66 @@ const questions = [
   "I often act quickly and figure things out later.",
   "I am comfortable making decisions with limited information."
 ]
+
+// Helper function to parse GPT analysis into structured sections
+const parseAnalysisIntoSections = (analysis: string) => {
+  const sections: { title: string; content: string; icon: any; color: string }[] = []
+  
+  const lines = analysis.split('\n').filter(line => line.trim())
+  let currentSection = { title: '', content: '', icon: Target, color: 'blue' }
+  
+  for (const line of lines) {
+    const trimmed = line.trim()
+    
+    // Check for section headers (numbered or bulleted)
+    if (trimmed.match(/^\d+\.\s*(.+):|^[•·-]\s*(.+):/)) {
+      // Save previous section if it has content
+      if (currentSection.title && currentSection.content) {
+        sections.push({ ...currentSection })
+      }
+      
+      const title = trimmed.replace(/^\d+\.\s*/, '').replace(/^[•·-]\s*/, '').replace(':', '')
+      let icon = Target
+      let color = 'blue'
+      
+      if (title.toLowerCase().includes('learning style') || title.toLowerCase().includes('approach')) {
+        icon = BookOpen
+        color = 'green'
+      } else if (title.toLowerCase().includes('thrive') || title.toLowerCase().includes('superpower')) {
+        icon = Star
+        color = 'yellow'
+      } else if (title.toLowerCase().includes('tip') || title.toLowerCase().includes('easier')) {
+        icon = Lightbulb
+        color = 'orange'
+      } else if (title.toLowerCase().includes('strength') || title.toLowerCase().includes('preference')) {
+        icon = Trophy
+        color = 'purple'
+      }
+      
+      currentSection = { title, content: '', icon, color }
+    } else if (trimmed && currentSection.title) {
+      // Add content to current section
+      currentSection.content += (currentSection.content ? '\n' : '') + trimmed
+    } else if (trimmed && !currentSection.title) {
+      // First content without a clear header - make it introduction
+      if (!sections.length) {
+        currentSection = { 
+          title: 'Your Learning Profile', 
+          content: trimmed, 
+          icon: BookOpen, 
+          color: 'blue' 
+        }
+      }
+    }
+  }
+  
+  // Add the last section
+  if (currentSection.title && currentSection.content) {
+    sections.push({ ...currentSection })
+  }
+  
+  return sections
+}
 
 export default function LearningStyleSurvey() {
   const [answers, setAnswers] = useState(Array(questions.length).fill(null)) // Default to unanswered
@@ -174,20 +237,131 @@ export default function LearningStyleSurvey() {
 
   // Summary page
   if (page === 'summary' && learningStyleResult) {
+    const sections = parseAnalysisIntoSections(learningStyleResult.gptAnalysis || learningStyleResult.description)
+  const FeaturedIcon = sections[0]?.icon
+    
     return (
-      <div className="max-w-2xl mx-auto py-10 px-4 flex flex-col items-center">
-        <CheckCircle className="w-20 h-20 text-green-500 mb-4" />
-        <h1 className="text-3xl font-bold mb-2">Survey Complete!</h1>
-        <div className="flex flex-col items-center mb-6">
-          <span className="text-2xl font-semibold text-blue-700">{learningStyleResult.label}</span>
-          <div className="bg-white rounded-lg p-6 mt-4 shadow-sm border max-w-xl">
-            <h3 className="font-semibold text-lg mb-3">Your Learning Style Analysis</h3>
-            <div className="text-gray-700 whitespace-pre-line">
-              {learningStyleResult.gptAnalysis || learningStyleResult.description}
-            </div>
+      <div className="max-w-4xl mx-auto py-10 px-4">
+        <EmployeeNavigation showForward={false} />
+        
+        {/* Header Section */}
+        <div className="text-center mb-8">
+          <CheckCircle className="w-20 h-20 text-green-500 mx-auto mb-4" />
+          <h1 className="text-3xl font-bold mb-2">Survey Complete!</h1>
+          <div className="inline-flex items-center bg-gradient-to-r from-blue-500 to-purple-600 text-white px-6 py-3 rounded-full text-xl font-semibold mb-4">
+            <Star className="w-6 h-6 mr-2" />
+            {learningStyleResult.label}
           </div>
         </div>
-        <Button className="px-8 py-3 text-lg" onClick={() => router.push('/employee/welcome')}>Go to Dashboard</Button>
+
+        {/* Learning Style Overview Card */}
+        <Card className="mb-6 bg-gradient-to-br from-blue-50 to-indigo-100 border-blue-200">
+          <CardHeader>
+            <CardTitle className="flex items-center text-2xl text-blue-800">
+              <BookOpen className="w-8 h-8 mr-3" />
+              Your Learning Style
+            </CardTitle>
+            <CardDescription className="text-blue-600 text-lg">
+              {learningStyleResult.description}
+            </CardDescription>
+          </CardHeader>
+        </Card>
+
+        {/* Detailed Analysis Sections */}
+        {sections.length > 0 ? (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-center mb-6">Your Personalized Learning Insights</h2>
+            
+            {/* First section as a featured card */}
+            {sections[0] && FeaturedIcon && (
+              <Card className="bg-gradient-to-r from-green-50 to-emerald-100 border-green-200">
+                <CardHeader>
+                  <CardTitle className="flex items-center text-green-800">
+                    <FeaturedIcon className="w-6 h-6 mr-3" />
+                    {sections[0].title}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-green-700 whitespace-pre-line leading-relaxed">
+                    {sections[0].content}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Remaining sections as accordion */}
+            {sections.length > 1 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Lightbulb className="w-6 h-6 mr-3 text-orange-500" />
+                    Detailed Insights & Recommendations
+                  </CardTitle>
+                  <CardDescription>
+                    Expand each section to learn more about your learning preferences and get actionable tips.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Accordion type="single" collapsible className="space-y-2">
+                    {sections.slice(1).map((section, index) => {
+                      const ItemIcon = section.icon
+                      return (
+                        <AccordionItem key={index} value={`item-${index}`} className="border rounded-lg px-4">
+                          <AccordionTrigger className="hover:no-underline">
+                            <div className="flex items-center">
+                              {ItemIcon && <ItemIcon className="w-5 h-5 mr-3 text-gray-600" />}
+                              <span className="font-semibold text-left">{section.title}</span>
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent className="pb-4">
+                            <div className={`p-4 rounded-lg border-l-4 ${
+                              section.color === 'green' ? 'bg-green-50 border-green-400' :
+                              section.color === 'yellow' ? 'bg-yellow-50 border-yellow-400' :
+                              section.color === 'orange' ? 'bg-orange-50 border-orange-400' :
+                              section.color === 'purple' ? 'bg-purple-50 border-purple-400' :
+                              'bg-blue-50 border-blue-400'
+                            }`}>
+                              <p className="whitespace-pre-line leading-relaxed text-gray-700">
+                                {section.content}
+                              </p>
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      )
+                    })}
+                  </Accordion>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        ) : (
+          // Fallback for unstructured analysis
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Target className="w-6 h-6 mr-3 text-blue-500" />
+                Your Learning Analysis
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-blue-50 p-6 rounded-lg border-l-4 border-blue-400">
+                <p className="text-gray-700 whitespace-pre-line leading-relaxed">
+                  {learningStyleResult.gptAnalysis || learningStyleResult.description}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Action Button */}
+        <div className="text-center mt-8">
+          <Button 
+            className="px-8 py-3 text-lg bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700" 
+            onClick={() => router.push('/employee/welcome')}
+          >
+            Go to Dashboard
+          </Button>
+        </div>
       </div>
     )
   }

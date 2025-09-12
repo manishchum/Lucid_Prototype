@@ -440,7 +440,7 @@ export default function AdminDashboard() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">KPI Definitions Upload</CardTitle>
-              <CardDescription>Upload a CSV or XLSX file with KPI definitions (KPI, Description)</CardDescription>
+              <CardDescription>Upload a CSV or XLSX file with KPI definitions (KPI, Description, Benchmark, Datatype)</CardDescription>
             </CardHeader>
             <CardContent>
               <KPIDefinitionsUpload companyId={admin?.company_id} />

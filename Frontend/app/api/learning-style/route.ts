@@ -30,9 +30,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Learning style already submitted for this user." }, { status: 403 })
     }
     // Insert new entry
+    const now = new Date().toISOString();
     const { error: insertError } = await adminClient
       .from("employee_learning_style")
-      .insert({ employee_id, answers })
+      .insert({ employee_id, answers, created_at: now, updated_at: now })
     if (insertError) {
       return NextResponse.json({ error: insertError.message }, { status: 500 })
     }
@@ -189,7 +190,8 @@ ${qaPairs}`;
         .from("employee_learning_style")
         .update({
           learning_style: gptResult.dominant_style || gptResult.learning_style,
-          gpt_analysis: gptResult.report
+          gpt_analysis: gptResult.report,
+          updated_at: new Date().toISOString()
         })
         .eq("employee_id", employee_id)
       console.log("GPT Analysis saved to Supabase")

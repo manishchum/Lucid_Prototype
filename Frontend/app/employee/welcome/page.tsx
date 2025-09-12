@@ -320,6 +320,8 @@ export default function EmployeeWelcome() {
               </div>
             </div>
             <div className="relative">
+              {/* Profile Dropdown - Commented Out */}
+              {/*
               <button
                 onClick={() => setShowProfileDropdown(!showProfileDropdown)}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
@@ -367,6 +369,7 @@ export default function EmployeeWelcome() {
                   </div>
                 </div>
               )}
+              */}
             </div>
           </div>
         </div>
@@ -378,6 +381,7 @@ export default function EmployeeWelcome() {
         
         <div className="grid gap-8">
           {/* Welcome Card */}
+          {/*
           <Card className="bg-gradient-to-r from-green-500 to-blue-600 text-white">
             <CardHeader>
               <CardTitle className="text-3xl">Welcome, {employee?.name || user?.email}!</CardTitle>
@@ -392,62 +396,49 @@ export default function EmployeeWelcome() {
               </div>
             </CardContent>
           </Card>
+          */}
 
           {/* Getting Started Flow Guide */}
           {/* Arrow-based horizontal flow for onboarding steps */}
-          <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200">
+          <Card className="bg-gradient-to-r from-gray-50 to-blue-50 border border-blue-100">
             <CardHeader>
-              <CardTitle className="text-blue-900">Getting Started Guide</CardTitle>
-              <CardDescription className="text-blue-700">Follow these steps to maximize your learning experience</CardDescription>
+              <CardTitle className="text-gray-900">Getting Started Guide</CardTitle>
+              <CardDescription className="text-gray-600">
+                Follow these steps to maximize your learning experience
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-between py-8 px-4 max-w-2xl mx-auto">
-                {/* Step 1: Learning Style - Always clickable if not completed */}
-                <StepButton
+              <div className="flex items-center justify-between py-10 px-2 gap-2">
+                <StepCircle
                   step={1}
                   label="Learning Style"
+                  subtitle="Discover your personal learning preferences"
                   completed={!!learningStyle}
-                  disabled={!!learningStyle}
+                  active={!learningStyle}
                   onClick={() => !learningStyle && router.push("/employee/learning-style")}
-                  record={learningStyle ? `${learningStyle} - ${(() => {
-                    const meta = {
-                      CS: "Prefers structure, clear steps, and hands‑on practice.",
-                      AS: "Thinks analytically and values logic.",
-                      AR: "Learns through connections and stories.",
-                      CR: "Enjoys experimentation and rapid iteration."
-                    };
-                    return meta[learningStyle as keyof typeof meta] || "";
-                  })()}` : "Complete learning style to see details"}
                 />
-                <ConnectorLine completed={!!learningStyle} />
-                
-                {/* Step 2: Baseline Assessment - Only clickable if learning style is completed */}
-                <StepButton
+                <StepCircle
                   step={2}
                   label="Baseline Assessment"
-                  completed={baselineScore !== null}
-                  disabled={!learningStyle || baselineScore !== null}
+                  subtitle="Evaluate your current skill level"
+                  completed={!!baselineScore}
+                  active={!!learningStyle && baselineScore === null}
                   onClick={() => learningStyle && baselineScore === null && router.push("/employee/assessment")}
-                  record={baselineScore !== null ? `Score: ${baselineScore}${baselineMaxScore ? ` / ${baselineMaxScore}` : ""}` : 
-                    !learningStyle ? "Complete learning style first" : "Complete baseline assessment to see score"}
                 />
-                <ConnectorLine completed={baselineScore !== null} />
-                
-                {/* Step 3: Learning Plan - Only clickable if both previous steps are completed */}
-                <StepButton
+                <StepCircle
                   step={3}
                   label="Learning Plan"
+                  subtitle="Get your personalized learning roadmap"
                   completed={allAssignedCompleted}
-                  disabled={!learningStyle || baselineScore === null}
-                  onClick={() => learningStyle && baselineScore !== null && router.push("/employee/training-plan")}
-                  record={allAssignedCompleted ? "Learning plan completed!" : 
-                    (!learningStyle || baselineScore === null) ? "Complete previous steps first" : "View and complete your learning plan"}
+                  active={!!learningStyle && baselineScore !== null && !allAssignedCompleted}
+                  onClick={() => learningStyle && baselineScore !== null && !allAssignedCompleted && router.push("/employee/training-plan")}
                 />
               </div>
             </CardContent>
           </Card>
 
           {/* Learning Style Card with sequential logic */}
+          {/* 
           <Card className="border border-blue-200 bg-white/80 backdrop-blur">
             <CardHeader>
               <CardTitle>Your Learning Style</CardTitle>
@@ -482,8 +473,10 @@ export default function EmployeeWelcome() {
           </Card>
 
           {/* Main Cards with sequential activation */}
+          {/* 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Assessments (Baseline) - Only enabled if learning style is completed */}
+            {/* 
             <Card className={!learningStyle ? "opacity-60" : ""}>
               <CardHeader>
                 <div className={`w-12 h-12 rounded-lg flex items-center justify-center mb-4 ${
@@ -529,6 +522,7 @@ export default function EmployeeWelcome() {
             </Card>
 
             {/* Learning Plan - Only enabled if both learning style and baseline are completed */}
+            {/* 
             <Card className={(!learningStyle || baselineScore === null) ? "opacity-60" : ""}>
               <CardHeader>
                 <div className={`w-12 h-12 rounded-lg flex items-center justify-center mb-4 ${
@@ -568,6 +562,7 @@ export default function EmployeeWelcome() {
             </Card>
 
             {/* Score & Feedback History - Always available */}
+            {/* 
             <Card className="">
               <CardHeader>
                 <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
@@ -586,6 +581,7 @@ export default function EmployeeWelcome() {
               </CardContent>
             </Card>
           </div>
+          */}
 
           {/* Progress Tracker Card (unchanged) */}
           <Card>
@@ -664,4 +660,56 @@ function LearningStyleBlurb({ styleCode }: { styleCode: string }) {
       <div>{info.blurb}</div>
     </div>
   );
+}
+
+function StepCircle({
+  step,
+  label,
+  subtitle,
+  completed,
+  active,
+  onClick,
+}: {
+  step: number
+  label: string
+  subtitle: string
+  completed?: boolean
+  active?: boolean
+  onClick?: () => void
+}) {
+  return (
+    <div className="flex flex-col items-center flex-1 px-2">
+      <div
+        className={`flex items-center justify-center w-20 h-20 rounded-full border-4 mb-3
+          ${completed
+            ? "bg-green-500 border-green-500"
+            : active
+            ? "bg-blue-600 border-blue-600"
+            : "bg-gray-100 border-gray-300"}
+        `}
+      >
+        {completed ? (
+          <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+          </svg>
+        ) : (
+          <span className={`text-2xl font-bold ${active ? "text-white" : "text-gray-400"}`}>{step}</span>
+        )}
+      </div>
+      <div className={`text-lg font-semibold mb-1 ${active ? "text-blue-900" : completed ? "text-green-900" : "text-gray-700"}`}>
+        {label}
+      </div>
+      <div className="text-gray-500 text-sm mb-3 text-center">{subtitle}</div>
+      {completed ? (
+        <span className="px-4 py-1 rounded-full bg-green-100 text-green-700 text-sm font-medium">Completed</span>
+      ) : active ? (
+        <button
+          className="px-5 py-2 rounded-full bg-blue-600 text-white font-semibold flex items-center gap-2 shadow hover:bg-blue-700 transition"
+          onClick={onClick}
+        >
+          Start Now <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+        </button>
+      ) : null}
+    </div>
+  )
 }
