@@ -118,37 +118,49 @@ export async function POST(req: NextRequest) {
   // Fetch employee KPIs (description and score)
   const { data: kpiRows, error: kpiError } = await supabase
     .from("employee_kpi")
-    .select("score, kpis(description)")
+    .select("score, kpis(description, benchmark, datatype)")
     .eq("employee_id", employee_id);
   let kpiText = "";
   if (kpiRows && kpiRows.length > 0) {
-    kpiText = "Employee KPIs (description and score):\n" +
-      kpiRows.map((row: any) => `KPI: ${row.kpis?.description || "N/A"}, Score: ${row.score}`).join("\n");
+    kpiText = "Employee KPIs (description, score, benchmark, datatype):\n" +
+      kpiRows.map((row: any) => {
+        const desc = row.kpis?.description || "N/A";
+        const score = row.score;
+        const benchmark = row.kpis?.benchmark ?? "N/A";
+        const datatype = row.kpis?.datatype || "N/A";
+        return `KPI: ${desc}, Score: ${score}, Benchmark: ${benchmark}, Datatype: ${datatype}`;
+      }).join("\n");
   }
 
   // Compose prompt for GPT
   const prompt =
-  "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan. If KPI scores (description and score) are available, use them; otherwise, rely only on baseline assessments.\n\n" +
-  gptText + "\n\n" +
-  (kpiText ? kpiText + "\n\n" : "") +
-  "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n" +
-  "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
-  "STRICT CONSTRAINTS:\n" +
-  "- The number of modules and total study hours must decrease as the employee's score increases.\n" +
-  "- For scores above 80% of the maximum, recommend only essential modules and minimize study hours (max 1 hours per module).\n" +
-  "- For scores below 40% of the maximum, recommend more modules and study hours as needed, but justify each.\n" +
-  "- For scores in between, recommend a moderate number of modules and study hours, proportional to weaknesses.\n" +
-  "- For each module, provide a clear justification for its inclusion and the recommended study time, based on the employee's weaknesses and learning style.\n" +
-  "- Do not recommend unnecessary modules or excessive study time for high performers.\n" +
-  "- The plan must be efficient and fair: high performers should not be overburdened, and weaker performers should get enough support.\n\n" +
-  "The plan should:\n- Identify weak areas based on scores and feedback\n- Match module objectives to weaknesses\n- Specify what to study, in what order, and how much time for each\n- Output a JSON object with: modules (ordered), objectives, recommended time (hours), and any tips or recommendations\n- Ensure all recommendations and tips are personalized to the employee's learning style\n\n" +
-  "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, learning style, and KPI factors (if present) influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, learning style, and KPIs (if present)\n- Explicitly explain how the score influenced the number of modules and total study hours.\n\n" +
-  "Assessment Results (baseline only):\n" + JSON.stringify(baselineAssessments, null, 2) + "\n\n" +
-  "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
-  "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n" +
-  "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
-  "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"kpi_influence\": string,\n  \"overall_strategy\": string\n}\n" +
-  "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
+    "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan. If KPI scores (description, score, benchmark, and datatype) are available, use them; otherwise, rely only on baseline assessments.\n\n" +
+    gptText + "\n\n" +
+    (kpiText ? kpiText + "\n\n" : "") +
+    "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n" +
+    "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
+    "STRICT CONSTRAINTS:\n" +
+    "- The number of modules and total study hours must decrease as the employee's score increases.\n" +
+    "- For scores above 80% of the maximum, recommend only essential modules and minimize study hours (max 1 hours per module).\n" +
+    "- For scores below 40% of the maximum, recommend more modules and study hours as needed, but justify each.\n" +
+    "- For scores in between, recommend a moderate number of modules and study hours, proportional to weaknesses.\n" +
+    "- For each module, provide a clear justification for its inclusion and the recommended study time, based on the employee's weaknesses and learning style.\n" +
+    "- Do not recommend unnecessary modules or excessive study time for high performers.\n" +
+    "- The plan must be efficient and fair: high performers should not be overburdened, and weaker performers should get enough support.\n\n" +
+    "The plan should:\n- Identify weak areas based on scores, benchmarks, datatypes, and feedback\n- Match module objectives to weaknesses\n- Specify what to study, in what order, and how much time for each\n- Output a JSON object with: modules (ordered), objectives, recommended time (hours), and any tips or recommendations\n- Ensure all recommendations and tips are personalized to the employee's learning style\n\n" +
+    "KPI Comparison Instructions:\n" +
+    "- For each KPI, compare the employee's score to the benchmark using the provided datatype.\n" +
+    "- If datatype is 'percentage', treat both score and benchmark as percentages out of 100.\n" +
+    "- If datatype is 'numeric', compare the raw numbers.\n" +
+    "- If datatype is 'ratio', compare as a ratio (e.g., score/benchmark).\n" +
+    "- Use this comparison to identify strengths and weaknesses for each KPI.\n\n" +
+    "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, learning style, and KPI factors (including benchmark and datatype) influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, learning style, and KPIs (including benchmark and datatype)\n- Explicitly explain how the score, benchmark, and datatype influenced the number of modules and total study hours.\n\n" +
+    "Assessment Results (baseline only):\n" + JSON.stringify(baselineAssessments, null, 2) + "\n\n" +
+    "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
+    "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n" +
+    "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
+    "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"kpi_influence\": string,\n  \"overall_strategy\": string\n}\n" +
+    "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
   console.log("[Training Plan API] Prompt for GPT:", prompt);
 
   // Call OpenAI with a widely supported model and safe token limits

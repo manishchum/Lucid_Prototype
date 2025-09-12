@@ -74,6 +74,10 @@ export async function POST(request: NextRequest) {
 
   // Original assessment feedback logic
   let { score, maxScore, answers, feedback, modules, employee_id, employee_name, assessment_id, quiz, userAnswers } = body;
+  // Ensure answers is set to userAnswers if not provided
+  if ((!answers || answers.length === 0) && Array.isArray(userAnswers) && userAnswers.length > 0) {
+    answers = userAnswers;
+  }
   console.log('[API] Assessment Submission');
   console.log('[API] Employee ID:', employee_id);
   console.log('[API] Employee Name:', employee_name);
@@ -94,7 +98,7 @@ export async function POST(request: NextRequest) {
 }
 
 Rules:
-- Treat any question type fairly. For MCQ/True-False, match exact answers. For other types (open-ended, fill-in-the-blank, matching, ordering, multiple select), infer correctness reasonably. If insufficient info, mark false.
+- All questions are multiple choice (MCQ) or True-False. Match the user's answer to the correct answer for each question. If the answer matches, mark true; otherwise, mark false.
 - maxScore = number of questions.
 - Only return JSON. No extra text.
 Questions: ${JSON.stringify(quiz)}
@@ -125,7 +129,9 @@ UserAnswers: ${JSON.stringify(userAnswers)}`;
           feedback = Array.isArray(graded.explanations) ? graded.explanations : [];
         }
         // Normalize answers to store
-        if (!answers) answers = userAnswers;
+        if ((!answers || answers.length === 0) && Array.isArray(userAnswers) && userAnswers.length > 0) {
+          answers = userAnswers;
+        }
       }
     } catch (e) {
       // Fallback: basic scoring disabled; leave score undefined
@@ -133,6 +139,7 @@ UserAnswers: ${JSON.stringify(userAnswers)}`;
   }
   // Log resolved score after potential GPT grading
   console.log('[API] Resolved Score (post-grading):', score, '/', maxScore);
+  console.log('[API] Answers:', JSON.stringify(answers));
 
   // 1. Generate feedback
   let aiFeedback = '';

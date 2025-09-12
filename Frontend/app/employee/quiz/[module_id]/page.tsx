@@ -18,24 +18,20 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       return;
     }
     setSubmitted(true);
-    // Normalize answers for all question types (send values, not indices)
+    // Normalize answers for MCQ questions (send selected option values, not indices)
     const userAnswers = answers.map((ans, i) => {
       const q = quiz[i];
-      if (q.type === 'multiple select') {
-        return Array.isArray(ans) ? ans.map((idx: number) => q.options[idx]) : [];
+      // For MCQ questions, send the selected option text, not the index
+      // If no answer selected (ans === -1), send empty string
+      if (typeof ans === 'number' && ans >= 0 && ans < q.options.length) {
+        return q.options[ans];
       }
-      if (q.type === 'matching') {
-        return typeof ans === 'object' && ans !== null ? ans : {};
-      }
-      if (q.type === 'ordering') {
-        if (typeof ans === 'string') return ans.split(',').map(s => s.trim());
-        return [];
-      }
-      if (q.type === 'true/false' || q.type === 'mcq' || q.type === 'multiple choice') {
-        return typeof ans === 'number' ? q.options[ans] : '';
-      }
-      return typeof ans === 'string' ? ans : '';
+      // No valid answer selected
+      return '';
     });
+
+    console.log('[QUIZ] Raw answers:', answers);
+    console.log('[QUIZ] Converted userAnswers:', userAnswers);
     // Always fetch user info before API call
     let employeeId: string | null = null;
     let employeeName: string | null = null;
@@ -309,7 +305,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
               ))}
             </ol>
             {!submitted ? (
-              <Button className="mt-8" variant="default" onClick={handleSubmit} disabled={answers.some(a => a === -1 || a === '' || (Array.isArray(a) && a.length === 0) || (typeof a === 'object' && a !== null && Object.values(a).some(v => !v)))}>
+              <Button className="mt-8" variant="default" onClick={handleSubmit} disabled={answers.some(a => a === -1)}>
                 Submit Quiz
               </Button>
             ) : (

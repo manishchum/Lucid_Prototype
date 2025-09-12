@@ -41,48 +41,99 @@ export async function POST(req: Request) {
 			rows = rows.slice(1);
 		}
 		let created = 0, updated = 0, skipped: { row: number; reason: string }[] = [];
-		for (let i = 0; i < rows.length; i++) {
-			const [rawName, rawDesc] = rows[i];
-			if (!rawName || typeof rawName !== "string") {
-				skipped.push({ row: i + 1, reason: "Missing KPI name" });
-				continue;
-			}
-			const name = rawName.trim().toLowerCase();
-			const description = (rawDesc || "").trim();
-			// Upsert by (company_id, name)
-			const { data: existing, error: fetchErr } = await supabase
-				.from("kpis")
-				.select("id")
-				.eq("company_id", companyId)
-				.eq("name", name)
-				.maybeSingle();
-			if (fetchErr) {
-				skipped.push({ row: i + 1, reason: "DB error" });
-				continue;
-			}
-			if (existing && existing.id) {
-				// Update
-				const { error: updateErr } = await supabase
-					.from("kpis")
-					.update({ description })
-					.eq("id", existing.id);
-				if (updateErr) {
-					skipped.push({ row: i + 1, reason: "Update error" });
-				} else {
-					updated++;
-				}
-			} else {
-				// Insert
-				const { error: insertErr } = await supabase
-					.from("kpis")
-					.insert({ company_id: companyId, name, description });
-				if (insertErr) {
-					skipped.push({ row: i + 1, reason: "Insert error" });
-				} else {
-					created++;
-				}
-			}
-		}
+					for (let i = 0; i < rows.length; i++) {
+						const [rawName, rawDesc, rawBenchmark, rawDatatype] = rows[i];
+						if (!rawName || typeof rawName !== "string") {
+							skipped.push({ row: i + 1, reason: "Missing KPI name" });
+							continue;
+						}
+						const name = rawName.trim().toLowerCase();
+						const description = (rawDesc || "").trim();
+						let benchmark: number | null = null;
+						let datatype: string | null = null;
+						if (rawDatatype && typeof rawDatatype === "string") {
+							const dt = rawDatatype.trim().toLowerCase();
+							if (["percentage", "numeric", "ratio"].includes(dt)) {
+								datatype = dt;
+							} else {
+								datatype = null; // Accept only valid types, else null
+							}
+						}
+						if (rawBenchmark !== undefined && rawBenchmark !== null && rawBenchmark !== "") {
+							if (datatype === "percentage") {
+								let val = parseFloat(rawBenchmark);
+								if (!isNaN(val)) {
+									// Accept 0.75 as 75, 75 as 75
+									if (val <= 1) {
+										val = val * 100;
+									}
+									benchmark = Math.round(val);
+								} else {
+									benchmark = null;
+								}
+								if (benchmark !== null && (benchmark < 0 || benchmark > 100)) {
+									skipped.push({ row: i + 1, reason: "Benchmark out of range (0-100)" });
+									continue;
+								}
+							} else if (datatype === "numeric") {
+								const val = parseFloat(rawBenchmark);
+								benchmark = isNaN(val) ? null : val;
+							} else if (datatype === "ratio") {
+								// Accept x:y as x/y float
+								const parts = String(rawBenchmark).split(":");
+								if (parts.length === 2) {
+									const x = parseFloat(parts[0]);
+									const y = parseFloat(parts[1]);
+									if (!isNaN(x) && !isNaN(y) && y !== 0) {
+										benchmark = x / y;
+									} else {
+										benchmark = null;
+									}
+								} else {
+									// fallback: try to parse as float
+									const val = parseFloat(rawBenchmark);
+									benchmark = isNaN(val) ? null : val;
+								}
+							} else {
+								// fallback: try to parse as float
+								const val = parseFloat(rawBenchmark);
+								benchmark = isNaN(val) ? null : val;
+							}
+						}
+						// Upsert by (company_id, name)
+						const { data: existing, error: fetchErr } = await supabase
+							.from("kpis")
+							.select("id")
+							.eq("company_id", companyId)
+							.eq("name", name)
+							.maybeSingle();
+						if (fetchErr) {
+							skipped.push({ row: i + 1, reason: "DB error" });
+							continue;
+						}
+						if (existing && existing.id) {
+							// Update
+							const { error: updateErr } = await supabase
+								.from("kpis")
+								.update({ description, benchmark, datatype })
+								.eq("id", existing.id);
+							if (updateErr) {
+								skipped.push({ row: i + 1, reason: "Update error" });
+							} else {
+								updated++;
+							}
+						} else {
+							// Insert
+							const { error: insertErr } = await supabase
+								.from("kpis")
+								.insert({ company_id: companyId, name, description, benchmark, datatype });
+							if (insertErr) {
+								skipped.push({ row: i + 1, reason: "Insert error" });
+							} else {
+								created++;
+							}
+						}
+					}
 		return NextResponse.json({ created, updated, skipped });
 	} catch (err) {
 		return NextResponse.json({ error: "Fatal error", detail: String(err) }, { status: 500 });
