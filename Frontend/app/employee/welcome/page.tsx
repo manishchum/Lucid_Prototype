@@ -68,6 +68,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
 import { Users, LogOut, BookOpen, Clock, User, ChevronDown } from "lucide-react"
 import EmployeeNavigation from "@/components/employee-navigation"
+import { SidebarProvider, useSidebar } from "@/contexts/sidebar-context"
 
 interface Employee {
   id: string
@@ -308,15 +309,18 @@ export default function EmployeeWelcome() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100" onClick={() => setShowProfileDropdown(false)}>
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b" onClick={(e) => e.stopPropagation()}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center">
-              <Users className="w-8 h-8 text-green-600 mr-3" />
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Employee Portal</h1>
-                <p className="text-sm text-gray-600">Welcome to your training dashboard</p>
+      <EmployeeNavigation showBack={false} showForward={false} />
+      
+      <div className="lg:ml-72 transition-all duration-300">
+        {/* Header */}
+        <div className="bg-white shadow-sm border-b" onClick={(e) => e.stopPropagation()}>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pl-16 lg:pl-8">
+            <div className="flex justify-between items-center py-4">
+              <div className="flex items-center">
+                <Users className="w-8 h-8 text-green-600 mr-3" />
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">Employee Portal</h1>
+                  <p className="text-sm text-gray-600">Welcome to your training dashboard</p>
               </div>
             </div>
             <div className="relative">
@@ -375,12 +379,8 @@ export default function EmployeeWelcome() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Navigation */}
-        <EmployeeNavigation showBack={false} showForward={false} />
-        
-        <div className="grid gap-8">
-          {/* Welcome Card */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:pl-8 pl-16">        
+        <div className="grid gap-8">{/* Welcome Card */}
           {/*
           <Card className="bg-gradient-to-r from-green-500 to-blue-600 text-white">
             <CardHeader>
@@ -629,6 +629,7 @@ export default function EmployeeWelcome() {
               </div>
             </CardContent>
           </Card>
+        </div>
         </div>
       </div>
     </div>

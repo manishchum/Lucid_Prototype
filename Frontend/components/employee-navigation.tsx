@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, Home } from "lucide-react";
+import { ChevronLeft, ChevronRight, Home, Menu, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, User, FileText, KeyRound, LogOut } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
@@ -33,6 +33,8 @@ const EmployeeNavigation = ({
   const pathname = usePathname();
   const { user: authUser, logout } = useAuth();
   const [employee, setEmployee] = useState<any>(null);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   // Use provided user or fetch employee data from auth context
   const displayUser = providedUser || employee;
@@ -93,8 +95,53 @@ const EmployeeNavigation = ({
     router.push("/employee/welcome");
   };
 
+  const toggleSidebar = () => {
+    setIsCollapsed(!isCollapsed);
+  };
+
+  const toggleMobileSidebar = () => {
+    setIsMobileOpen(!isMobileOpen);
+  };
+
+  const closeMobileSidebar = () => {
+    setIsMobileOpen(false);
+  };
+
   return (
     <div>
+      {/* Set CSS custom property for sidebar width */}
+      <style jsx global>{`
+        :root {
+          --sidebar-width: ${isCollapsed ? '5rem' : '18rem'};
+        }
+        
+        @media (max-width: 1024px) {
+          :root {
+            --sidebar-width: 0;
+          }
+        }
+      `}</style>
+      
+      {/* Mobile Hamburger Button */}
+      <div className="lg:hidden fixed top-4 left-4 z-50">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={toggleMobileSidebar}
+          className="bg-white shadow-lg border-2 hover:shadow-xl transition-shadow w-10 h-10 p-0 rounded-lg"
+        >
+          {isMobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </Button>
+      </div>
+
+      {/* Mobile Overlay */}
+      {isMobileOpen && (
+        <div 
+          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-40"
+          onClick={closeMobileSidebar}
+        />
+      )}
+
       {/* Top Navigation Bar - Commented Out */}
       {/*
       <Card className={`p-3 mb-4 ${className}`}>
@@ -141,91 +188,130 @@ const EmployeeNavigation = ({
       */}
 
       {/* Sidebar Navigation */}
-      <aside className="fixed top-0 left-0 h-screen w-72 bg-white border-r flex flex-col">
-        {/* Logo */}
-        <div
-          className="flex items-center gap-3 px-6 py-6 border-b cursor-pointer"
-          onClick={() => router.push('/employee/welcome')}
-        >
-          <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-xl">L</span>
+      <aside className={`
+        fixed top-0 left-0 h-screen bg-white border-r flex flex-col transition-all duration-300 z-40
+        ${isCollapsed ? 'w-20' : 'w-72'}
+        ${isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+      `}>
+        {/* Logo and Toggle */}
+        <div className="flex items-center justify-between px-6 py-6 border-b">
+          <div
+            className={`flex items-center gap-3 cursor-pointer ${isCollapsed ? 'justify-center' : ''}`}
+            onClick={() => router.push('/employee/welcome')}
+          >
+            <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+              <span className="text-white font-bold text-xl">L</span>
+            </div>
+            {!isCollapsed && (
+              <span className="font-semibold text-lg text-gray-900">Lucid</span>
+            )}
           </div>
-          <span className="font-semibold text-lg text-gray-900">Lucid</span>
+          
+          {/* Desktop Toggle Button */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleSidebar}
+            className={`hidden lg:flex ${isCollapsed ? 'absolute -right-3 top-6 bg-white border shadow-md rounded-full w-6 h-6 p-0' : ''}`}
+          >
+            {isCollapsed ? (
+              <ChevronRight className="h-3 w-3" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" />
+            )}
+          </Button>
         </div>
+
         {/* Profile */}
-        <div className="flex items-center gap-3 px-6 py-6 border-b">
-          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-bold text-lg">
+        <div className={`flex items-center gap-3 px-6 py-6 border-b ${isCollapsed ? 'justify-center' : ''}`}>
+          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-bold text-lg flex-shrink-0">
             {displayUser?.name ? displayUser.name.split(" ").map((n: string) => n[0]).join("") : ""}
           </div>
-          <div>
-            <div className="font-semibold text-gray-900">{displayUser?.name}</div>
-            <div className="text-xs text-gray-500">Employee</div>
-          </div>
+          {!isCollapsed && (
+            <div>
+              <div className="font-semibold text-gray-900">{displayUser?.name}</div>
+              <div className="text-xs text-gray-500">Employee</div>
+            </div>
+          )}
         </div>
+
         {/* Menu */}
         <nav className="flex flex-col gap-1 px-2 py-6 flex-1">
           {/* Phase 1 (Learning Style Only): Only dashboard link visible */}
           <Link 
             href="/employee/welcome" 
-            className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
+            onClick={closeMobileSidebar}
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${
               isActiveRoute('/employee/welcome') 
                 ? 'text-blue-600 bg-blue-100' 
                 : 'text-gray-700 hover:bg-gray-100'
-            }`}
+            } ${isCollapsed ? 'justify-center' : ''}`}
+            title={isCollapsed ? 'Dashboard' : ''}
           >
-            <LayoutDashboard className="w-5 h-5" />
-            Dashboard
+            <LayoutDashboard className="w-5 h-5 flex-shrink-0" />
+            {!isCollapsed && <span>Dashboard</span>}
           </Link>
 
           <Link 
             href="/employee/score-history" 
-            className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
+            onClick={closeMobileSidebar}
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${
               isActiveRoute('/employee/score-history') 
                 ? 'text-blue-600 bg-blue-100' 
                 : 'text-gray-700 hover:bg-gray-100'
-            }`}
+            } ${isCollapsed ? 'justify-center' : ''}`}
+            title={isCollapsed ? 'Reports' : ''}
           >
-            <FileText className="w-5 h-5" />
-            Reports
+            <FileText className="w-5 h-5 flex-shrink-0" />
+            {!isCollapsed && <span>Reports</span>}
           </Link>
 
           {/* Phase 3 (Enable with learning plan rollout)
           <Link 
             href="/employee/training-plan" 
-            className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
+            onClick={closeMobileSidebar}
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${
               isActiveRoute('/employee/training-plan') 
                 ? 'text-blue-600 bg-blue-100' 
                 : 'text-gray-700 hover:bg-gray-100'
-            }`}
+            } ${isCollapsed ? 'justify-center' : ''}`}
+            title={isCollapsed ? 'My Learning Plan' : ''}
           >
-            <BookOpen className="w-5 h-5" />
-            My Learning Plan
+            <BookOpen className="w-5 h-5 flex-shrink-0" />
+            {!isCollapsed && <span>My Learning Plan</span>}
           </Link>
           */}
           
           <Link 
             href="/employee/account" 
-            className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
+            onClick={closeMobileSidebar}
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${
               isActiveRoute('/employee/account') 
                 ? 'text-blue-600 bg-blue-100' 
                 : 'text-gray-700 hover:bg-gray-100'
-            }`}
+            } ${isCollapsed ? 'justify-center' : ''}`}
+            title={isCollapsed ? 'My Profile' : ''}
           >
-            <User className="w-5 h-5" />
-            My Profile
+            <User className="w-5 h-5 flex-shrink-0" />
+            {!isCollapsed && <span>My Profile</span>}
           </Link>
 
         </nav>
+
         {/* Logout */}
-        <div className="px-6 py-6 border-t">
+        <div className={`px-6 py-6 border-t ${isCollapsed ? 'px-2' : ''}`}>
           <button
             onClick={() => {
-                        handleLogout()
-                      }}
-            className="flex items-center gap-2 text-red-600 font-semibold hover:underline"
+              handleLogout();
+              closeMobileSidebar();
+            }}
+            className={`flex items-center gap-2 text-red-600 font-semibold hover:underline transition-colors w-full ${
+              isCollapsed ? 'justify-center px-4 py-2' : ''
+            }`}
+            title={isCollapsed ? 'Log Out' : ''}
           >
-            <LogOut className="w-5 h-5" />
-            Log Out
+            <LogOut className="w-5 h-5 flex-shrink-0" />
+            {!isCollapsed && <span>Log Out</span>}
           </button>
         </div>
       </aside>
