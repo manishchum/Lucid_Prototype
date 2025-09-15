@@ -33,11 +33,11 @@ const questions = [
   "I like well-reasoned debates and discussions.",
   "I enjoy working independently on complex problems.",
   "I learn best through stories or real-life experiences.",
-  "I am motivated when learning is connected to people’s lives.",
+  "I am motivated when learning is connected to people's lives.",
   "I prefer group projects and collaborative discussions.",
   "I often trust my intuition more than data.",
   "I enjoy free-flowing brainstorming sessions.",
-  "I find it easy to sense others’ feelings in a group.",
+  "I find it easy to sense others' feelings in a group.",
   "I value relationships more than rigid rules.",
   "I like using imagination to explore new ideas.",
   "I prefer flexible plans that allow room for change.",
@@ -47,7 +47,7 @@ const questions = [
   "I learn best by experimenting and adjusting as I go.",
   "I dislike strict rules that limit my creativity.",
   "I am energized by competition and challenges.",
-  "I like taking risks if there’s a chance of high reward.",
+  "I like taking risks if there's a chance of high reward.",
   "I get bored doing the same task repeatedly.",
   "I prefer freedom to explore multiple approaches.",
   "I often act quickly and figure things out later.",
@@ -223,15 +223,142 @@ export default function LearningStyleSurvey() {
   // Intro page
   if (page === 'intro') {
     return (
-      <div className="max-w-2xl mx-auto py-10 px-4 flex flex-col items-center">
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
         <EmployeeNavigation showForward={false} />
+        
+        {/* Main content area that adapts to sidebar */}
+        <div 
+          className="transition-all duration-300 ease-in-out py-10"
+          style={{ 
+            marginLeft: 'var(--sidebar-width, 0px)',
+          }}
+        >
+          <div className="max-w-4xl mx-auto px-4 flex flex-col items-center">
         <BookOpen className="w-20 h-20 text-blue-500 mb-4" />
-        <h1 className="text-3xl font-bold mb-4">Learning Style Survey</h1>
-        <p className="text-lg text-gray-700 mb-6 text-center">
-          This quick survey helps us understand your learning preferences so we can personalize your training plan. Answer honestly—there are no right or wrong answers!
-        </p>
-        <Button className="mt-2 px-8 py-3 text-lg" onClick={() => setPage('survey')}>Start Survey</Button>
+        <h1 className="text-3xl font-bold mb-6">Learning Style Survey</h1>
+        
+        <div className="text-left max-w-4xl space-y-6">
+          {/* Purpose Section */}
+          <Card className="bg-blue-50 border-blue-200">
+            <CardHeader>
+              <CardTitle className="flex items-center text-blue-800">
+                {/* <Target className="w-6 h-6 mr-2" /> */}
+                Purpose
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-blue-700">
+                This survey is designed to identify your <strong> learning style</strong>. Understanding how you naturally learn and process information helps us personalize your learning journey so that  you can learn more effectively and the way you are meant to learn
+
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* What It Measures Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center text-gray-800">
+                {/* <BookOpen className="w-6 h-6 mr-2" /> */}
+                What It Measures
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-gray-700 mb-4">Survey identifies your learning preferences into  <strong>four main styles</strong>:</p>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="bg-green-50 p-4 rounded-lg border-l-4 border-green-400">
+                  <h3 className="font-bold text-green-800 mb-2">Concrete Sequential (CS): The Planner</h3>
+                  <ul className="text-green-700 text-sm space-y-1">
+                    <li>Key Traits: Organized, methodical, reliable, disciplined, precise.</li>
+                    <li>• Prefers clear instructions, step-by-step learning, structured environment</li>
+                    <li>• Learns best with order, rules, and hands-on practice</li>
+                  </ul>
+                </div>
+                <div className="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-400">
+                  <h3 className="font-bold text-blue-800 mb-2">Abstract Sequential (AS): The Analyst
+</h3>
+                  <ul className="text-blue-700 text-sm space-y-1">
+                    <li>Key Traits: Rational, critical, objective, systematic, inquisitive.</li>
+                    <li>• Prefers logical reasoning, analysis, reading and structured information</li>
+                    <li>• Learns best with data, facts, and organized content</li>
+                  </ul>
+                </div>
+                <div className="bg-orange-50 p-4 rounded-lg border-l-4 border-orange-400">
+                  <h3 className="font-bold text-orange-800 mb-2">Concrete Random (CR): The Explorer</h3>
+                  <ul className="text-orange-700 text-sm space-y-1">
+                    <li>Key Traits: Adventurous, inventive, bold, energetic, resourceful.</li>
+                    <li>• Prefers experimentation, innovation and "Learning by doing"</li>
+                    <li>• Learns best with freedom to explore and test ideas</li>
+                  </ul>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg border-l-4 border-purple-400">
+                  <h3 className="font-bold text-purple-800 mb-2">Abstract Random (AR): The Connector</h3>
+                  <ul className="text-purple-700 text-sm space-y-1">
+                    <li>Key Traits: Compassionate, imaginative, sensitive, flexible, expressive.</li>
+                    <li>• Prefers stories, feelings, collaboration, and big-picture context.</li>
+                    <li>• Learns best through discussions, group work, and creative exploration.</li>
+                  </ul>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* How to Take the Survey Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center text-gray-800">
+                {/* <CheckCircle className="w-6 h-6 mr-2" /> */}
+                How to Take the Survey
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="text-gray-700 space-y-3">
+                <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
+                  <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
+                    1
+                  </span>
+                  <span>
+                    You'll be presented with <strong>statements or scenarios</strong> about
+                    how you prefer to learn and solve problems.
+                  </span>
+                </li>
+
+                <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
+                  <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
+                    2
+                  </span>
+                  <span>
+                    <strong>Read each statement carefully</strong> and select the response
+                    that best reflects your natural tendency.
+                  </span>
+                </li>
+
+                <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
+                  <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
+                    3
+                  </span>
+                  <span>
+                    <strong>Be honest and instinctive</strong> — there are no right or
+                    wrong answers. This isn't a test; it's a tool to understand you better.
+                  </span>
+                </li>
+
+                <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
+                  <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
+                    4
+                  </span>
+                  <span>
+                    The survey usually takes <strong>5–10 minutes</strong> to complete.
+                  </span>
+                </li>
+              </ul>
+            </CardContent>
+          </Card>
+        </div>
+        
+        <Button className="mt-8 px-8 py-3 text-lg" onClick={() => setPage('survey')}>Start Survey</Button>
+        </div>
       </div>
+    </div>
     )
   }
 
@@ -241,12 +368,21 @@ export default function LearningStyleSurvey() {
   const FeaturedIcon = sections[0]?.icon
     
     return (
-      <div className="max-w-4xl mx-auto py-10 px-4">
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
         <EmployeeNavigation showForward={false} />
+        
+        {/* Main content area that adapts to sidebar */}
+        <div 
+          className="transition-all duration-300 ease-in-out py-10"
+          style={{ 
+            marginLeft: 'var(--sidebar-width, 0px)',
+          }}
+        >
+          <div className="max-w-4xl mx-auto px-4">
         
         {/* Header Section */}
         <div className="text-center mb-8">
-          <CheckCircle className="w-20 h-20 text-green-500 mx-auto mb-4" />
+          {/* <CheckCircle className="w-20 h-20 text-green-500 mx-auto mb-4" /> */}
           <h1 className="text-3xl font-bold mb-2">Survey Complete!</h1>
           <div className="inline-flex items-center bg-gradient-to-r from-blue-500 to-purple-600 text-white px-6 py-3 rounded-full text-xl font-semibold mb-4">
             <Star className="w-6 h-6 mr-2" />
@@ -258,7 +394,7 @@ export default function LearningStyleSurvey() {
         <Card className="mb-6 bg-gradient-to-br from-blue-50 to-indigo-100 border-blue-200">
           <CardHeader>
             <CardTitle className="flex items-center text-2xl text-blue-800">
-              <BookOpen className="w-8 h-8 mr-3" />
+              {/* <BookOpen className="w-8 h-8 mr-3" /> */}
               Your Learning Style
             </CardTitle>
             <CardDescription className="text-blue-600 text-lg">
@@ -277,7 +413,7 @@ export default function LearningStyleSurvey() {
               <Card className="bg-gradient-to-r from-green-50 to-emerald-100 border-green-200">
                 <CardHeader>
                   <CardTitle className="flex items-center text-green-800">
-                    <FeaturedIcon className="w-6 h-6 mr-3" />
+                    {/* <FeaturedIcon className="w-6 h-6 mr-3" /> */}
                     {sections[0].title}
                   </CardTitle>
                 </CardHeader>
@@ -294,7 +430,7 @@ export default function LearningStyleSurvey() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center">
-                    <Lightbulb className="w-6 h-6 mr-3 text-orange-500" />
+                    {/* <Lightbulb className="w-6 h-6 mr-3 text-orange-500" /> */}
                     Detailed Insights & Recommendations
                   </CardTitle>
                   <CardDescription>
@@ -309,7 +445,7 @@ export default function LearningStyleSurvey() {
                         <AccordionItem key={index} value={`item-${index}`} className="border rounded-lg px-4">
                           <AccordionTrigger className="hover:no-underline">
                             <div className="flex items-center">
-                              {ItemIcon && <ItemIcon className="w-5 h-5 mr-3 text-gray-600" />}
+                              {/* {ItemIcon && <ItemIcon className="w-5 h-5 mr-3 text-gray-600" />} */}
                               <span className="font-semibold text-left">{section.title}</span>
                             </div>
                           </AccordionTrigger>
@@ -362,7 +498,9 @@ export default function LearningStyleSurvey() {
             Go to Dashboard
           </Button>
         </div>
+        </div>
       </div>
+    </div>
     )
   }
 
@@ -376,8 +514,17 @@ export default function LearningStyleSurvey() {
 
   if (page === 'survey') {
     return (
-      <div className="max-w-2xl mx-auto py-10 px-4 flex flex-col items-center">
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
         <EmployeeNavigation showForward={false} />
+        
+        {/* Main content area that adapts to sidebar */}
+        <div 
+          className="transition-all duration-300 ease-in-out py-10"
+          style={{ 
+            marginLeft: 'var(--sidebar-width, 0px)',
+          }}
+        >
+          <div className="max-w-2xl mx-auto px-4 flex flex-col items-center">
         {/* Progress Bar */}
         <div className="w-full mb-8">
           <div className="flex items-center justify-between mb-2">
@@ -438,6 +585,8 @@ export default function LearningStyleSurvey() {
             )}
           </div>
         </form>
+          </div>
+        </div>
       </div>
     )
   }

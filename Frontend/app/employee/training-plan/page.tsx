@@ -305,10 +305,17 @@ export default function TrainingPlanPage() {
   console.log("Color Green");
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 px-4 py-8">
-      <div className="max-w-5xl mx-auto">
-        {/* Navigation */}
-        <EmployeeNavigation showForward={false} />
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+      <EmployeeNavigation showForward={false} />
+      
+      {/* Main content area that adapts to sidebar */}
+      <div 
+        className="transition-all duration-300 ease-in-out px-4 py-8"
+        style={{ 
+          marginLeft: 'var(--sidebar-width, 0px)',
+        }}
+      >
+        <div className="max-w-5xl mx-auto">
         
         <Card className="mb-8">
           <CardHeader>
@@ -454,6 +461,7 @@ export default function TrainingPlanPage() {
             )}
           </CardContent>
         </Card>
+        </div>
       </div>
     </div>
   );

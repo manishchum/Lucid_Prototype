@@ -1,6 +1,5 @@
 "use client";
 
-import { useSidebar } from "@/contexts/sidebar-context";
 import { ReactNode } from "react";
 
 interface EmployeeLayoutProps {
@@ -8,14 +7,13 @@ interface EmployeeLayoutProps {
 }
 
 export default function EmployeeLayout({ children }: EmployeeLayoutProps) {
-  const { isCollapsed } = useSidebar();
-
   return (
-    <div className={`transition-all duration-300 ${
-      isCollapsed 
-        ? 'lg:ml-20' // Collapsed sidebar width
-        : 'lg:ml-72' // Full sidebar width  
-    }`}>
+    <div 
+      className="transition-all duration-300 ease-in-out"
+      style={{ 
+        marginLeft: 'var(--sidebar-width, 0px)',
+      }}
+    >
       {children}
     </div>
   );
