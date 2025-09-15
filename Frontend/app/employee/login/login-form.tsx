@@ -137,15 +137,15 @@ export default function EmployeeLoginForm() {
   return (
     <Card>
       <CardHeader className="text-center">
-        <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-          <Users className="w-8 h-8 text-green-600" />
-        </div>
-        <CardTitle className="text-2xl">Employee Login</CardTitle>
-        <CardDescription>Enter your email to access your training portal</CardDescription>
+        {/* <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4"> */}
+          {/* <Users className="w-8 h-8 text-green-600" /> */}
+        {/* </div> */}
+        <CardTitle className="text-xl">Learner Login</CardTitle>
+        <CardDescription>While others are building AI that replaces humans, we built Lucid that makes humans extraordinary.</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleLogin} className="space-y-4">
-          <div className="space-y-2">
+          <div className="space-y-2"> 
             <Label htmlFor="email">Email Address</Label>
             <Input
               id="email"
@@ -214,7 +214,7 @@ export default function EmployeeLoginForm() {
 
         <div className="mt-6 text-center text-sm text-gray-600">
           <p>We'll send you a secure login link via email or sign in with Google.</p>
-          <p className="mt-2">Don't have access? Contact your HR administrator.</p>
+          <p className="mt-2">Don't have access? Contact us via mail at manish.chum@workfloww.ai</p>
         </div>
       </CardContent>
     </Card>

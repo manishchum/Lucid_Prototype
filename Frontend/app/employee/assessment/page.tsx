@@ -172,22 +172,31 @@ const AssessmentPage = () => {
   };
 
   return (
-    <div className="max-w-2xl mx-auto py-10">
-      {/* Navigation */}
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
       <EmployeeNavigation showForward={false} />
       
-      <h1 className="text-3xl font-bold mb-4">Baseline Assessment</h1>
-      <p className="mb-6 text-gray-700">
-        Welcome! This adaptive assessment will help us understand your current knowledge. Please answer the following questions to the best of your ability.
-      </p>
-      {error && <div className="mb-4 text-red-600">{error}</div>}
-      {loading && <div className="mb-4 text-gray-500">Loading...</div>}
-      {!loading && score === null && mcqQuestions.length > 0 && (
-        <MCQQuiz questions={mcqQuestions} onSubmit={handleMCQSubmit} />
-      )}
-      {!loading && score !== null && (
-        <ScoreFeedbackCard score={score!} maxScore={mcqQuestions.length} feedback={feedback} />
-      )}
+      {/* Main content area that adapts to sidebar */}
+      <div 
+        className="transition-all duration-300 ease-in-out py-10"
+        style={{ 
+          marginLeft: 'var(--sidebar-width, 0px)',
+        }}
+      >
+        <div className="max-w-2xl mx-auto px-4">
+          <h1 className="text-3xl font-bold mb-4">Baseline Assessment</h1>
+          <p className="mb-6 text-gray-700">
+            Welcome! This adaptive assessment will help us understand your current knowledge. Please answer the following questions to the best of your ability.
+          </p>
+          {error && <div className="mb-4 text-red-600">{error}</div>}
+          {loading && <div className="mb-4 text-gray-500">Loading...</div>}
+          {!loading && score === null && mcqQuestions.length > 0 && (
+            <MCQQuiz questions={mcqQuestions} onSubmit={handleMCQSubmit} />
+          )}
+          {!loading && score !== null && (
+            <ScoreFeedbackCard score={score!} maxScore={mcqQuestions.length} feedback={feedback} />
+          )}
+        </div>
+      </div>
     </div>
   );
 };

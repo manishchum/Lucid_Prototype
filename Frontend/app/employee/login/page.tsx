@@ -18,22 +18,28 @@ export default function EmployeeLogin() {
         {/* Content */}
         <div className="relative z-10 text-center max-w-md">
           {/* Icon */}
-          <div className="w-20 h-20 bg-white/20 rounded-2xl flex items-center justify-center mb-8 mx-auto backdrop-blur-sm">
+          {/* <div className="w-20 h-20 bg-white/20 rounded-2xl flex items-center justify-center mb-8 mx-auto backdrop-blur-sm">
             <Users className="w-10 h-10 text-white" />
-          </div>
+          </div> */}
           
           {/* Title */}
-          <h1 className="text-4xl font-bold mb-4">Employee Portal</h1>
+          <h1 className="text-9xl font-bold mb-7">Lucid</h1>
           
           {/* Description */}
-          <p className="text-lg text-blue-100 mb-8 leading-relaxed">
-            Your personalized learning journey awaits. 
-            Access training modules, track your progress, 
-            and unlock your potential.
+          <p className="text-xl italic text-blue-100 mb-4 leading-relaxed font-serif text-justify tracking-wide">
+            For too long, professionals have been forced to learn like everyone else, even though they're not everyone else. 
+            Generic content for unique roles, One-size-fits-all solutions for deeply personal career challenges, Universal answers for individual ambitions.
           </p>
+          <p className="text-xl italic text-blue-100 mb-4 leading-relaxed font-serif text-justify tracking-wide">
+            Learning that teaches everything except what you actually need to know.
+          </p>
+          <p className="text-xl italic text-blue-100 mb-4 leading-relaxed font-serif text-justify tracking-wide">
+            Lucid isn't just another AI tool. It's your learning mate. Designed from the ground up to understand not just what you're learning, but why you're learning it.
+          </p>
+
           
           {/* Features List */}
-          <div className="space-y-4 text-left">
+          {/* <div className="space-y-4 text-left">
             <div className="flex items-center space-x-3">
               <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center flex-shrink-0">
                 <Check className="w-3 h-3 text-blue-600" />
@@ -52,9 +58,9 @@ export default function EmployeeLogin() {
               </div>
               <span className="text-blue-100">Real-time progress tracking</span>
             </div>
-          </div>
+          </div>  */}
         </div>
-      </div>
+      </div> 
 
       {/* Right Side - Login Form */}
       <div className="w-full lg:w-1/2 bg-gray-50 flex flex-col">
@@ -73,10 +79,10 @@ export default function EmployeeLogin() {
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="w-full max-w-md">
             {/* Welcome Header */}
-            <div className="text-center mb-8">
-              <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2>
-              <p className="text-gray-600">Sign in to your employee account</p>
-            </div>
+            {/* <div className="text-center mb-8">
+              {/* <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2> */}
+              {/* <p className="text-gray-600">Sign in to your account</p> */}
+            {/* </div> */}
 
             {/* Login Form */}
             <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-8">
@@ -96,9 +102,9 @@ export default function EmployeeLogin() {
             {/* Help Text */}
             <div className="text-center mt-6">
               <p className="text-sm text-gray-500">
-                Need help? Contact your{" "}
-                <Link href="/admin/login" className="text-blue-600 hover:text-blue-800 font-medium">
-                  HR Administrator
+                Need help? {" "}
+                <Link href="mailto:manish.chum@workfloww.ai" className="text-blue-600 hover:text-blue-800 font-medium">
+                  Contact us
                 </Link>
               </p>
             </div>

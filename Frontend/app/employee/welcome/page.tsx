@@ -311,16 +311,22 @@ export default function EmployeeWelcome() {
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100" onClick={() => setShowProfileDropdown(false)}>
       <EmployeeNavigation showBack={false} showForward={false} />
       
-      <div className="lg:ml-72 transition-all duration-300">
+      {/* Main content area that adapts to sidebar */}
+      <div 
+        className="transition-all duration-300 ease-in-out"
+        style={{ 
+          marginLeft: 'var(--sidebar-width, 0px)',
+        }}
+      >
         {/* Header */}
         <div className="bg-white shadow-sm border-b" onClick={(e) => e.stopPropagation()}>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pl-16 lg:pl-8">
+          <div className="max-w-10xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center py-4">
               <div className="flex items-center">
                 <Users className="w-8 h-8 text-green-600 mr-3" />
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">Employee Portal</h1>
-                  <p className="text-sm text-gray-600">Welcome to your training dashboard</p>
+                  <h1 className="text-2xl font-bold text-gray-900">Learner's Dashboard</h1>
+                  {/* <p className="text-sm text-gray-600">Welcome to your dashboard</p> */}
               </div>
             </div>
             <div className="relative">
@@ -379,7 +385,8 @@ export default function EmployeeWelcome() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:pl-8 pl-16">        
+        {/* Page content */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">        
         <div className="grid gap-8">{/* Welcome Card */}
           {/*
           <Card className="bg-gradient-to-r from-green-500 to-blue-600 text-white">
@@ -402,17 +409,17 @@ export default function EmployeeWelcome() {
           {/* Arrow-based horizontal flow for onboarding steps */}
           <Card className="bg-gradient-to-r from-gray-50 to-blue-50 border border-blue-100">
             <CardHeader>
-              <CardTitle className="text-gray-900">Getting Started Guide</CardTitle>
-              <CardDescription className="text-gray-600">
+              <CardTitle className="text-gray-900">Follow these steps to maximize your learning experience</CardTitle>
+              {/* <CardDescription className="text-gray-600">
                 Follow these steps to maximize your learning experience
-              </CardDescription>
+              </CardDescription> */}
             </CardHeader>
             <CardContent>
               <div className="flex items-center justify-between py-10 px-2 gap-2">
                 <StepCircle
                   step={1}
-                  label="Learning Style"
-                  subtitle="Discover your personal learning preferences"
+                  label="Learning Preference"
+                  subtitle="Your brain has a style—let’s discover it"
                   completed={!!learningStyle}
                   active={!learningStyle}
                   onClick={() => !learningStyle && router.push("/employee/learning-style")}
@@ -589,16 +596,16 @@ export default function EmployeeWelcome() {
           {/* Progress Tracker Card (unchanged) */}
           <Card>
             <CardHeader>
-              <CardTitle>Module Progress Tracker</CardTitle>
-              <CardDescription>
-                Track your progress for each training module<br />
+              <CardTitle>Track Your Progress</CardTitle>
+            {/*  <CardDescription>
+                Track your progress<br />
                 {/* <span className="text-xs text-gray-400">(Fetched from <b>module_progress</b> table)</span> */}
-              </CardDescription>
+              {/* </CardDescription> */}
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
                 {moduleProgress.length === 0 ? (
-                  <div className="text-gray-500">No module progress tracked yet.</div>
+                  <div className="text-gray-500">Nothing here (yet) — complete your first module to see progress.</div>
                 ) : (
                   moduleProgress.map((mod, idx) => {
                     // LOG: Each module progress row
@@ -711,7 +718,7 @@ function StepCircle({
           className="px-5 py-2 rounded-full bg-blue-600 text-white font-semibold flex items-center gap-2 shadow hover:bg-blue-700 transition"
           onClick={onClick}
         >
-          Start Now <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+          Start Survey <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
         </button>
       ) : null}
     </div>

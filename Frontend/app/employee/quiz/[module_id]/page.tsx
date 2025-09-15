@@ -253,13 +253,20 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 px-4 py-8">
-      <div className="max-w-3xl mx-auto">
-        {/* Navigation */}
-        <EmployeeNavigation 
-          customBackPath={`/employee/module/${params.module_id}`}
-          showForward={false}
-        />
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+      <EmployeeNavigation 
+        customBackPath={`/employee/module/${params.module_id}`}
+        showForward={false}
+      />
+      
+      {/* Main content area that adapts to sidebar */}
+      <div 
+        className="transition-all duration-300 ease-in-out px-4 py-8"
+        style={{ 
+          marginLeft: 'var(--sidebar-width, 0px)',
+        }}
+      >
+        <div className="max-w-3xl mx-auto">
         
         <Card className="mb-8">
           <CardHeader>
@@ -328,6 +335,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             )}
           </CardContent>
         </Card>
+        </div>
       </div>
     </div>
   );

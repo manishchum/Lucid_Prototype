@@ -135,10 +135,17 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 px-4 py-8">
-      <div className="max-w-3xl mx-auto">
-        {/* Navigation */}
-        <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} />
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+      <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} />
+      
+      {/* Main content area that adapts to sidebar */}
+      <div 
+        className="transition-all duration-300 ease-in-out px-4 py-8"
+        style={{ 
+          marginLeft: 'var(--sidebar-width, 0px)',
+        }}
+      >
+        <div className="max-w-3xl mx-auto">
         
         <Card className="mb-8">
           <CardHeader>
@@ -167,6 +174,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           </CardContent>
         </Card>
         <button className="text-blue-600 underline" onClick={() => router.back()}>Back to Training Plan</button>
+        </div>
       </div>
     </div>
   );

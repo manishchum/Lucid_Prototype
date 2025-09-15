@@ -158,32 +158,40 @@ export default function AccountPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center py-4">
-            {/* <Button
-              variant="ghost"
-              onClick={() => router.push("/employee/welcome")}
-              className="mr-4"
-            >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Dashboard
-            </Button> */}
-            <div className="flex items-center">
-              <User className="w-8 h-8 text-green-600 mr-3" />
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Account Settings</h1>
-                <p className="text-sm text-gray-600">Manage your personal information</p>
+      <EmployeeNavigation showBack={true} showForward={false} />
+      
+      {/* Main content area that adapts to sidebar */}
+      <div 
+        className="transition-all duration-300 ease-in-out"
+        style={{ 
+          marginLeft: 'var(--sidebar-width, 0px)',
+        }}
+      >
+        {/* Header */}
+        <div className="bg-white shadow-sm border-b">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center py-4">
+              {/* <Button
+                variant="ghost"
+                onClick={() => router.push("/employee/welcome")}
+                className="mr-4"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Dashboard
+              </Button> */}
+              <div className="flex items-center">
+                <User className="w-8 h-8 text-green-600 mr-3" />
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">Account Settings</h1>
+                  <p className="text-sm text-gray-600">Manage your personal information</p>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Navigation */}
-        <EmployeeNavigation showBack={true} showForward={false} />
+        {/* Page content */}
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
         <div className="grid gap-8">
           {/* Profile Card */}
@@ -344,6 +352,7 @@ export default function AccountPage() {
               </div>
             </CardContent>
           </Card>
+        </div>
         </div>
       </div>
     </div>
