@@ -252,6 +252,22 @@ const EmployeeNavigation = ({
             {!isCollapsed && <span>Dashboard</span>}
           </Link>
 
+          {/* Baseline Assessment (Phase 2) */}
+          {/*}
+          <Link
+            href="/employee/assessment"
+            onClick={closeMobileSidebar}
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${
+              isActiveRoute('/employee/assessment')
+                ? 'text-blue-600 bg-blue-100'
+                : 'text-gray-700 hover:bg-gray-100'
+            } ${isCollapsed ? 'justify-center' : ''}`}
+            title={isCollapsed ? 'Baseline' : ''}
+          >
+            <FileText className="w-5 h-5 flex-shrink-0" />
+            {!isCollapsed && <span>Baseline Assessment</span>}
+          </Link>
+            */}
           <Link 
             href="/employee/score-history" 
             onClick={closeMobileSidebar}

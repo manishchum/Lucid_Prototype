@@ -425,7 +425,7 @@ export default function EmployeeWelcome() {
                   onClick={() => !learningStyle && router.push("/employee/learning-style")}
                 />
                 {/* PHASED RELEASE: Steps 2 and 3 hidden until later rollout */}
-                {/**
+                
                 <StepCircle
                   step={2}
                   label="Baseline Assessment"
@@ -434,6 +434,7 @@ export default function EmployeeWelcome() {
                   active={!!learningStyle && baselineScore === null}
                   onClick={() => learningStyle && baselineScore === null && router.push("/employee/assessment")}
                 />
+                {/*
                 <StepCircle
                   step={3}
                   label="Learning Plan"
