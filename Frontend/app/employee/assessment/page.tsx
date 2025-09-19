@@ -183,9 +183,10 @@ const AssessmentPage = () => {
         }}
       >
         <div className="max-w-2xl mx-auto px-4">
-          <h1 className="text-3xl font-bold mb-4">Baseline Assessment</h1>
+          <h1 className="text-3xl font-bold mb-4">Starting Baseline
+</h1>
           <p className="mb-6 text-gray-700">
-            Welcome! This adaptive assessment will help us understand your current knowledge. Please answer the following questions to the best of your ability.
+            Every learner is different. This short assessment helps us tailor the program to your strengths and needs, so you can learn smarter, apply faster and move closer to your career ambitions.
           </p>
           {error && <div className="mb-4 text-red-600">{error}</div>}
           {loading && <div className="mb-4 text-gray-500">Loading...</div>}

@@ -5,6 +5,11 @@ require('dotenv').config();
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 const { createClient } = require('@supabase/supabase-js');
 
+// Import local API functions to avoid Vercel timeouts
+const { migrateProcessedModules } = require('./api/migrate-processed-modules');
+const { startContentGeneration } = require('./api/start-content-generation');
+const { generateModuleContent } = require('./api/generate-module-content');
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const API_BASE_URL = process.env.INTERNAL_API_BASE_URL;
@@ -41,15 +46,13 @@ async function processJobs() {
       }
       try {
         console.log(`[JOB] Running migration for module_id=${job.module_id}`);
-        const migrateRes = await fetch(`${API_BASE_URL}/api/migrate-processed-modules`, { method: 'POST' });
-        console.log(`[JOB] Migration response status:`, migrateRes.status);
+        const migrateResult = await migrateProcessedModules();
+        console.log(`[JOB] Migration completed:`, migrateResult.message);
+        
         console.log(`[JOB] Running content generation for module_id=${job.module_id}`);
-        const genRes = await fetch(`${API_BASE_URL}/api/generate-module-content`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ module_id: job.module_id }),
-        });
-        console.log(`[JOB] Content generation response status:`, genRes.status);
+        const genResult = await generateModuleContent();
+        console.log(`[JOB] Content generation completed:`, genResult.message);
+        
         await supabase.from('content_jobs').update({ status: 'completed', updated_at: new Date() }).eq('id', job.id);
         console.log(`[JOB] Job completed: id=${job.id}, module_id=${job.module_id}`);
       } catch (err) {

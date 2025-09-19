@@ -363,22 +363,26 @@ export default function ScoreHistoryPage() {
         {learningStyleData ? (
           <Card className="mb-12 shadow-xl scale-105">
             <CardHeader className="bg-gradient-to-r from-green-50 to-blue-50 rounded-t-2xl py-8 px-8">
-              <CardTitle className="text-4xl font-extrabold text-gray-800">Your Learning Style</CardTitle>
+              <CardTitle className="text-4xl font-extrabold text-gray-800">Discover how you learn best</CardTitle>
               <CardDescription className="text-2xl mt-2">
-                Your personalized learning style assessment and analysis
+                Understand your learning DNA to achieve outcomes faster
               </CardDescription>
             </CardHeader>
             <CardContent className="p-12">
               <div className="border-b pb-8 mb-8">
                 <div className="flex items-center justify-between mb-6 cursor-pointer" onClick={() => setLearningStyleExpanded(!learningStyleExpanded)}>
-                  <div className="flex items-center gap-8">
-                    <span className="text-2xl font-bold text-gray-800">Learning Style Assessment</span>
-                    <div className="px-6 py-3 bg-blue-100 text-blue-700 rounded-full text-2xl font-bold">
-                      {learningStyleData.learning_style}
+                  <div className="flex items-center gap-6">
+                    <div className="bg-white/80 backdrop-blur-sm border border-blue-200 rounded-xl shadow-sm px-5 py-4 flex items-center gap-4 hover:shadow-md transition-shadow">
+                      <div className="w-14 h-14 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center text-xl font-bold shadow-inner">
+                        {learningStyleData.learning_style}
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium tracking-wide text-blue-600 uppercase">Primary Style</span>
+                        <span className="text-base font-semibold text-gray-800 leading-snug max-w-xs">
+                          {getLearningStyleInfo(learningStyleData.learning_style).label}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-xl text-gray-600">
-                      {getLearningStyleInfo(learningStyleData.learning_style).label}
-                    </span>
                   </div>
                   <div className="flex items-center gap-8">
                     <span className="text-lg text-gray-500">
@@ -440,8 +444,10 @@ export default function ScoreHistoryPage() {
         {/* Assessment History Section */}
         <Card className="mb-12 shadow-xl scale-105">
           <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl py-8 px-8">
-            <CardTitle className="text-4xl font-extrabold text-gray-800">Assessment History</CardTitle>
-            <CardDescription className="text-2xl mt-2">View all your assessment results and AI feedback</CardDescription>
+            <CardTitle className="text-4xl font-extrabold text-gray-800">Your Growth Record
+</CardTitle>
+            <CardDescription className="text-2xl mt-2">Review your scores & track growth
+</CardDescription>
           </CardHeader>
           <CardContent className="p-12">
             {scoreHistory.length === 0 && (

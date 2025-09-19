@@ -12,6 +12,13 @@ const config: Config = {
   ],
   theme: {
   	extend: {
+		fontSize: {
+			// Slightly reduced scale to make overall UI less enlarged
+			'xl': ['1.125rem', { lineHeight: '1.6' }],       // ~18px instead of 20px
+			'2xl': ['1.375rem', { lineHeight: '1.75' }],     // ~22px instead of 24px
+			'3xl': ['1.625rem', { lineHeight: '2rem' }],     // ~26px instead of 30px
+			'4xl': ['2rem', { lineHeight: '2.25rem' }],      // ~32px instead of 36px
+		},
   		colors: {
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
