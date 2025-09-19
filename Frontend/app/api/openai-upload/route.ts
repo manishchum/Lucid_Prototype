@@ -227,7 +227,7 @@ Additional instructions to maximize quality:
     }
 
     // Call long-running content generation endpoint
-    const baseUrl = process.env.INTERNAL_API_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+    const baseUrl = process.env.INTERNAL_API_BASE_URL;
     let startGenResult: any = null;
     try {
       const startRes = await fetch(`${baseUrl}/api/start-content-generation`, {
