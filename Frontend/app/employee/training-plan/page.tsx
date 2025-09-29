@@ -297,12 +297,12 @@ export default function TrainingPlanPage() {
       isCompleted = completedModules.includes(processedModuleId);
     }
     
-    console.log("Processed Module ID:", processedModuleId, "Is Completed:", isCompleted);
+    // console.log("Processed Module ID:", processedModuleId, "Is Completed:", isCompleted);
     return { ...mod, _tabValue: tabValue, _isCompleted: isCompleted };
   });
 
 
-  console.log("Color Green");
+  // console.log("Color Green");
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
@@ -315,148 +315,205 @@ export default function TrainingPlanPage() {
           marginLeft: 'var(--sidebar-width, 0px)',
         }}
       >
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-7xl mx-auto">
         
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Personalized Training Plan</CardTitle>
             <CardDescription>Your AI-generated learning roadmap</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col md:flex-row gap-6">
-              {/* Tabs List */}
-              <div className="w-full md:w-72 shrink-0">
-                <Tabs defaultValue={normalizedModules[0]?._tabValue || ""} className="flex flex-col md:flex-row">
-                    {/* Left Sidebar Tabs List */}
-                    <TabsList className="md:w-72 w-full flex flex-col bg-white rounded-lg shadow p-2 sticky top-4 h-fit">
-                        {normalizedModules.map((mod: any) => (
-            // <TabsTrigger
-            //   key={mod._tabValue}
-            //   value={mod._tabValue}
-            //   className="text-left py-3 px-4 rounded-lg mb-2 border hover:bg-blue-50 whitespace-normal"
-            // >
-            //   <div className={"font-semibold text-base md:text-lg " + (mod._isCompleted ? "text-green-600" : "text-gray-900")}>{mod.title}</div>
-
-            //   <div className="text-xs text-gray-500">{mod.objectives?.length || 0} objectives</div>
-            // </TabsTrigger>
-
-            <TabsTrigger
-
-              key={mod._tabValue}
-
-              value={mod._tabValue}
-
-              className={`text-left py-3 px-4 rounded-lg mb-2 border whitespace-normal
-
-                ${mod._isCompleted ? "bg-green-100 text-green-800 border-green-300" : "bg-white text-gray-900 hover:bg-blue-50"}`}
-            >
-            <div className="font-semibold text-base md:text-lg">{mod.title}</div>
-            <div className="text-xs text-gray-500">{mod.objectives?.length || 0} objectives</div>
-            </TabsTrigger>
- 
-                        ))}
-                    </TabsList>
-
-                    {/* Right Content Panel */}
-                    <div className="flex-1 mt-6 md:mt-0 md:ml-6">
-                        {normalizedModules.map((mod: any) => (
-                        <TabsContent key={mod._tabValue} value={mod._tabValue} className="bg-white rounded-lg shadow p-6">
-                            <div className="mb-4">
-                            <div className="text-2xl font-bold mb-2">{mod.title}</div>
-                            <div className="text-gray-600 mb-2">
-                                Recommended Time: <span className="font-semibold">{mod.recommended_time} hours</span>
-                            </div>
-                            <div className="text-gray-600 mb-2">
-                                Tips: {Array.isArray(mod.tips) ? (
-                                  <ul className="list-disc pl-6 text-gray-700">
-                                    {mod.tips.map((t: any, i: number) => (
-                                      <li key={`${mod._tabValue}-tip-${i}`}>{t}</li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <span className="font-semibold">{mod.tips}</span>
-                                )}
-                            </div>
-                            </div>
-                            <div className="mb-4">
-                            <div className="font-semibold mb-1">Objectives:</div>
-                            {Array.isArray(mod.objectives) ? (
-                              <ul className="list-disc pl-6 text-gray-700">
-                                {mod.objectives.map((obj: any, idx: number) => (
-                                  typeof obj === 'string' || typeof obj === 'number' ? (
-                                    <li key={`${mod._tabValue}-obj-${idx}`}>{obj}</li>
-                                  ) : typeof obj === 'object' && obj !== null ? (
-                                    <li key={`${mod._tabValue}-obj-${idx}`}>
-                                      {Object.entries(obj).map(([k, v], i) => (
-                                        <div key={i}>
-                                          <span className="font-semibold">{k}:</span> {typeof v === 'string' || typeof v === 'number' ? v : JSON.stringify(v)}
-                                        </div>
-                                      ))}
-                                    </li>
-                                  ) : null
-                                ))}
-                              </ul>
-                            ) : mod.objectives && typeof mod.objectives === 'object' ? (
-                              <ul className="list-disc pl-6 text-gray-700">
-                                {Object.entries(mod.objectives).map(([k, v], i) => (
-                                  <li key={`${mod._tabValue}-obj-single-${i}`}>
-                                    <span className="font-semibold">{k}:</span> {typeof v === 'string' || typeof v === 'number' ? v : JSON.stringify(v)}
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : mod.objectives ? (
-                              <div className="text-gray-700">{mod.objectives}</div>
-                            ) : (
-                              <div className="text-gray-400 italic">No objectives listed.</div>
-                            )}
-                            </div>
-                            <div className="flex gap-4 mt-6">
-                            <Button
-                              variant="outline"
-                              onClick={async () => {
-                                const navId = await resolveModuleId(mod);
-                                if (navId) router.push(`/employee/module/${navId}`);
-                              }}
-                              disabled={!(mod.id ?? mod.original_module_id) && !mod.title}
-                            >
-                                View Content
-                            </Button>
-                            <Button
-                              variant="default"
-                              onClick={async () => {
-                                const navId = await resolveModuleId(mod);
-                                if (navId) router.push(`/employee/quiz/${navId}`);
-                              }}
-                              disabled={!(mod.id ?? mod.original_module_id) && !mod.title}
-                            >
-                                Take Quiz
-                            </Button>
-                            </div>
-                        </TabsContent>
-                        ))}
-                    </div>
-                </Tabs>
+            {/* Progress Summary */}
+            <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-green-50 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-700">Progress Overview</span>
+                <span className="text-sm font-bold text-green-600">
+                  {completedModules.length} / {normalizedModules.length} Modules Completed
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-gradient-to-r from-green-400 to-green-600 h-2 rounded-full transition-all duration-500"
+                  style={{ width: `${(completedModules.length / Math.max(normalizedModules.length, 1)) * 100}%` }}
+                ></div>
               </div>
             </div>
+          </CardHeader>
+          <CardContent>
+            {/* Reworked layout: Tabs root spans full width, sidebar fixed, content stretches */}
+            <Tabs defaultValue={normalizedModules[0]?._tabValue || ""} className="flex flex-col lg:flex-row gap-8 w-full">
+              {/* Sidebar */}
+              <div className="w-full lg:w-80 shrink-0">
+                <TabsList className="w-full flex flex-col bg-white rounded-xl shadow-lg p-3 sticky top-4 h-fit border">
+                  {normalizedModules.map((mod: any) => (
+                    <TabsTrigger
+                      key={mod._tabValue}
+                      value={mod._tabValue}
+                      className={`text-left py-4 px-5 rounded-xl mb-3 border whitespace-normal relative transition-all duration-200 ${mod._isCompleted ? "bg-green-100 text-green-800 border-green-300 shadow-md" : "bg-white text-gray-900 hover:bg-blue-50 hover:shadow-md border-gray-200"}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="font-semibold text-base lg:text-lg flex items-center gap-2">
+                            {mod._isCompleted && <span className="text-green-600 text-lg">✓</span>}
+                            {mod.title}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {mod.objectives?.length || 0} objectives • {mod.recommended_time} hours
+                          </div>
+                        </div>
+                        {mod._isCompleted && (
+                          <div className="absolute top-3 right-3">
+                            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                          </div>
+                        )}
+                      </div>
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </div>
+              {/* Content Area */}
+              <div className="flex-1 min-w-0">
+                {normalizedModules.map((mod: any) => (
+                  <TabsContent key={mod._tabValue} value={mod._tabValue} className="bg-white rounded-xl shadow-lg p-8 border w-full">
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-5">
+                      <h2 className="text-2xl font-semibold text-gray-900 leading-snug pr-4 break-words">{mod.title}</h2>
+                      {mod._isCompleted && (
+                        <div className="px-4 py-2 bg-green-100 text-green-800 text-sm font-semibold rounded-full border border-green-200 shadow-sm">
+                          ✓ Completed
+                        </div>
+                      )}
+                    </div>
+                    {/* Summary Metrics */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+                      <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                        <div className="text-sm font-semibold text-blue-800 mb-1">Recommended Time</div>
+                        <div className="text-2xl font-bold text-blue-900">{mod.recommended_time} hours</div>
+                      </div>
+                      <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+                        <div className="text-sm font-semibold text-purple-800 mb-1">Learning Objectives</div>
+                        <div className="text-2xl font-bold text-purple-900">{mod.objectives?.length || 0} objectives</div>
+                      </div>
+                    </div>
+                    {/* Tips */}
+                    <div className="bg-amber-50 rounded-lg p-5 border border-amber-200 mb-6">
+                      <div className="font-semibold text-amber-800 mb-4 flex items-center gap-2">
+                        {/* <span className="text-xl">💡</span> */}
+                        Tips for Success
+                      </div>
+                      {Array.isArray(mod.tips) ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {mod.tips.map((t: any, i: number) => (
+                            <div key={`${mod._tabValue}-tip-${i}`} className="flex items-start gap-2">
+                              <div className="w-2 h-2 bg-amber-400 rounded-full mt-2 shrink-0"></div>
+                              <div className="text-amber-700 flex-1">{t}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-amber-700">{mod.tips}</div>
+                      )}
+                    </div>
+                    {/* Objectives */}
+                    <div className="mb-8">
+                      <div className="font-semibold text-lg mb-4 text-gray-900 flex items-center gap-2">
+                        {/* <span className="text-2xl">🎯</span> */}
+                        Learning Objectives
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-5 border">
+                        {Array.isArray(mod.objectives) ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {mod.objectives.map((obj: any, idx: number) => (
+                              typeof obj === 'string' || typeof obj === 'number' ? (
+                                <div key={`${mod._tabValue}-obj-${idx}`} className="flex items-start gap-3 p-3 bg-white rounded-lg border">
+                                  <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">{idx + 1}</div>
+                                  <div className="text-gray-700 flex-1">{obj}</div>
+                                </div>
+                              ) : typeof obj === 'object' && obj !== null ? (
+                                <div key={`${mod._tabValue}-obj-${idx}`} className="flex items-start gap-3 p-3 bg-white rounded-lg border">
+                                  <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">{idx + 1}</div>
+                                  <div className="flex-1">
+                                    {Object.entries(obj).map(([k, v], i) => (
+                                      <div key={i} className="text-gray-700"><span className="font-semibold">{k}:</span> {typeof v === 'string' || typeof v === 'number' ? v : JSON.stringify(v)}</div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null
+                            ))}
+                          </div>
+                        ) : mod.objectives && typeof mod.objectives === 'object' ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {Object.entries(mod.objectives).map(([k, v], i) => (
+                              <div key={`${mod._tabValue}-obj-single-${i}`} className="flex items-start gap-3 p-3 bg-white rounded-lg border">
+                                <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">{i + 1}</div>
+                                <div className="text-gray-700 flex-1"><span className="font-semibold">{k}:</span> {typeof v === 'string' || typeof v === 'number' ? v : JSON.stringify(v)}</div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : mod.objectives ? (
+                          <div className="text-gray-700 p-3 bg-white rounded-lg border">{mod.objectives}</div>
+                        ) : (
+                          <div className="text-gray-400 italic p-3 bg-white rounded-lg border">No objectives listed.</div>
+                        )}
+                      </div>
+                    </div>
+                    {/* Actions */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      <Button
+                        variant="outline"
+                        size="lg"
+                        onClick={async () => {
+                          const navId = await resolveModuleId(mod);
+                          if (navId) router.push(`/employee/module/${navId}`);
+                        }}
+                        disabled={!(mod.id ?? mod.original_module_id) && !mod.title}
+                        className="w-full py-3 text-base font-semibold border-2 hover:bg-blue-50 transition-all duration-200"
+                      >View Content</Button>
+                      <Button
+                        variant={mod._isCompleted ? "outline" : "default"}
+                        size="lg"
+                        onClick={async () => {
+                          const navId = await resolveModuleId(mod);
+                          if (navId) router.push(`/employee/quiz/${navId}`);
+                        }}
+                        disabled={mod._isCompleted || (!(mod.id ?? mod.original_module_id) && !mod.title)}
+                        className={`w-full py-3 text-base font-semibold transition-all duration-200 ${mod._isCompleted ? "bg-gray-100 text-gray-500 cursor-not-allowed border-2" : "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"}`}
+                      >{mod._isCompleted ? "Quiz Completed" : "Take Quiz"}</Button>
+                    </div>
+                  </TabsContent>
+                ))}
+              </div>
+            </Tabs>
             {overallRecommendations && (
-              <div className="mt-8 p-4 bg-blue-50 rounded-lg text-blue-900">
-                <div className="font-bold mb-2">Overall Recommendations</div>
+              <div className="mt-8 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 shadow-lg">
+                <div className="font-bold text-xl mb-4 text-blue-900 flex items-center gap-2">
+                  {/* <span className="text-2xl">🌟</span> */}
+                  Overall Recommendations
+                </div>
                 {Array.isArray(overallRecommendations) ? (
-                  <ul className="list-disc pl-6">
+                  <ul className="space-y-3">
                     {overallRecommendations.map((r: any, i: number) => (
-                      <li key={`rec-${i}`}>{r}</li>
+                      <li key={`rec-${i}`} className="flex items-start gap-3">
+                        <div className="w-6 h-6 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold mt-0.5">
+                          {i + 1}
+                        </div>
+                        <div className="text-blue-800 flex-1">{r}</div>
+                      </li>
                     ))}
                   </ul>
                 ) : (
-                  <div>{overallRecommendations}</div>
+                  <div className="text-blue-800 text-lg">{overallRecommendations}</div>
                 )}
               </div>
             )}
             {/* Reasoning Section */}
             {reasoning && (
-              <div className="mt-8 p-4 bg-yellow-50 rounded-lg text-yellow-900">
-                <div className="font-bold mb-2">GPT Reasoning</div>
-                {renderReasoning(reasoning)}
+              <div className="mt-8 p-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl border border-yellow-200 shadow-lg">
+                <div className="font-bold text-xl mb-4 text-yellow-900 flex items-center gap-2">
+                  {/* <span className="text-2xl">🧠</span> */}
+                  GPT Reasoning
+                </div>
+                <div className="text-yellow-800">
+                  {renderReasoning(reasoning)}
+                </div>
               </div>
             )}
           </CardContent>

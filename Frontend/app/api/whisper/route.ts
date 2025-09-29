@@ -15,6 +15,7 @@ export async function POST(request: NextRequest) {
     // Toggle between real API and simulated responses
     const USE_REAL_API = process.env.USE_REAL_API === 'true'
     
+    /*
     if (!USE_REAL_API) {
       // Simulated transcription for development
       const simulatedTranscription = `This is a simulated transcription of the audio/video content from ${audioUrl}. 
@@ -32,6 +33,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    */
     // Use improved OpenAI upload service
     const result = await OpenAIUploadService.uploadToWhisper(audioUrl, 'audio.mp4')
     

@@ -5,6 +5,7 @@ import AudioPlayer from "./AudioPlayer";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
+import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
 
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
@@ -154,7 +155,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           </CardHeader>
           <CardContent>
             {module.content ? (
-              <div className="prose prose-lg max-w-none" dangerouslySetInnerHTML={{ __html: formatContent(module.content) }} />
+              <div className="max-w-none text-gray-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: formatContent(module.content) }} />
             ) : (
               <div className="text-gray-500">No content available for this module.</div>
             )}
@@ -173,24 +174,69 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             </div>
           </CardContent>
         </Card>
-        <button className="text-blue-600 underline" onClick={() => router.back()}>Back to Training Plan</button>
+        <Button className="mt-4" variant="outline" onClick={() => router.back()}>
+                  Back to Training Plan
+        </Button>
         </div>
       </div>
     </div>
   );
 }
 
-// Helper to format content (if it's markdown or plain text)
+// Helper to format content (markdown to HTML)
 function formatContent(content: string) {
-  // If content is JSON, pretty print. If HTML, return as is. If markdown, you can add a markdown parser.
+  // If content is JSON, pretty print
   try {
     const parsed = JSON.parse(content);
     if (typeof parsed === "object") {
-      return `<pre>${JSON.stringify(parsed, null, 2)}</pre>`;
+      return `<pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto"><code>${JSON.stringify(parsed, null, 2)}</code></pre>`;
     }
   } catch {}
-  // Basic: replace line breaks with <br/>
-  return content.replace(/\n/g, "<br/>");
+  
+  // Convert markdown-like formatting to HTML
+  let formatted = content
+    // Headers (### -> h3, ## -> h2, # -> h1)
+    .replace(/^### (.*$)/gm, '<h3 class="text-lg font-semibold mt-6 mb-3 text-gray-800">$1</h3>')
+    .replace(/^## (.*$)/gm, '<h2 class="text-xl font-bold mt-8 mb-4 text-gray-900">$1</h2>')
+    .replace(/^# (.*$)/gm, '<h1 class="text-2xl font-bold mt-8 mb-6 text-gray-900">$1</h1>')
+    
+    // Bold text (**text** or __text__)
+    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-gray-900">$1</strong>')
+    .replace(/__(.*?)__/g, '<strong class="font-semibold text-gray-900">$1</strong>')
+    
+    // Italic text (*text* or _text_)
+    .replace(/\*(.*?)\*/g, '<em class="italic text-gray-700">$1</em>')
+    .replace(/_(.*?)_/g, '<em class="italic text-gray-700">$1</em>')
+    
+    // Code blocks (```code```)
+    .replace(/```([\s\S]*?)```/g, '<pre class="bg-gray-100 p-4 rounded-lg my-4 overflow-x-auto"><code class="text-sm">$1</code></pre>')
+    
+    // Inline code (`code`)
+    .replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-2 py-1 rounded text-sm font-mono">$1</code>')
+    
+    // Unordered lists (- item or * item)
+    .replace(/^[\*\-] (.*$)/gm, '<li class="ml-4 mb-2">$1</li>')
+    
+    // Numbered lists (1. item)
+    .replace(/^\d+\. (.*$)/gm, '<li class="ml-4 mb-2 list-decimal">$1</li>')
+    
+    // Line breaks
+    .replace(/\n\n/g, '</p><p class="mb-4">')
+    .replace(/\n/g, '<br/>');
+  
+  // Wrap in paragraphs and handle lists
+  formatted = '<p class="mb-4">' + formatted + '</p>';
+  
+  // Clean up list formatting
+  formatted = formatted
+    .replace(/<p class="mb-4">(<li class="ml-4 mb-2[^>]*>.*?<\/li>(?:\s*<br\/>\s*<li class="ml-4 mb-2[^>]*>.*?<\/li>)*)<\/p>/g, '<ul class="mb-4 space-y-1">$1</ul>')
+    .replace(/<br\/>\s*(<li class="ml-4 mb-2[^>]*>)/g, '$1')
+    .replace(/(<\/li>)\s*<br\/>/g, '$1');
+  
+  // Clean up empty paragraphs
+  formatted = formatted.replace(/<p class="mb-4">\s*<\/p>/g, '');
+  
+  return formatted;
 }
 
 // Add GenerateAudioButton component

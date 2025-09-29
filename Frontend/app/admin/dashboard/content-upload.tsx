@@ -52,6 +52,31 @@ async function uploadToOpenAIAssistant(file: File, moduleId: string) {
   return data;
 }
 
+// Helper to upload transcribed text to OpenAI (for video/audio files)
+async function uploadTextToOpenAI(extractedText: string, moduleId: string) {
+  console.log("🤖 DEBUG: Uploading transcribed text to OpenAI...");
+  const res = await fetch("/api/openai-upload", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      text: extractedText,
+      moduleId: moduleId
+    }),
+  });
+  const data = await res.json();
+  console.log("🤖 DEBUG: OpenAI text upload response:", data);
+  return data;
+}
+
+// Helper function to check if file type is video or audio
+function isVideoOrAudioFile(fileType: string): boolean {
+  return fileType.includes("video/") || fileType.includes("audio/");
+}
+
+
+
 export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps) {
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState("")
@@ -264,14 +289,28 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
           toast.success("Content extraction completed!")
           onUploadSuccess?.()
 
-          // --- Trigger OpenAI upload automatically after Supabase upload ---
+          // --- Process content with OpenAI ---
           setOpenaiUploading(true);
           try {
-            const result = await uploadToOpenAIAssistant(file, moduleData.id);
+            let result;
+            
+            // For video/audio files, send the transcribed text to openai-upload
+            if (isVideoOrAudioFile(file.type)) {
+              console.log("🎵 DEBUG: Processing video/audio transcription with OpenAI...");
+              result = await uploadTextToOpenAI(extractedText, moduleData.id);
+            } else {
+              // For other file types (PDF, DOCX, etc.), upload the file directly
+              console.log("📄 DEBUG: Uploading non-media file to OpenAI Assistants...");
+              result = await uploadToOpenAIAssistant(file, moduleData.id);
+            }
+            
             setOpenaiResult(result);
-            toast.success("OpenAI Assistants API processing complete!");
+            toast.success("OpenAI processing complete!");
+            
+            // The backend worker will automatically handle subsequent processing
           } catch (err) {
-            toast.error("OpenAI Assistants API failed. See console for details.");
+            console.error("🤖 DEBUG: OpenAI processing error:", err);
+            toast.error("OpenAI processing failed. See console for details.");
           } finally {
             setOpenaiUploading(false);
           }
@@ -419,8 +458,9 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
         )} */}
         {/* Success message after upload and processing */}
         {openaiResult && (
-          <Alert variant="success" className="mt-4">
-            <AlertDescription>Training content uploaded and processed successfully!</AlertDescription>
+          <Alert className="mt-4 border-green-200 bg-green-50">
+            <CheckCircle className="h-4 w-4 text-green-600" />
+            <AlertDescription className="text-green-800">Training content uploaded and processed successfully!</AlertDescription>
           </Alert>
         )}
 

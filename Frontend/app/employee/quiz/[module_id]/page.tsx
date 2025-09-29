@@ -9,6 +9,19 @@ import EmployeeNavigation from "@/components/employee-navigation";
 
 export default function ModuleQuizPage({ params }: { params: { module_id: string } }) {
   const { user, loading: authLoading } = useAuth();
+  // Handler for navigation
+  const handleNext = () => {
+    if (currentPage < totalPages - 1) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  const handlePrevious = () => {
+    if (currentPage > 0) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
   // Handler for quiz submission
   const handleSubmit = async () => {
     if (!quiz || !Array.isArray(quiz)) return;
@@ -18,6 +31,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       return;
     }
     setSubmitted(true);
+    setIsSubmitting(true);
     // Normalize answers for MCQ questions (send selected option values, not indices)
     const userAnswers = answers.map((ans, i) => {
       const q = quiz[i];
@@ -93,6 +107,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     } catch (err) {
       feedbackText = "Could not generate feedback.";
       setFeedback(feedbackText);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 // ...existing code...
@@ -108,7 +124,15 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   const [maxScore, setMaxScore] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [assessmentId, setAssessmentId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
+
+  const questionsPerPage = 10;
+  const totalPages = quiz ? Math.ceil(quiz.length / questionsPerPage) : 0;
+  const currentQuestions = quiz ? quiz.slice(currentPage * questionsPerPage, (currentPage + 1) * questionsPerPage) : [];
+  const answeredQuestions = answers.filter(a => a !== -1 && a !== '').length;
+  const progressPercentage = quiz ? (answeredQuestions / quiz.length) * 100 : 0;
 
   // Handler for MCQ selection
   const handleSelect = (qIdx: number, oIdx: number) => {
@@ -268,73 +292,243 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       >
         <div className="max-w-3xl mx-auto">
         
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>Module Quiz</CardTitle>
-            <CardDescription>Answer the questions below. Your learning style is used to personalize this quiz.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ol className="list-decimal ml-6">
-              {quiz && quiz.map((q, idx) => (
-                <li key={idx} className="mb-6">
-                  <div className="font-semibold mb-2">{q.question}</div>
-                  {/* Only MCQ options displayed. All other question types commented out. */}
-                  {(Array.isArray(q.options) && q.options.length > 0) ? (
-                    <div>
-                      {q.options.map((opt: string, oIdx: number) => (
-                        <label key={oIdx} className="block mb-2">
-                          <input
-                            type="radio"
-                            name={`q${idx}`}
-                            checked={answers[idx] === oIdx}
-                            onChange={() => handleSelect(idx, oIdx)}
-                            disabled={submitted}
-                            className="mr-2"
-                          />
-                          {opt}
-                        </label>
+        {!submitted ? (
+          <>
+            {/* Progress Header */}
+            <Card className="mb-6 shadow-lg border-t-4 border-t-blue-500">
+              <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <CardTitle className="text-2xl font-bold text-gray-800">Module Quiz</CardTitle>
+                    <CardDescription className="text-lg text-gray-600">
+                      Test your knowledge on this module content
+                    </CardDescription>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm text-gray-500 mb-1">Progress</div>
+                    <div className="text-2xl font-bold text-blue-600">
+                      {answeredQuestions}/{quiz?.length || 0}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Progress Bar */}
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>Questions Answered</span>
+                    <span>{Math.round(progressPercentage)}% Complete</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-3 shadow-inner">
+                    <div 
+                      className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-500 shadow-sm"
+                      style={{ width: `${progressPercentage}%` }}
+                    ></div>
+                  </div>
+                </div>
+
+                {/* Page Indicator */}
+                {totalPages > 1 && (
+                  <div className="flex justify-center mt-4">
+                    <div className="flex space-x-2">
+                      {Array.from({ length: totalPages }).map((_, idx) => (
+                        <div
+                          key={idx}
+                          className={`w-3 h-3 rounded-full transition-colors ${
+                            idx === currentPage 
+                              ? 'bg-blue-500' 
+                              : idx < currentPage 
+                                ? 'bg-green-400' 
+                                : 'bg-gray-300'
+                          }`}
+                        />
                       ))}
                     </div>
-                  ) : (
-                    <div className="text-red-600 text-sm">No options available for this question.</div>
-                  )}
-                  {/*
-                  // Other question types are commented out for MCQ-only display
-                  // {q.type === 'multiple select' ? ...}
-                  // {(q.type === 'open-ended' || q.type === 'scenario') ? ...}
-                  // {q.type === 'fill-in-the-blank' ? ...}
-                  // {q.type === 'true/false' ? ...}
-                  // {q.type === 'ordering' ? ...}
-                  // {q.type === 'matching' && ...}
-                  // Fallback: unknown question type
-                  */}
-                </li>
-              ))}
-            </ol>
-            {!submitted ? (
-              <Button className="mt-8" variant="default" onClick={handleSubmit} disabled={answers.some(a => a === -1)}>
-                Submit Quiz
-              </Button>
-            ) : (
-              <div className="mt-8">
-                <div className="text-lg font-semibold mb-2">
-                  {score === null || maxScore === null ? (
-                    <div className="flex items-center gap-2">
-                      <span>Grading...</span>
-                      <span className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600"></span>
+                  </div>
+                )}
+              </CardHeader>
+            </Card>
+
+            {/* Questions Card */}
+            <Card className="mb-6 shadow-xl">
+              <CardHeader className="bg-white border-b">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-xl text-gray-800">
+                    Questions {currentPage * questionsPerPage + 1}-{Math.min((currentPage + 1) * questionsPerPage, quiz?.length || 0)}
+                  </CardTitle>
+                  {totalPages > 1 && (
+                    <div className="text-sm text-gray-500">
+                      Page {currentPage + 1} of {totalPages}
                     </div>
-                  ) : (
-                    <>Your Score: {score} / {maxScore}</>
                   )}
                 </div>
-                {feedback && <div className="bg-blue-50 p-4 rounded text-blue-900 whitespace-pre-line">{feedback}</div>}
-                <Button className="mt-4" variant="outline" onClick={() => router.back()}>
+              </CardHeader>
+              <CardContent className="p-8">
+                <div className="space-y-8">
+                  {currentQuestions.map((q, idx) => {
+                    const globalIdx = currentPage * questionsPerPage + idx;
+                    const isAnswered = answers[globalIdx] !== -1 && answers[globalIdx] !== '';
+                    
+                    return (
+                      <div key={globalIdx} className={`p-6 rounded-lg border-2 transition-all ${
+                        isAnswered 
+                          ? 'border-green-200 bg-green-50' 
+                          : 'border-gray-200 bg-white hover:border-blue-200'
+                      }`}>
+                        <div className="flex items-start gap-4">
+                          {/* Question Number */}
+                          <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                            isAnswered 
+                              ? 'bg-green-500 text-white' 
+                              : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {globalIdx + 1}
+                          </div>
+                          
+                          <div className="flex-1">
+                            {/* Question Text */}
+                            <div className="font-semibold text-lg text-gray-800 mb-4">
+                              {q.question}
+                            </div>
+                            
+                            {/* Answer Options */}
+                            {(Array.isArray(q.options) && q.options.length > 0) ? (
+                              <div className="space-y-3">
+                                {q.options.map((opt: string, oIdx: number) => (
+                                  <label 
+                                    key={oIdx} 
+                                    className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all ${
+                                      answers[globalIdx] === oIdx
+                                        ? 'border-blue-500 bg-blue-50 shadow-md'
+                                        : 'border-gray-200 hover:border-blue-300 hover:bg-blue-25'
+                                    }`}
+                                  >
+                                    <input
+                                      type="radio"
+                                      name={`q${globalIdx}`}
+                                      checked={answers[globalIdx] === oIdx}
+                                      onChange={() => handleSelect(globalIdx, oIdx)}
+                                      disabled={submitted}
+                                      className="sr-only"
+                                    />
+                                    <div className={`w-5 h-5 rounded-full border-2 mr-3 flex items-center justify-center ${
+                                      answers[globalIdx] === oIdx
+                                        ? 'border-blue-500 bg-blue-500'
+                                        : 'border-gray-300'
+                                    }`}>
+                                      {answers[globalIdx] === oIdx && (
+                                        <div className="w-2 h-2 rounded-full bg-white"></div>
+                                      )}
+                                    </div>
+                                    <span className="text-gray-700 flex-1">{opt}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-red-600 text-sm bg-red-50 p-3 rounded">
+                                No options available for this question.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Navigation */}
+            <div className="flex justify-between items-center">
+              <Button
+                variant="outline"
+                onClick={handlePrevious}
+                disabled={currentPage === 0}
+                className="px-6 py-3"
+              >
+                Previous
+              </Button>
+              
+              <div className="text-sm text-gray-500">
+                {totalPages > 1 && `Page ${currentPage + 1} of ${totalPages}`}
+              </div>
+              
+              {currentPage === totalPages - 1 ? (
+                <Button
+                  onClick={handleSubmit}
+                  disabled={answers.some(a => a === -1) || isSubmitting}
+                  className="px-8 py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
+                >
+                  {isSubmitting ? (
+                    <div className="flex items-center gap-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Submitting...
+                    </div>
+                  ) : (
+                    'Submit Quiz'
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleNext}
+                  disabled={currentPage === totalPages - 1}
+                  className="px-6 py-3"
+                >
+                  Next
+                </Button>
+              )}
+            </div>
+          </>
+        ) : (
+          /* Results Card */
+          <Card className="shadow-2xl border-t-4 border-t-green-500">
+            <CardHeader className="bg-gradient-to-r from-green-50 to-blue-50 text-center">
+              <CardTitle className="text-3xl font-bold text-gray-800 mb-2">
+                Quiz Complete! 🎉
+              </CardTitle>
+              <CardDescription className="text-lg text-gray-600">
+                Here are your results
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-8">
+              <div className="text-center mb-8">
+                <div className="text-6xl font-bold text-green-600 mb-2">
+                  {score !== null && maxScore !== null ? (
+                    `${Math.round((score / maxScore) * 100)}%`
+                  ) : (
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+                      <span className="text-2xl">Grading...</span>
+                    </div>
+                  )}
+                </div>
+                {score !== null && maxScore !== null && (
+                  <div className="text-xl text-gray-600 mb-4">
+                    You scored {score} out of {maxScore} questions correctly
+                  </div>
+                )}
+              </div>
+
+              {feedback && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+                  <h3 className="font-semibold text-blue-800 mb-3">Feedback & Analysis</h3>
+                  <div className="text-blue-900 whitespace-pre-line leading-relaxed">
+                    {feedback}
+                  </div>
+                </div>
+              )}
+
+              <div className="text-center">
+                <Button 
+                  onClick={() => router.back()}
+                  className="px-8 py-3 text-lg"
+                  variant="outline"
+                >
                   Back to Training Plan
                 </Button>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
         </div>
       </div>
     </div>

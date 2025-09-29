@@ -21,6 +21,232 @@ import { Building2, Users, Plus, Trash2, LogOut } from "lucide-react";
 import { ContentUpload } from "./content-upload";
 import { UploadedFilesList } from "./uploaded-files-list";
 import { Toaster } from "react-hot-toast";
+// --- Employee Bulk Add UI Component ---
+function EmployeeBulkAdd({ companyId, onSuccess, onError }: { companyId?: string; onSuccess: () => void; onError: (error: string) => void }) {
+  const [mode, setMode] = useState<'manual' | 'upload'>('manual');
+  const [manualEmails, setManualEmails] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState<string[][]>([]);
+
+  const handleManualAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!companyId || !manualEmails.trim()) return;
+
+    setUploading(true);
+    onError('');
+
+    try {
+      const emails = manualEmails.split(',').map(email => email.trim()).filter(email => email);
+      const results = { added: 0, skipped: 0, errors: [] as string[] };
+
+      for (const email of emails) {
+        try {
+          const { error } = await supabase
+            .from("employees")
+            .insert({
+              email: email.toLowerCase(),
+              company_id: companyId,
+            });
+
+          if (error) {
+            if (error.code === '23505') { // Unique violation
+              results.skipped++;
+            } else {
+              results.errors.push(`${email}: ${error.message}`);
+            }
+          } else {
+            results.added++;
+          }
+        } catch (err) {
+          results.errors.push(`${email}: Failed to add`);
+        }
+      }
+
+      if (results.errors.length > 0) {
+        onError(`Added ${results.added}, skipped ${results.skipped}, errors: ${results.errors.join('; ')}`);
+      } else {
+        setManualEmails('');
+        onSuccess();
+      }
+    } catch (err) {
+      onError('Failed to add employees');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] || null;
+    setFile(f);
+    if (!f) return setPreview([]);
+
+    try {
+      const arrayBuffer = await f.arrayBuffer();
+      if (f.name.endsWith('.csv')) {
+        const text = new TextDecoder().decode(arrayBuffer);
+        const rows = text.split(/\r?\n/).map(line => line.split(',').map(cell => cell.trim()));
+        setPreview(rows.slice(0, 10));
+      }
+    } catch (err) {
+      onError('Failed to parse file');
+    }
+  };
+
+  const handleFileUpload = async () => {
+    if (!file || !companyId) return;
+
+    setUploading(true);
+    onError('');
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const text = new TextDecoder().decode(arrayBuffer);
+      const rows = text.split(/\r?\n/).map(line => line.split(',').map(cell => cell.trim()));
+      
+      // Skip header row if present
+      const dataRows = rows[0][0]?.toLowerCase().includes('email') ? rows.slice(1) : rows;
+      
+      const results = { added: 0, skipped: 0, errors: [] as string[] };
+
+      for (const row of dataRows) {
+        if (row.length < 2 || !row[1]) continue; // Need at least company_employee_id and email
+        
+        const [companyEmployeeId, email] = row;
+        
+        try {
+          const { error } = await supabase
+            .from("employees")
+            .insert({
+              email: email.toLowerCase(),
+              company_id: companyId,
+              company_employee_id: companyEmployeeId || null,
+            });
+
+          if (error) {
+            if (error.code === '23505') { // Unique violation
+              results.skipped++;
+            } else {
+              results.errors.push(`${email}: ${error.message}`);
+            }
+          } else {
+            results.added++;
+          }
+        } catch (err) {
+          results.errors.push(`${email}: Failed to add`);
+        }
+      }
+
+      if (results.errors.length > 0) {
+        onError(`Added ${results.added}, skipped ${results.skipped}, errors: ${results.errors.join('; ')}`);
+      } else {
+        setFile(null);
+        setPreview([]);
+        onSuccess();
+      }
+    } catch (err) {
+      onError('Failed to upload employees');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Mode Toggle */}
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant={mode === 'manual' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setMode('manual')}
+        >
+          Manual Entry
+        </Button>
+        <Button
+          type="button"
+          variant={mode === 'upload' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setMode('upload')}
+        >
+          File Upload
+        </Button>
+      </div>
+
+      {mode === 'manual' ? (
+        <form onSubmit={handleManualAdd} className="space-y-3">
+          <div>
+            <Label htmlFor="manualEmails">Employee Emails (comma-separated)</Label>
+            <textarea
+              id="manualEmails"
+              className="w-full min-h-[100px] p-3 border border-gray-300 rounded-md resize-vertical"
+              placeholder="john@company.com, jane@company.com, bob@company.com"
+              value={manualEmails}
+              onChange={(e) => setManualEmails(e.target.value)}
+              required
+            />
+            <div className="text-xs text-gray-500 mt-1">
+              Enter multiple email addresses separated by commas
+            </div>
+          </div>
+          <Button type="submit" disabled={uploading || !manualEmails.trim()}>
+            {uploading ? 'Adding...' : 'Add Employees'}
+          </Button>
+        </form>
+      ) : (
+        <div className="space-y-3">
+          <div className="mt-4 sm:mt-0">
+                <Button asChild variant="outline" size="sm">
+                  <a
+                    href="https://manugdmjylsvdjemwzcq.supabase.co/storage/v1/object/public/file_format/Sample_Emplyee_No_KPI.xlsx"
+                    download
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Download Sample File
+                  </a>
+                </Button>
+              </div>
+          <div>
+            <Label htmlFor="employeeFile">Upload CSV/XLSX File</Label>
+            <Input
+              id="employeeFile"
+              type="file"
+              accept=".csv , .xlsx"
+              onChange={handleFileChange}
+            />
+            <div className="text-xs text-gray-500 mt-1">
+              Table format: company_employee_id, email (header row optional)
+            </div>
+          </div>
+          
+          {preview.length > 0 && (
+            <div>
+              <div className="font-semibold mb-1 text-sm">Preview (first 10 rows):</div>
+              <div className="border rounded max-h-40 overflow-auto">
+                <table className="text-xs w-full">
+                  <tbody>
+                    {preview.map((row, i) => (
+                      <tr key={i} className={i === 0 ? "bg-gray-50" : ""}>
+                        <td className="border px-2 py-1">{row[0] || '-'}</td>
+                        <td className="border px-2 py-1">{row[1] || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          
+          <Button onClick={handleFileUpload} disabled={!file || uploading}>
+            {uploading ? 'Uploading...' : 'Upload Employees'}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- KPI Scores Upload UI Component ---
 function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Admin | null }) {
   const [file, setFile] = useState<File | null>(null);
@@ -438,9 +664,23 @@ export default function AdminDashboard() {
         <div className="grid gap-8">
           {/* KPI Definitions Upload Section */}
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">KPI Definitions Upload</CardTitle>
-              <CardDescription>Upload a CSV or XLSX file with KPI definitions (KPI, Description, Benchmark, Datatype)</CardDescription>
+            <CardHeader className="sm:flex sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center">KPI Definitions Upload</CardTitle>
+                <CardDescription>Upload a CSV or XLSX file with KPI definitions (KPI, Description, Benchmark, Datatype)</CardDescription>
+              </div>
+              <div className="mt-4 sm:mt-0">
+                <Button asChild variant="outline" size="sm">
+                  <a
+                    href="https://manugdmjylsvdjemwzcq.supabase.co/storage/v1/object/public/file_format/KPI_Description.xlsx"
+                    download
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Download Sample File
+                  </a>
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <KPIDefinitionsUpload companyId={admin?.company_id} />
@@ -448,44 +688,41 @@ export default function AdminDashboard() {
           </Card>
           {/* KPI Scores Upload Section */}
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">KPI Scores Upload</CardTitle>
-              <CardDescription>Upload a CSV or XLSX file with KPI scores (Company_Employee_ID, Email, KPI, Score)</CardDescription>
+            <CardHeader className="sm:flex sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center">KPI Scores Upload</CardTitle>
+                <CardDescription>Upload a CSV or XLSX file with KPI scores (Company_Employee_ID, Email, KPI, Score)</CardDescription>
+              </div>
+              <div className="mt-4 sm:mt-0">
+                <Button asChild variant="outline" size="sm">
+                  <a
+                    href="https://manugdmjylsvdjemwzcq.supabase.co/storage/v1/object/public/file_format/Sample_Emplyee.xlsx"
+                    download
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Download Sample File
+                  </a>
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <KPIScoresUpload companyId={admin?.company_id} admin={admin} />
             </CardContent>
           </Card>
-          {/* Add Employee Section
+          {/* Add Employee Section */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
-                <Plus className="w-5 h-5 mr-2" />
-                Add New Employee
+                {/* <Plus className="w-5 h-5 mr-2" /> */}
+                Add Employees
               </CardTitle>
-              <CardDescription>Add employee emails to allow them to access the training portal</CardDescription>
+              <CardDescription>Add employee emails to allow them to access the training portal (No KPIs required)</CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={addEmployee} className="flex gap-4">
-                <div className="flex-1">
-                  <Label htmlFor="employeeEmail" className="sr-only">
-                    Employee Email
-                  </Label>
-                  <Input
-                    id="employeeEmail"
-                    type="email"
-                    placeholder="employee@company.com"
-                    value={newEmployeeEmail}
-                    onChange={(e) => setNewEmployeeEmail(e.target.value)}
-                    required
-                  />
-                </div>
-                <Button type="submit" disabled={addingEmployee}>
-                  {addingEmployee ? "Adding..." : "Add Employee"}
-                </Button>
-              </form> */}
+              <EmployeeBulkAdd companyId={admin?.company_id} onSuccess={() => { loadEmployees(admin?.company_id || ""); setSuccess("Employees added successfully!"); }} onError={setError} />
 
-              {/* {error && ( 
+              {error && ( 
                 <Alert variant="destructive" className="mt-4">
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>

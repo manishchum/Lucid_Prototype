@@ -5,11 +5,21 @@ import OpenAI from "openai";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function POST(req: NextRequest) {
-  // Fetch all processed_modules with empty or placeholder content
-  const { data: modules, error } = await supabase
-    .from("processed_modules")
-    .select("id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives)")
-    .or("content.is.null,content.eq.'',content.eq.\"\"");
+  try {
+    const { moduleId } = await req.json();
+    
+    // Build query for processed_modules with empty content
+    let query = supabase
+      .from("processed_modules")
+      .select("id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives)")
+      .or("content.is.null,content.eq.'',content.eq.\"\"");
+    
+    // If moduleId is provided, filter by original_module_id
+    if (moduleId) {
+      query = query.eq('original_module_id', moduleId);
+    }
+    
+    const { data: modules, error } = await query;
 
   if (error) {
     console.error("Supabase fetch error:", error);
@@ -113,4 +123,8 @@ Goal: The output should be a comprehensive, ready-to-use training module that fu
   }
 
   return NextResponse.json({ message: `Updated ${updated} modules with AI-generated content.` });
+  } catch (error) {
+    console.error("Content generation error:", error);
+    return NextResponse.json({ error: "Content generation failed" }, { status: 500 });
+  }
 }
