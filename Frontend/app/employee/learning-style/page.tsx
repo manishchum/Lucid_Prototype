@@ -147,7 +147,10 @@ export default function LearningStyleSurvey() {
     fetchEmployeeId()
   }, [user, authLoading])
 
+  const [surveyFrozen, setSurveyFrozen] = useState(false);
+
   const handleChange = (idx: number, value: number) => {
+    if (submitting || surveyFrozen) return;
     const updated = [...answers]
     updated[idx] = value
     setAnswers(updated)
@@ -156,6 +159,7 @@ export default function LearningStyleSurvey() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
+    setSurveyFrozen(true);
     try {
       if (!employeeId) {
         toast({
@@ -164,6 +168,7 @@ export default function LearningStyleSurvey() {
           variant: "destructive",
         })
         setSubmitting(false)
+        setSurveyFrozen(false);
         return
       }
       const res = await fetch("/api/learning-style", {
@@ -186,6 +191,7 @@ export default function LearningStyleSurvey() {
             variant: "destructive",
           })
         }
+        setSurveyFrozen(false);
       } else {
         // Parse GPT result from backend response
         const gptResult = data.gpt || {}
@@ -211,6 +217,7 @@ export default function LearningStyleSurvey() {
         description: "Failed to submit survey. Please check your connection and try again.",
         variant: "destructive",
       })
+      setSurveyFrozen(false);
     } finally {
       setSubmitting(false)
     }
@@ -348,6 +355,15 @@ export default function LearningStyleSurvey() {
                   </span>
                   <span>
                     The survey usually takes <strong>5–10 minutes</strong> to complete.
+                  </span>
+                </li>
+
+                <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
+                  <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
+                    5
+                  </span>
+                  <span>
+                    For each statement, rate your preference on a scale of <strong>1 to 5 </strong> — where <strong>1 means least preferred</strong> and <strong>5 means most preferred.</strong>
                   </span>
                 </li>
               </ul>
@@ -516,13 +532,10 @@ export default function LearningStyleSurvey() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
         <EmployeeNavigation showForward={false} />
-        
         {/* Main content area that adapts to sidebar */}
         <div 
           className="transition-all duration-300 ease-in-out py-10"
-          style={{ 
-            marginLeft: 'var(--sidebar-width, 0px)',
-          }}
+          style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
         >
           <div className="max-w-2xl mx-auto px-4 flex flex-col items-center">
         {/* Progress Bar */}
@@ -538,7 +551,7 @@ export default function LearningStyleSurvey() {
         <form onSubmit={handleSubmit} className="w-full">
           {questions.slice(startIdx, endIdx).map((q, idx) => (
             <div key={startIdx + idx} className="bg-white rounded-xl shadow p-6 flex flex-col items-center mb-6">
-              <label className="font-bold text-lg mb-4 text-center">{startIdx + idx + 1}. {q}</label>
+              <label className="font-bold text-lg mb-4 text-center">{q}</label>
               <div className="flex gap-3 mt-2">
                 {[1,2,3,4,5].map(val => (
                   <button
@@ -548,6 +561,7 @@ export default function LearningStyleSurvey() {
                       ${answers[startIdx + idx] === val ? "bg-blue-600 text-white border-blue-600 scale-110" : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-blue-100"}`}
                     onClick={() => handleChange(startIdx + idx, val)}
                     aria-label={`Rate ${val}`}
+                    disabled={submitting || surveyFrozen}
                   >
                     <span>{val}</span>
                   </button>
@@ -560,7 +574,7 @@ export default function LearningStyleSurvey() {
               type="button"
               variant="outline"
               className="px-6"
-              disabled={surveyPage === 0}
+              disabled={surveyPage === 0 || submitting || surveyFrozen}
               onClick={() => setSurveyPage(surveyPage - 1)}
             >
               <ChevronLeft className="w-4 h-4 mr-1" /> Previous
@@ -569,7 +583,7 @@ export default function LearningStyleSurvey() {
               <Button
                 type="submit"
                 className="px-8"
-                disabled={submitting || !allAnswered}
+                disabled={submitting || !allAnswered || surveyFrozen}
               >
                 {submitting ? "Submitting..." : "Submit Survey"}
               </Button>
@@ -577,7 +591,7 @@ export default function LearningStyleSurvey() {
               <Button
                 type="button"
                 className="px-8"
-                disabled={answers.slice(startIdx, endIdx).some(a => a === null)}
+                disabled={answers.slice(startIdx, endIdx).some(a => a === null) || submitting || surveyFrozen}
                 onClick={() => setSurveyPage(surveyPage + 1)}
               >
                 Next <ChevronRight className="w-4 h-4 ml-1" />

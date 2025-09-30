@@ -319,8 +319,8 @@ export default function TrainingPlanPage() {
         
         <Card className="mb-8">
           <CardHeader>
-            <CardTitle>Personalized Training Plan</CardTitle>
-            <CardDescription>Your AI-generated learning roadmap</CardDescription>
+            <CardTitle>Your Roadmap to Mastery</CardTitle>
+            <CardDescription>Learning Plan which works for you</CardDescription>
             {/* Progress Summary */}
             <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-green-50 rounded-lg">
               <div className="flex items-center justify-between mb-2">
@@ -476,7 +476,7 @@ export default function TrainingPlanPage() {
                         }}
                         disabled={mod._isCompleted || (!(mod.id ?? mod.original_module_id) && !mod.title)}
                         className={`w-full py-3 text-base font-semibold transition-all duration-200 ${mod._isCompleted ? "bg-gray-100 text-gray-500 cursor-not-allowed border-2" : "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"}`}
-                      >{mod._isCompleted ? "Quiz Completed" : "Take Quiz"}</Button>
+                      >{mod._isCompleted ? "Quiz Completed" : "Show What You Got"}</Button>
                     </div>
                   </TabsContent>
                 ))}
@@ -509,7 +509,7 @@ export default function TrainingPlanPage() {
               <div className="mt-8 p-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl border border-yellow-200 shadow-lg">
                 <div className="font-bold text-xl mb-4 text-yellow-900 flex items-center gap-2">
                   {/* <span className="text-2xl">🧠</span> */}
-                  GPT Reasoning
+                  Understand How Your Mastery Roadmap Is Crafted
                 </div>
                 <div className="text-yellow-800">
                   {renderReasoning(reasoning)}

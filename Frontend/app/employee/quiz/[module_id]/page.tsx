@@ -115,6 +115,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
 
   const moduleId = params.module_id;
   const [quiz, setQuiz] = useState<any[] | null>(null);
+  const [moduleName, setModuleName] = useState<string>("Module Quiz");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // answers can be: number (mcq), string (open-ended), number[] (multiple select), Record<string, string> (matching)
@@ -167,6 +168,22 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     const fetchOrGenerateQuiz = async () => {
       setLoading(true);
       setError(null);
+      
+      // Fetch module name first
+      try {
+        const { data: moduleData } = await supabase
+          .from('processed_modules')
+          .select('title')
+          .eq('id', moduleId)
+          .single();
+        
+        if (moduleData?.title) {
+          setModuleName(moduleData.title);
+        }
+      } catch (e) {
+        console.log('[quiz] module name fetch error', e);
+      }
+      
       let learningStyle: string | null = null;
       if (!authLoading && user?.email) {
         try {
@@ -299,10 +316,10 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
               <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <CardTitle className="text-2xl font-bold text-gray-800">Module Quiz</CardTitle>
-                    <CardDescription className="text-lg text-gray-600">
+                    <CardTitle className="text-2xl font-bold text-gray-800">Test your Understanding: {moduleName}</CardTitle>
+                    {/* <CardDescription className="text-lg text-gray-600">
                       Test your knowledge on this module content
-                    </CardDescription>
+                    </CardDescription> */}
                   </div>
                   <div className="text-right">
                     <div className="text-sm text-gray-500 mb-1">Progress</div>

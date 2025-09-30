@@ -157,7 +157,8 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
       </TooltipProvider>
     );
   }
-  
+
+
   // Split into sections if it contains structured feedback
   const lines = processedFeedback.split('\n').filter(line => line.trim());
   const sections: { title?: string; content: string }[] = [];
@@ -352,19 +353,36 @@ export default function ScoreHistoryPage() {
       
       {/* Main content area that adapts to sidebar */}
       <div 
-        className="transition-all duration-300 ease-in-out px-4 py-8"
+        className="transition-all duration-300 ease-in-out"
         style={{ 
           marginLeft: 'var(--sidebar-width, 0px)',
         }}
       >
-  <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <div className="bg-white shadow-sm border-b" onClick={(e) => e.stopPropagation()}>
+          <div className="max-w-10xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center py-4">
+              <div className="flex items-center">
+                <div className="w-8 h-8 text-green-600 mr-3 flex items-center justify-center">
+                  📊
+                </div>
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">Your Learning Journey: Style & Scores</h1>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
         
+        {/* Content area with padding */}
+        <div className="px-4 py-8">
+        <div className="max-w-6xl mx-auto">
         {/* Learning Style Section */}
         {learningStyleData ? (
-          <Card className="mb-12 shadow-xl scale-105">
+          <Card className="mb-2 shadow-xl scale-95">
             <CardHeader className="bg-gradient-to-r from-green-50 to-blue-50 rounded-t-2xl py-8 px-8">
-              <CardTitle className="text-4xl font-extrabold text-gray-800">Discover how you learn best</CardTitle>
-              <CardDescription className="text-2xl mt-2">
+              <CardTitle className="text-3xl font-extrabold text-gray-800">Discover how you learn best</CardTitle>
+              <CardDescription className="text-xl mt-2">
                 Understand your learning DNA to achieve outcomes faster
               </CardDescription>
             </CardHeader>
@@ -442,11 +460,11 @@ export default function ScoreHistoryPage() {
         )}
         
         {/* Assessment History Section */}
-        <Card className="mb-12 shadow-xl scale-105">
-          <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl py-8 px-8">
-            <CardTitle className="text-4xl font-extrabold text-gray-800">Your Growth Record
+        <Card className="mb-12 shadow-3xl scale-95">
+          <CardHeader className="bg-gradient-to-r from-green-50 to-blue-50 rounded-t-2xl py-8 px-8">
+            <CardTitle className="text-2xl font-extrabold text-gray-800">Your Growth Record
 </CardTitle>
-            <CardDescription className="text-2xl mt-2">Review your scores & track growth
+            <CardDescription className="text-xl mt-2">Review your scores & track growth
 </CardDescription>
           </CardHeader>
           <CardContent className="p-12">
@@ -523,6 +541,7 @@ export default function ScoreHistoryPage() {
             )}
           </CardContent>
         </Card>
+        </div>
         </div>
       </div>
     </div>

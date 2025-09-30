@@ -425,17 +425,16 @@ export default function EmployeeWelcome() {
                   onClick={() => !learningStyle && router.push("/employee/learning-style")}
                 />
                 {/* PHASED RELEASE: Steps 2 and 3 hidden until later rollout */}
-            {/*}    
-                <StepCircle
+                
+                {/* <StepCircle
                   step={2}
                   label="Baseline Assessment"
                   subtitle="Evaluate your current skill level"
                   completed={!!baselineScore}
                   active={!!learningStyle && baselineScore === null}
                   onClick={() => learningStyle && baselineScore === null && router.push("/employee/assessment")}
-                />
+                /> */}
 
-            */}
                 {/*
                 <StepCircle
                   step={3}
