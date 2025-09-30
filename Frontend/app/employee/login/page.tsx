@@ -110,6 +110,26 @@ export default function EmployeeLogin() {
             </div>
           </div>
         </div>
+
+        {/* Footer */}
+        <div className="p-6 border-t border-gray-200 bg-white">
+          <div className="text-center">
+            <div className="flex items-center justify-center space-x-2 text-sm text-gray-600 mb-2">
+              <div className="flex items-center space-x-1">
+                <span className="w-2 h-2 bg-orange-500 rounded-full"></span>
+                <span className="w-2 h-2 bg-white border border-green-500 rounded-full"></span>
+                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+              </div>
+              <span className="font-medium">🇮🇳</span>
+            </div>
+            <p className="text-sm font-medium text-gray-700 tracking-wide">
+              <span className="text-orange-600">Imagined</span> in India • <span className="text-blue-600">Designed</span> for You • <span className="text-green-600">Powered</span> by AI
+            </p>
+            <p className="text-xs text-gray-500 mt-1 italic">
+              Crafted with inspiration for the future of learning
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   )
