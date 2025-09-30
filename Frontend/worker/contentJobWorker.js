@@ -2,13 +2,18 @@
 require('dotenv').config();
 
 // Node.js worker script for processing content generation jobs
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const fetch = require('node-fetch');
 const { createClient } = require('@supabase/supabase-js');
+const path = require('path');
 
 // Import local API functions to avoid Vercel timeouts
-const { migrateProcessedModules } = require('./api/migrate-processed-modules');
-const { startContentGeneration } = require('./api/start-content-generation');
-const { generateModuleContent } = require('./api/generate-module-content');
+console.log('Loading migrate-processed-modules...');
+const { migrateProcessedModules } = require(path.join(__dirname, 'api/migrate-processed-modules'));
+console.log('Loading start-content-generation...');
+const { startContentGeneration } = require(path.join(__dirname, 'api/start-content-generation'));
+console.log('Loading generate-module-content...');
+const { generateModuleContent } = require(path.join(__dirname, 'api/generate-module-content'));
+console.log('All modules loaded successfully.');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
