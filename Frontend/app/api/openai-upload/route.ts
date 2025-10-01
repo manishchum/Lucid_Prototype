@@ -5,6 +5,7 @@ import * as nodefs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { supabase } from "../../../lib/supabase";
+import * as XLSX from "xlsx";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -58,7 +59,43 @@ async function handleFileUpload(req: Request) {
     await fs.writeFile(tempFilePath, Buffer.from(arrayBuffer));
     console.log("🟢 File written to:", tempFilePath);
 
-    // Upload to OpenAI
+    // Check if file is a spreadsheet (unsupported by OpenAI file_search)
+    const isSpreadsheet = file.name.match(/\.(xlsx|xls|csv)$/i);
+    
+    if (isSpreadsheet) {
+      console.log("📊 Detected spreadsheet file, extracting text locally...");
+      
+      // Read file as buffer (needed for XLSX.read in Next.js)
+      const fileBuffer = await fs.readFile(tempFilePath);
+      
+      // Extract text from spreadsheet
+      const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+      let extractedText = `Spreadsheet Analysis: ${file.name}\n\n`;
+      
+      // Process each sheet
+      workbook.SheetNames.forEach((sheetName: string) => {
+        extractedText += `\n=== Sheet: ${sheetName} ===\n`;
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+        
+        // Convert to readable text format
+        jsonData.forEach((row: any, idx: number) => {
+          if (Array.isArray(row) && row.length > 0) {
+            extractedText += `Row ${idx + 1}: ${row.join(' | ')}\n`;
+          }
+        });
+      });
+      
+      console.log("📊 Spreadsheet text extracted, length:", extractedText.length);
+      
+      // Clean up temp file
+      await fs.unlink(tempFilePath);
+      
+      // Route to text upload handler
+      return await handleTextUpload(req, extractedText, moduleId);
+    }
+
+    // Upload to OpenAI (non-spreadsheet files)
     const openaiFile = await openai.files.create({
       file: nodefs.createReadStream(tempFilePath),
       purpose: "assistants",
@@ -142,38 +179,51 @@ Additional instructions to maximize quality:
     let ai_objectives: string[] = [];
 
     if (message) {
-      // Only parse modules under 'Learning Modules and Structure' section
+      // Parse modules - support both "Learning Modules and Structure" and "Modules and Topics" formats
       let modulesSection = message;
-      // Find the start of modules section
-      const modulesStart = modulesSection.match(/Learning Modules and Structure/i);
+      
+      // Try to find the start of modules section (flexible matching)
+      const modulesStart = modulesSection.match(/(Learning Modules and Structure|Modules and Topics|###\s*Modules)/i);
       if (modulesStart) {
         modulesSection = modulesSection.substring(modulesStart.index!);
       }
+      
       // Cut off at first non-module section (e.g., 'Module Splitting Checks', 'Sequencing', etc.)
-      const cutoffRegex = /(Module Splitting Checks|Sequencing|Module Independence|Additional Clarifying Questions)/i;
+      const cutoffRegex = /(Module Splitting Checks|Sequencing Rationale|Module Independence|Additional Clarifying Questions)/i;
       const cutoffMatch = modulesSection.match(cutoffRegex);
       if (cutoffMatch) {
         modulesSection = modulesSection.substring(0, cutoffMatch.index!);
       }
-      // Find module blocks by strict heading: 'Module X:' or '#### Module X:'
-      const moduleRegex = /(####\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|$))/gi;
+      
+      // Find module blocks - support multiple formats:
+      // Format 1: "Module 1:" or "#### Module 1:"
+      // Format 2: "1. **Module Name**" (numbered list with bold)
+      const moduleRegex = /(####\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*|$))/gi;
       let moduleMatches = [];
       let match;
       while ((match = moduleRegex.exec(modulesSection)) !== null) {
-        moduleMatches.push(match[2].trim());
+        moduleMatches.push({
+          header: match[1].trim(),
+          content: match[2].trim()
+        });
       }
-      // If no module blocks found, fallback to previous logic but ignore non-module sections
+      
+      // If no module blocks found, fallback to previous logic
       if (moduleMatches.length === 0) {
-        // Fallback: try to find all 'Module X:' headings in the whole message
         const fallbackRegex = /(####\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|$))/gi;
         let fallbackMatches = [];
         while ((match = fallbackRegex.exec(message)) !== null) {
-          fallbackMatches.push(match[2].trim());
+          fallbackMatches.push({
+            header: match[1].trim(),
+            content: match[2].trim()
+          });
         }
         moduleMatches = fallbackMatches;
       }
+      
       for (let i = 0; i < moduleMatches.length; i++) {
-        const block = moduleMatches[i];
+        const moduleData = moduleMatches[i];
+        const block = typeof moduleData === 'string' ? moduleData : moduleData.content;
         // Try to extract module title
         let titleMatch = block.match(/^(?:\*\*|###)?\s*([A-Za-z0-9 .\-]+)(?:\*\*|:)?/);
         const title = titleMatch ? titleMatch[1].trim() : `Module ${i + 1}`;
@@ -284,9 +334,20 @@ Additional instructions to maximize quality:
   }
 }
 
-async function handleTextUpload(req: Request) {
+async function handleTextUpload(req: Request, providedText?: string, providedModuleId?: string) {
   try {
-    const { text, moduleId } = await req.json();
+    // Accept text/moduleId from parameters (for spreadsheet handling) or from request body
+    let text: string;
+    let moduleId: string;
+    
+    if (providedText && providedModuleId) {
+      text = providedText;
+      moduleId = providedModuleId;
+    } else {
+      const body = await req.json();
+      text = body.text;
+      moduleId = body.moduleId;
+    }
 
     if (!text) {
       return NextResponse.json({ error: "No text content provided" }, { status: 400 });
@@ -305,11 +366,13 @@ async function handleTextUpload(req: Request) {
       role: "user",
       content: `You are an expert instructional designer. Your job is to decompose any single learning asset (text, slide deck, video series, mixed media, or course) into a clear sequence of self-contained learning modules that together cover the entire subject matter. Follow these exact steps and output formats. Do not deviate.
 
+IMPORTANT: The content to analyze is provided directly in this message below. Do NOT ask for file uploads. Process the content provided here.
+
 Processing steps (apply exactly):
 1. Identify Overall Learning Goal
   - State a single concise end competency or performance outcome learners should achieve after completing the whole module. Phrase it as a measurable competency (e.g., "Create, test, and deploy a REST API that meets company security standards").
 2. Segment into Themes
-  - Read the content and cluster related ideas into one single module
+  - Read the content below and cluster related ideas into one single module
 3. Apply One Core Idea Rule
   - Ensure each module is centered on one core concept. If a module contains unrelated ideas, split it.
 4. Apply Module Splitting Checks (for every module)
@@ -322,8 +385,14 @@ Processing steps (apply exactly):
 6. Validate Module Independence
   - For each module, ensure it is self-contained and delivers one clear learning outcome that can be assessed independently.
 
-Here is the content to process:
+Additional instructions to maximize quality:
+- If source is incomplete or ambiguous, list specific clarifying questions to help refine modulization (e.g., target proficiency level, mandatory compliance items, preferred duration).
+- Keep module durations realistic for active learning (typical module: 45–60 minutes reading time unless justified).
+- Ensure nothing from the source that is a distinct subject-matter point is omitted; explicitly call out any gaps between source content and the stated Overall Learning Goal.
+
+===== BEGIN CONTENT =====
 ${text}
+===== END CONTENT =====
 `,
     });
 
@@ -370,38 +439,51 @@ ${text}
     let ai_objectives: string[] = [];
 
     if (message) {
-      // Only parse modules under 'Learning Modules and Structure' section
+      // Parse modules - support both "Learning Modules and Structure" and "Modules and Topics" formats
       let modulesSection = message;
-      // Find the start of modules section
-      const modulesStart = modulesSection.match(/Learning Modules and Structure/i);
+      
+      // Try to find the start of modules section (flexible matching)
+      const modulesStart = modulesSection.match(/(Learning Modules and Structure|Modules and Topics|###\s*Modules)/i);
       if (modulesStart) {
         modulesSection = modulesSection.substring(modulesStart.index!);
       }
+      
       // Cut off at first non-module section (e.g., 'Module Splitting Checks', 'Sequencing', etc.)
-      const cutoffRegex = /(Module Splitting Checks|Sequencing|Module Independence|Additional Clarifying Questions)/i;
+      const cutoffRegex = /(Module Splitting Checks|Sequencing Rationale|Module Independence|Additional Clarifying Questions)/i;
       const cutoffMatch = modulesSection.match(cutoffRegex);
       if (cutoffMatch) {
         modulesSection = modulesSection.substring(0, cutoffMatch.index!);
       }
-      // Find module blocks by strict heading: 'Module X:' or '#### Module X:'
-      const moduleRegex = /(####\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|$))/gi;
+      
+      // Find module blocks - support multiple formats:
+      // Format 1: "Module 1:" or "#### Module 1:"
+      // Format 2: "1. **Module Name**" (numbered list with bold)
+      const moduleRegex = /(####\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*|$))/gi;
       let moduleMatches = [];
       let match;
       while ((match = moduleRegex.exec(modulesSection)) !== null) {
-        moduleMatches.push(match[2].trim());
+        moduleMatches.push({
+          header: match[1].trim(),
+          content: match[2].trim()
+        });
       }
-      // If no module blocks found, fallback to previous logic but ignore non-module sections
+      
+      // If no module blocks found, fallback to previous logic
       if (moduleMatches.length === 0) {
-        // Fallback: try to find all 'Module X:' headings in the whole message
         const fallbackRegex = /(####\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|$))/gi;
         let fallbackMatches = [];
         while ((match = fallbackRegex.exec(message)) !== null) {
-          fallbackMatches.push(match[2].trim());
+          fallbackMatches.push({
+            header: match[1].trim(),
+            content: match[2].trim()
+          });
         }
         moduleMatches = fallbackMatches;
       }
+      
       for (let i = 0; i < moduleMatches.length; i++) {
-        const block = moduleMatches[i];
+        const moduleData = moduleMatches[i];
+        const block = typeof moduleData === 'string' ? moduleData : moduleData.content;
         // Try to extract module title
         let titleMatch = block.match(/^(?:\*\*|###)?\s*([A-Za-z0-9 .\-]+)(?:\*\*|:)?/);
         const title = titleMatch ? titleMatch[1].trim() : `Module ${i + 1}`;

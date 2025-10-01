@@ -87,6 +87,16 @@ function EmployeeBulkAdd({ companyId, onSuccess, onError }: { companyId?: string
         const text = new TextDecoder().decode(arrayBuffer);
         const rows = text.split(/\r?\n/).map(line => line.split(',').map(cell => cell.trim()));
         setPreview(rows.slice(0, 10));
+      } else if (f.name.endsWith('.xlsx')) {
+        // Dynamically import xlsx for preview
+        const xlsx = await import("xlsx");
+        const workbook = xlsx.read(arrayBuffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+        setPreview((rows as string[][]).slice(0, 10));
+      } else {
+        onError('Unsupported file type. Only CSV or XLSX allowed.');
+        setPreview([]);
       }
     } catch (err) {
       onError('Failed to parse file');
@@ -101,11 +111,41 @@ function EmployeeBulkAdd({ companyId, onSuccess, onError }: { companyId?: string
 
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const text = new TextDecoder().decode(arrayBuffer);
-      const rows = text.split(/\r?\n/).map(line => line.split(',').map(cell => cell.trim()));
+      let rows: string[][];
       
-      // Skip header row if present
-      const dataRows = rows[0][0]?.toLowerCase().includes('email') ? rows.slice(1) : rows;
+      if (file.name.endsWith('.csv')) {
+        const text = new TextDecoder().decode(arrayBuffer);
+        rows = text.split(/\r?\n/).map(line => line.split(',').map(cell => cell.trim()));
+      } else if (file.name.endsWith('.xlsx')) {
+        // Dynamically import xlsx for processing
+        const xlsx = await import("xlsx");
+        const workbook = xlsx.read(arrayBuffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        rows = xlsx.utils.sheet_to_json(sheet, { header: 1 }) as string[][];
+      } else {
+        onError('Unsupported file type. Only CSV or XLSX allowed.');
+        return;
+      }
+      
+      // Skip header row if present - check for common header patterns
+      const isHeaderRow = (row: string[]) => {
+        if (!row || row.length === 0) return false;
+        const firstCell = row[0]?.toLowerCase().trim() || '';
+        const secondCell = row[1]?.toLowerCase().trim() || '';
+        
+        // Check if first row contains common header keywords
+        return (
+          firstCell.includes('company') || 
+          firstCell.includes('employee') || 
+          firstCell.includes('id') ||
+          secondCell.includes('email') ||
+          secondCell.includes('mail') ||
+          // Check if it looks like an email pattern (contains @ and .)
+          !(secondCell.includes('@') && secondCell.includes('.'))
+        );
+      };
+      
+      const dataRows = (rows.length > 0 && isHeaderRow(rows[0])) ? rows.slice(1) : rows;
       
       const results = { added: 0, skipped: 0, errors: [] as string[] };
 
@@ -212,7 +252,7 @@ function EmployeeBulkAdd({ companyId, onSuccess, onError }: { companyId?: string
             <Input
               id="employeeFile"
               type="file"
-              accept=".csv , .xlsx"
+              accept=".csv,.xlsx"
               onChange={handleFileChange}
             />
             <div className="text-xs text-gray-500 mt-1">

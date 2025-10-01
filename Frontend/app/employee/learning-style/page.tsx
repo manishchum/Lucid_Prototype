@@ -548,27 +548,33 @@ export default function LearningStyleSurvey() {
             <div className="h-2 bg-blue-500 rounded-full transition-all duration-300" style={{ width: `${(answers.filter(a => a !== null).length / questions.length) * 100}%` }}></div>
           </div>
         </div>
-        <form onSubmit={handleSubmit} className="w-full">
-          {questions.slice(startIdx, endIdx).map((q, idx) => (
-            <div key={startIdx + idx} className="bg-white rounded-xl shadow p-6 flex flex-col items-center mb-6">
-              <label className="font-bold text-lg mb-4 text-center">{q}</label>
-              <div className="flex gap-3 mt-2">
-                {[1,2,3,4,5].map(val => (
-                  <button
-                    type="button"
-                    key={val}
-                    className={`w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center text-lg font-bold transition-all duration-200
-                      ${answers[startIdx + idx] === val ? "bg-blue-600 text-white border-blue-600 scale-110" : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-blue-100"}`}
-                    onClick={() => handleChange(startIdx + idx, val)}
-                    aria-label={`Rate ${val}`}
-                    disabled={submitting || surveyFrozen}
-                  >
-                    <span>{val}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
+         {/* Global scale instruction */}
+         <div className="w-full flex justify-center mb-4">
+           <div className="bg-blue-50 border border-blue-100 rounded px-4 py-2 text-xs text-gray-500 italic">
+             Use the scale: 1 = least preferred, 5 = most preferred
+           </div>
+         </div>
+         <form onSubmit={handleSubmit} className="w-full">
+           {questions.slice(startIdx, endIdx).map((q, idx) => (
+             <div key={startIdx + idx} className="bg-white rounded-xl shadow p-6 flex flex-col items-center mb-6">
+               <label className="font-bold text-lg mb-4 text-center">{q}</label>
+               <div className="flex gap-3 mt-2">
+                 {[1,2,3,4,5].map(val => (
+                   <button
+                     type="button"
+                     key={val}
+                     className={`w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center text-lg font-bold transition-all duration-200
+                       ${answers[startIdx + idx] === val ? "bg-blue-600 text-white border-blue-600 scale-110" : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-blue-100"}`}
+                     onClick={() => handleChange(startIdx + idx, val)}
+                     aria-label={`Rate ${val}`}
+                     disabled={submitting || surveyFrozen}
+                   >
+                     <span>{val}</span>
+                   </button>
+                 ))}
+               </div>
+             </div>
+           ))}
           <div className="flex justify-between items-center w-full">
             <Button
               type="button"
