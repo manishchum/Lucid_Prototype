@@ -62,7 +62,7 @@ async function generateModuleContent() {
 
       // Compose prompt for the learning style of this row
       const style = mod.learning_style;
-      const stylePrompt = `You are an expert instructional designer. Your task is to write a complete, self-contained training module for new hires, as if it were a chapter in a professional textbook.
+      const stylePrompt = `You are an expert instructional designer. Your task is to write a complete, self-contained training module for employees, as if it were a chapter in a professional textbook.
 
 Module Title: "${mod.title}"
 ${topicsText}
