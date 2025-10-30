@@ -426,16 +426,16 @@ export default function EmployeeWelcome() {
                 />
                 {/* PHASED RELEASE: Steps 2 and 3 hidden until later rollout */}
                 
-                {/* <StepCircle
+                <StepCircle
                   step={2}
                   label="Baseline Assessment"
                   subtitle="Evaluate your current skill level"
                   completed={!!baselineScore}
                   active={!!learningStyle && baselineScore === null}
                   onClick={() => learningStyle && baselineScore === null && router.push("/employee/assessment")}
-                /> */}
+                />
 
-                {/*
+                
                 <StepCircle
                   step={3}
                   label="Learning Plan"
@@ -444,7 +444,7 @@ export default function EmployeeWelcome() {
                   active={!!learningStyle && baselineScore !== null && !allAssignedCompleted}
                   onClick={() => learningStyle && baselineScore !== null && !allAssignedCompleted && router.push("/employee/training-plan")}
                 />
-                */}
+               
               </div>
             </CardContent>
           </Card>
