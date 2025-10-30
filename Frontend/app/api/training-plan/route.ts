@@ -279,13 +279,15 @@ export async function POST(req: NextRequest) {
     console.log("[Training Plan API] Existing plan found. Updating...");
     dbResult = await supabase
       .from("learning_plan")
-      .update({ plan_json: plan, reasoning: reasoning, status: "assigned", assessment_hash: assessmentHash })
+      .update({ plan_json: plan, reasoning: reasoning, status: "ASSIGNED", assessment_hash: assessmentHash })
       .eq("id", existingPlan.id);
   } else {
     console.log("[Training Plan API] No existing plan. Inserting new...");
     dbResult = await supabase
       .from("learning_plan")
-      .insert({ employee_id, plan_json: plan, reasoning: reasoning, status: "assigned", assessment_hash: assessmentHash });
+
+      // Right now the last updated module is assigned 
+      .insert({ employee_id, plan_json: plan, reasoning: reasoning, status: "ASSIGNED", module_id: tmIds[tmIds.length-1], assessment_hash: assessmentHash });
   }
   if (dbResult.error) {
     console.error("[Training Plan API] Error saving plan:", dbResult.error);
