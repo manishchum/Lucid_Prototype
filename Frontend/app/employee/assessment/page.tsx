@@ -17,11 +17,13 @@ interface TrainingModule {
 const AssessmentPage = () => {
   const { user } = useAuth();
   const [modules, setModules] = useState<TrainingModule[]>([]);
-  const [mcqQuestions, setMcqQuestions] = useState<any[]>([]);
+  const [mcqQuestionsByModule, setMcqQuestionsByModule] = useState<Array<{ moduleId: string; title?: string; questions: any[] }>>([]);
+  const [currentModuleIndex, setCurrentModuleIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [score, setScore] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [companyId, setCompanyId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchModules = async () => {
@@ -47,6 +49,7 @@ const AssessmentPage = () => {
           .order("created_at", { ascending: true });
         if (error) throw error;
         setModules(data || []);
+        setCompanyId(companyId);
       } catch (err: any) {
   setError("Failed to load modules: " + err.message);
   // Add delay before clearing error
@@ -77,16 +80,24 @@ const AssessmentPage = () => {
           employeeId = empData?.id || null;
         }
         if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
-        // Use all module IDs for baseline assessment
-        const moduleIds = modules.map((m) => m.id);
-        const res = await fetch("/api/gpt-mcq-quiz", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ moduleIds, companyId, employeeId }),
-        });
-        const data = await res.json();
-        if (data.quiz) setMcqQuestions(data.quiz);
-        else setError("No quiz generated.");
+        // Request a quiz per module (so each module can have its own baseline)
+        const quizzes = await Promise.all(
+          modules.map(async (m) => {
+            try {
+              const res = await fetch('/api/gpt-mcq-quiz', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ moduleIds: [m.id], moduleId: m.id, companyId, employeeId }),
+              });
+              const d = await res.json();
+              return { moduleId: m.id, title: m.title, questions: d.quiz || [] };
+            } catch (e) {
+              console.warn('[Assessment] Quiz fetch failed for module', m.id, e);
+              return { moduleId: m.id, title: m.title, questions: [] };
+            }
+          })
+        );
+        setMcqQuestionsByModule(quizzes);
       } catch (err: any) {
         setError("Failed to get quiz: " + err.message);
       } finally {
@@ -96,7 +107,7 @@ const AssessmentPage = () => {
     if (modules.length > 0) getMCQQuiz();
   }, [modules, user]);
 
-  const handleMCQSubmit = async (result: { score: number; answers: number[]; feedback: string[] }) => {
+  const handleMCQSubmit = async (result: { score: number; answers: number[]; feedback: string[] }, moduleId: string) => {
     console.log("handleMCQSubmit called with result successfully.");
     setScore(result.score);
     setLoading(true);
@@ -124,18 +135,22 @@ const AssessmentPage = () => {
 
       // 2. Find or create a baseline assessment for this employee
       let assessmentId: string | null = null;
+      // Look up a baseline assessment scoped to this module (module-specific baseline)
       const { data: assessmentDef } = await supabase
-        .from("assessments")
-        .select("id")
-        .eq("type", "baseline")
+        .from('assessments')
+        .select('id')
+        .eq('type', 'baseline')
+        .eq('module_id', moduleId)
         .limit(1)
         .maybeSingle();
       if (assessmentDef?.id) {
         assessmentId = assessmentDef.id;
       } else {
-        const { data: newDef, error: newDefError } = await supabase
-          .from("assessments")
-          .insert({ type: "baseline", questions: JSON.stringify(mcqQuestions) })
+        // Find questions for this module from the fetched quizzes
+        const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === moduleId)?.questions || [];
+        const { data: newDef } = await supabase
+          .from('assessments')
+          .insert({ type: 'baseline', module_id: moduleId, company_id: companyId, questions: JSON.stringify(questionsForModule) })
           .select()
           .single();
         assessmentId = newDef?.id || null;
@@ -144,7 +159,7 @@ const AssessmentPage = () => {
       // Log score in terminal
       console.log("Employee ID:", employeeId);
       console.log("Employee Name:", user?.email);
-      console.log("Employee Score:", result.score, "/", mcqQuestions.length);
+      console.log("Employee Score:", result.score, "/", mcqQuestionsByModule.length);
       console.log("Employee Feedback:", result.feedback.join("\n"));
 
       // Call GPT feedback API for AI-generated feedback and store in Supabase
@@ -153,13 +168,14 @@ const AssessmentPage = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           score: result.score,
-          maxScore: mcqQuestions.length,
+          maxScore: mcqQuestionsByModule.length,
           answers: result.answers,
           feedback: result.feedback,
           modules,
           employee_id: employeeId,
           employee_name: user?.email,
           assessment_id: assessmentId,
+          module_id: moduleId,
         }),
       });
       const data = await res.json();
@@ -190,11 +206,30 @@ const AssessmentPage = () => {
           </p>
           {error && <div className="mb-4 text-red-600">{error}</div>}
           {loading && <div className="mb-4 text-gray-500">Loading...</div>}
-          {!loading && score === null && mcqQuestions.length > 0 && (
-            <MCQQuiz questions={mcqQuestions} onSubmit={handleMCQSubmit} />
+          {!loading && score === null && mcqQuestionsByModule.length > 0 && (
+            <MCQQuiz
+              questions={mcqQuestionsByModule[currentModuleIndex]?.questions || []}
+              onSubmit={(res) => handleMCQSubmit(res, mcqQuestionsByModule[currentModuleIndex].moduleId)}
+            />
           )}
           {!loading && score !== null && (
-            <ScoreFeedbackCard score={score!} maxScore={mcqQuestions.length} feedback={feedback} />
+            <div>
+              <ScoreFeedbackCard score={score!} maxScore={(mcqQuestionsByModule[currentModuleIndex]?.questions || []).length} feedback={feedback} />
+              {currentModuleIndex < mcqQuestionsByModule.length - 1 && (
+                <div className="mt-4">
+                  <button
+                    className="px-4 py-2 bg-blue-600 text-white rounded"
+                    onClick={() => {
+                      setCurrentModuleIndex((i) => i + 1);
+                      setScore(null);
+                      setFeedback("");
+                    }}
+                  >
+                    Take next module
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
