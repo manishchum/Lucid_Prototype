@@ -824,8 +824,98 @@ export default function AdminDashboard() {
 
           {/* Uploaded Files List */}
           <UploadedFilesList modules={trainingModules} onModuleDeleted={() => loadTrainingModules(admin!.company_id)} />
+          {/* Assign Modules to Employee */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Assign Modules to Employee</CardTitle>
+              <CardDescription>Pick an employee and assign one or more training modules.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AssignModules employees={employees} modules={trainingModules} admin={admin} onAssigned={() => { loadEmployees(admin?.company_id || ""); setSuccess('Modules assigned'); }} />
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
   )
+}
+
+// --- AssignModules UI Component ---
+function AssignModules({ employees, modules, admin, onAssigned }: { employees: Employee[]; modules: TrainingModule[]; admin: Admin | null; onAssigned?: () => void }) {
+  const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
+  const [selectedModules, setSelectedModules] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    // Reset selections when employees/modules change
+    setSelectedEmployee(employees[0]?.id || null);
+    const init: Record<string, boolean> = {};
+    modules.forEach((m) => { init[m.id] = false; });
+    setSelectedModules(init);
+  }, [employees, modules]);
+
+  const toggleModule = (id: string) => {
+    setSelectedModules((s) => ({ ...s, [id]: !s[id] }));
+  };
+
+  const handleAssign = async () => {
+    setError("");
+    if (!selectedEmployee) return setError("Select an employee");
+    const moduleIds = Object.keys(selectedModules).filter((k) => selectedModules[k]);
+    if (moduleIds.length === 0) return setError("Select at least one module");
+
+    setLoading(true);
+    console.log(selectedEmployee)
+    console.log(moduleIds)
+    console.log(admin?.id)
+
+    try {
+      const res = await fetch('/api/admin/assign-modules', {
+        method: 'POST',
+        headers: {
+          "Content-Type": "application/json",
+          ...(admin?.id ? { 'x-admin-id': admin.id } : {})
+        },
+        body: JSON.stringify({ employee_id: selectedEmployee, moduleIds })
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error || 'Failed to assign modules');
+      } else {
+        if (onAssigned) onAssigned();
+      }
+    } catch (err: any) {
+      console.log("Error here | Debug 1")
+      setError(String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <Label htmlFor="employeeSelect">Employee</Label>
+        <select id="employeeSelect" className="w-full p-2 border rounded" value={selectedEmployee || ''} onChange={(e) => setSelectedEmployee(e.target.value)}>
+          {employees.map((emp) => <option key={emp.id} value={emp.id}>{emp.email}</option>)}
+        </select>
+      </div>
+      <div>
+        <Label>Modules</Label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-auto border rounded p-2">
+          {modules.map((m) => (
+            <label key={m.id} className="flex items-center gap-2">
+              <input type="checkbox" checked={!!selectedModules[m.id]} onChange={() => toggleModule(m.id)} />
+              <span className="text-sm">{m.title}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+      <div className="flex gap-2">
+        <Button onClick={handleAssign} disabled={loading}>{loading ? 'Assigning...' : 'Assign Modules'}</Button>
+      </div>
+    </div>
+  );
 }
