@@ -80,23 +80,23 @@ const AssessmentPage = () => {
           employeeId = empData?.id || null;
         }
         if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
-        // Request a quiz per module (so each module can have its own baseline)
-        const quizzes = await Promise.all(
-          modules.map(async (m) => {
-            try {
-              const res = await fetch('/api/gpt-mcq-quiz', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ moduleIds: [m.id], moduleId: m.id, companyId, employeeId }),
-              });
-              const d = await res.json();
-              return { moduleId: m.id, title: m.title, questions: d.quiz || [] };
-            } catch (e) {
-              console.warn('[Assessment] Quiz fetch failed for module', m.id, e);
-              return { moduleId: m.id, title: m.title, questions: [] };
-            }
-          })
-        );
+        // Request a baseline quiz for all assigned modules (multi-module baseline)
+        const res = await fetch('/api/gpt-mcq-quiz', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            moduleIds: modules.map(m => m.id), 
+            companyId 
+          }),
+        });
+        const d = await res.json();
+        console.log('[Assessment] Baseline quiz result:', d);
+        
+        // For now, assign all questions to a single "baseline" entry
+        // (The baseline quiz covers all modules together)
+        const quizzes = d.quiz && d.quiz.length > 0 
+          ? [{ moduleId: 'baseline', title: 'Baseline Assessment', questions: d.quiz }]
+          : [];
         setMcqQuestionsByModule(quizzes);
       } catch (err: any) {
         setError("Failed to get quiz: " + err.message);
@@ -133,24 +133,24 @@ const AssessmentPage = () => {
         return;
       }
 
-      // 2. Find or create a baseline assessment for this employee
+      // 2. Find or create a baseline assessment for this company
       let assessmentId: string | null = null;
-      // Look up a baseline assessment scoped to this module (module-specific baseline)
+      // Look up the baseline assessment for this company
       const { data: assessmentDef } = await supabase
         .from('assessments')
         .select('id')
         .eq('type', 'baseline')
-        .eq('module_id', moduleId)
+        .eq('company_id', companyId)
         .limit(1)
         .maybeSingle();
       if (assessmentDef?.id) {
         assessmentId = assessmentDef.id;
       } else {
-        // Find questions for this module from the fetched quizzes
-        const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === moduleId)?.questions || [];
+        // Find questions for the baseline from the fetched quizzes
+        const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === 'baseline')?.questions || [];
         const { data: newDef } = await supabase
           .from('assessments')
-          .insert({ type: 'baseline', module_id: moduleId, company_id: companyId, questions: JSON.stringify(questionsForModule) })
+          .insert({ type: 'baseline', company_id: companyId, questions: JSON.stringify(questionsForModule) })
           .select()
           .single();
         assessmentId = newDef?.id || null;
@@ -159,7 +159,7 @@ const AssessmentPage = () => {
       // Log score in terminal
       console.log("Employee ID:", employeeId);
       console.log("Employee Name:", user?.email);
-      console.log("Employee Score:", result.score, "/", mcqQuestionsByModule.length);
+      console.log("Employee Score:", result.score, "/", (mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []).length);
       console.log("Employee Feedback:", result.feedback.join("\n"));
 
       // Call GPT feedback API for AI-generated feedback and store in Supabase
@@ -168,14 +168,13 @@ const AssessmentPage = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           score: result.score,
-          maxScore: mcqQuestionsByModule.length,
+          maxScore: (mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []).length,
           answers: result.answers,
           feedback: result.feedback,
           modules,
           employee_id: employeeId,
           employee_name: user?.email,
           assessment_id: assessmentId,
-          module_id: moduleId,
         }),
       });
       const data = await res.json();
@@ -208,27 +207,13 @@ const AssessmentPage = () => {
           {loading && <div className="mb-4 text-gray-500">Loading...</div>}
           {!loading && score === null && mcqQuestionsByModule.length > 0 && (
             <MCQQuiz
-              questions={mcqQuestionsByModule[currentModuleIndex]?.questions || []}
-              onSubmit={(res) => handleMCQSubmit(res, mcqQuestionsByModule[currentModuleIndex].moduleId)}
+              questions={mcqQuestionsByModule[0]?.questions || []}
+              onSubmit={(res) => handleMCQSubmit(res, mcqQuestionsByModule[0].moduleId)}
             />
           )}
           {!loading && score !== null && (
             <div>
-              <ScoreFeedbackCard score={score!} maxScore={(mcqQuestionsByModule[currentModuleIndex]?.questions || []).length} feedback={feedback} />
-              {currentModuleIndex < mcqQuestionsByModule.length - 1 && (
-                <div className="mt-4">
-                  <button
-                    className="px-4 py-2 bg-blue-600 text-white rounded"
-                    onClick={() => {
-                      setCurrentModuleIndex((i) => i + 1);
-                      setScore(null);
-                      setFeedback("");
-                    }}
-                  >
-                    Take next module
-                  </button>
-                </div>
-              )}
+              <ScoreFeedbackCard score={score!} maxScore={(mcqQuestionsByModule[0]?.questions || []).length} feedback={feedback} />
             </div>
           )}
         </div>
