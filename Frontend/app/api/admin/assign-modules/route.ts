@@ -45,7 +45,6 @@ export async function POST(req: Request) {
     }
 
 
-    console.log("Error Here")
     // Verify modules belong to this company
     const { data: mods, error: modsErr } = await supabase
       .from("training_modules")
@@ -72,7 +71,6 @@ export async function POST(req: Request) {
 
     console.log("CHECK 1 : employee_id:", employee_id);
     console.log("CHECK 2 : mods:", mods);
-
 
     // Avoid inserting duplicates: fetch existing assigned module rows for this employee
     const { data: existingRows, error: existingErr } = await supabase
@@ -102,7 +100,50 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: insertErr.message || 'DB insert error' }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, plan: insertData });
+    // Generate baseline assessment for newly assigned modules
+    try {
+      console.log("Generating baseline assessment...");
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+      // Call the MCQ quiz generator to create/return a baseline for these modules
+      const baselineRes = await fetch(`${baseUrl}/api/gpt-mcq-quiz`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          moduleIds: modIdsFound,
+          companyId: companyId
+        })
+      });
+
+      if (!baselineRes.ok) {
+        const text = await baselineRes.text().catch(() => '');
+        console.error('Baseline API returned non-OK:', baselineRes.status, text);
+        throw new Error(`Baseline API error: ${baselineRes.status}`);
+      }
+
+      const baselineData = await baselineRes.json();
+      console.log("Baseline assessment returned from gpt-mcq-quiz:", baselineData);
+
+      // Assessment will be fetched by module_id when needed (no schema change required)
+      const assessmentId = baselineData.assessmentId || baselineData.id || null;
+
+      return NextResponse.json({ 
+        success: true, 
+        plan: insertData,
+        baseline: {
+          assessmentId,
+          quiz: baselineData.quiz,
+          source: baselineData.source
+        }
+      });
+    } catch (baselineErr) {
+      console.error("Error generating baseline assessment:", baselineErr);
+      // Still return success for module assignment, but include baseline error
+      return NextResponse.json({ 
+        success: true, 
+        plan: insertData,
+        baselineError: "Failed to generate baseline assessment"
+      });
+    }
   } catch (err: any) {
     console.log("Error in the last")
     return NextResponse.json({ error: "Server error", detail: String(err) }, { status: 500 });
