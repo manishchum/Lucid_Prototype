@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
   }
   const company_id = employee.company_id;
 
-  // 1. Generate questions for each module (simulate with static questions for now)
+  // 1. Generate questions for each module (simulate with static questions for now) => baseline assessment in gpt-mcq-quiz
   const questions = modules.flatMap((mod: any, idx: number) => {
     return Array.from({ length: 2 }, (_, i) => ({
       id: `${mod.title}-${i+1}`,
