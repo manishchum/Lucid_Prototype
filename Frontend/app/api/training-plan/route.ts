@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Fetching assessments for employee...");
   const { data: assessments, error: assessError } = await supabase
     .from("employee_assessments")
-    .select("score, feedback, assessment_id, assessments(type, questions)")
+    .select("score, max_score, feedback, assessment_id, assessments(type, questions)")
     .eq("employee_id", employee_id);
   if (assessError) {
     console.error("[Training Plan API] Error fetching assessments:", assessError);
@@ -53,9 +53,24 @@ export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Baseline assessments:", baselineAssessments);
   console.log("[Training Plan API] Module assessments:", moduleAssessments);
 
+  // Compute percentage-based baseline results for plan generation
+  const baselinePercentAssessments = (baselineAssessments || []).map((row: any) => {
+    const score = Number(row?.score ?? 0);
+    const max = Number(row?.max_score ?? 0);
+    const percent = max > 0 ? Math.round((score / max) * 100) : null;
+    return {
+      assessment_id: row?.assessment_id ?? null,
+      score,
+      max_score: max,
+      score_percent: percent, // used by GPT
+      feedback: row?.feedback ?? null,
+    };
+  });
+  console.log("[Training Plan API] Baseline percent assessments:", baselinePercentAssessments);
+
   // Compute hash only from baseline assessments so module quizzes don't change the plan
   const assessmentHash = crypto.createHash("sha256")
-    .update(JSON.stringify({ baselineAssessments }))
+    .update(JSON.stringify({ baselinePercentAssessments }))
     .digest("hex");
   console.log("[Training Plan API] assessmentHash:", assessmentHash);
 
@@ -155,7 +170,7 @@ export async function POST(req: NextRequest) {
     "- If datatype is 'ratio', compare as a ratio (e.g., score/benchmark).\n" +
     "- Use this comparison to identify strengths and weaknesses for each KPI.\n\n" +
     "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, learning style, and KPI factors (including benchmark and datatype) influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, learning style, and KPIs (including benchmark and datatype)\n- Explicitly explain how the score, benchmark, and datatype influenced the number of modules and total study hours.\n\n" +
-    "Assessment Results (baseline only):\n" + JSON.stringify(baselineAssessments, null, 2) + "\n\n" +
+  "Assessment Results (baseline only, percentage-based):\n" + JSON.stringify(baselinePercentAssessments, null, 2) + "\n\n" +
     "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
     "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n" +
     "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
