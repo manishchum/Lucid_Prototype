@@ -1,29 +1,487 @@
+"use client"
 interface Employee {
   id: string;
   email: string;
   name: string | null;
   joined_at: string;
+  department_id?: string | null;
 }
 
-"use client"
+interface SubDepartment {
+  id: string;
+  department_name: string;
+  sub_department_name: string;
+}
 
-import { useState, useEffect, useCallback } from "react";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+interface Role {
+  id: string;
+  name: string;
+  description?: string;
+}
 
-import { useRouter } from "next/navigation";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { useAuth } from "@/contexts/auth-context";
-import { supabase } from "@/lib/supabase";
-import { Building2, Users, Plus, Trash2, LogOut } from "lucide-react";
-import { ContentUpload } from "./content-upload";
-import { UploadedFilesList } from "./uploaded-files-list";
-import { Toaster } from "react-hot-toast";
+interface Company {
+  id: string;
+  name: string;
+}
+
+// --- Add Employee Modal Component ---
+function AddEmployeeModal({ 
+  isOpen, 
+  onClose, 
+  companyId, 
+  adminId,
+  onSuccess 
+}: { 
+  isOpen: boolean;
+  onClose: () => void;
+  companyId: string;
+  adminId: string;
+  onSuccess: () => void;
+}) {
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    company_name: '',
+    department_id: '',
+    role_id: '',
+    phone: '',
+    position: ''
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<{[key: string]: string}>({});
+  const [subDepartments, setSubDepartments] = useState<SubDepartment[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+
+  // Load dropdown data
+  useEffect(() => {
+    if (isOpen) {
+      loadDropdownData();
+    }
+  }, [isOpen]);
+
+  const loadDropdownData = async () => {
+    try {
+      // Load subdepartments
+      const { data: subDeptData, error: subDeptError } = await supabase
+        .from('sub_department')
+        .select('*')
+        .order('department_name')
+        .order('sub_department_name');
+
+      if (subDeptError) throw subDeptError;
+      setSubDepartments(subDeptData || []);
+
+      // Load roles
+      const { data: rolesData, error: rolesError } = await supabase
+        .from('roles')
+        .select('*')
+        .order('name');
+
+      if (rolesError) throw rolesError;
+      setRoles(rolesData || []);
+
+      // Load companies
+      const { data: companiesData, error: companiesError } = await supabase
+        .from('companies')
+        .select('id, name')
+        .order('name');
+
+      if (companiesError) throw companiesError;
+      setCompanies(companiesData || []);
+
+    } catch (error) {
+      console.error('Failed to load dropdown data:', error);
+      setError('Failed to load form data');
+    }
+  };
+
+  // Email validation function
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  // Phone validation function  
+  const validatePhone = (phone: string): boolean => {
+    if (!phone) return true; // Phone is optional
+    // Allow various phone formats: +1234567890, (123) 456-7890, 123-456-7890, 123.456.7890, 1234567890
+    const phoneRegex = /^[\+]?[\d\s\(\)\-\.]{10,15}$/;
+    const digitsOnly = phone.replace(/\D/g, '');
+    return phoneRegex.test(phone) && digitsOnly.length >= 10 && digitsOnly.length <= 15;
+  };
+
+  // Check if email already exists in database
+  const checkEmailExists = async (email: string): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', email.toLowerCase())
+        .single();
+      
+      if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+        console.error('Error checking email:', error);
+        return false;
+      }
+      
+      return !!data; // Returns true if email exists
+    } catch (error) {
+      console.error('Error checking email:', error);
+      return false;
+    }
+  };
+
+  const handleInputChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+
+    // Clear previous field error
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
+
+    // Real-time validation
+    if (name === 'email' && value) {
+      if (!validateEmail(value)) {
+        setFieldErrors(prev => ({
+          ...prev,
+          email: 'Please enter a valid email address'
+        }));
+      } else {
+        // Check if email already exists
+        const emailExists = await checkEmailExists(value);
+        if (emailExists) {
+          setFieldErrors(prev => ({
+            ...prev,
+            email: 'An employee with this email already exists'
+          }));
+        }
+      }
+    }
+
+    if (name === 'phone' && value) {
+      if (!validatePhone(value)) {
+        setFieldErrors(prev => ({
+          ...prev,
+          phone: 'Please enter a valid phone number (10-15 digits)'
+        }));
+      }
+    }
+  };
+
+  const validateForm = async (): Promise<boolean> => {
+    const errors: {[key: string]: string} = {};
+
+    // Name validation
+    if (!formData.name.trim()) {
+      errors.name = 'Name is required';
+    }
+
+    // Email validation
+    if (!formData.email.trim()) {
+      errors.email = 'Email is required';
+    } else if (!validateEmail(formData.email)) {
+      errors.email = 'Please enter a valid email address';
+    } else {
+      // Check if email already exists
+      const emailExists = await checkEmailExists(formData.email);
+      if (emailExists) {
+        errors.email = 'An employee with this email already exists';
+      }
+    }
+
+    // Phone validation (optional field)
+    if (formData.phone && !validatePhone(formData.phone)) {
+      errors.phone = 'Please enter a valid phone number (10-15 digits)';
+    }
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setFieldErrors({});
+
+    // Validate form
+    const isValid = await validateForm();
+    if (!isValid) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      // Create user in users table
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .insert({
+          name: formData.name,
+          email: formData.email.toLowerCase(),
+          company_id: companyId,
+          department_id: formData.department_id || null,
+          position: formData.position || null,
+          phone: formData.phone || null,
+          hire_date: new Date().toISOString().split('T')[0], // Today's date
+          employment_status: 'ACTIVE'
+        })
+        .select()
+        .single();
+
+      if (userError) throw userError;
+
+      // If role is selected, create role assignment
+      if (formData.role_id) {
+        const { error: roleError } = await supabase
+          .from('user_role_assignments')
+          .insert({
+            user_id: userData.id,
+            role_id: formData.role_id,
+            scope_type: 'COMPANY',
+            scope_id: companyId,
+            assigned_by: adminId,
+            is_active: true
+          });
+
+        if (roleError) {
+          console.error('Role assignment failed:', roleError);
+          // Don't fail the entire operation if role assignment fails
+        }
+      }
+
+      // Reset form
+      setFormData({
+        name: '',
+        email: '',
+        company_name: '',
+        department_id: '',
+        role_id: '',
+        phone: '',
+        position: ''
+      });
+      setFieldErrors({});
+
+      onSuccess();
+      onClose();
+
+    } catch (error: any) {
+      console.error('Failed to create user:', error);
+      if (error.code === '23505' && error.message.includes('email')) {
+        setFieldErrors(prev => ({
+          ...prev,
+          email: 'An employee with this email already exists'
+        }));
+      } else {
+        setError('Failed to create employee: ' + error.message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get unique departments
+  const departments = Array.from(new Set(subDepartments.map(sd => sd.department_name)));
+
+  // Get subdepartments for selected department
+  const selectedDepartmentName = subDepartments.find(sd => sd.id === formData.department_id)?.department_name;
+  const availableSubDepartments = selectedDepartmentName 
+    ? subDepartments.filter(sd => sd.department_name === selectedDepartmentName)
+    : subDepartments;
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold text-gray-900">Add New Employee</h2>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              ✕
+            </Button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Name and Email */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="name">Name *</Label>
+                <Input
+                  id="name"
+                  name="name"
+                  type="text"
+                  value={formData.name}
+                  onChange={handleInputChange}
+                  required
+                  placeholder="Enter full name"
+                  className={fieldErrors.name ? 'border-red-500' : ''}
+                />
+                {fieldErrors.name && (
+                  <p className="text-red-500 text-sm mt-1">{fieldErrors.name}</p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="email">Email *</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  required
+                  placeholder="employee@company.com"
+                  className={fieldErrors.email ? 'border-red-500' : ''}
+                />
+                {fieldErrors.email && (
+                  <p className="text-red-500 text-sm mt-1">{fieldErrors.email}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Company Name */}
+            <div>
+              <Label htmlFor="company_name">Company Name</Label>
+              <select
+                id="company_name"
+                name="company_name"
+                value={formData.company_name}
+                onChange={handleInputChange}
+                className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">Select Company</option>
+                {companies.map(company => (
+                  <option key={company.id} value={company.name}>
+                    {company.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Department and Subdepartment */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="department_id">Department</Label>
+                <select
+                  id="department_id"
+                  name="department_id"
+                  value={formData.department_id}
+                  onChange={handleInputChange}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">Select Department</option>
+                  {availableSubDepartments.map(subDept => (
+                    <option key={subDept.id} value={subDept.id}>
+                      {subDept.department_name} - {subDept.sub_department_name}
+                    </option>
+                  ))}
+                </select>
+                <div className="text-xs text-gray-500 mt-1">
+                  This will assign both department and subdepartment
+                </div>
+              </div>
+              
+              <div>
+                <Label htmlFor="role_id">Role</Label>
+                <select
+                  id="role_id"
+                  name="role_id"
+                  value={formData.role_id}
+                  onChange={handleInputChange}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">Select Role</option>
+                  {roles.map(role => (
+                    <option key={role.id} value={role.id}>
+                      {role.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Position and Phone */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="position">Position/Job Title</Label>
+                <Input
+                  id="position"
+                  name="position"
+                  type="text"
+                  value={formData.position}
+                  onChange={handleInputChange}
+                  placeholder="e.g., Software Engineer, Manager"
+                />
+              </div>
+              <div>
+                <Label htmlFor="phone">Phone Number</Label>
+                <Input
+                  id="phone"
+                  name="phone"
+                  type="tel"
+                  value={formData.phone}
+                  onChange={handleInputChange}
+                  placeholder="+1 (555) 123-4567"
+                  className={fieldErrors.phone ? 'border-red-500' : ''}
+                />
+                {fieldErrors.phone && (
+                  <p className="text-red-500 text-sm mt-1">{fieldErrors.phone}</p>
+                )}
+                <div className="text-xs text-gray-500 mt-1">
+                  Formats: +1234567890, (123) 456-7890, 123-456-7890
+                </div>
+              </div>
+            </div>
+
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Form Actions */}
+            <div className="flex gap-3 pt-4 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onClose}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={loading || !formData.name || !formData.email || !!fieldErrors.email || !!fieldErrors.phone || !!fieldErrors.name}
+              >
+                {loading ? 'Creating...' : 'Create Employee'}
+              </Button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- Employee Bulk Add UI Component ---
-function EmployeeBulkAdd({ companyId, onSuccess, onError }: { companyId?: string; onSuccess: () => void; onError: (error: string) => void }) {
-  const [mode, setMode] = useState<'manual' | 'upload'>('manual');
+function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId?: string; adminId?: string; onSuccess: () => void; onError: (error: string) => void }) {
+  const [mode, setMode] = useState<'manual' | 'upload' | 'detailed'>('detailed');
+  const [showModal, setShowModal] = useState(false);
   const [manualEmails, setManualEmails] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -197,12 +655,21 @@ function EmployeeBulkAdd({ companyId, onSuccess, onError }: { companyId?: string
       <div className="flex gap-2">
         <Button
           type="button"
+          variant={mode === 'detailed' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setMode('detailed')}
+        >
+          <Plus className="w-4 h-4 mr-1" />
+          Add Employee
+        </Button>
+        {/* <Button
+          type="button"
           variant={mode === 'manual' ? 'default' : 'outline'}
           size="sm"
           onClick={() => setMode('manual')}
         >
-          Manual Entry
-        </Button>
+          Bulk Email Entry
+        </Button> */}
         <Button
           type="button"
           variant={mode === 'upload' ? 'default' : 'outline'}
@@ -213,7 +680,19 @@ function EmployeeBulkAdd({ companyId, onSuccess, onError }: { companyId?: string
         </Button>
       </div>
 
-      {mode === 'manual' ? (
+      {mode === 'detailed' ? (
+        <div className="text-center py-8">
+          <Users className="w-12 h-12 mx-auto mb-4 text-blue-500" />
+          <p className="text-gray-600 mb-4">Create a new employee with complete details</p>
+          <Button
+            onClick={() => setShowModal(true)}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add New Employee
+          </Button>
+        </div>
+      ) : mode === 'manual' ? (
         <form onSubmit={handleManualAdd} className="space-y-3">
           <div>
             <Label htmlFor="manualEmails">Employee Emails (comma-separated)</Label>
@@ -236,17 +715,17 @@ function EmployeeBulkAdd({ companyId, onSuccess, onError }: { companyId?: string
       ) : (
         <div className="space-y-3">
           <div className="mt-4 sm:mt-0">
-                <Button asChild variant="outline" size="sm">
-                  <a
-                    href="https://manugdmjylsvdjemwzcq.supabase.co/storage/v1/object/public/file_format/Sample_Emplyee_No_KPI.xlsx"
-                    download
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Download Sample File
-                  </a>
-                </Button>
-              </div>
+            <Button asChild variant="outline" size="sm">
+              <a
+                href="https://manugdmjylsvdjemwzcq.supabase.co/storage/v1/object/public/file_format/Sample_Emplyee_No_KPI.xlsx"
+                download
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Download Sample File
+              </a>
+            </Button>
+          </div>
           <div>
             <Label htmlFor="employeeFile">Upload CSV/XLSX File</Label>
             <Input
@@ -283,10 +762,37 @@ function EmployeeBulkAdd({ companyId, onSuccess, onError }: { companyId?: string
           </Button>
         </div>
       )}
+
+      {/* Add Employee Modal */}
+      <AddEmployeeModal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        companyId={companyId || ''}
+        adminId={adminId || ''}
+        onSuccess={() => {
+          onSuccess();
+          setShowModal(false);
+        }}
+      />
     </div>
   );
 }
 
+
+import { useState, useEffect, useCallback } from "react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+import { useRouter } from "next/navigation";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { useAuth } from "@/contexts/auth-context";
+import { supabase } from "@/lib/supabase";
+import { Building2, Users, Plus, Trash2, LogOut } from "lucide-react";
+import { ContentUpload } from "./content-upload";
+import { UploadedFilesList } from "./uploaded-files-list";
+import { Toaster } from "react-hot-toast";
 // --- KPI Scores Upload UI Component ---
 function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Admin | null }) {
   const [file, setFile] = useState<File | null>(null);
@@ -539,6 +1045,381 @@ function KPIDefinitionsUpload({ companyId }: { companyId?: string }) {
   );
 }
 
+// --- Department Filter Component ---
+function DepartmentFilter({ employees }: { employees: Employee[] }) {
+  const [subDepartments, setSubDepartments] = useState<SubDepartment[]>([]);
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
+  const [selectedSubDepartments, setSelectedSubDepartments] = useState<string[]>([]);
+  const [filteredEmployees, setFilteredEmployees] = useState<Employee[]>([]);
+  const [showDepartmentDropdown, setShowDepartmentDropdown] = useState(false);
+  const [showSubDepartmentDropdown, setShowSubDepartmentDropdown] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Load subdepartments from Supabase
+  useEffect(() => {
+    const loadSubDepartments = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('sub_department')
+          .select('*')
+          .order('department_name')
+          .order('sub_department_name');
+
+        if (error) throw error;
+        setSubDepartments(data || []);
+      } catch (error) {
+        console.error('Failed to load sub departments:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadSubDepartments();
+  }, []);
+
+  // Get unique departments
+  const departments = Array.from(new Set(subDepartments.map(sd => sd.department_name)));
+
+  // Get filtered subdepartments based on selected departments
+  const availableSubDepartments = selectedDepartments.length > 0
+    ? subDepartments.filter(sd => selectedDepartments.includes(sd.department_name))
+    : subDepartments;
+
+  // Filter employees based on selections
+  useEffect(() => {
+    let filtered = employees;
+    
+    if (selectedSubDepartments.length > 0) {
+      const selectedSubDeptIds = subDepartments
+        .filter(sd => selectedSubDepartments.includes(sd.id))
+        .map(sd => sd.id);
+      
+      filtered = filtered.filter(emp => 
+        emp.department_id && selectedSubDeptIds.includes(emp.department_id)
+      );
+    } else if (selectedDepartments.length > 0) {
+      const selectedDeptSubDeptIds = subDepartments
+        .filter(sd => selectedDepartments.includes(sd.department_name))
+        .map(sd => sd.id);
+      
+      filtered = filtered.filter(emp => 
+        emp.department_id && selectedDeptSubDeptIds.includes(emp.department_id)
+      );
+    }
+    console.log(filtered)
+    setFilteredEmployees(filtered);
+  }, [employees, selectedDepartments, selectedSubDepartments, subDepartments]);
+
+  const handleDepartmentToggle = (department: string) => {
+    setSelectedDepartments(prev => {
+      const newSelection = prev.includes(department)
+        ? prev.filter(d => d !== department)
+        : [...prev, department];
+      
+      // Clear subdepartment selections when department selection changes
+      if (newSelection.length !== prev.length) {
+        setSelectedSubDepartments([]);
+      }
+      
+      return newSelection;
+    });
+  };
+
+  const handleSubDepartmentToggle = (subDepartmentId: string) => {
+    setSelectedSubDepartments(prev =>
+      prev.includes(subDepartmentId)
+        ? prev.filter(id => id !== subDepartmentId)
+        : [...prev, subDepartmentId]
+    );
+  };
+
+  const selectAllDepartments = () => {
+    setSelectedDepartments(departments);
+    setSelectedSubDepartments([]);
+  };
+
+  const clearDepartments = () => {
+    setSelectedDepartments([]);
+    setSelectedSubDepartments([]);
+  };
+
+  const selectAllSubDepartments = () => {
+    const allSubDeptIds = availableSubDepartments.map(sd => sd.id);
+    setSelectedSubDepartments(allSubDeptIds);
+  };
+
+  const clearSubDepartments = () => {
+    setSelectedSubDepartments([]);
+  };
+
+  const getEmployeeDepartmentInfo = (employee: Employee) => {
+    if (!employee.department_id) return null;
+    return subDepartments.find(sd => sd.id === employee.department_id);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <span className="ml-2 text-gray-600">Loading departments...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Filter Controls */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Department Selection */}
+        <div className="space-y-2">
+          <Label>Departments</Label>
+          <div className="relative">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-between"
+              onClick={() => setShowDepartmentDropdown(!showDepartmentDropdown)}
+            >
+              <span>
+                {selectedDepartments.length === 0
+                  ? "Select Departments"
+                  : `${selectedDepartments.length} department${selectedDepartments.length === 1 ? '' : 's'} selected`}
+              </span>
+              <span className="ml-2">▼</span>
+            </Button>
+            
+            {showDepartmentDropdown && (
+              <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-64 overflow-y-auto">
+                {/* Action buttons */}
+                <div className="p-2 border-b bg-gray-50 flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={selectAllDepartments}
+                    className="text-xs"
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={clearDepartments}
+                    className="text-xs"
+                  >
+                    Clear All
+                  </Button>
+                </div>
+                
+                {/* Department grid */}
+                <div className="p-2 grid grid-cols-2 gap-2">
+                  {departments.map(department => (
+                    <label
+                      key={department}
+                      className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedDepartments.includes(department)}
+                        onChange={() => handleDepartmentToggle(department)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm">{department}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Subdepartment Selection */}
+        <div className="space-y-2">
+          <Label>Subdepartments</Label>
+          <div className="relative">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-between"
+              onClick={() => setShowSubDepartmentDropdown(!showSubDepartmentDropdown)}
+              disabled={availableSubDepartments.length === 0}
+            >
+              <span>
+                {selectedSubDepartments.length === 0
+                  ? "Select Subdepartments"
+                  : `${selectedSubDepartments.length} subdepartment${selectedSubDepartments.length === 1 ? '' : 's'} selected`}
+              </span>
+              <span className="ml-2">▼</span>
+            </Button>
+            
+            {showSubDepartmentDropdown && availableSubDepartments.length > 0 && (
+              <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-64 overflow-y-auto">
+                {/* Action buttons */}
+                <div className="p-2 border-b bg-gray-50 flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={selectAllSubDepartments}
+                    className="text-xs"
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={clearSubDepartments}
+                    className="text-xs"
+                  >
+                    Clear All
+                  </Button>
+                </div>
+                
+                {/* Subdepartment grid */}
+                <div className="p-2 grid grid-cols-2 gap-2">
+                  {availableSubDepartments.map(subDept => (
+                    <label
+                      key={subDept.id}
+                      className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedSubDepartments.includes(subDept.id)}
+                        onChange={() => handleSubDepartmentToggle(subDept.id)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm">{subDept.sub_department_name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Results Summary */}
+      <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg p-3">
+        <div className="text-sm text-blue-800">
+          <span className="font-medium">{filteredEmployees.length}</span> employees found
+          {selectedDepartments.length > 0 && (
+            <span> in <span className="font-medium">{selectedDepartments.length}</span> department{selectedDepartments.length === 1 ? '' : 's'}</span>
+          )}
+          {selectedSubDepartments.length > 0 && (
+            <span> • <span className="font-medium">{selectedSubDepartments.length}</span> subdepartment{selectedSubDepartments.length === 1 ? '' : 's'}</span>
+          )}
+        </div>
+        {(selectedDepartments.length > 0 || selectedSubDepartments.length > 0) && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setSelectedDepartments([]);
+              setSelectedSubDepartments([]);
+            }}
+          >
+            Clear Filters
+          </Button>
+        )}
+      </div>
+
+      {/* Selected Items Display */}
+      {(selectedDepartments.length > 0 || selectedSubDepartments.length > 0) && (
+        <div className="space-y-2">
+          {selectedDepartments.length > 0 && (
+            <div>
+              <span className="text-sm font-medium text-gray-700">Selected Departments:</span>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {selectedDepartments.map(dept => (
+                  <span key={dept} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
+                    {dept}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {selectedSubDepartments.length > 0 && (
+            <div>
+              <span className="text-sm font-medium text-gray-700">Selected Subdepartments:</span>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {selectedSubDepartments.map(subDeptId => {
+                  const subDept = subDepartments.find(sd => sd.id === subDeptId);
+                  return subDept ? (
+                    <span key={subDeptId} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
+                      {subDept.sub_department_name}
+                    </span>
+                  ) : null;
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Employee List */}
+      {filteredEmployees.length === 0 ? (
+        <div className="text-center py-8 text-gray-500">
+          <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+          <p>No employees found</p>
+          <p className="text-sm">
+            {selectedDepartments.length === 0 && selectedSubDepartments.length === 0
+              ? "Select departments or subdepartments to view employees"
+              : "Try adjusting your filter criteria"}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3 max-h-96 overflow-y-auto">
+          {filteredEmployees.map((employee) => {
+            const deptInfo = getEmployeeDepartmentInfo(employee);
+            return (
+              <div key={employee.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
+                <div className="flex-1">
+                  <p className="font-medium text-gray-900">{employee.email}</p>
+                  <div className="flex gap-4 text-sm text-gray-500 mt-1">
+                    <span>Added {new Date(employee.joined_at).toLocaleDateString()}</span>
+                    {deptInfo && (
+                      <>
+                        <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
+                          {deptInfo.department_name}
+                        </span>
+                        <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
+                          {deptInfo.sub_department_name}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <Button
+                  onClick={() => removeEmployee(employee.id)}
+                  variant="outline"
+                  size="sm"
+                  className="text-red-600 hover:text-red-800"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      
+      {/* Click outside handlers */}
+      {(showDepartmentDropdown || showSubDepartmentDropdown) && (
+        <div 
+          className="fixed inset-0 z-0" 
+          onClick={() => {
+            setShowDepartmentDropdown(false);
+            setShowSubDepartmentDropdown(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const { user, loading: authLoading, logout } = useAuth()
   const [admin, setAdmin] = useState<Admin | null>(null)
@@ -591,10 +1472,10 @@ export default function AdminDashboard() {
   const loadEmployees = async (companyId: string) => {
     try {
       const { data, error } = await supabase
-        .from("employees")
+        .from("users")
         .select("*")
         .eq("company_id", companyId)
-        .order("joined_at", { ascending: false })
+        .order("hire_date", { ascending: false })
 
       if (error) throw error
       setEmployees(data || [])
@@ -754,13 +1635,21 @@ export default function AdminDashboard() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
-                {/* <Plus className="w-5 h-5 mr-2" /> */}
-                Add Employees
+                <Users className="w-5 h-5 mr-2" />
+                Manage Employees
               </CardTitle>
-              <CardDescription>Add employee emails to allow them to access the training portal (No KPIs required)</CardDescription>
+              <CardDescription>Add employees individually with complete details or in bulk using email lists or file uploads</CardDescription>
             </CardHeader>
             <CardContent>
-              <EmployeeBulkAdd companyId={admin?.company_id} onSuccess={() => { loadEmployees(admin?.company_id || ""); setSuccess("Employees added successfully!"); }} onError={setError} />
+              <EmployeeBulkAdd 
+                companyId={admin?.company_id} 
+                adminId={admin?.id}
+                onSuccess={() => { 
+                  loadEmployees(admin?.company_id || ""); 
+                  setSuccess("Employee added successfully!"); 
+                }} 
+                onError={setError} 
+              />
 
               {error && ( 
                 <Alert variant="destructive" className="mt-4">
@@ -776,44 +1665,17 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
 
-          {/* Employees List */}
+          {/* Department Filter Section */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
                 <Users className="w-5 h-5 mr-2" />
-                Allowed Employees ({employees.length})
+                Filter Employees by Department
               </CardTitle>
-              <CardDescription>Employees who can access the training portal</CardDescription>
+              <CardDescription>View and manage employees by department and subdepartment</CardDescription>
             </CardHeader>
             <CardContent>
-              {employees.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>No employees added yet</p>
-                  <p className="text-sm">Add employee emails above to get started</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {employees.map((employee) => (
-                    <div key={employee.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div>
-                        <p className="font-medium text-gray-900">{employee.email}</p>
-                        <p className="text-sm text-gray-500">
-                          Added {new Date(employee.joined_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <Button
-                        onClick={() => removeEmployee(employee.id)}
-                        variant="outline"
-                        size="sm"
-                        className="text-red-600 hover:text-red-800"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <DepartmentFilter employees={employees} />
             </CardContent>
           </Card>
 
