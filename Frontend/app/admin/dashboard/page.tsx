@@ -1,6 +1,6 @@
 "use client"
 interface Employee {
-  id: string;
+  user_id: string;
   email: string;
   name: string | null;
   joined_at: string;
@@ -8,7 +8,7 @@ interface Employee {
 }
 
 interface SubDepartment {
-  id: string;
+  department_id: string;
   department_name: string;
   sub_department_name: string;
 }
@@ -20,7 +20,7 @@ interface Role {
 }
 
 interface Company {
-  id: string;
+  company_id: string;
   name: string;
 }
 
@@ -70,7 +70,8 @@ function AddEmployeeModal({
         .order('department_name')
         .order('sub_department_name');
 
-      if (subDeptError) throw subDeptError;
+
+        if (subDeptError) throw subDeptError;
       setSubDepartments(subDeptData || []);
 
       // Load roles
@@ -78,16 +79,17 @@ function AddEmployeeModal({
         .from('roles')
         .select('*')
         .order('name');
-
+        
+        console.log("Not in the subdepart")
       if (rolesError) throw rolesError;
       setRoles(rolesData || []);
 
       // Load companies
       const { data: companiesData, error: companiesError } = await supabase
         .from('companies')
-        .select('id, name')
+        .select('company_id, name')
         .order('name');
-
+      
       if (companiesError) throw companiesError;
       setCompanies(companiesData || []);
 
@@ -117,7 +119,7 @@ function AddEmployeeModal({
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('id')
+        .select('user_id')
         .eq('email', email.toLowerCase())
         .single();
       
@@ -222,6 +224,7 @@ function AddEmployeeModal({
     }
 
     try {
+      console.log(formData)
       // Create user in users table
       const { data: userData, error: userError } = await supabase
         .from('users')
@@ -237,19 +240,20 @@ function AddEmployeeModal({
         })
         .select()
         .single();
-
+      console.log("User Data "+userData);
       if (userError) throw userError;
 
+      console.log(userData)
       // If role is selected, create role assignment
       if (formData.role_id) {
         const { error: roleError } = await supabase
           .from('user_role_assignments')
           .insert({
-            user_id: userData.id,
+            user_id: userData.user_id,
             role_id: formData.role_id,
             scope_type: 'COMPANY',
-            scope_id: companyId,
-            assigned_by: adminId,
+            scope_id: userData.company_id,
+            assigned_by: userData.user_id,
             is_active: true
           });
 
@@ -293,7 +297,7 @@ function AddEmployeeModal({
   const departments = Array.from(new Set(subDepartments.map(sd => sd.department_name)));
 
   // Get subdepartments for selected department
-  const selectedDepartmentName = subDepartments.find(sd => sd.id === formData.department_id)?.department_name;
+  const selectedDepartmentName = subDepartments.find(sd => sd.department_id === formData.department_id)?.department_name;
   const availableSubDepartments = selectedDepartmentName 
     ? subDepartments.filter(sd => sd.department_name === selectedDepartmentName)
     : subDepartments;
@@ -366,7 +370,7 @@ function AddEmployeeModal({
               >
                 <option value="">Select Company</option>
                 {companies.map(company => (
-                  <option key={company.id} value={company.name}>
+                  <option key={company.company_id} value={company.name}>
                     {company.name}
                   </option>
                 ))}
@@ -386,7 +390,7 @@ function AddEmployeeModal({
                 >
                   <option value="">Select Department</option>
                   {availableSubDepartments.map(subDept => (
-                    <option key={subDept.id} value={subDept.id}>
+                    <option key={subDept.department_id} value={subDept.department_id}>
                       {subDept.department_name} - {subDept.sub_department_name}
                     </option>
                   ))}
@@ -1051,9 +1055,27 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
   const [selectedSubDepartments, setSelectedSubDepartments] = useState<string[]>([]);
   const [filteredEmployees, setFilteredEmployees] = useState<Employee[]>([]);
+  const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
   const [showDepartmentDropdown, setShowDepartmentDropdown] = useState(false);
   const [showSubDepartmentDropdown, setShowSubDepartmentDropdown] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showAssignmentModal, setShowAssignmentModal] = useState(false);
+
+  const removeEmployee = async (employeeId: string) => {
+    if (!confirm("Are you sure you want to remove this employee?")) return
+
+    try {
+
+      console.log(employeeId);
+      const { error } = await supabase.from("users").delete().eq("user_id", employeeId)
+
+      if (error) throw error
+
+      setFilteredEmployees(employees.filter((emp) => emp.user_id !== employeeId))
+    } catch (error: any) {
+      console.log("Error in filtering employees after removing")
+    }
+  }
 
   // Load subdepartments from Supabase
   useEffect(() => {
@@ -1091,8 +1113,8 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
     
     if (selectedSubDepartments.length > 0) {
       const selectedSubDeptIds = subDepartments
-        .filter(sd => selectedSubDepartments.includes(sd.id))
-        .map(sd => sd.id);
+        .filter(sd => selectedSubDepartments.includes(sd.department_id))
+        .map(sd => sd.department_id);
       
       filtered = filtered.filter(emp => 
         emp.department_id && selectedSubDeptIds.includes(emp.department_id)
@@ -1100,7 +1122,7 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
     } else if (selectedDepartments.length > 0) {
       const selectedDeptSubDeptIds = subDepartments
         .filter(sd => selectedDepartments.includes(sd.department_name))
-        .map(sd => sd.id);
+        .map(sd => sd.department_id);
       
       filtered = filtered.filter(emp => 
         emp.department_id && selectedDeptSubDeptIds.includes(emp.department_id)
@@ -1144,7 +1166,7 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
   };
 
   const selectAllSubDepartments = () => {
-    const allSubDeptIds = availableSubDepartments.map(sd => sd.id);
+    const allSubDeptIds = availableSubDepartments.map(sd => sd.department_id);
     setSelectedSubDepartments(allSubDeptIds);
   };
 
@@ -1154,7 +1176,31 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
 
   const getEmployeeDepartmentInfo = (employee: Employee) => {
     if (!employee.department_id) return null;
-    return subDepartments.find(sd => sd.id === employee.department_id);
+    return subDepartments.find(sd => sd.department_id === employee.department_id);
+  };
+
+  const handleEmployeeSelect = (employeeId: string, checked: boolean) => {
+    setSelectedEmployees(prev => 
+      checked 
+        ? [...prev, employeeId]
+        : prev.filter(id => id !== employeeId)
+    );
+  };
+
+  const handleSelectAll = () => {
+    setSelectedEmployees(filteredEmployees.map(emp => emp.user_id));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedEmployees([]);
+  };
+
+  const handleAssignModule = () => {
+    if (selectedEmployees.length === 0) {
+      alert("Please select at least one employee");
+      return;
+    }
+    setShowAssignmentModal(true);
   };
 
   if (loading) {
@@ -1281,13 +1327,13 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
                 <div className="p-2 grid grid-cols-2 gap-2">
                   {availableSubDepartments.map(subDept => (
                     <label
-                      key={subDept.id}
+                      key={subDept.department_id}
                       className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
                     >
                       <input
                         type="checkbox"
-                        checked={selectedSubDepartments.includes(subDept.id)}
-                        onChange={() => handleSubDepartmentToggle(subDept.id)}
+                        checked={selectedSubDepartments.includes(subDept.department_id)}
+                        onChange={() => handleSubDepartmentToggle(subDept.department_id)}
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
                       <span className="text-sm">{subDept.sub_department_name}</span>
@@ -1300,10 +1346,13 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
         </div>
       </div>
 
-      {/* Results Summary */}
+      {/* Results Summary with Selection Info */}
       <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg p-3">
         <div className="text-sm text-blue-800">
           <span className="font-medium">{filteredEmployees.length}</span> employees found
+          {selectedEmployees.length > 0 && (
+            <span> • <span className="font-medium">{selectedEmployees.length}</span> selected</span>
+          )}
           {selectedDepartments.length > 0 && (
             <span> in <span className="font-medium">{selectedDepartments.length}</span> department{selectedDepartments.length === 1 ? '' : 's'}</span>
           )}
@@ -1311,19 +1360,32 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
             <span> • <span className="font-medium">{selectedSubDepartments.length}</span> subdepartment{selectedSubDepartments.length === 1 ? '' : 's'}</span>
           )}
         </div>
-        {(selectedDepartments.length > 0 || selectedSubDepartments.length > 0) && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setSelectedDepartments([]);
-              setSelectedSubDepartments([]);
-            }}
-          >
-            Clear Filters
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {(selectedDepartments.length > 0 || selectedSubDepartments.length > 0) && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSelectedDepartments([]);
+                setSelectedSubDepartments([]);
+                setSelectedEmployees([]);
+              }}
+            >
+              Clear Filters
+            </Button>
+          )}
+          {selectedEmployees.length > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleAssignModule}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              Assign Module ({selectedEmployees.length})
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Selected Items Display */}
@@ -1346,7 +1408,7 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
               <span className="text-sm font-medium text-gray-700">Selected Subdepartments:</span>
               <div className="flex flex-wrap gap-2 mt-1">
                 {selectedSubDepartments.map(subDeptId => {
-                  const subDept = subDepartments.find(sd => sd.id === subDeptId);
+                  const subDept = subDepartments.find(sd => sd.department_id === subDeptId);
                   return subDept ? (
                     <span key={subDeptId} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
                       {subDept.sub_department_name}
@@ -1359,7 +1421,7 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
         </div>
       )}
 
-      {/* Employee List */}
+      {/* Employee Selection Grid */}
       {filteredEmployees.length === 0 ? (
         <div className="text-center py-8 text-gray-500">
           <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
@@ -1371,38 +1433,154 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
           </p>
         </div>
       ) : (
-        <div className="space-y-3 max-h-96 overflow-y-auto">
-          {filteredEmployees.map((employee) => {
-            const deptInfo = getEmployeeDepartmentInfo(employee);
-            return (
-              <div key={employee.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
-                <div className="flex-1">
-                  <p className="font-medium text-gray-900">{employee.email}</p>
-                  <div className="flex gap-4 text-sm text-gray-500 mt-1">
-                    <span>Added {new Date(employee.joined_at).toLocaleDateString()}</span>
-                    {deptInfo && (
-                      <>
-                        <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
-                          {deptInfo.department_name}
+        <div className="space-y-3">
+          {/* Bulk Selection Controls */}
+          <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg border">
+            <div className="flex items-center space-x-4">
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={filteredEmployees.length > 0 && selectedEmployees.length === filteredEmployees.length}
+                  onChange={(e) => e.target.checked ? handleSelectAll() : handleDeselectAll()}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm font-medium text-gray-700">
+                  Select All ({filteredEmployees.length} employees)
+                </span>
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleSelectAll}
+                disabled={selectedEmployees.length === filteredEmployees.length}
+              >
+                Select All
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleDeselectAll}
+                disabled={selectedEmployees.length === 0}
+              >
+                Clear Selection
+              </Button>
+            </div>
+          </div>
+
+          {/* Employee Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
+            {filteredEmployees.map((employee) => {
+              const deptInfo = getEmployeeDepartmentInfo(employee);
+              const isSelected = selectedEmployees.includes(employee.user_id);
+              
+              return (
+                <div 
+                  key={employee.user_id} 
+                  className={`p-3 border rounded-lg transition-colors ${
+                    isSelected 
+                      ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-200' 
+                      : 'bg-white border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-start space-x-3">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={(e) => handleEmployeeSelect(employee.user_id, e.target.checked)}
+                      className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-900 truncate">{employee.name || employee.email}</p>
+                      {employee.name && (
+                        <p className="text-sm text-gray-500 truncate">{employee.email}</p>
+                      )}
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        <span className="text-xs text-gray-500">
+                          Added {new Date(employee.joined_at).toLocaleDateString()}
                         </span>
-                        <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
-                          {deptInfo.sub_department_name}
-                        </span>
-                      </>
-                    )}
+                      </div>
+                      {deptInfo && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
+                            {deptInfo.department_name}
+                          </span>
+                          <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
+                            {deptInfo.sub_department_name}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      onClick={() => {
+                        removeEmployee(employee.user_id);
+                        setSelectedEmployees(prev => prev.filter(id => id !== employee.user_id));
+                      }}
+                      variant="outline"
+                      size="sm"
+                      className="text-red-600 hover:text-red-800"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      
+      {/* Assignment Modal Placeholder */}
+      {showAssignmentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Assign Training Module</h3>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAssignmentModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </Button>
+            </div>
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">
+                You have selected <strong>{selectedEmployees.length}</strong> employees for module assignment.
+              </p>
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  Module assignment functionality will be implemented here. 
+                  This will allow admins to select training modules and assign them to the selected employees.
+                </p>
+              </div>
+              <div className="flex gap-3">
                 <Button
-                  onClick={() => removeEmployee(employee.id)}
+                  type="button"
                   variant="outline"
-                  size="sm"
-                  className="text-red-600 hover:text-red-800"
+                  onClick={() => setShowAssignmentModal(false)}
                 >
-                  <Trash2 className="w-4 h-4" />
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    // TODO: Implement module assignment logic
+                    console.log('Assigning module to employees:', selectedEmployees);
+                    setShowAssignmentModal(false);
+                    setSelectedEmployees([]);
+                  }}
+                >
+                  Assign Module
                 </Button>
               </div>
-            );
-          })}
+            </div>
+          </div>
         </div>
       )}
       
@@ -1529,20 +1707,7 @@ export default function AdminDashboard() {
     }
   }
 
-  const removeEmployee = async (employeeId: string) => {
-    if (!confirm("Are you sure you want to remove this employee?")) return
-
-    try {
-      const { error } = await supabase.from("employees").delete().eq("id", employeeId)
-
-      if (error) throw error
-
-      setEmployees(employees.filter((emp) => emp.id !== employeeId))
-      setSuccess("Employee removed successfully!")
-    } catch (error: any) {
-      setError("Failed to remove employee: " + error.message)
-    }
-  }
+  
 
   const handleLogout = async () => {
     await logout()
