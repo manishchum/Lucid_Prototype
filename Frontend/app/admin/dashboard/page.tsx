@@ -14,7 +14,7 @@ interface SubDepartment {
 }
 
 interface Role {
-  id: string;
+  role_id: string;
   name: string;
   description?: string;
 }
@@ -44,6 +44,7 @@ function AddEmployeeModal({
     company_name: '',
     department_id: '',
     role_id: '',
+    role_unique_id: '',
     phone: '',
     position: ''
   });
@@ -60,6 +61,125 @@ function AddEmployeeModal({
       loadDropdownData();
     }
   }, [isOpen]);
+
+  const roleIdUnique=async(id:string)=>{
+    console.log(id);
+    console.log("Inside the role unique id function")
+    await setFormData({
+      ...formData,
+      role_unique_id: id,
+    })
+  }
+
+  // Get role ID function
+  const getRoleId = async (roleName: string): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase
+        .from('roles')
+        .select('role_id')
+        .eq('name', roleName)
+        .single();
+      
+      if (error) {
+        console.error('Error fetching role:', error);
+        return null;
+      }
+      console.log(data?.role_id)
+      return data?.role_id || null;
+    } catch (error) {
+      console.error('Error in getRoleId:', error);
+      return null;
+    }
+  };
+
+  // Handle role selection with proper role_id setting
+  const handleRoleSelection = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedRoleName = e.target.value;
+    
+    // Update form data with role name first
+    setFormData(prev => ({
+      ...prev,
+      role_id: selectedRoleName
+    }));
+
+    // If a role is selected, get the role ID
+    if (selectedRoleName) {
+      try {
+        const roleId = await getRoleId(selectedRoleName);
+        if (roleId) {
+          // Update form data with actual role ID
+          setFormData(prev => ({
+            ...prev,
+            role_unique_id: roleId
+          }));
+        } else {
+          console.warn('Role ID not found for:', selectedRoleName);
+          // Clear role_id if not found
+          setFormData(prev => ({
+            ...prev,
+            role_id: ''
+          }));
+        }
+      } catch (error) {
+        console.error('Failed to get role ID:', error);
+        setFormData(prev => ({
+          ...prev,
+          role_id: ''
+        }));
+      }
+    }
+  };
+
+  const handleInputChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    
+    // Handle role selection separately
+    if (name === 'role_id') {
+      await handleRoleSelection(e as React.ChangeEvent<HTMLSelectElement>);
+      return;
+    }
+    
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+
+    // Clear previous field error
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
+
+    // Real-time validation
+    if (name === 'email' && value) {
+      if (!validateEmail(value)) {
+        setFieldErrors(prev => ({
+          ...prev,
+          email: 'Please enter a valid email address'
+        }));
+      } else {
+        // Check if email already exists
+        const emailExists = await checkEmailExists(value);
+        if (emailExists) {
+          setFieldErrors(prev => ({
+            ...prev,
+            email: 'An employee with this email already exists'
+          }));
+        }
+      }
+    }
+
+    if (name === 'phone' && value) {
+      if (!validatePhone(value)) {
+        setFieldErrors(prev => ({
+          ...prev,
+          phone: 'Please enter a valid phone number (10-15 digits)'
+        }));
+      }
+    }
+  };
 
   const loadDropdownData = async () => {
     try {
@@ -135,51 +255,6 @@ function AddEmployeeModal({
     }
   };
 
-  const handleInputChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-
-    // Clear previous field error
-    if (fieldErrors[name]) {
-      setFieldErrors(prev => ({
-        ...prev,
-        [name]: ''
-      }));
-    }
-
-    // Real-time validation
-    if (name === 'email' && value) {
-      if (!validateEmail(value)) {
-        setFieldErrors(prev => ({
-          ...prev,
-          email: 'Please enter a valid email address'
-        }));
-      } else {
-        // Check if email already exists
-        const emailExists = await checkEmailExists(value);
-        if (emailExists) {
-          setFieldErrors(prev => ({
-            ...prev,
-            email: 'An employee with this email already exists'
-          }));
-        }
-      }
-    }
-
-    if (name === 'phone' && value) {
-      if (!validatePhone(value)) {
-        setFieldErrors(prev => ({
-          ...prev,
-          phone: 'Please enter a valid phone number (10-15 digits)'
-        }));
-      }
-    }
-  };
-
   const validateForm = async (): Promise<boolean> => {
     const errors: {[key: string]: string} = {};
 
@@ -244,13 +319,17 @@ function AddEmployeeModal({
       if (userError) throw userError;
 
       console.log(userData)
+      console.log(formData)
       // If role is selected, create role assignment
       if (formData.role_id) {
+        console.log("In the role assignment")
+        console.log(userData)
+        console.log(formData)
         const { error: roleError } = await supabase
           .from('user_role_assignments')
           .insert({
             user_id: userData.user_id,
-            role_id: formData.role_id,
+            role_id: formData.role_unique_id,
             scope_type: 'COMPANY',
             scope_id: userData.company_id,
             assigned_by: userData.user_id,
@@ -271,7 +350,8 @@ function AddEmployeeModal({
         department_id: '',
         role_id: '',
         phone: '',
-        position: ''
+        position: '',
+        role_unique_id: ''
       });
       setFieldErrors({});
 
@@ -405,13 +485,13 @@ function AddEmployeeModal({
                 <select
                   id="role_id"
                   name="role_id"
-                  value={formData.role_id}
+                  value={roles.find(role => role.role_id === formData.role_id)?.name || formData.role_id || ''}
                   onChange={handleInputChange}
                   className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="">Select Role</option>
                   {roles.map(role => (
-                    <option key={role.id} value={role.id}>
+                    <option key={role.role_id} value={role.name}>
                       {role.name}
                     </option>
                   ))}
