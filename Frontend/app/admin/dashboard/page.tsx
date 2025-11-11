@@ -3,8 +3,11 @@ interface Employee {
   user_id: string;
   email: string;
   name: string | null;
-  joined_at: string;
+  hire_date: string;
   department_id?: string | null;
+  phone?: string | null;
+  position?: string | null;
+  employment_status?: string | null;
 }
 
 interface SubDepartment {
@@ -45,8 +48,10 @@ function AddEmployeeModal({
     department_id: '',
     role_id: '',
     role_unique_id: '',
+    employment_status: 'ACTIVE',
     phone: '',
-    position: ''
+    position: '',
+    selected_roles: [] as string[]
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -70,6 +75,29 @@ function AddEmployeeModal({
       role_unique_id: id,
     })
   }
+
+  const handleRoleToggle = (roleId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      selected_roles: prev.selected_roles.includes(roleId)
+        ? prev.selected_roles.filter(id => id !== roleId)
+        : [...prev.selected_roles, roleId]
+    }));
+  };
+
+  const selectAllRoles = () => {
+    setFormData(prev => ({
+      ...prev,
+      selected_roles: roles.map(role => role.role_id)
+    }));
+  };
+
+  const clearAllRoles = () => {
+    setFormData(prev => ({
+      ...prev,
+      selected_roles: []
+    }));
+  };
 
   // Get role ID function
   const getRoleId = async (roleName: string): Promise<string | null> => {
@@ -320,21 +348,25 @@ function AddEmployeeModal({
 
       console.log(userData)
       console.log(formData)
-      // If role is selected, create role assignment
-      if (formData.role_id) {
+      
+      // If roles are selected, create multiple role assignments
+      if (formData.selected_roles.length > 0) {
         console.log("In the role assignment")
         console.log(userData)
-        console.log(formData)
+        console.log(formData.selected_roles)
+        
+        const roleAssignments = formData.selected_roles.map(roleId => ({
+          user_id: userData.user_id,
+          role_id: roleId,
+          scope_type: 'COMPANY',
+          scope_id: userData.company_id,
+          assigned_by: userData.user_id,
+          is_active: true
+        }));
+
         const { error: roleError } = await supabase
           .from('user_role_assignments')
-          .insert({
-            user_id: userData.user_id,
-            role_id: formData.role_unique_id,
-            scope_type: 'COMPANY',
-            scope_id: userData.company_id,
-            assigned_by: userData.user_id,
-            is_active: true
-          });
+          .insert(roleAssignments);
 
         if (roleError) {
           console.error('Role assignment failed:', roleError);
@@ -351,7 +383,9 @@ function AddEmployeeModal({
         role_id: '',
         phone: '',
         position: '',
-        role_unique_id: ''
+        role_unique_id: '',
+        employment_status: '',
+        selected_roles: []
       });
       setFieldErrors({});
 
@@ -457,7 +491,7 @@ function AddEmployeeModal({
               </select>
             </div>
 
-            {/* Department and Subdepartment */}
+            {/* Department and Role Selection */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="department_id">Department</Label>
@@ -481,22 +515,96 @@ function AddEmployeeModal({
               </div>
               
               <div>
-                <Label htmlFor="role_id">Role</Label>
+                <Label htmlFor="employment_status">Employment Status</Label>
                 <select
-                  id="role_id"
-                  name="role_id"
-                  value={roles.find(role => role.role_id === formData.role_id)?.name || formData.role_id || ''}
+                  id="employment_status"
+                  name="employment_status"
+                  value={formData.employment_status || 'ACTIVE'}
                   onChange={handleInputChange}
                   className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
-                  <option value="">Select Role</option>
-                  {roles.map(role => (
-                    <option key={role.role_id} value={role.name}>
-                      {role.name}
-                    </option>
-                  ))}
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
+                  <option value="TERMINATED">Terminated</option>
+                  <option value="ON_LEAVE">On Leave</option>
                 </select>
               </div>
+            </div>
+
+            {/* Multiple Role Selection */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>Roles (Select Multiple)</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={selectAllRoles}
+                    disabled={formData.selected_roles.length === roles.length}
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={clearAllRoles}
+                    disabled={formData.selected_roles.length === 0}
+                  >
+                    Clear All
+                  </Button>
+                </div>
+              </div>
+
+              <div className="border border-gray-300 rounded-md max-h-40 overflow-y-auto">
+                {roles.length === 0 ? (
+                  <div className="p-3 text-gray-500 text-center">No roles available</div>
+                ) : (
+                  <div className="p-2 space-y-2">
+                    {roles.map(role => (
+                      <label
+                        key={role.role_id}
+                        className="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={formData.selected_roles.includes(role.role_id)}
+                          onChange={() => handleRoleToggle(role.role_id)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <div className="flex-1">
+                          <span className="font-medium text-gray-900">{role.name}</span>
+                          {role.description && (
+                            <p className="text-sm text-gray-500">{role.description}</p>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="text-xs text-gray-500 mt-1">
+                Selected: {formData.selected_roles.length} role{formData.selected_roles.length === 1 ? '' : 's'}
+              </div>
+
+              {/* Selected Roles Preview */}
+              {formData.selected_roles.length > 0 && (
+                <div className="mt-2">
+                  <span className="text-xs text-gray-600 block mb-1">Selected Roles:</span>
+                  <div className="flex flex-wrap gap-1">
+                    {formData.selected_roles.map(roleId => {
+                      const role = roles.find(r => r.role_id === roleId);
+                      return role ? (
+                        <span key={roleId} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
+                          {role.name}
+                        </span>
+                      ) : null;
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Position and Phone */}
@@ -873,10 +981,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import { Building2, Users, Plus, Trash2, LogOut } from "lucide-react";
+import { Building2, Users, Plus, Trash2, LogOut, Edit } from "lucide-react";
 import { ContentUpload } from "./content-upload";
 import { UploadedFilesList } from "./uploaded-files-list";
 import { Toaster } from "react-hot-toast";
+import UpdateEmployeeModal from "./update-employee-modal"; // Import UpdateEmployeeModal
+
 // --- KPI Scores Upload UI Component ---
 function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Admin | null }) {
   const [file, setFile] = useState<File | null>(null);
@@ -1140,6 +1250,9 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
   const [showSubDepartmentDropdown, setShowSubDepartmentDropdown] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showAssignmentModal, setShowAssignmentModal] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [selectedEmployeeForUpdate, setSelectedEmployeeForUpdate] = useState<Employee | null>(null);
+  const [userRoles, setUserRoles] = useState<{[key: string]: string[]}>({});
 
   const removeEmployee = async (employeeId: string) => {
     if (!confirm("Are you sure you want to remove this employee?")) return
@@ -1156,6 +1269,20 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
       console.log("Error in filtering employees after removing")
     }
   }
+
+  const handleEmployeeUpdate = (employee: Employee) => {
+    setSelectedEmployeeForUpdate(employee);
+    setShowUpdateModal(true);
+  };
+
+  const handleUpdateSuccess = async () => {
+    // Reload employees after successful update
+    // if (admin?.company_id) {
+    //   await loadEmployees(admin.company_id);
+    // }
+    setShowUpdateModal(false);
+    setSelectedEmployeeForUpdate(null);
+  };
 
   // Load subdepartments from Supabase
   useEffect(() => {
@@ -1178,6 +1305,41 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
 
     loadSubDepartments();
   }, []);
+
+  // Load user roles (multiple roles per user)
+  useEffect(() => {
+    const loadUserRoles = async () => {
+      if (employees.length === 0) return;
+      
+      try {
+        const { data: roleAssignments, error } = await supabase
+          .from('user_role_assignments')
+          .select(`
+            user_id,
+            roles!inner(name)
+          `)
+          .in('user_id', employees.map(emp => emp.user_id))
+          .eq('is_active', true);
+
+        if (error) throw error;
+
+        const rolesMap: {[key: string]: string[]} = {};
+        roleAssignments?.forEach(assignment => {
+          if (!rolesMap[assignment.user_id]) {
+            rolesMap[assignment.user_id] = [];
+          }
+          //@ts-ignore
+          rolesMap[assignment.user_id].push(assignment.roles?.name);
+        });
+        
+        setUserRoles(rolesMap);
+      } catch (error) {
+        console.error('Failed to load user roles:', error);
+      }
+    };
+
+    loadUserRoles();
+  }, [employees]);
 
   // Get unique departments
   const departments = Array.from(new Set(subDepartments.map(sd => sd.department_name)));
@@ -1501,7 +1663,7 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
         </div>
       )}
 
-      {/* Employee Selection Grid */}
+      {/* Employee List */}
       {filteredEmployees.length === 0 ? (
         <div className="text-center py-8 text-gray-500">
           <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
@@ -1551,68 +1713,153 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
             </div>
           </div>
 
-          {/* Employee Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
+          {/* Employee Table Header */}
+          <div className="bg-gray-100 border rounded-lg p-3 font-medium text-sm text-gray-700">
+            <div className="grid grid-cols-12 gap-4 items-center">
+              <div className="col-span-1 flex items-center justify-center">Select</div>
+              <div className="col-span-2">Employee Details</div>
+              <div className="col-span-2">Department</div>
+              <div className="col-span-2">Subdepartment</div>
+              <div className="col-span-2">Role</div>
+              <div className="col-span-1">Joined Date</div>
+              <div className="col-span-2 text-center">Actions</div>
+            </div>
+          </div>
+
+          {/* Employee List */}
+          <div className="space-y-2 max-h-96 overflow-y-auto">
             {filteredEmployees.map((employee) => {
               const deptInfo = getEmployeeDepartmentInfo(employee);
               const isSelected = selectedEmployees.includes(employee.user_id);
+              const userRole = userRoles[employee.user_id];
               
               return (
                 <div 
                   key={employee.user_id} 
-                  className={`p-3 border rounded-lg transition-colors ${
+                  className={`border rounded-lg p-3 transition-colors hover:bg-gray-50 ${
                     isSelected 
                       ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-200' 
-                      : 'bg-white border-gray-200 hover:border-gray-300'
+                      : 'bg-white border-gray-200'
                   }`}
                 >
-                  <div className="flex items-start space-x-3">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={(e) => handleEmployeeSelect(employee.user_id, e.target.checked)}
-                      className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900 truncate">{employee.name || employee.email}</p>
-                      {employee.name && (
-                        <p className="text-sm text-gray-500 truncate">{employee.email}</p>
+                  <div className="grid grid-cols-12 gap-4 items-center">
+                    {/* Select Checkbox */}
+                    <div className="col-span-1 flex items-center justify-center">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => handleEmployeeSelect(employee.user_id, e.target.checked)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    {/* Employee Details */}
+                    <div className="col-span-2">
+                      <p className="font-medium text-gray-900 truncate">
+                        {employee.name || 'No Name Provided'}
+                      </p>
+                      <p className="text-sm text-gray-500 truncate">{employee.email}</p>
+                      {employee.phone && (
+                        <p className="text-xs text-gray-400">{employee.phone}</p>
                       )}
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        <span className="text-xs text-gray-500">
-                          Added {new Date(employee.joined_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                      {deptInfo && (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
-                            {deptInfo.department_name}
-                          </span>
-                          <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
-                            {deptInfo.sub_department_name}
-                          </span>
-                        </div>
+                      {employee.position && (
+                        <p className="text-xs text-blue-600">{employee.position}</p>
                       )}
                     </div>
-                    <Button
-                      onClick={() => {
-                        removeEmployee(employee.user_id);
-                        setSelectedEmployees(prev => prev.filter(id => id !== employee.user_id));
-                      }}
-                      variant="outline"
-                      size="sm"
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+
+                    {/* Department */}
+                    <div className="col-span-2">
+                      {deptInfo ? (
+                        <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs inline-block">
+                          {deptInfo.department_name}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">Not Assigned</span>
+                      )}
+                    </div>
+
+                    {/* Subdepartment */}
+                    <div className="col-span-2">
+                      {deptInfo ? (
+                        <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs inline-block">
+                          {deptInfo.sub_department_name}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">Not Assigned</span>
+                      )}
+                    </div>
+
+                    {/* Role */}
+                    <div className="col-span-2">
+                      {userRoles[employee.user_id] && userRoles[employee.user_id].length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {userRoles[employee.user_id].map((role, index) => (
+                            <span key={index} className="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs inline-block">
+                              {role}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 text-xs">No Roles</span>
+                      )}
+                    </div>
+
+                    {/* Joined Date */}
+                    <div className="col-span-1">
+                      <span className="text-sm text-gray-600">
+                        {new Date(employee.hire_date).toLocaleDateString()}
+                      </span>
+                      <p className="text-xs text-gray-400">
+                        {employee.employment_status || 'Active'}
+                      </p>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="col-span-2 flex gap-2 justify-center">
+                      <Button
+                        onClick={() => handleEmployeeUpdate(employee)}
+                        variant="outline"
+                        size="sm"
+                        className="text-blue-600 hover:text-blue-800 border-blue-300 hover:border-blue-500"
+                      >
+                        <Edit className="w-4 h-4 mr-1" />
+                        
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          removeEmployee(employee.user_id);
+                          setSelectedEmployees(prev => prev.filter(id => id !== employee.user_id));
+                        }}
+                        variant="outline"
+                        size="sm"
+                        className="text-red-600 hover:text-red-800 border-red-300 hover:border-red-500"
+                      >
+                        <Trash2 className="w-4 h-4 mr-1" />
+                        
+                      </Button>
+                    </div>
                   </div>
                 </div>
               );
             })}
           </div>
+
+      {/* Update Employee Modal */}
+      {showUpdateModal && selectedEmployeeForUpdate && (
+        <UpdateEmployeeModal
+          isOpen={showUpdateModal}
+          onClose={() => {
+            setShowUpdateModal(false);
+            setSelectedEmployeeForUpdate(null);
+          }}
+          employee={selectedEmployeeForUpdate}
+          currentRole={userRoles[selectedEmployeeForUpdate.user_id]}
+          onSuccess={handleUpdateSuccess}
+        />
+      )}
         </div>
       )}
-      
+
       {/* Assignment Modal Placeholder */}
       {showAssignmentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
