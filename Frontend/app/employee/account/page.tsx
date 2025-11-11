@@ -12,7 +12,7 @@ import { ArrowLeft, User, Mail, Calendar, Building, Save, Edit3 } from "lucide-r
 import EmployeeNavigation from "@/components/employee-navigation";
 
 interface Employee {
-  id: string;
+  employee_id: string;
   email: string;
   name: string | null;
   joined_at: string;
@@ -23,7 +23,7 @@ interface Employee {
 }
 
 interface Company {
-  id: string;
+  company_id: string;
   name: string;
 }
 
@@ -81,8 +81,8 @@ export default function AccountPage() {
       if (employeeData.company_id) {
         const { data: companyData, error: companyError } = await supabase
           .from("companies")
-          .select("id, name")
-          .eq("id", employeeData.company_id)
+          .select("company_id, name")
+          .eq("company_id", employeeData.company_id)
           .single();
 
         if (!companyError && companyData) {
@@ -110,7 +110,7 @@ export default function AccountPage() {
           position: formData.position || null,
           phone: formData.phone || null,
         })
-        .eq("id", employee.id);
+        .eq("employee_id", employee.employee_id);
 
       if (error) {
         console.error("Failed to update employee:", error);

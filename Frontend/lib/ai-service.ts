@@ -79,7 +79,7 @@ export class AIService {
         .update({
           processing_status: status.status,
         })
-        .eq('id', moduleId)
+        .eq('module_id', moduleId)
 
       if (error) throw error
     } catch (error) {
@@ -102,7 +102,7 @@ export class AIService {
           ai_objectives: JSON.stringify(results.objectives),
           processing_status: 'completed',
         })
-        .eq('id', moduleId)
+        .eq('module_id', moduleId)
 
       if (error) throw error
     } catch (error) {
@@ -185,7 +185,7 @@ export class AIService {
       const { data, error } = await supabase
         .from('training_modules')
         .select('processing_status')
-        .eq('id', moduleId)
+        .eq('module_id', moduleId)
         .single()
 
       if (error) {

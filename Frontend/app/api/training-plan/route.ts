@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   const { data: empRecord, error: empError } = await supabase
     .from("employees")
     .select("company_id")
-    .eq("id", employee_id)
+    .eq("employee_id", employee_id)
     .maybeSingle();
   if (empError || !empRecord?.company_id) {
     console.error("[Training Plan API] Could not find company for employee");
@@ -78,18 +78,18 @@ export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Fetching processed modules for company_id:", company_id);
   const { data: trainingModuleRows, error: tmError } = await supabase
     .from("training_modules")
-    .select("id")
+    .select("module_id")
     .eq("company_id", company_id);
   if (tmError) {
     console.error("[Training Plan API] Error fetching training modules:", tmError);
     return NextResponse.json({ error: tmError.message }, { status: 500 });
   }
-  const tmIds = (trainingModuleRows || []).map((m: any) => m.id);
+  const tmIds = (trainingModuleRows || []).map((m: any) => m.module_id);
   let modules: any[] = [];
   if (tmIds.length > 0) {
     const { data: pmRows, error: modError } = await supabase
       .from("processed_modules")
-      .select("id, title, content, order_index, original_module_id, training_modules(company_id)")
+      .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
       .in("original_module_id", tmIds);
     if (modError) {
       console.error("[Training Plan API] Error fetching modules:", modError);
@@ -115,10 +115,10 @@ export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Checking for latest assigned learning plan...");
   const { data: existingPlan, error: existingPlanError } = await supabase
     .from("learning_plan")
-    .select("id, plan_json, reasoning, status, assessment_hash")
+    .select("learning_plan_id, plan_json, reasoning, status, assessment_hash")
     .eq("employee_id", employee_id)
     .eq("status", "assigned")
-    .order("id", { ascending: false })
+    .order("learning_plan_id", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (existingPlanError && (existingPlanError as any).code !== "PGRST116") { // PGRST116: No rows found
@@ -295,7 +295,7 @@ export async function POST(req: NextRequest) {
     dbResult = await supabase
       .from("learning_plan")
       .update({ plan_json: plan, reasoning: reasoning, status: "ASSIGNED", assessment_hash: assessmentHash })
-      .eq("id", existingPlan.id);
+      .eq("learning_plan_id", existingPlan.learning_plan_id);
   } else {
     console.log("[Training Plan API] No existing plan. Inserting new...");
     dbResult = await supabase

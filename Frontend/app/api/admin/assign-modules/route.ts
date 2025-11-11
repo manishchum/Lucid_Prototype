@@ -24,8 +24,8 @@ export async function POST(req: Request) {
     // Fetch admin record to validate company
     const { data: adminData, error: adminErr } = await supabase
       .from("admins")
-      .select("id, company_id")
-      .eq("id", adminId)
+      .select("admin_id, company_id")
+      .eq("admin_id", adminId)
       .maybeSingle();
 
     if (adminErr || !adminData) {
@@ -37,8 +37,8 @@ export async function POST(req: Request) {
     // Verify employee belongs to same company
     const { data: emp, error: empErr } = await supabase
       .from("employees")
-      .select("id, company_id")
-      .eq("id", employee_id)
+      .select("employee_id, company_id")
+      .eq("employee_id", employee_id)
       .maybeSingle();
     if (empErr || !emp || emp.company_id !== companyId) {
       return NextResponse.json({ error: "Employee not found in your company" }, { status: 403 });
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     // Verify modules belong to this company
     const { data: mods, error: modsErr } = await supabase
       .from("training_modules")
-      .select("id, title")
+      .select("module_id, title")
       .in("id", moduleIds || [])
       .eq("company_id", companyId);
     if (modsErr) {
@@ -75,7 +75,7 @@ export async function POST(req: Request) {
     // Avoid inserting duplicates: fetch existing assigned module rows for this employee
     const { data: existingRows, error: existingErr } = await supabase
       .from("learning_plan")
-      .select("id, module_id")
+      .select("learning_plan_id, module_id")
       .eq("employee_id", employee_id)
       .in("module_id", (mods || []).map((m: any) => m.id));
 

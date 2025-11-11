@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/auth-context";
 import EmployeeNavigation from "@/components/employee-navigation";
 
 interface TrainingModule {
-  id: string;
+  module_id: string;
   title: string;
   ai_modules: string | null;
 }
@@ -44,7 +44,7 @@ const AssessmentPage = () => {
         // Get modules for this company only
         const { data, error } = await supabase
           .from("training_modules")
-          .select("id, title, ai_modules")
+          .select("module_id, title, ai_modules")
           .eq("company_id", companyId)
           .order("created_at", { ascending: true });
         if (error) throw error;
@@ -73,11 +73,11 @@ const AssessmentPage = () => {
         if (user?.email) {
           const { data: empData } = await supabase
             .from("employees")
-            .select("id, company_id")
+            .select("employee_id, company_id")
             .eq("email", user.email)
             .maybeSingle();
           companyId = empData?.company_id || null;
-          employeeId = empData?.id || null;
+          employeeId = empData?.employee_id || null;
         }
         if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
         // Request a baseline quiz for all assigned modules (multi-module baseline)
@@ -85,7 +85,7 @@ const AssessmentPage = () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
-            moduleIds: modules.map(m => m.id), 
+            moduleIds: modules.map(m => m.module_id), 
             companyId 
           }),
         });
@@ -117,11 +117,11 @@ const AssessmentPage = () => {
       if (user?.email) {
         const { data: empData, error: empError } = await supabase
           .from("employees")
-          .select("id")
+          .select("employee_id")
           .eq("email", user.email)
           .maybeSingle();
-        if (empData?.id) {
-          employeeId = empData.id;
+        if (empData?.employee_id) {
+          employeeId = empData.employee_id;
         } else {
           setError("Could not find employee record for this user.");
           setLoading(false);
@@ -138,13 +138,13 @@ const AssessmentPage = () => {
       // Look up the baseline assessment for this company
       const { data: assessmentDef } = await supabase
         .from('assessments')
-        .select('id')
+        .select('assessment_id')
         .eq('type', 'baseline')
         .eq('company_id', companyId)
         .limit(1)
         .maybeSingle();
-      if (assessmentDef?.id) {
-        assessmentId = assessmentDef.id;
+      if (assessmentDef?.assessment_id) {
+        assessmentId = assessmentDef.assessment_id;
       } else {
         // Find questions for the baseline from the fetched quizzes
         const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === 'baseline')?.questions || [];

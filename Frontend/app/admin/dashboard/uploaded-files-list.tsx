@@ -77,7 +77,7 @@ export function UploadedFilesList({ modules, onModuleDeleted }: UploadedFilesLis
       }
 
       // Delete from training_modules table
-      const { error: dbError } = await supabase.from("training_modules").delete().eq("id", moduleId)
+      const { error: dbError } = await supabase.from("training_modules").delete().eq("module_id", moduleId)
       if (dbError) throw dbError
 
       toast.success("Module deleted successfully!")

@@ -652,7 +652,7 @@ export default function AdminDashboard() {
     if (!confirm("Are you sure you want to remove this employee?")) return
 
     try {
-      const { error } = await supabase.from("employees").delete().eq("id", employeeId)
+      const { error } = await supabase.from("employees").delete().eq("employee_id", employeeId)
 
       if (error) throw error
 

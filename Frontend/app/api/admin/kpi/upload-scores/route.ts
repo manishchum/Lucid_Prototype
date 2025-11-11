@@ -56,7 +56,7 @@ export async function POST(req: Request) {
 			let employeeId: string | null = null;
 			const { data: empData, error: empErr } = await supabase
 				.from("employees")
-				.select("id")
+				.select("employee_id")
 				.eq("email", email.trim().toLowerCase())
 				.eq("company_id", companyId)
 				.maybeSingle();
@@ -64,8 +64,8 @@ export async function POST(req: Request) {
 				skipped.push({ row: i + 1, reason: "DB error finding employee" });
 				continue;
 			}
-			if (empData && empData.id) {
-				employeeId = empData.id;
+			if (empData && empData.employee_id) {
+				employeeId = empData.employee_id;
 			} else {
 				// Insert employee
 				const { data: newEmp, error: insEmpErr } = await supabase
@@ -76,19 +76,19 @@ export async function POST(req: Request) {
 						company_employee_id: companyEmpId,
 						enrolled_by: adminId
 					})
-					.select("id")
+					.select("employee_id")
 					.single();
 				if (insEmpErr || !newEmp) {
 					skipped.push({ row: i + 1, reason: "Failed to insert employee" });
 					continue;
 				}
-				employeeId = newEmp.id;
+				employeeId = newEmp.employee_id;
 			}
 			// Upsert KPI by name + company
 			let kpiId: string | null = null;
 			const { data: kpiData, error: kpiErr } = await supabase
 				.from("kpis")
-				.select("id")
+				.select("kpi_id")
 				.eq("name", kpiName)
 				.eq("company_id", companyId)
 				.maybeSingle();
@@ -96,25 +96,25 @@ export async function POST(req: Request) {
 				skipped.push({ row: i + 1, reason: "DB error finding KPI" });
 				continue;
 			}
-			if (kpiData && kpiData.id) {
-				kpiId = kpiData.id;
+			if (kpiData && kpiData.kpi_id) {
+				kpiId = kpiData.kpi_id;
 			} else {
 				// Insert KPI
 				const { data: newKpi, error: insKpiErr } = await supabase
 					.from("kpis")
 					.insert({ name: kpiName, company_id: companyId })
-					.select("id")
+					.select("kpi_id")
 					.single();
 				if (insKpiErr || !newKpi) {
 					skipped.push({ row: i + 1, reason: "Failed to insert KPI" });
 					continue;
 				}
-				kpiId = newKpi.id;
+				kpiId = newKpi.kpi_id;
 			}
 			// Upsert employee_kpi row
 			const { data: ekpiData, error: ekpiErr } = await supabase
 				.from("employee_kpi")
-				.select("id")
+				.select("employee_kpi_id")
 				.eq("employee_id", employeeId)
 				.eq("kpi_id", kpiId)
 				.maybeSingle();
@@ -136,12 +136,12 @@ export async function POST(req: Request) {
 				skipped.push({ row: i + 1, reason: "Failed to insert KPI history" });
 			}
 
-			if (ekpiData && ekpiData.id) {
+			if (ekpiData && ekpiData.employee_kpi_id) {
 				// Update
 				const { error: updateErr } = await supabase
 					.from("employee_kpi")
 					.update({ score, scored_at: new Date().toISOString() })
-					.eq("id", ekpiData.id);
+					.eq("employee_kpi_id", ekpiData.employee_kpi_id);
 				if (updateErr) {
 					skipped.push({ row: i + 1, reason: "Failed to update employee_kpi" });
 				} else {

@@ -53,10 +53,10 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       try {
         const { data: emp } = await supabase
           .from('employees')
-          .select('id')
+          .select('employee_id')
           .eq('email', user.email)
           .single();
-        employeeId = emp?.id || null;
+        employeeId = emp?.employee_id || null;
   employeeName = (user as any)?.displayName || user.email || null;
       } catch (err) {
         console.log('[QUIZ] Error fetching employee record:', err);
@@ -174,7 +174,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         const { data: moduleData } = await supabase
           .from('processed_modules')
           .select('title')
-          .eq('id', moduleId)
+          .eq('module_id', moduleId)
           .single();
         
         if (moduleData?.title) {
@@ -189,14 +189,14 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         try {
           const { data: emp } = await supabase
             .from('employees')
-            .select('id')
+            .select('employee_id')
             .eq('email', user.email)
             .single();
-          if (emp?.id) {
+          if (emp?.employee_id) {
             const { data: styleData } = await supabase
               .from('employee_learning_style')
               .select('learning_style')
-              .eq('employee_id', emp.id)
+              .eq('employee_id', emp.employee_id)
               .maybeSingle();
             if (styleData?.learning_style) {
               learningStyle = styleData.learning_style;
@@ -214,7 +214,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       // 1. Try to fetch existing quiz for this module and learning style
       let query = supabase
         .from("assessments")
-        .select("id, questions")
+        .select("assessment_id, questions")
         .eq("type", "module")
         .eq("module_id", moduleId)
         .eq("learning_style", learningStyle);
@@ -226,7 +226,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           console.log('[QUIZ DEBUG] Parsed quizData from assessment:', quizData);
           setQuiz(quizData);
           setAnswers(new Array(quizData.length).fill(-1));
-          setAssessmentId(assessment.id);
+          setAssessmentId(assessment.assessment_id);
         } catch (e) {
           console.log('[QUIZ DEBUG] Failed to parse quiz data:', e, assessment.questions);
           setQuiz(null);
@@ -248,13 +248,13 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           setAnswers(new Array(result.quiz.length).fill(-1));
           const { data: newAssessment } = await supabase
             .from("assessments")
-            .select("id")
+            .select("assessment_id")
             .eq("type", "module")
             .eq("module_id", moduleId)
             .eq("learning_style", learningStyle)
             .maybeSingle();
           console.log('[QUIZ DEBUG] New assessment after quiz generation:', newAssessment);
-          if (newAssessment && newAssessment.id) setAssessmentId(newAssessment.id);
+          if (newAssessment && newAssessment.assessment_id) setAssessmentId(newAssessment.assessment_id);
         } else {
           setQuiz(null);
           setError(result.error || "Quiz generation failed.");

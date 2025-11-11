@@ -118,19 +118,19 @@ export async function POST(request: NextRequest) {
     // Fetch module info  
     const { data: moduleData, error: moduleError } = await supabase
       .from('processed_modules')
-      .select('id, title, content')
-      .eq('id', moduleId)
+      .select('processed_module_id, title, content')
+      .eq('module_id', moduleId)
       .maybeSingle();
     if (moduleError || !moduleData) return NextResponse.json({ error: 'Module not found' }, { status: 404 });
 
     // Check if quiz already exists for this module and learning style (robust to duplicates)
     const { data: assessmentsList } = await supabase
       .from('assessments')
-      .select('id, questions')
+      .select('assessment_id, questions')
       .eq('type', 'module')
       .eq('module_id', moduleId)
       .eq('learning_style', learningStyle)
-      .order('id', { ascending: false })
+      .order('assessment_id', { ascending: false })
       .limit(1);
     const existing = Array.isArray(assessmentsList) ? assessmentsList[0] : null;
     if (existing) {
@@ -192,11 +192,11 @@ export async function POST(request: NextRequest) {
       if ((insertError as any).code === '23505' || (insertError as any).code === '409') {
         const { data: existingListAfter } = await supabase
           .from('assessments')
-          .select('id, questions')
+          .select('assessment_id, questions')
           .eq('type', 'module')
           .eq('module_id', moduleId)
           .eq('learning_style', learningStyle)
-          .order('id', { ascending: false })
+          .order('assessment_id', { ascending: false })
           .limit(1);
         const existingAfter = Array.isArray(existingListAfter) ? existingListAfter[0] : null;
         if (existingAfter) {
@@ -281,7 +281,7 @@ export async function POST(request: NextRequest) {
         questions: JSON.stringify(quiz),
         modules_snapshot: normalizedSnapshot
       })
-      .eq('id', existingAssessment.id)
+      .eq('assessment_id', existingAssessment.id)
       .eq('company_id', companyId);
     if (updateError) {
       console.error('[gpt-mcq-quiz] Failed to update baseline assessment:', updateError);

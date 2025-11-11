@@ -76,8 +76,8 @@ async function synthesizeAndStore(processedModuleId: string) {
   // Fetch module content from processed_modules
   const { data: module, error: moduleError } = await admin
     .from('processed_modules')
-    .select('id, title, content')
-    .eq('id', processedModuleId)
+    .select('processed_module_id, title, content')
+    .eq('module_id', processedModuleId)
     .maybeSingle();
   if (moduleError || !module) {
     return { error: moduleError?.message || 'Module not found', status: 404 } as const;
@@ -129,7 +129,7 @@ async function synthesizeAndStore(processedModuleId: string) {
   const { error: updateErr } = await admin
     .from('processed_modules')
     .update({ audio_url: audioUrl, audio_generated_at: new Date().toISOString() })
-    .eq('id', processedModuleId);
+    .eq('processed_module_id', processedModuleId);
   if (updateErr) {
     return { error: `DB update failed: ${updateErr.message}`, status: 500 } as const;
   }
@@ -149,22 +149,22 @@ export async function GET(request: NextRequest) {
       // Pick 1 module (prefer those without audio yet), LIMIT 1
       const { data, error } = await admin
         .from('processed_modules')
-        .select('id')
+        .select('processed_module_id')
         .is('audio_url', null)
         .limit(1)
         .maybeSingle();
       if (error && error.code !== 'PGRST116') {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
-      targetId = data?.id || null;
+      targetId = data?.processed_module_id || null;
       if (!targetId) {
         // Fallback to any one (LIMIT 1)
         const { data: anyOne } = await admin
           .from('processed_modules')
-          .select('id')
+          .select('processed_module_id')
           .limit(1)
           .maybeSingle();
-        targetId = anyOne?.id || null;
+        targetId = anyOne?.processed_module_id || null;
       }
     }
 

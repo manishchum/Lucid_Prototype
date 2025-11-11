@@ -13,7 +13,7 @@ async function generateModuleContent() {
   // Fetch all processed_modules with empty or placeholder content
   const { data: modules, error } = await supabase
     .from('processed_modules')
-    .select('id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives)')
+    .select('module_id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives)')
     .or('content.is.null,content.eq.\'\',content.eq.""');
 
   if (error) {
@@ -105,7 +105,7 @@ Goal: The output should be a comprehensive, ready-to-use training module that fu
       const { error: updateError } = await supabase
         .from('processed_modules')
         .update({ content: aiContent })
-        .eq('id', mod.id);
+        .eq('module_id', mod.id);
       if (updateError) {
         console.error(`Failed to update content for module ${mod.id} style ${style}:`, updateError);
       } else {
