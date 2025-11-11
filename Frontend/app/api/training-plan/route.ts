@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import OpenAI from "openai";
 import crypto from "crypto";
+import ensureProcessedModulesForPlan from "@/lib/processedModulesHelper";
 
 export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Request received");
@@ -117,7 +118,7 @@ export async function POST(req: NextRequest) {
     .from("learning_plan")
     .select("learning_plan_id, plan_json, reasoning, status, assessment_hash")
     .eq("employee_id", employee_id)
-    .eq("status", "assigned")
+  .eq("status", "ASSIGNED")
     .order("learning_plan_id", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -127,6 +128,12 @@ export async function POST(req: NextRequest) {
   }
   if (existingPlan && existingPlan.assessment_hash === assessmentHash) {
     console.log("[Training Plan API] No change in assessments. Returning existing plan (pre-GPT).");
+    // Ensure processed_modules exist for modules referenced by the cached plan
+    try {
+      await ensureProcessedModulesForPlan(employee_id, company_id, existingPlan.plan_json);
+    } catch (e) {
+      console.error("[Training Plan API] ensureProcessedModulesForPlan failed on cache-hit:", e);
+    }
     return NextResponse.json({ plan: existingPlan.plan_json, reasoning: existingPlan.reasoning });
   }
 
@@ -300,7 +307,6 @@ export async function POST(req: NextRequest) {
     console.log("[Training Plan API] No existing plan. Inserting new...");
     dbResult = await supabase
       .from("learning_plan")
-
       // Right now the last updated module is assigned 
       .insert({ employee_id, plan_json: plan, reasoning: reasoning, status: "ASSIGNED", module_id: tmIds[tmIds.length-1], assessment_hash: assessmentHash });
   }
@@ -309,6 +315,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: dbResult.error.message }, { status: 500 });
   }
   console.log("[Training Plan API] Plan saved successfully.");
+
+  // Ensure processed_modules exist for modules in the newly saved plan
+  try {
+    await ensureProcessedModulesForPlan(employee_id, company_id, plan);
+  } catch (e) {
+    console.error("[Training Plan API] ensureProcessedModulesForPlan failed after save:", e);
+  }
 
   // Always return parsed plan and reasoning
   return NextResponse.json({ plan, reasoning });
