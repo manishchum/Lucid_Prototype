@@ -269,7 +269,7 @@ function AddEmployeeModal({
         .from('users')
         .select('user_id')
         .eq('email', email.toLowerCase())
-        .single();
+        .maybeSingle();
       
       if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows returned"
         console.error('Error checking email:', error);
@@ -1115,7 +1115,7 @@ interface Admin {
 }
 
 interface TrainingModule {
-  id: string
+  module_id: string
   title: string
   description: string | null
   content_type: string
@@ -1240,7 +1240,7 @@ function KPIDefinitionsUpload({ companyId }: { companyId?: string }) {
 }
 
 // --- Department Filter Component ---
-function DepartmentFilter({ employees }: { employees: Employee[] }) {
+function DepartmentFilter({ employees, onEmployeeChange }: { employees: Employee[]; onEmployeeChange: () => void }) {
   const [subDepartments, setSubDepartments] = useState<SubDepartment[]>([]);
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
   const [selectedSubDepartments, setSelectedSubDepartments] = useState<string[]>([]);
@@ -1258,15 +1258,19 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
     if (!confirm("Are you sure you want to remove this employee?")) return
 
     try {
-
       console.log(employeeId);
       const { error } = await supabase.from("users").delete().eq("user_id", employeeId)
 
       if (error) throw error
 
-      setFilteredEmployees(employees.filter((emp) => emp.user_id !== employeeId))
+      // Trigger parent component to reload employees
+      onEmployeeChange();
+      
+      // Also update local state immediately for better UX
+      setFilteredEmployees(prev => prev.filter((emp) => emp.user_id !== employeeId))
+      setSelectedEmployees(prev => prev.filter(id => id !== employeeId))
     } catch (error: any) {
-      console.log("Error in filtering employees after removing")
+      console.error("Error removing employee:", error)
     }
   }
 
@@ -1276,10 +1280,8 @@ function DepartmentFilter({ employees }: { employees: Employee[] }) {
   };
 
   const handleUpdateSuccess = async () => {
-    // Reload employees after successful update
-    // if (admin?.company_id) {
-    //   await loadEmployees(admin.company_id);
-    // }
+    // Trigger parent component to reload employees
+    onEmployeeChange();
     setShowUpdateModal(false);
     setSelectedEmployeeForUpdate(null);
   };
@@ -2167,7 +2169,7 @@ export default function AdminDashboard() {
               <CardDescription>View and manage employees by department and subdepartment</CardDescription>
             </CardHeader>
             <CardContent>
-              <DepartmentFilter employees={employees} />
+              <DepartmentFilter employees={employees} onEmployeeChange={() => loadEmployees(admin?.company_id || "")} />
             </CardContent>
           </Card>
 

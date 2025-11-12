@@ -10,7 +10,7 @@ import { AIAnalysisView } from "./ai-analysis-view"
 import { ProcessingStatusComponent } from "./processing-status"
 
 interface TrainingModule {
-  id: string
+  module_id: string
   title: string
   description: string | null
   content_type: string
@@ -103,14 +103,14 @@ export function UploadedFilesList({ modules, onModuleDeleted }: UploadedFilesLis
         ) : (
           <div className="space-y-4">
             {modules.map((module) => (
-              <div key={module.id} className="flex items-start justify-between p-4 border rounded-lg bg-gray-50">
+              <div key={module.module_id} className="flex items-start justify-between p-4 border rounded-lg bg-gray-50">
                 <div className="flex items-start gap-3 flex-1 min-w-0">
                   {getFileIcon(module.content_type)}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                     <p className="font-medium text-gray-900 truncate">{module.title}</p>
                       <ProcessingStatusComponent 
-                        moduleId={module.id} 
+                        moduleId={module.module_id} 
                         initialStatus={module.processing_status}
                         onStatusChange={(status) => {
                           // Refresh the list when status changes
@@ -160,7 +160,7 @@ export function UploadedFilesList({ modules, onModuleDeleted }: UploadedFilesLis
                     </a>
                   </Button>
                   <Button
-                    onClick={() => handleDelete(module.id, module.content_url)}
+                    onClick={() => handleDelete(module.module_id, module.content_url)}
                     variant="outline"
                     size="icon"
                     className="h-8 w-8 text-red-600 hover:text-red-800"
