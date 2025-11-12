@@ -98,7 +98,7 @@ export default function EmployeeWelcome() {
     if (!authLoading) {
       if (!user) {
         console.log("[EmployeeWelcome] No user, redirecting to login.")
-        router.push("/employee/login")
+        router.push("/login")
       } else {
         console.log("[EmployeeWelcome] User found, calling checkEmployeeAccess().")
         checkEmployeeAccess()
@@ -120,7 +120,7 @@ export default function EmployeeWelcome() {
 
       if (employeeError || !employeeData) {
         console.error("[EmployeeWelcome] Employee fetch error:", employeeError)
-        router.push("/employee/login")
+        router.push("/login")
         return
       }
 
@@ -285,7 +285,7 @@ export default function EmployeeWelcome() {
       setModuleProgress(progressData || [])
     } catch (error) {
       console.error("Employee access check failed:", error)
-      router.push("/employee/login")
+      router.push("/login")
     } finally {
       setLoading(false)
     }

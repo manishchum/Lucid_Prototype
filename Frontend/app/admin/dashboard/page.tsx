@@ -909,7 +909,7 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
           <div className="mt-4 sm:mt-0">
             <Button asChild variant="outline" size="sm">
               <a
-                href="https://manugdmjylsvdjemwzcq.supabase.co/storage/v1/object/public/file_format/Sample_Emplyee_No_KPI.xlsx"
+                href="https://hyxqwqshhlebaybjpzcz.supabase.co/storage/v1/object/public/KPIs/Sample_Emplyee_No_KPI.xlsx"
                 download
                 target="_blank"
                 rel="noopener noreferrer"

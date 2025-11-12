@@ -86,7 +86,7 @@ const generateEmailTemplate = (employeeName: string, moduleTitle: string, compan
             
             <p>Ready to expand your knowledge? Click the button below to access your learning dashboard:</p>
             
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/employee/login" class="cta-button">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" class="cta-button">
               Start Learning →
             </a>
             
@@ -119,7 +119,7 @@ const generateEmailTemplate = (employeeName: string, moduleTitle: string, compan
       Company: ${companyName}
       Status: Ready to start
       
-      Login to your learning dashboard to get started: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/employee/login
+      Login to your learning dashboard to get started: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/login
       
       Happy learning!
       The Lucid Learning Team

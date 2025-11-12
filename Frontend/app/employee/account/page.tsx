@@ -45,7 +45,7 @@ export default function AccountPage() {
   useEffect(() => {
     if (!authLoading) {
       if (!user) {
-        router.push("/employee/login");
+        router.push("/login");
       } else {
         fetchEmployeeData();
       }
@@ -65,7 +65,7 @@ export default function AccountPage() {
 
       if (employeeError || !employeeData) {
         console.error("Employee fetch error:", employeeError);
-        router.push("/employee/login");
+        router.push("/login");
         return;
       }
 
@@ -91,7 +91,7 @@ export default function AccountPage() {
       }
     } catch (error) {
       console.error("Failed to fetch employee data:", error);
-      router.push("/employee/login");
+      router.push("/login");
     } finally {
       setLoading(false);
     }

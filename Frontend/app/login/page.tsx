@@ -3,22 +3,24 @@
 import type React from "react"
 import { useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { signInWithPopup, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from "firebase/auth"
+import { signInWithPopup } from "firebase/auth"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Brain, Mail, ArrowLeft } from "lucide-react"
+import { Brain, ArrowLeft, Eye, EyeOff } from "lucide-react"
 import { auth, googleProvider } from "@/lib/firebase"
 import { supabase } from "@/lib/supabase"
+import bcrypt from "bcryptjs"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  const [success, setSuccess] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -38,11 +40,6 @@ export default function LoginPage() {
         default:
           setError("An error occurred during login.")
       }
-    }
-
-    // Check if this is a sign-in with email link
-    if (isSignInWithEmailLink(auth, window.location.href)) {
-      handleEmailLinkSignIn()
     }
   }, [searchParams])
 
@@ -85,25 +82,39 @@ export default function LoginPage() {
     }
   }
 
-  const handleEmailLinkSignIn = async () => {
+  const handleEmailPasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
     setLoading(true)
+    setError("")
+
     try {
-      const email = window.localStorage.getItem("emailForSignIn")
-      if (!email) {
-        setError("Email not found. Please try signing in again.")
-        return
+      // Get user from database
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("user_id, email, password")
+        .eq("email", email)
+        .maybeSingle()
+
+      if (userError || !userData) {
+        throw new Error("Invalid email or password")
       }
 
-      const result = await signInWithEmailLink(auth, email, window.location.href)
-      console.log(result)
-      // Check user access and get roles
-      const userData = await checkUserAccess(result.user.email!)
-      console.log(userData)
+      // Check if password exists (for users who signed up with email/password)
+      if (!userData.password) {
+        throw new Error("This account uses Google sign-in. Please use 'Continue with Google' button.")
+      }
 
-      window.localStorage.removeItem("emailForSignIn")
-      
+      // Verify password
+      const isPasswordValid = await bcrypt.compare(password, userData.password)
+      if (!isPasswordValid) {
+        throw new Error("Invalid email or password")
+      }
+
+      // Check user access and get roles
+      const userAccessData = await checkUserAccess(email)
+
       // Redirect based on roles - check if user has ADMIN or SUPER_ADMIN permission
-      const hasAdminAccess = userData.roles.some(role => 
+      const hasAdminAccess = userAccessData.roles.some(role => 
         role === 'ADMIN' || role === 'SUPER_ADMIN'
       )
 
@@ -119,39 +130,9 @@ export default function LoginPage() {
     }
   }
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError("")
-    setSuccess("")
-
-    try {
-      // First check if email is in allowed users list and get roles
-      await checkUserAccess(email)
-
-      // Send sign-in link to email
-      const actionCodeSettings = {
-        url: `${window.location.origin}/login`,
-        handleCodeInApp: true,
-      }
-
-      await sendSignInLinkToEmail(auth, email, actionCodeSettings)
-
-      // Save email locally for the sign-in completion
-      window.localStorage.setItem("emailForSignIn", email)
-
-      setSuccess("Check your email for the login link!")
-    } catch (error: any) {
-      setError(error.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const handleGoogleSignIn = async () => {
     setLoading(true)
     setError("")
-    setSuccess("")
 
     try {
       const result = await signInWithPopup(auth, googleProvider)
@@ -207,12 +188,12 @@ export default function LoginPage() {
               Welcome Back
             </CardTitle>
             <p className="text-gray-600">
-              While others are building AI that replaces humans, we built Lucid that makes humans extraordinary.
+              Sign in to continue to your Lucid dashboard
             </p>
           </CardHeader>
 
           <CardContent className="space-y-6">
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={handleEmailPasswordLogin} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-sm font-medium text-gray-700">
                   Email Address
@@ -228,16 +209,33 @@ export default function LoginPage() {
                 />
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="password" className="text-sm font-medium text-gray-700">
+                  Password
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 pr-10"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
               {error && (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
-              {success && (
-                <Alert>
-                  <Mail className="w-4 h-4" />
-                  <AlertDescription>{success}</AlertDescription>
                 </Alert>
               )}
 
@@ -246,7 +244,7 @@ export default function LoginPage() {
                 className="w-full h-11 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium transition-all duration-200"
                 disabled={loading}
               >
-                {loading ? "Sending login link..." : "Send Login Link"}
+                {loading ? "Signing in..." : "Sign In"}
               </Button>
             </form>
 
@@ -288,8 +286,13 @@ export default function LoginPage() {
             </Button>
 
             <div className="text-center text-sm text-gray-600">
-              <p>We'll send you a secure login link via email or sign in with Google.</p>
-              <p className="mt-2">Don't have access? Contact us via mail at manish.chum@workfloww.ai</p>
+              <p>
+                Don't have an account?{" "}
+                <Link href="/signup" className="text-blue-600 hover:text-blue-700 font-medium">
+                  Sign up
+                </Link>
+              </p>
+              <p className="mt-2">Contact us via mail at manish.chum@workfloww.ai</p>
             </div>
           </CardContent>
         </Card>
