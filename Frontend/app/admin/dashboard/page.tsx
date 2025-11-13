@@ -735,6 +735,7 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
       const arrayBuffer = await f.arrayBuffer();
       if (f.name.endsWith('.csv')) {
         const text = new TextDecoder().decode(arrayBuffer);
+        console.log(text.split(/\r?\n/).map(line => line.split(',')))
         const rows = text.split(/\r?\n/).map(line => line.split(',').map(cell => cell.trim()));
         setPreview(rows.slice(0, 10));
       } else if (f.name.endsWith('.xlsx')) {
@@ -765,6 +766,7 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
       
       if (file.name.endsWith('.csv')) {
         const text = new TextDecoder().decode(arrayBuffer);
+        console.log(text.split(/\r?\n/).map(line => line.split(',')));
         rows = text.split(/\r?\n/).map(line => line.split(',').map(cell => cell.trim()));
       } else if (file.name.endsWith('.xlsx')) {
         // Dynamically import xlsx for processing
@@ -777,58 +779,165 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
         return;
       }
       
+
+      console.log("Here")
       // Skip header row if present - check for common header patterns
       const isHeaderRow = (row: string[]) => {
         if (!row || row.length === 0) return false;
-        const firstCell = row[0]?.toLowerCase().trim() || '';
-        const secondCell = row[1]?.toLowerCase().trim() || '';
+        console.log(row[0]?.toLowerCase())
+        const firstCell = row[0]?.toLowerCase() || '';
         
         // Check if first row contains common header keywords
         return (
-          firstCell.includes('company') || 
+          firstCell.includes('name') || 
           firstCell.includes('employee') || 
-          firstCell.includes('id') ||
-          secondCell.includes('email') ||
-          secondCell.includes('mail') ||
-          // Check if it looks like an email pattern (contains @ and .)
-          !(secondCell.includes('@') && secondCell.includes('.'))
+          firstCell.includes('company') ||
+          firstCell.includes('email') ||
+          firstCell.includes('department')
         );
       };
+
+
+      console.log("Error above")
       
       const dataRows = (rows.length > 0 && isHeaderRow(rows[0])) ? rows.slice(1) : rows;
       
       const results = { added: 0, skipped: 0, errors: [] as string[] };
 
+      // Load existing roles and departments for mapping
+      const { data: rolesData } = await supabase.from('roles').select('role_id, name');
+      const { data: departmentsData } = await supabase.from('sub_department').select('department_id, department_name, sub_department_name');
+      const { data: companiesData } = await supabase.from('companies').select('company_id, name');
+      
+      const rolesMap = new Map(rolesData?.map(r => [r.name.toLowerCase(), r.role_id]) || []);
+      const departmentsMap = new Map(departmentsData?.map(d => [`${d.department_name.toLowerCase()}-${d.sub_department_name.toLowerCase()}`, d.department_id]) || []);
+      const companiesMap = new Map(companiesData?.map(c => [c.name.toLowerCase(), c.company_id]) || []);
+      console.log(dataRows)
       for (const row of dataRows) {
-        if (row.length < 2 || !row[1]) continue; // Need at least company_employee_id and email
-        
-        const [companyEmployeeId, email] = row;
+        // Expected format: name, company_name, email, department, sub_department, employment_status, roles, position, phone
+        if (row.length < 3 || !row[2]) continue; // Need at least name, company, email
+        const [emptyn,email, name, companyName, department, subDepartment, employmentStatus, roles, position, phone] = row.map(cell => cell|| '');
         
         try {
-          const { error } = await supabase
-            .from("employees")
-            .insert({
-              email: email.toLowerCase(),
-              company_id: companyId,
-              company_employee_id: companyEmployeeId || null,
-            });
+          // Validate required fields
+          if (!name || !email) {
+            console.log(name)
+            console.log(email)
 
-          if (error) {
-            if (error.code === '23505') { // Unique violation
+            results.errors.push(`Row ${dataRows.indexOf(row) + 1}: Name and email are required`);
+            continue;
+          }
+
+          // Email validation
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(email)) {
+            console.log("Error because of the emal")
+            results.errors.push(`${email}: Invalid email format`);
+            continue;
+          }
+
+          // Check if email already exists
+          const { data: existingUser } = await supabase
+            .from('users')
+            .select('user_id')
+            .eq('email', email.toLowerCase())
+            .single();
+
+          if (existingUser) {
+            results.skipped++;
+            console.log("Error because of existing user")
+            continue;
+          }
+
+          // Find department ID
+          let departmentId = null;
+          if (department && subDepartment) {
+            const deptKey = `${department.toLowerCase()}-${subDepartment.toLowerCase()}`;
+            departmentId = departmentsMap.get(deptKey) || null;
+            
+            if (!departmentId) {
+              console.log("Error because of the department ID is missing");
+              results.errors.push(`${email}: Department "${department}" - "${subDepartment}" not found`);
+              continue;
+            }
+          }
+
+          // Find company ID
+          let userCompanyId = companyId; // Default to admin's company
+          if (companyName) {
+            const foundCompanyId = companiesMap.get(companyName.toLowerCase());
+            if (foundCompanyId) {
+              userCompanyId = foundCompanyId;
+            }
+          }
+
+          // Create user in users table
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .insert({
+              name: name,
+              email: email.toLowerCase(),
+              company_id: userCompanyId,
+              department_id: departmentId,
+              position: position || null,
+              phone: phone || null,
+              hire_date: new Date().toISOString().split('T')[0],
+              employment_status: employmentStatus || 'ACTIVE'
+            })
+            .select()
+            .single();
+          console.log("User Data after creation");
+          console.log(userData)
+          if (userError) {
+            if (userError.code === '23505') { // Unique violation
               results.skipped++;
             } else {
-              results.errors.push(`${email}: ${error.message}`);
+              results.errors.push(`${email}: ${userError.message}`);
             }
-          } else {
-            results.added++;
+            continue;
           }
+          
+          // Process roles if provided
+          if (roles && userData) {
+            const roleNames = roles.split(',').map(role => role.trim()).filter(role => role);
+            const roleAssignments = [];
+
+            for (const roleName of roleNames) {
+              const roleId = rolesMap.get(roleName.toLowerCase());
+              if (roleId) {
+                roleAssignments.push({
+                  user_id: userData.user_id,
+                  role_id: roleId,
+                  scope_type: 'COMPANY',
+                  scope_id: userData.company_id,
+                  assigned_by: userData.user_id,
+                  is_active: true
+                });
+              } else {
+                results.errors.push(`${email}: Role "${roleName}" not found`);
+              }
+            }
+
+            if (roleAssignments.length > 0) {
+              const { error: roleError } = await supabase
+                .from('user_role_assignments')
+                .insert(roleAssignments);
+
+              if (roleError) {
+                console.error(`Role assignment failed for ${email}:`, roleError);
+                // Don't fail the entire operation if role assignment fails
+              }
+            }
+          }
+
+          results.added++;
         } catch (err) {
-          results.errors.push(`${email}: Failed to add`);
+          results.errors.push(`${email}: Failed to add user`);
         }
       }
 
       if (results.errors.length > 0) {
-        onError(`Added ${results.added}, skipped ${results.skipped}, errors: ${results.errors.join('; ')}`);
+        onError(`Added ${results.added}, skipped ${results.skipped}, errors: ${results.errors.slice(0, 5).join('; ')}${results.errors.length > 5 ? ` and ${results.errors.length - 5} more...` : ''}`);
       } else {
         setFile(null);
         setPreview([]);
@@ -836,6 +945,7 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
       }
     } catch (err) {
       onError('Failed to upload employees');
+      console.log(err)
     } finally {
       setUploading(false);
     }
@@ -909,7 +1019,7 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
           <div className="mt-4 sm:mt-0">
             <Button asChild variant="outline" size="sm">
               <a
-                href="https://hyxqwqshhlebaybjpzcz.supabase.co/storage/v1/object/public/KPIs/Sample_Emplyee_No_KPI.xlsx"
+                href="https://hyxqwqshhlebaybjpzcz.supabase.co/storage/v1/object/public/KPIs/Sample_Emplyee_No_KPI%20(1).xlsx"
                 download
                 target="_blank"
                 rel="noopener noreferrer"
@@ -941,6 +1051,13 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
                       <tr key={i} className={i === 0 ? "bg-gray-50" : ""}>
                         <td className="border px-2 py-1">{row[0] || '-'}</td>
                         <td className="border px-2 py-1">{row[1] || '-'}</td>
+                        <td className="border px-2 py-1">{row[2] || '-'}</td>
+                        <td className="border px-2 py-1">{row[3] || '-'}</td>
+                        <td className="border px-2 py-1">{row[4] || '-'}</td>
+                        <td className="border px-2 py-1">{row[5] || '-'}</td>
+                        <td className="border px-2 py-1">{row[6] || '-'}</td>
+                        <td className="border px-2 py-1">{row[7] || '-'}</td>
+                        <td className="border px-2 py-1">{row[8] || '-'}</td>
                       </tr>
                     ))}
                   </tbody>
