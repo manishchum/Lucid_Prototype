@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import OpenAI from "openai";
 import crypto from "crypto";
+import ensureProcessedModulesForPlan from "@/lib/processedModulesHelper";
 
 export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Request received");
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
   const { data: empRecord, error: empError } = await supabase
     .from("employees")
     .select("company_id")
-    .eq("id", employee_id)
+    .eq("employee_id", employee_id)
     .maybeSingle();
   if (empError || !empRecord?.company_id) {
     console.error("[Training Plan API] Could not find company for employee");
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Fetching assessments for employee...");
   const { data: assessments, error: assessError } = await supabase
     .from("employee_assessments")
-    .select("score, feedback, assessment_id, assessments(type, questions)")
+    .select("score, max_score, feedback, assessment_id, assessments(type, questions)")
     .eq("employee_id", employee_id);
   if (assessError) {
     console.error("[Training Plan API] Error fetching assessments:", assessError);
@@ -53,9 +54,24 @@ export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Baseline assessments:", baselineAssessments);
   console.log("[Training Plan API] Module assessments:", moduleAssessments);
 
+  // Compute percentage-based baseline results for plan generation
+  const baselinePercentAssessments = (baselineAssessments || []).map((row: any) => {
+    const score = Number(row?.score ?? 0);
+    const max = Number(row?.max_score ?? 0);
+    const percent = max > 0 ? Math.round((score / max) * 100) : null;
+    return {
+      assessment_id: row?.assessment_id ?? null,
+      score,
+      max_score: max,
+      score_percent: percent, // used by GPT
+      feedback: row?.feedback ?? null,
+    };
+  });
+  console.log("[Training Plan API] Baseline percent assessments:", baselinePercentAssessments);
+
   // Compute hash only from baseline assessments so module quizzes don't change the plan
   const assessmentHash = crypto.createHash("sha256")
-    .update(JSON.stringify({ baselineAssessments }))
+    .update(JSON.stringify({ baselinePercentAssessments }))
     .digest("hex");
   console.log("[Training Plan API] assessmentHash:", assessmentHash);
 
@@ -63,18 +79,18 @@ export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Fetching processed modules for company_id:", company_id);
   const { data: trainingModuleRows, error: tmError } = await supabase
     .from("training_modules")
-    .select("id")
+    .select("module_id")
     .eq("company_id", company_id);
   if (tmError) {
     console.error("[Training Plan API] Error fetching training modules:", tmError);
     return NextResponse.json({ error: tmError.message }, { status: 500 });
   }
-  const tmIds = (trainingModuleRows || []).map((m: any) => m.id);
+  const tmIds = (trainingModuleRows || []).map((m: any) => m.module_id);
   let modules: any[] = [];
   if (tmIds.length > 0) {
     const { data: pmRows, error: modError } = await supabase
       .from("processed_modules")
-      .select("id, title, content, order_index, original_module_id, training_modules(company_id)")
+      .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
       .in("original_module_id", tmIds);
     if (modError) {
       console.error("[Training Plan API] Error fetching modules:", modError);
@@ -100,10 +116,10 @@ export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Checking for latest assigned learning plan...");
   const { data: existingPlan, error: existingPlanError } = await supabase
     .from("learning_plan")
-    .select("id, plan_json, reasoning, status, assessment_hash")
+    .select("learning_plan_id, plan_json, reasoning, status, assessment_hash")
     .eq("employee_id", employee_id)
-    .eq("status", "assigned")
-    .order("id", { ascending: false })
+  .eq("status", "ASSIGNED")
+    .order("learning_plan_id", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (existingPlanError && (existingPlanError as any).code !== "PGRST116") { // PGRST116: No rows found
@@ -112,6 +128,12 @@ export async function POST(req: NextRequest) {
   }
   if (existingPlan && existingPlan.assessment_hash === assessmentHash) {
     console.log("[Training Plan API] No change in assessments. Returning existing plan (pre-GPT).");
+    // Ensure processed_modules exist for modules referenced by the cached plan
+    try {
+      await ensureProcessedModulesForPlan(employee_id, company_id, existingPlan.plan_json);
+    } catch (e) {
+      console.error("[Training Plan API] ensureProcessedModulesForPlan failed on cache-hit:", e);
+    }
     return NextResponse.json({ plan: existingPlan.plan_json, reasoning: existingPlan.reasoning });
   }
 
@@ -155,7 +177,7 @@ export async function POST(req: NextRequest) {
     "- If datatype is 'ratio', compare as a ratio (e.g., score/benchmark).\n" +
     "- Use this comparison to identify strengths and weaknesses for each KPI.\n\n" +
     "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, learning style, and KPI factors (including benchmark and datatype) influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, learning style, and KPIs (including benchmark and datatype)\n- Explicitly explain how the score, benchmark, and datatype influenced the number of modules and total study hours.\n\n" +
-    "Assessment Results (baseline only):\n" + JSON.stringify(baselineAssessments, null, 2) + "\n\n" +
+  "Assessment Results (baseline only, percentage-based):\n" + JSON.stringify(baselinePercentAssessments, null, 2) + "\n\n" +
     "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
     "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n" +
     "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
@@ -279,19 +301,27 @@ export async function POST(req: NextRequest) {
     console.log("[Training Plan API] Existing plan found. Updating...");
     dbResult = await supabase
       .from("learning_plan")
-      .update({ plan_json: plan, reasoning: reasoning, status: "assigned", assessment_hash: assessmentHash })
-      .eq("id", existingPlan.id);
+      .update({ plan_json: plan, reasoning: reasoning, status: "ASSIGNED", assessment_hash: assessmentHash })
+      .eq("learning_plan_id", existingPlan.learning_plan_id);
   } else {
     console.log("[Training Plan API] No existing plan. Inserting new...");
     dbResult = await supabase
       .from("learning_plan")
-      .insert({ employee_id, plan_json: plan, reasoning: reasoning, status: "assigned", assessment_hash: assessmentHash });
+      // Right now the last updated module is assigned 
+      .insert({ employee_id, plan_json: plan, reasoning: reasoning, status: "ASSIGNED", module_id: tmIds[tmIds.length-1], assessment_hash: assessmentHash });
   }
   if (dbResult.error) {
     console.error("[Training Plan API] Error saving plan:", dbResult.error);
     return NextResponse.json({ error: dbResult.error.message }, { status: 500 });
   }
   console.log("[Training Plan API] Plan saved successfully.");
+
+  // Ensure processed_modules exist for modules in the newly saved plan
+  try {
+    await ensureProcessedModulesForPlan(employee_id, company_id, plan);
+  } catch (e) {
+    console.error("[Training Plan API] ensureProcessedModulesForPlan failed after save:", e);
+  }
 
   // Always return parsed plan and reasoning
   return NextResponse.json({ plan, reasoning });

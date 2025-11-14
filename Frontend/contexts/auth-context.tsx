@@ -8,12 +8,14 @@ import { auth } from "@/lib/firebase"
 interface AuthContextType {
   user: User | null
   loading: boolean
+  login: (userData: any) => Promise<void>
   logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
+  login: async () => {},
   logout: async () => {},
 })
 
@@ -38,9 +40,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return unsubscribe
   }, [])
 
-  const logout = async () => {
-    await signOut(auth)
+  // Login function for email/password authentication
+  const login = async (userData: any) => {
+    try {
+      // Set user data in state for email/password login
+      // This simulates what Firebase does automatically for Google sign-in
+      setUser(userData)
+      setLoading(false)
+    } catch (error) {
+      console.error("Login failed:", error)
+      throw error
+    }
   }
 
-  return <AuthContext.Provider value={{ user, loading, logout }}>{children}</AuthContext.Provider>
+  const logout = async () => {
+    await signOut(auth)
+    setUser(null)
+  }
+
+  return <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>
 }

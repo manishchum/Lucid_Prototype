@@ -25,16 +25,16 @@ export default function TrainingPlanPage() {
       // Get employee id
       const { data: employeeData } = await supabase
         .from("employees")
-        .select("id")
+        .select("employee_id")
         .eq("email", user.email)
         .single();
-      if (!employeeData?.id) return;
+      if (!employeeData?.employee_id) return;
       
       // Get completed modules for employee (match employee/welcome logic)
       const { data: progressData } = await supabase
         .from("module_progress")
         .select("processed_module_id, completed_at")
-        .eq("employee_id", employeeData.id)
+        .eq("employee_id", employeeData.employee_id)
         .not("completed_at", "is", null);
         
       if (progressData) {
@@ -132,10 +132,10 @@ export default function TrainingPlanPage() {
       }
       const { data: employeeData, error: employeeError } = await supabase
         .from("employees")
-        .select("id")
+        .select("employee_id")
         .eq("email", user.email)
         .single();
-      if (employeeError || !employeeData?.id) {
+      if (employeeError || !employeeData?.employee_id) {
         setPlan("Could not find employee record.");
         setLoading(false);
         return;
@@ -144,7 +144,7 @@ export default function TrainingPlanPage() {
       const res = await fetch("/api/training-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee_id: employeeData.id })
+        body: JSON.stringify({ employee_id: employeeData.employee_id }),
       });
       const result = await res.json();
       // If error, show raw JSON for debugging
@@ -193,6 +193,7 @@ export default function TrainingPlanPage() {
   // Helper: resolve a usable processed_modules.id for navigation
   const resolveModuleId = async (mod: any): Promise<string | null> => {
     try {
+      console.log('[resolveModuleId] Input module:', mod);
       // 1) Prefer an explicit processed module id if present and valid
       const candidates: string[] = [];
       if (mod?.processed_module_id) candidates.push(String(mod.processed_module_id));
@@ -202,34 +203,47 @@ export default function TrainingPlanPage() {
         if (!cand || cand === 'undefined' || cand === 'null') continue;
         const { data: pmById } = await supabase
           .from('processed_modules')
-          .select('id')
-          .eq('id', cand)
+          .select('module_id')
+          .eq('module_id', cand)
           .maybeSingle();
-        if (pmById?.id) return pmById.id;
+        if (pmById?.module_id) {
+          console.log('[resolveModuleId] Found by id:', pmById.module_id);
+          return pmById.module_id;
+        }
       }
 
       // 2) Try mapping from original_module_id to processed_modules.id
       if (mod?.original_module_id && mod.original_module_id !== 'undefined' && mod.original_module_id !== 'null') {
         const { data: pmByOriginal } = await supabase
           .from('processed_modules')
-          .select('id')
+          .select('module_id')
           .eq('original_module_id', mod.original_module_id)
           .maybeSingle();
-        if (pmByOriginal?.id) return pmByOriginal.id;
+        if (pmByOriginal?.module_id) {
+          console.log('[resolveModuleId] Found by original_module_id:', pmByOriginal.module_id);
+          return pmByOriginal.module_id;
+        }
       }
 
-      // 3) Fallback: resolve by title (best-effort)
-      if (mod?.title) {
+      // 3) Fallback: resolve by title or name (best-effort)
+      const moduleName = mod?.title || mod?.name;
+      if (moduleName) {
+        console.log('[resolveModuleId] Searching by title/name:', moduleName);
         const { data: pmByTitle } = await supabase
           .from('processed_modules')
-          .select('id')
-          .ilike('title', mod.title)
+          .select('module_id')
+          .ilike('title', moduleName)
           .limit(1)
           .maybeSingle();
-        if (pmByTitle?.id) return pmByTitle.id;
+        if (pmByTitle?.module_id) {
+          console.log('[resolveModuleId] Found by title/name:', pmByTitle.module_id);
+          return pmByTitle.module_id;
+        }
       }
+      
+      console.error('[resolveModuleId] Could not resolve module id for:', mod);
     } catch (e) {
-      // swallow and return null below
+      console.error('[resolveModuleId] Error:', e);
     }
     return null;
   };
@@ -287,18 +301,23 @@ export default function TrainingPlanPage() {
 
   // Normalize module items to ensure stable unique keys/values for tabs
   const normalizedModules = (modules as any[]).map((mod: any, idx: number) => {
-    const fallback = `${idx}-${mod?.title || 'module'}`;
-    const tabValue = String(mod?.id ?? mod?.original_module_id ?? fallback);
+    // Normalize: use 'name' as 'title' if title is missing
+    const normalizedMod = {
+      ...mod,
+      title: mod.title || mod.name || `Module ${idx + 1}`,
+    };
+    
+    const fallback = `${idx}-${normalizedMod.title || 'module'}`;
+    const tabValue = String(normalizedMod?.id ?? normalizedMod?.original_module_id ?? fallback);
     
     // Check completion using processed_module_id to match employee/welcome logic
     let isCompleted = false;
-    const processedModuleId = String(mod?.processed_module_id ?? mod?.id ?? mod?.original_module_id);
+    const processedModuleId = String(normalizedMod?.processed_module_id ?? normalizedMod?.id ?? normalizedMod?.original_module_id);
     if (processedModuleId && processedModuleId !== 'undefined' && processedModuleId !== 'null') {
       isCompleted = completedModules.includes(processedModuleId);
     }
     
-    // console.log("Processed Module ID:", processedModuleId, "Is Completed:", isCompleted);
-    return { ...mod, _tabValue: tabValue, _isCompleted: isCompleted };
+    return { ...normalizedMod, _tabValue: tabValue, _isCompleted: isCompleted };
   });
 
 
@@ -461,20 +480,31 @@ export default function TrainingPlanPage() {
                         variant="outline"
                         size="lg"
                         onClick={async () => {
+                          console.log('[training-plan] View Content clicked for module:', mod);
                           const navId = await resolveModuleId(mod);
-                          if (navId) router.push(`/employee/module/${navId}`);
+                          console.log('[training-plan] Resolved module id:', navId);
+                          if (navId) {
+                            router.push(`/employee/module/${navId}`);
+                          } else {
+                            alert('Could not find module content. Please contact support.');
+                          }
                         }}
-                        disabled={!(mod.id ?? mod.original_module_id) && !mod.title}
                         className="w-full py-3 text-base font-semibold border-2 hover:bg-blue-50 transition-all duration-200"
                       >View Content</Button>
                       <Button
                         variant={mod._isCompleted ? "outline" : "default"}
                         size="lg"
                         onClick={async () => {
+                          console.log('[training-plan] Quiz clicked for module:', mod);
                           const navId = await resolveModuleId(mod);
-                          if (navId) router.push(`/employee/quiz/${navId}`);
+                          console.log('[training-plan] Resolved module id:', navId);
+                          if (navId) {
+                            router.push(`/employee/quiz/${navId}`);
+                          } else {
+                            alert('Could not find module quiz. Please contact support.');
+                          }
                         }}
-                        disabled={mod._isCompleted || (!(mod.id ?? mod.original_module_id) && !mod.title)}
+                        disabled={mod._isCompleted}
                         className={`w-full py-3 text-base font-semibold transition-all duration-200 ${mod._isCompleted ? "bg-gray-100 text-gray-500 cursor-not-allowed border-2" : "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"}`}
                       >{mod._isCompleted ? "Quiz Completed" : "Show What You Got"}</Button>
                     </div>

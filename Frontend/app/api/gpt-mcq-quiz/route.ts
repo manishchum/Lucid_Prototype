@@ -103,7 +103,9 @@ Objectives: ${JSON.stringify(objectives)}
 export async function POST(request: NextRequest) {
   const body = await request.json();
   console.log("[gpt-mcq-quiz] POST body:", body);
-  if (body.moduleId) {
+  // Per-module quiz branch: only run this when a single moduleId is provided
+  // and no moduleIds array is present (avoid accidental branch when both are sent).
+  if (body.moduleId && !body.moduleIds) {
     const moduleId = String(body.moduleId);
     if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
       return NextResponse.json({ error: 'Invalid moduleId' }, { status: 400 });
@@ -116,19 +118,19 @@ export async function POST(request: NextRequest) {
     // Fetch module info  
     const { data: moduleData, error: moduleError } = await supabase
       .from('processed_modules')
-      .select('id, title, content')
-      .eq('id', moduleId)
+      .select('processed_module_id, title, content')
+      .eq('module_id', moduleId)
       .maybeSingle();
     if (moduleError || !moduleData) return NextResponse.json({ error: 'Module not found' }, { status: 404 });
 
     // Check if quiz already exists for this module and learning style (robust to duplicates)
     const { data: assessmentsList } = await supabase
       .from('assessments')
-      .select('id, questions')
+      .select('assessment_id, questions')
       .eq('type', 'module')
       .eq('module_id', moduleId)
       .eq('learning_style', learningStyle)
-      .order('id', { ascending: false })
+      .order('assessment_id', { ascending: false })
       .limit(1);
     const existing = Array.isArray(assessmentsList) ? assessmentsList[0] : null;
     if (existing) {
@@ -190,11 +192,11 @@ export async function POST(request: NextRequest) {
       if ((insertError as any).code === '23505' || (insertError as any).code === '409') {
         const { data: existingListAfter } = await supabase
           .from('assessments')
-          .select('id, questions')
+          .select('assessment_id, questions')
           .eq('type', 'module')
           .eq('module_id', moduleId)
           .eq('learning_style', learningStyle)
-          .order('id', { ascending: false })
+          .order('assessment_id', { ascending: false })
           .limit(1);
         const existingAfter = Array.isArray(existingListAfter) ? existingListAfter[0] : null;
         if (existingAfter) {
@@ -253,7 +255,7 @@ export async function POST(request: NextRequest) {
         const quizData = typeof existingAssessment.questions === 'string'
           ? JSON.parse(existingAssessment.questions)
           : existingAssessment.questions;
-        return NextResponse.json({ quiz: quizData, source: 'db' });
+        return NextResponse.json({ quiz: quizData, source: 'db', assessmentId: existingAssessment.id });
       } catch {
         // If parse fails, treat as missing and regenerate below
       }
@@ -279,12 +281,13 @@ export async function POST(request: NextRequest) {
         questions: JSON.stringify(quiz),
         modules_snapshot: normalizedSnapshot
       })
-      .eq('id', existingAssessment.id)
+      .eq('assessment_id', existingAssessment.id)
       .eq('company_id', companyId);
     if (updateError) {
       console.error('[gpt-mcq-quiz] Failed to update baseline assessment:', updateError);
       return NextResponse.json({ error: 'Failed to save baseline assessment (update).' }, { status: 500 });
     }
+    return NextResponse.json({ quiz, source: 'generated', assessmentId: existingAssessment.id });
   } else {
     // Insert new assessment
     const { data: insertData, error: insertError } = await supabase
@@ -304,6 +307,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to save baseline assessment (insert).' }, { status: 500 });
     }
     console.log('[gpt-mcq-quiz] Inserted baseline assessment id:', insertData?.id);
+    return NextResponse.json({ quiz, source: 'generated', assessmentId: insertData?.id });
   }
-  return NextResponse.json({ quiz, source: 'generated' });
+  
 }

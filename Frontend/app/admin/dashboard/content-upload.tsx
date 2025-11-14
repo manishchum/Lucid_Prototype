@@ -14,7 +14,6 @@ import { supabase } from "@/lib/supabase"
 import { formatBytes } from "@/lib/utils"
 import { toast } from "react-hot-toast"
 
-
 interface ContentUploadProps {
   companyId: string
   onUploadSuccess: () => void
@@ -75,7 +74,36 @@ function isVideoOrAudioFile(fileType: string): boolean {
   return fileType.includes("video/") || fileType.includes("audio/");
 }
 
+// Helper function to send email notifications to employees
+async function sendEmailNotifications(moduleId: string, moduleTitle: string, companyId: string) {
+  try {
+    console.log("📧 DEBUG: Sending email notifications for module:", moduleTitle);
+    const res = await fetch("/api/send-module-notifications", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        moduleId: moduleId,
+        moduleTitle: moduleTitle,
+        companyId: companyId
+      }),
+    });
 
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error("📧 DEBUG: Email notification failed:", errorText);
+      throw new Error(`Email notification failed: ${res.statusText}`);
+    }
+
+    const data = await res.json();
+    console.log("📧 DEBUG: Email notifications sent successfully:", data);
+    return data;
+  } catch (error) {
+    console.error("📧 DEBUG: Error sending email notifications:", error);
+    throw error;
+  }
+}
 
 export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps) {
   const [file, setFile] = useState<File | null>(null)
@@ -287,6 +315,17 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
           console.log("🔍 DEBUG: Extracted text preview:", extractedText?.substring(0, 200) + "...");
           
           toast.success("Content extraction completed!")
+          
+          // Send email notifications to allowed employees
+          try {
+            console.log("📧 DEBUG: Starting email notification process...");
+            await sendEmailNotifications(moduleData.id, title.trim() || file.name, companyId);
+            toast.success("Email notifications sent to employees!");
+          } catch (emailError) {
+            console.error("📧 DEBUG: Email notification error:", emailError);
+            toast.error("Content uploaded successfully, but failed to send email notifications.");
+          }
+          
           onUploadSuccess?.()
 
           // --- Process content with OpenAI ---

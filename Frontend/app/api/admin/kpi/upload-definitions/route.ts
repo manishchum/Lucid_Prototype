@@ -103,7 +103,7 @@ export async function POST(req: Request) {
 						// Upsert by (company_id, name)
 						const { data: existing, error: fetchErr } = await supabase
 							.from("kpis")
-							.select("id")
+							.select("kpi_id")
 							.eq("company_id", companyId)
 							.eq("name", name)
 							.maybeSingle();
@@ -111,12 +111,12 @@ export async function POST(req: Request) {
 							skipped.push({ row: i + 1, reason: "DB error" });
 							continue;
 						}
-						if (existing && existing.id) {
+						if (existing && existing.kpi_id) {
 							// Update
 							const { error: updateErr } = await supabase
 								.from("kpis")
 								.update({ description, benchmark, datatype })
-								.eq("id", existing.id);
+								.eq("kpi_id", existing.kpi_id);
 							if (updateErr) {
 								skipped.push({ row: i + 1, reason: "Update error" });
 							} else {

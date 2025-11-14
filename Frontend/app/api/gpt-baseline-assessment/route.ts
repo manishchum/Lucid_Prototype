@@ -22,14 +22,14 @@ export async function POST(request: NextRequest) {
   const { data: employee, error: employeeError } = await supabase
     .from('employees')
     .select('company_id')
-    .eq('id', employee_id)
+    .eq('employee_id', employee_id)
     .maybeSingle();
   if (employeeError || !employee?.company_id) {
     return NextResponse.json({ error: 'Could not find company for employee' }, { status: 400 });
   }
   const company_id = employee.company_id;
 
-  // 1. Generate questions for each module (simulate with static questions for now)
+  // 1. Generate questions for each module (simulate with static questions for now) => baseline assessment in gpt-mcq-quiz
   const questions = modules.flatMap((mod: any, idx: number) => {
     return Array.from({ length: 2 }, (_, i) => ({
       id: `${mod.title}-${i+1}`,
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
   // 2. Check if a baseline assessment already exists for this company
   const { data: existingAssessment, error: assessmentError } = await supabase
     .from('assessments')
-    .select('id')
+    .select('assessment_id')
     .eq('type', 'baseline')
     .eq('company_id', company_id)
     .maybeSingle();
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     const { data: newAssessment, error: newAssessmentError } = await supabase
       .from('assessments')
       .insert({ type: 'baseline', questions: JSON.stringify(questions), company_id })
-      .select('id')
+      .select('assessment_id')
       .single();
     assessmentId = newAssessment?.id || null;
   } else {

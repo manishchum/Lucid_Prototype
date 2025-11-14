@@ -17,8 +17,8 @@ export async function POST(req: NextRequest) {
     // Fetch training modules in scope
     let tmQuery = supabase
       .from("training_modules")
-      .select("id, ai_modules");
-    if (moduleId) tmQuery = tmQuery.eq("id", moduleId);
+      .select("module_id, ai_modules");
+    if (moduleId) tmQuery = tmQuery.eq("module_id", moduleId);
     const { data: modules, error: tmError } = await tmQuery;
     if (tmError) {
       return NextResponse.json({ error: tmError.message }, { status: 500 });
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       const { data: existingRows } = await supabase
         .from("processed_modules")
         .select("order_index, learning_style")
-        .eq("original_module_id", mod.id);
+        .eq("original_module_id", mod.module_id);
       const existingSet = new Set(
         (existingRows || []).map(r => `${r.order_index}|${r.learning_style}`)
       );
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
           const { error: insertError } = await supabase
             .from("processed_modules")
             .insert({
-              original_module_id: mod.id,
+              original_module_id: mod.module_id,
               title: title || `Module ${i + 1}`,
               content: content || "",
               section_type: section_type || null,

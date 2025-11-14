@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     // Build query for processed_modules with empty content
     let query = supabase
       .from("processed_modules")
-      .select("id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives)")
+      .select("processed_module_id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives)")
       .or("content.is.null,content.eq.'',content.eq.\"\"");
     
     // If moduleId is provided, filter by original_module_id
@@ -91,7 +91,7 @@ Instructions:
 7. If relevant, include section headings, subheadings, and formatting for readability.
 
 Goal: The output should be a comprehensive, ready-to-use training module that fully addresses the topics and objectives, tailored to the specified learning style, and suitable for direct delivery to learners.`;
-      console.log(`Calling OpenAI for module: ${mod.title} (${mod.id}) with learning style: ${style}`);
+      console.log(`Calling OpenAI for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
       const completion = await openai.chat.completions.create({
         model: "gpt-4.1",
         messages: [
@@ -103,22 +103,22 @@ Goal: The output should be a comprehensive, ready-to-use training module that fu
       });
       const aiContent = completion.choices[0]?.message?.content?.trim() || "";
       if (!aiContent) {
-        console.warn(`No content generated for module: ${mod.id} style: ${style}`);
+        console.warn(`No content generated for module: ${mod.processed_module_id} style: ${style}`);
         continue;
       }
       // Update the processed_modules row for this module and learning style
       const { error: updateError } = await supabase
         .from("processed_modules")
         .update({ content: aiContent })
-        .eq("id", mod.id);
+        .eq("processed_module_id", mod.processed_module_id);
       if (updateError) {
-        console.error(`Failed to update content for module ${mod.id} style ${style}:`, updateError);
+        console.error(`Failed to update content for module ${mod.processed_module_id} style ${style}:`, updateError);
       } else {
         updated++;
-        console.log(`Updated module ${mod.id} with AI content for style ${style}.`);
+        console.log(`Updated module ${mod.processed_module_id} with AI content for style ${style}.`);
       }
     } catch (err) {
-      console.error(`Error processing module ${mod.id}:`, err);
+      console.error(`Error processing module ${mod.processed_module_id}:`, err);
     }
   }
 

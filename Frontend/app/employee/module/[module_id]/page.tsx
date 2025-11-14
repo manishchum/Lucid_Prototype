@@ -19,8 +19,10 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   useEffect(() => {
     const fetchModule = async () => {
       setLoading(true);
+      console.log('[module] Fetching module with id:', moduleId);
       // Validate incoming module id
       if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
+        console.error('[module] Invalid module id:', moduleId);
         setModule(null);
         setLoading(false);
         return;
@@ -33,17 +35,17 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         if (employeeEmail) {
           const { data: emp } = await supabase
             .from('employees')
-            .select('id')
+            .select('employee_id')
             .eq('email', employeeEmail)
             .maybeSingle();
-          if (emp?.id) {
+          if (emp?.employee_id) {
             empObj = emp;
             setEmployee(emp);
             // Fetch learning style for employee
             const { data: styleData } = await supabase
               .from('employee_learning_style')
               .select('learning_style')
-              .eq('employee_id', emp.id)
+              .eq('employee_id', emp.employee_id)
               .maybeSingle();
             if (styleData?.learning_style) {
               style = styleData.learning_style;
@@ -62,7 +64,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           const { data } = await supabase
             .from('processed_modules')
             .select(selectCols)
-            .eq('id', moduleId)
+            .eq('module_id', moduleId)
             .eq('learning_style', style)
             .maybeSingle();
           if (data) return data;
@@ -91,23 +93,25 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           const { data } = await supabase
             .from('processed_modules')
             .select(selectCols)
-            .eq('id', moduleId)
+            .eq('module_id', moduleId)
             .maybeSingle();
           if (data) return data;
         }
         return null;
       };
       const data = await tryFetch();
+      console.log('[module] Fetched module data:', data);
       if (data) {
         setModule(data as any);
         // Log view to module_progress using processed_module_id and module_id, and started_at
         try {
-          if (empObj?.id) {
+          if (empObj?.employee_id) {
+            console.log('[module] Logging progress for employee:', empObj.employee_id, 'module:', data.id);
             await fetch('/api/module-progress', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                employee_id: empObj.id,
+                employee_id: empObj.employee_id,
                 processed_module_id: data.id,
                 module_id: data.original_module_id,
                 viewed_at: new Date().toISOString(),
@@ -120,6 +124,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           console.log('[module] progress log error', e);
         }
       } else {
+        console.error('[module] No module data found for id:', moduleId);
         setModule(null);
       }
       setLoading(false);

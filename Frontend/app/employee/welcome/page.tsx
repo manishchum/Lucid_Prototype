@@ -98,7 +98,7 @@ export default function EmployeeWelcome() {
     if (!authLoading) {
       if (!user) {
         console.log("[EmployeeWelcome] No user, redirecting to login.")
-        router.push("/employee/login")
+        router.push("/login")
       } else {
         console.log("[EmployeeWelcome] User found, calling checkEmployeeAccess().")
         checkEmployeeAccess()
@@ -113,14 +113,14 @@ export default function EmployeeWelcome() {
       // LOG: Fetching employee data
       console.log("[EmployeeWelcome] Fetching employee data for email:", user.email)
       const { data: employeeData, error: employeeError } = await supabase
-        .from("employees")
+        .from("users")
         .select("*")
         .eq("email", user.email)
         .single()
 
       if (employeeError || !employeeData) {
         console.error("[EmployeeWelcome] Employee fetch error:", employeeError)
-        router.push("/employee/login")
+        router.push("/login")
         return
       }
 
@@ -133,7 +133,7 @@ export default function EmployeeWelcome() {
         const { data: styleData, error: styleError } = await supabase
           .from("employee_learning_style")
           .select("learning_style")
-          .eq("employee_id", employeeData.id)
+          .eq("employee_id", employeeData.employee_id)
           .maybeSingle()
         if (styleError) {
           console.warn("[EmployeeWelcome] learning style fetch warning:", styleError)
@@ -152,9 +152,9 @@ export default function EmployeeWelcome() {
       // Note: employee_assessments does not have created_at; avoid selecting/ordering by it
       const { data: assessments, error: assessmentError } = await supabase
         .from("employee_assessments")
-        .select("id, score, max_score, feedback, question_feedback, assessment_id, assessments(type, questions)")
-        .eq("employee_id", employeeData.id)
-        .order("id", { ascending: false })
+        .select("employee_assessment_id, score, max_score, feedback, question_feedback, assessment_id, assessments(type, questions)")
+        .eq("employee_id", employeeData.employee_id)
+        .order("employee_assessment_id", { ascending: false })
       setScoreHistory(assessments || [])
       // LOG: Assessment history fetched
       console.log("[EmployeeWelcome] Assessment history:", assessments)
@@ -165,7 +165,7 @@ export default function EmployeeWelcome() {
         if (companyId) {
           const { data: baselineAssessment, error: baError } = await supabase
             .from('assessments')
-            .select('id')
+            .select('assessment_id')
             .eq('type', 'baseline')
             .eq('company_id', companyId)
             .order('created_at', { ascending: false })
@@ -174,13 +174,13 @@ export default function EmployeeWelcome() {
           if (baError) {
             console.warn('[EmployeeWelcome] baseline assessment lookup warning:', baError)
           }
-          if (baselineAssessment?.id) {
+          if (baselineAssessment?.assessment_id) {
             const { data: baselineEAList, error: beaError } = await supabase
               .from('employee_assessments')
               .select('score, max_score')
               .eq('employee_id', employeeData.id)
-              .eq('assessment_id', baselineAssessment.id)
-              .order('id', { ascending: false })
+              .eq('assessment_id', baselineAssessment.assessment_id)
+              .order('employee_assessment_id', { ascending: false })
               .limit(1)
             if (beaError) {
               console.warn('[EmployeeWelcome] baseline employee_assessments lookup warning:', beaError)
@@ -225,10 +225,10 @@ export default function EmployeeWelcome() {
       try {
         const { data: planRow } = await supabase
           .from('learning_plan')
-          .select('id, status, plan_json')
+          .select('learning_plan_id, status, plan_json')
           .eq('employee_id', employeeData.id)
           .eq('status', 'assigned')
-          .order('id', { ascending: false })
+          .order('learning_plan_id', { ascending: false })
           .limit(1)
           .maybeSingle()
         let completed = false
@@ -277,7 +277,7 @@ export default function EmployeeWelcome() {
       const { data: progressData, error: progressError } = await supabase
         .from("module_progress")
         .select("*, processed_modules(title)")
-        .eq("employee_id", employeeData.id)
+        .eq("employee_id", employeeData.employee_id)
       if (progressError) {
         console.error("[EmployeeWelcome] module_progress fetch error:", progressError)
       }
@@ -285,7 +285,7 @@ export default function EmployeeWelcome() {
       setModuleProgress(progressData || [])
     } catch (error) {
       console.error("Employee access check failed:", error)
-      router.push("/employee/login")
+      router.push("/login")
     } finally {
       setLoading(false)
     }
@@ -426,16 +426,16 @@ export default function EmployeeWelcome() {
                 />
                 {/* PHASED RELEASE: Steps 2 and 3 hidden until later rollout */}
                 
-                {/* <StepCircle
+                <StepCircle
                   step={2}
                   label="Baseline Assessment"
                   subtitle="Evaluate your current skill level"
                   completed={!!baselineScore}
                   active={!!learningStyle && baselineScore === null}
                   onClick={() => learningStyle && baselineScore === null && router.push("/employee/assessment")}
-                /> */}
+                />
 
-                {/*
+                
                 <StepCircle
                   step={3}
                   label="Learning Plan"
@@ -444,7 +444,7 @@ export default function EmployeeWelcome() {
                   active={!!learningStyle && baselineScore !== null && !allAssignedCompleted}
                   onClick={() => learningStyle && baselineScore !== null && !allAssignedCompleted && router.push("/employee/training-plan")}
                 />
-                */}
+               
               </div>
             </CardContent>
           </Card>

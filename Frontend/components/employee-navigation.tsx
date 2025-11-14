@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Home, Menu, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { LayoutDashboard, BookOpen, User, FileText, KeyRound, LogOut } from "lucide-react";
+import { LayoutDashboard, BookOpen, User, FileText, KeyRound, LogOut, Shield } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { useState, useEffect } from "react";
@@ -35,6 +35,7 @@ const EmployeeNavigation = ({
   const [employee, setEmployee] = useState<any>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [userRoles, setUserRoles] = useState<string[]>([]);
 
   // Use provided user or fetch employee data from auth context
   const displayUser = providedUser || employee;
@@ -49,13 +50,32 @@ const EmployeeNavigation = ({
       const fetchEmployee = async () => {
         try {
           const { data: employeeData, error } = await supabase
-            .from("employees")
+            .from("users")
             .select("*")
             .eq("email", authUser.email)
             .single();
-
+            
+            console.log("Outside the employee Data")
           if (!error && employeeData) {
+            console.log("Not getting inside the employee Data")
             setEmployee(employeeData);
+            
+            // Fetch user roles
+            const { data: roleData, error: roleError } = await supabase
+              .from("user_role_assignments")
+              .select(`
+                roles!inner(name)
+              `)
+              .eq("user_id", employeeData.user_id)
+              .eq("is_active", true);
+
+            if (!roleError && roleData) {
+              // @ts-ignore
+              const roles = roleData.map(assignment => assignment.roles?.name).filter(Boolean);
+              console.log("These are the roles assigned to the user:");
+              console.log(roles);
+              setUserRoles(roles);
+            }
           }
         } catch (error) {
           console.error("Failed to fetch employee data:", error);
@@ -72,6 +92,13 @@ const EmployeeNavigation = ({
       return pathname === '/employee/welcome';
     }
     return pathname.startsWith(route);
+  };
+
+  // Check if user has admin access
+  const hasAdminAccess = () => {
+    return userRoles.some(role => 
+      role === 'ADMIN' || role === 'SUPER_ADMIN'
+    );
   };
 
   const handleBack = () => {
@@ -251,6 +278,23 @@ const EmployeeNavigation = ({
             <LayoutDashboard className="w-5 h-5 flex-shrink-0" />
             {!isCollapsed && <span>Dashboard</span>}
           </Link>
+
+          {/* Admin Panel - Only visible to admins */}
+          {hasAdminAccess() && (
+            <Link 
+              href="/admin/dashboard" 
+              onClick={closeMobileSidebar}
+              className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${
+                isActiveRoute('/admin/dashboard') 
+                  ? 'text-orange-600 bg-orange-100' 
+                  : 'text-gray-700 hover:bg-gray-100'
+              } ${isCollapsed ? 'justify-center' : ''}`}
+              title={isCollapsed ? 'Admin Panel' : ''}
+            >
+              <Shield className="w-5 h-5 flex-shrink-0" />
+              {!isCollapsed && <span>Admin Panel</span>}
+            </Link>
+          )}
 
           {/* Baseline Assessment (Phase 2) */}
           {/*}

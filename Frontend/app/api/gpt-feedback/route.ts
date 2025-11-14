@@ -173,14 +173,14 @@ UserAnswers: ${JSON.stringify(userAnswers)}`;
       const { data: assessmentMeta, error: assessmentMetaError } = await supabase
         .from('assessments')
         .select('type')
-        .eq('id', assessment_id)
+        .eq('assessment_id', assessment_id)
         .maybeSingle();
       if (assessmentMetaError) {
         console.error('[API] Error fetching assessment type:', assessmentMetaError);
       }
       assessmentType = assessmentMeta?.type || null;
       console.log('[API] Assessment type:', assessmentType);
-  if (assessmentType === 'baseline') {
+      if (assessmentType === 'baseline') {
         // Always insert new row for baseline (allow multiple attempts)
         console.log('[API] Inserting baseline employee_assessment...');
         insertResult = await supabase.from('employee_assessments').insert(assessmentRecord);
@@ -190,7 +190,7 @@ UserAnswers: ${JSON.stringify(userAnswers)}`;
         console.log('[API] Checking for existing module employee_assessment...');
         const { data: existingAssessment, error: checkError } = await supabase
           .from('employee_assessments')
-          .select('id')
+          .select('employee_assessment_id')
           .eq('assessment_id', assessment_id)
           .eq('employee_id', employee_id)
           .maybeSingle();

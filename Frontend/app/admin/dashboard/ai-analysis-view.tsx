@@ -15,7 +15,7 @@ interface Module {
 }
 
 interface TrainingModule {
-  id: string
+  module_id: string
   title: string
   description: string | null
   content_type: string

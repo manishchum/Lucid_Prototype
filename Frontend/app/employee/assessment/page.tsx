@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/auth-context";
 import EmployeeNavigation from "@/components/employee-navigation";
 
 interface TrainingModule {
-  id: string;
+  module_id: string;
   title: string;
   ai_modules: string | null;
 }
@@ -17,11 +17,13 @@ interface TrainingModule {
 const AssessmentPage = () => {
   const { user } = useAuth();
   const [modules, setModules] = useState<TrainingModule[]>([]);
-  const [mcqQuestions, setMcqQuestions] = useState<any[]>([]);
+  const [mcqQuestionsByModule, setMcqQuestionsByModule] = useState<Array<{ moduleId: string; title?: string; questions: any[] }>>([]);
+  const [currentModuleIndex, setCurrentModuleIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [score, setScore] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [companyId, setCompanyId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchModules = async () => {
@@ -42,11 +44,12 @@ const AssessmentPage = () => {
         // Get modules for this company only
         const { data, error } = await supabase
           .from("training_modules")
-          .select("id, title, ai_modules")
+          .select("module_id, title, ai_modules")
           .eq("company_id", companyId)
           .order("created_at", { ascending: true });
         if (error) throw error;
         setModules(data || []);
+        setCompanyId(companyId);
       } catch (err: any) {
   setError("Failed to load modules: " + err.message);
   // Add delay before clearing error
@@ -70,23 +73,31 @@ const AssessmentPage = () => {
         if (user?.email) {
           const { data: empData } = await supabase
             .from("employees")
-            .select("id, company_id")
+            .select("employee_id, company_id")
             .eq("email", user.email)
             .maybeSingle();
           companyId = empData?.company_id || null;
-          employeeId = empData?.id || null;
+          employeeId = empData?.employee_id || null;
         }
         if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
-        // Use all module IDs for baseline assessment
-        const moduleIds = modules.map((m) => m.id);
-        const res = await fetch("/api/gpt-mcq-quiz", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ moduleIds, companyId, employeeId }),
+        // Request a baseline quiz for all assigned modules (multi-module baseline)
+        const res = await fetch('/api/gpt-mcq-quiz', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            moduleIds: modules.map(m => m.module_id), 
+            companyId 
+          }),
         });
-        const data = await res.json();
-        if (data.quiz) setMcqQuestions(data.quiz);
-        else setError("No quiz generated.");
+        const d = await res.json();
+        console.log('[Assessment] Baseline quiz result:', d);
+        
+        // For now, assign all questions to a single "baseline" entry
+        // (The baseline quiz covers all modules together)
+        const quizzes = d.quiz && d.quiz.length > 0 
+          ? [{ moduleId: 'baseline', title: 'Baseline Assessment', questions: d.quiz }]
+          : [];
+        setMcqQuestionsByModule(quizzes);
       } catch (err: any) {
         setError("Failed to get quiz: " + err.message);
       } finally {
@@ -96,7 +107,7 @@ const AssessmentPage = () => {
     if (modules.length > 0) getMCQQuiz();
   }, [modules, user]);
 
-  const handleMCQSubmit = async (result: { score: number; answers: number[]; feedback: string[] }) => {
+  const handleMCQSubmit = async (result: { score: number; answers: number[]; feedback: string[] }, moduleId: string) => {
     console.log("handleMCQSubmit called with result successfully.");
     setScore(result.score);
     setLoading(true);
@@ -106,11 +117,11 @@ const AssessmentPage = () => {
       if (user?.email) {
         const { data: empData, error: empError } = await supabase
           .from("employees")
-          .select("id")
+          .select("employee_id")
           .eq("email", user.email)
           .maybeSingle();
-        if (empData?.id) {
-          employeeId = empData.id;
+        if (empData?.employee_id) {
+          employeeId = empData.employee_id;
         } else {
           setError("Could not find employee record for this user.");
           setLoading(false);
@@ -122,20 +133,24 @@ const AssessmentPage = () => {
         return;
       }
 
-      // 2. Find or create a baseline assessment for this employee
+      // 2. Find or create a baseline assessment for this company
       let assessmentId: string | null = null;
+      // Look up the baseline assessment for this company
       const { data: assessmentDef } = await supabase
-        .from("assessments")
-        .select("id")
-        .eq("type", "baseline")
+        .from('assessments')
+        .select('assessment_id')
+        .eq('type', 'baseline')
+        .eq('company_id', companyId)
         .limit(1)
         .maybeSingle();
-      if (assessmentDef?.id) {
-        assessmentId = assessmentDef.id;
+      if (assessmentDef?.assessment_id) {
+        assessmentId = assessmentDef.assessment_id;
       } else {
-        const { data: newDef, error: newDefError } = await supabase
-          .from("assessments")
-          .insert({ type: "baseline", questions: JSON.stringify(mcqQuestions) })
+        // Find questions for the baseline from the fetched quizzes
+        const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === 'baseline')?.questions || [];
+        const { data: newDef } = await supabase
+          .from('assessments')
+          .insert({ type: 'baseline', company_id: companyId, questions: JSON.stringify(questionsForModule) })
           .select()
           .single();
         assessmentId = newDef?.id || null;
@@ -144,7 +159,7 @@ const AssessmentPage = () => {
       // Log score in terminal
       console.log("Employee ID:", employeeId);
       console.log("Employee Name:", user?.email);
-      console.log("Employee Score:", result.score, "/", mcqQuestions.length);
+      console.log("Employee Score:", result.score, "/", (mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []).length);
       console.log("Employee Feedback:", result.feedback.join("\n"));
 
       // Call GPT feedback API for AI-generated feedback and store in Supabase
@@ -153,7 +168,7 @@ const AssessmentPage = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           score: result.score,
-          maxScore: mcqQuestions.length,
+          maxScore: (mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []).length,
           answers: result.answers,
           feedback: result.feedback,
           modules,
@@ -190,11 +205,16 @@ const AssessmentPage = () => {
           </p>
           {error && <div className="mb-4 text-red-600">{error}</div>}
           {loading && <div className="mb-4 text-gray-500">Loading...</div>}
-          {!loading && score === null && mcqQuestions.length > 0 && (
-            <MCQQuiz questions={mcqQuestions} onSubmit={handleMCQSubmit} />
+          {!loading && score === null && mcqQuestionsByModule.length > 0 && (
+            <MCQQuiz
+              questions={mcqQuestionsByModule[0]?.questions || []}
+              onSubmit={(res) => handleMCQSubmit(res, mcqQuestionsByModule[0].moduleId)}
+            />
           )}
           {!loading && score !== null && (
-            <ScoreFeedbackCard score={score!} maxScore={mcqQuestions.length} feedback={feedback} />
+            <div>
+              <ScoreFeedbackCard score={score!} maxScore={(mcqQuestionsByModule[0]?.questions || []).length} feedback={feedback} />
+            </div>
           )}
         </div>
       </div>
