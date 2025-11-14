@@ -34,7 +34,7 @@ const AssessmentPage = () => {
         let companyId: string | null = null;
         if (user?.email) {
           const { data: empData } = await supabase
-            .from("employees")
+            .from("users")
             .select("company_id")
             .eq("email", user.email)
             .maybeSingle();
@@ -72,12 +72,12 @@ const AssessmentPage = () => {
         let employeeId: string | null = null;
         if (user?.email) {
           const { data: empData } = await supabase
-            .from("employees")
-            .select("employee_id, company_id")
+            .from("users")
+            .select("user_id, company_id")
             .eq("email", user.email)
             .maybeSingle();
           companyId = empData?.company_id || null;
-          employeeId = empData?.employee_id || null;
+          employeeId = empData?.user_id || null;
         }
         if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
         // Request a baseline quiz for all assigned modules (multi-module baseline)
@@ -112,16 +112,16 @@ const AssessmentPage = () => {
     setScore(result.score);
     setLoading(true);
     try {
-      // 1. Fetch employee UUID from employees table using user.email
+      // 1. Fetch employee UUID from users table using user.email
       let employeeId: string | null = null;
       if (user?.email) {
         const { data: empData, error: empError } = await supabase
-          .from("employees")
-          .select("employee_id")
+          .from("users")
+          .select("user_id")
           .eq("email", user.email)
           .maybeSingle();
-        if (empData?.employee_id) {
-          employeeId = empData.employee_id;
+        if (empData?.user_id) {
+          employeeId = empData.user_id;
         } else {
           setError("Could not find employee record for this user.");
           setLoading(false);
@@ -172,7 +172,7 @@ const AssessmentPage = () => {
           answers: result.answers,
           feedback: result.feedback,
           modules,
-          employee_id: employeeId,
+          user_id: employeeId,
           employee_name: user?.email,
           assessment_id: assessmentId,
         }),

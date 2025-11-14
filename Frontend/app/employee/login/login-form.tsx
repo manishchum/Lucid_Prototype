@@ -47,7 +47,7 @@ export default function EmployeeLoginForm() {
 
   const checkEmployeeAccess = async (userEmail: string) => {
     const { data: employeeData, error: employeeError } = await supabase
-      .from("employees")
+      .from("users")
       .select("*")
       .eq("email", userEmail)
       .single()

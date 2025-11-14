@@ -6,11 +6,11 @@ import ensureProcessedModulesForPlan from "@/lib/processedModulesHelper";
 
 export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Request received");
-  const { employee_id } = await req.json();
-  console.log("[Training Plan API] employee_id:", employee_id);
-  if (!employee_id) {
-    console.error("[Training Plan API] Missing employee_id");
-    return NextResponse.json({ error: "Missing employee_id" }, { status: 400 });
+  const { user_id } = await req.json();
+  console.log("[Training Plan API] user_id:", user_id);
+  if (!user_id) {
+    console.error("[Training Plan API] Missing user_id");
+    return NextResponse.json({ error: "Missing user_id" }, { status: 400 });
   }
   // Validate OpenAI API key early to avoid opaque 500s later
   if (!process.env.OPENAI_API_KEY) {
@@ -20,9 +20,9 @@ export async function POST(req: NextRequest) {
   // Fetch company_id for this employee
   let company_id = null;
   const { data: empRecord, error: empError } = await supabase
-    .from("employees")
+    .from("users")
     .select("company_id")
-    .eq("employee_id", employee_id)
+    .eq("user_id", user_id)
     .maybeSingle();
   if (empError || !empRecord?.company_id) {
     console.error("[Training Plan API] Could not find company for employee");
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   const { data: assessments, error: assessError } = await supabase
     .from("employee_assessments")
     .select("score, max_score, feedback, assessment_id, assessments(type, questions)")
-    .eq("employee_id", employee_id);
+    .eq("user_id", user_id);
   if (assessError) {
     console.error("[Training Plan API] Error fetching assessments:", assessError);
     return NextResponse.json({ error: assessError.message }, { status: 500 });
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
   const { data: lsData, error: lsError } = await supabase
     .from("employee_learning_style")
     .select("learning_style, gpt_analysis")
-    .eq("employee_id", employee_id)
+    .eq("user_id", user_id)
     .single();
   let gptText = "";
   if (lsData) {
@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
   const { data: existingPlan, error: existingPlanError } = await supabase
     .from("learning_plan")
     .select("learning_plan_id, plan_json, reasoning, status, assessment_hash")
-    .eq("employee_id", employee_id)
+    .eq("user_id", user_id)
   .eq("status", "ASSIGNED")
     .order("learning_plan_id", { ascending: false })
     .limit(1)
@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
     console.log("[Training Plan API] No change in assessments. Returning existing plan (pre-GPT).");
     // Ensure processed_modules exist for modules referenced by the cached plan
     try {
-      await ensureProcessedModulesForPlan(employee_id, company_id, existingPlan.plan_json);
+      await ensureProcessedModulesForPlan(user_id, company_id, existingPlan.plan_json);
     } catch (e) {
       console.error("[Training Plan API] ensureProcessedModulesForPlan failed on cache-hit:", e);
     }
@@ -141,7 +141,7 @@ export async function POST(req: NextRequest) {
   const { data: kpiRows, error: kpiError } = await supabase
     .from("employee_kpi")
     .select("score, kpis(description, benchmark, datatype)")
-    .eq("employee_id", employee_id);
+    .eq("user_id", user_id);
   let kpiText = "";
   if (kpiRows && kpiRows.length > 0) {
     kpiText = "Employee KPIs (description, score, benchmark, datatype):\n" +
@@ -308,7 +308,7 @@ export async function POST(req: NextRequest) {
     dbResult = await supabase
       .from("learning_plan")
       // Right now the last updated module is assigned 
-      .insert({ employee_id, plan_json: plan, reasoning: reasoning, status: "ASSIGNED", module_id: tmIds[tmIds.length-1], assessment_hash: assessmentHash });
+      .insert({ user_id, plan_json: plan, reasoning: reasoning, status: "ASSIGNED", module_id: tmIds[tmIds.length-1], assessment_hash: assessmentHash });
   }
   if (dbResult.error) {
     console.error("[Training Plan API] Error saving plan:", dbResult.error);
@@ -318,7 +318,7 @@ export async function POST(req: NextRequest) {
 
   // Ensure processed_modules exist for modules in the newly saved plan
   try {
-    await ensureProcessedModulesForPlan(employee_id, company_id, plan);
+    await ensureProcessedModulesForPlan(user_id, company_id, plan);
   } catch (e) {
     console.error("[Training Plan API] ensureProcessedModulesForPlan failed after save:", e);
   }

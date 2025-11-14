@@ -11,9 +11,9 @@ async function getAdminId(req: Request): Promise<string | null> {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { employee_id, moduleIds } = body || {};
-    if (!employee_id || !Array.isArray(moduleIds) || moduleIds.length === 0) {
-      return NextResponse.json({ error: "Missing employee_id or moduleIds" }, { status: 400 });
+    const { user_id, moduleIds } = body || {};
+    if (!user_id || !Array.isArray(moduleIds) || moduleIds.length === 0) {
+      return NextResponse.json({ error: "Missing user_id or moduleIds" }, { status: 400 });
     }
 
     const adminId = await getAdminId(req);
@@ -36,9 +36,9 @@ export async function POST(req: Request) {
 
     // Verify employee belongs to same company
     const { data: emp, error: empErr } = await supabase
-      .from("employees")
-      .select("employee_id, company_id")
-      .eq("employee_id", employee_id)
+      .from("users")
+      .select("user_id, company_id")
+      .eq("user_id", user_id)
       .maybeSingle();
     if (empErr || !emp || emp.company_id !== companyId) {
       return NextResponse.json({ error: "Employee not found in your company" }, { status: 403 });
@@ -62,21 +62,21 @@ export async function POST(req: Request) {
 
     // Prepare rows: one learning_plan row per module with module_id set
     const rowsToInsert = (mods || []).map((m: any) => ({
-      employee_id,
+      user_id,
       module_id: m.id,
       status: "ASSIGNED",
       reasoning: `Manual assignment by admin ${adminId}`,
       assigned_on: new Date().toISOString(),
     }));
 
-    console.log("CHECK 1 : employee_id:", employee_id);
+    console.log("CHECK 1 : user_id:", user_id);
     console.log("CHECK 2 : mods:", mods);
 
     // Avoid inserting duplicates: fetch existing assigned module rows for this employee
     const { data: existingRows, error: existingErr } = await supabase
       .from("learning_plan")
       .select("learning_plan_id, module_id")
-      .eq("employee_id", employee_id)
+      .eq("user_id", user_id)
       .in("module_id", (mods || []).map((m: any) => m.id));
 
     if (existingErr) {

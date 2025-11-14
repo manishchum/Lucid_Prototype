@@ -158,11 +158,11 @@ export async function POST(request: NextRequest) {
 
     console.log('📧 DEBUG: Processing admin notification for module completion:', { employeeId, moduleId })
 
-    // Get employee details
+    // Get user details
     const { data: employeeData, error: employeeError } = await supabase
-      .from('employees')
-      .select('id, name, email, company_id')
-      .eq('id', employeeId)
+      .from('users')
+      .select('user_id, name, email, company_id')
+      .eq('user_id', employeeId)
       .single()
 
     if (employeeError) {
@@ -176,8 +176,8 @@ export async function POST(request: NextRequest) {
     // Get module details
     const { data: moduleData, error: moduleError } = await supabase
       .from('training_modules')
-      .select('id, title, company_id')
-      .eq('id', moduleId)
+      .select('module_id, title, company_id')
+      .eq('module_id', moduleId)
       .single()
 
     if (moduleError) {
@@ -192,7 +192,7 @@ export async function POST(request: NextRequest) {
     const { data: companyData, error: companyError } = await supabase
       .from('companies')
       .select('name')
-      .eq('id', employeeData.company_id)
+      .eq('company_id', employeeData.company_id)
       .single()
 
     if (companyError) {

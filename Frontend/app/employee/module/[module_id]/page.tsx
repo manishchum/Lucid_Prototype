@@ -34,18 +34,18 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         const employeeEmail = userData?.user?.email || null;
         if (employeeEmail) {
           const { data: emp } = await supabase
-            .from('employees')
-            .select('employee_id')
+            .from('users')
+            .select('user_id')
             .eq('email', employeeEmail)
             .maybeSingle();
-          if (emp?.employee_id) {
+          if (emp?.user_id) {
             empObj = emp;
             setEmployee(emp);
             // Fetch learning style for employee
             const { data: styleData } = await supabase
               .from('employee_learning_style')
               .select('learning_style')
-              .eq('employee_id', emp.employee_id)
+              .eq('user_id', emp.user_id)
               .maybeSingle();
             if (styleData?.learning_style) {
               style = styleData.learning_style;
@@ -105,13 +105,13 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         setModule(data as any);
         // Log view to module_progress using processed_module_id and module_id, and started_at
         try {
-          if (empObj?.employee_id) {
-            console.log('[module] Logging progress for employee:', empObj.employee_id, 'module:', data.id);
+          if (empObj?.user_id) {
+            console.log('[module] Logging progress for employee:', empObj.user_id, 'module:', data.id);
             await fetch('/api/module-progress', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                employee_id: empObj.employee_id,
+                user_id: empObj.user_id,
                 processed_module_id: data.id,
                 module_id: data.original_module_id,
                 viewed_at: new Date().toISOString(),

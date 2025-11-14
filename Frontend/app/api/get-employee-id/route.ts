@@ -14,12 +14,12 @@ export async function GET(req: NextRequest) {
   }
   const adminClient = createClient(supabaseUrl, supabaseServiceKey)
   const { data, error } = await adminClient
-    .from("employees")
-    .select("employee_id")
+    .from("users")
+    .select("user_id")
     .eq("email", email)
     .single()
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-  return NextResponse.json({ employee_id: data?.employee_id || null })
+  return NextResponse.json({ user_id: data?.user_id || null })
 }

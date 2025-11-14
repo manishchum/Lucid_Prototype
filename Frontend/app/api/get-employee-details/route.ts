@@ -11,8 +11,8 @@ export async function GET(request: NextRequest) {
     }
 
     const { data: employee, error } = await supabase
-      .from("employees")
-      .select("employee_id, name, email, position")
+      .from("users")
+      .select("user_id, name, email, position")
       .eq("email", email)
       .single();
 
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      id: employee.employee_id,
+      id: employee.user_id,
       name: employee.name,
       email: employee.email,
       position: employee.position

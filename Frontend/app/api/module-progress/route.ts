@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
-// Upsert module progress by employee_id + processed_module_id
+// Upsert module progress by user_id + processed_module_id
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
-      employee_id,
+      user_id,
       processed_module_id,
       // Optional legacy field for grouping, if you still use training_modules
       module_id,
@@ -19,15 +19,15 @@ export async function POST(req: NextRequest) {
       quiz_feedback,
     } = body;
 
-    if (!employee_id || !processed_module_id) {
-      return NextResponse.json({ error: 'employee_id and processed_module_id are required' }, { status: 400 });
+    if (!user_id || !processed_module_id) {
+      return NextResponse.json({ error: 'user_id and processed_module_id are required' }, { status: 400 });
     }
 
     // Fetch existing progress
     const { data: existing, error: fetchErr } = await supabase
       .from('module_progress')
       .select('*')
-      .eq('employee_id', employee_id)
+      .eq('user_id', user_id)
       .eq('processed_module_id', processed_module_id)
       .maybeSingle();
 
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     if (!existing) {
       // Insert new row
       const insertPayload = {
-        employee_id,
+        user_id,
         processed_module_id,
         ...patch,
         audio_listen_duration: typeof audio_listen_duration === 'number' ? audio_listen_duration : null,
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
       const { data, error } = await supabase
         .from('module_progress')
         .update(updatePayload)
-        .eq('employee_id', employee_id)
+        .eq('user_id', user_id)
         .eq('processed_module_id', processed_module_id)
         .select('*')
         .maybeSingle();

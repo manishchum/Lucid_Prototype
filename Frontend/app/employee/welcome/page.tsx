@@ -133,7 +133,7 @@ export default function EmployeeWelcome() {
         const { data: styleData, error: styleError } = await supabase
           .from("employee_learning_style")
           .select("learning_style")
-          .eq("employee_id", employeeData.employee_id)
+          .eq("user_id", employeeData.user_id)
           .maybeSingle()
         if (styleError) {
           console.warn("[EmployeeWelcome] learning style fetch warning:", styleError)
@@ -153,7 +153,7 @@ export default function EmployeeWelcome() {
       const { data: assessments, error: assessmentError } = await supabase
         .from("employee_assessments")
         .select("employee_assessment_id, score, max_score, feedback, question_feedback, assessment_id, assessments(type, questions)")
-        .eq("employee_id", employeeData.employee_id)
+        .eq("user_id", employeeData.user_id)
         .order("employee_assessment_id", { ascending: false })
       setScoreHistory(assessments || [])
       // LOG: Assessment history fetched
@@ -178,7 +178,7 @@ export default function EmployeeWelcome() {
             const { data: baselineEAList, error: beaError } = await supabase
               .from('employee_assessments')
               .select('score, max_score')
-              .eq('employee_id', employeeData.id)
+              .eq('user_id', employeeData.id)
               .eq('assessment_id', baselineAssessment.assessment_id)
               .order('employee_assessment_id', { ascending: false })
               .limit(1)
@@ -226,7 +226,7 @@ export default function EmployeeWelcome() {
         const { data: planRow } = await supabase
           .from('learning_plan')
           .select('learning_plan_id, status, plan_json')
-          .eq('employee_id', employeeData.id)
+          .eq('user_id', employeeData.id)
           .eq('status', 'assigned')
           .order('learning_plan_id', { ascending: false })
           .limit(1)
@@ -248,7 +248,7 @@ export default function EmployeeWelcome() {
               const { data: progP } = await supabase
                 .from('module_progress')
                 .select('processed_module_id, completed_at')
-                .eq('employee_id', employeeData.id)
+                .eq('user_id', employeeData.id)
                 .in('processed_module_id', processedIds)
               const completedSet = new Set((progP || []).filter(r => r.completed_at).map(r => String(r.processed_module_id)))
               completedCount += completedSet.size
@@ -257,7 +257,7 @@ export default function EmployeeWelcome() {
               const { data: progO } = await supabase
                 .from('module_progress')
                 .select('module_id, completed_at')
-                .eq('employee_id', employeeData.id)
+                .eq('user_id', employeeData.id)
                 .in('module_id', originalIds)
               const completedSet = new Set((progO || []).filter(r => r.completed_at).map(r => String(r.module_id)))
               // Merge: assume overlap minimal; union approximate
@@ -273,11 +273,11 @@ export default function EmployeeWelcome() {
       }
 
       // Fetch module progress for this employee, join processed_modules for title
-      // LOG: Fetching module_progress for employee_id:", employeeData.id)
+      // LOG: Fetching module_progress for user_id:", employeeData.id)
       const { data: progressData, error: progressError } = await supabase
         .from("module_progress")
         .select("*, processed_modules(title)")
-        .eq("employee_id", employeeData.employee_id)
+        .eq("user_id", employeeData.user_id)
       if (progressError) {
         console.error("[EmployeeWelcome] module_progress fetch error:", progressError)
       }

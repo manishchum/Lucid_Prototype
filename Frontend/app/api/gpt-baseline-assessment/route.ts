@@ -4,25 +4,25 @@ import { NextRequest, NextResponse } from 'next/server';
 // In production, you would call OpenAI's API with a prompt to generate questions and evaluate answers
 
 export async function POST(request: NextRequest) {
-  const { modules, answers, employee_id } = await request.json();
+  const { modules, answers, user_id } = await request.json();
 
   if (!modules) {
     return NextResponse.json({ error: 'Modules are required' }, { status: 400 });
   }
-  if (!employee_id) {
-    return NextResponse.json({ error: 'employee_id is required' }, { status: 400 });
+  if (!user_id) {
+    return NextResponse.json({ error: 'user_id is required' }, { status: 400 });
   }
 
-  // Fetch company_id from employees table
+  // Fetch company_id from users table
   const { createClient } = require('@supabase/supabase-js');
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
   const { data: employee, error: employeeError } = await supabase
-    .from('employees')
+    .from('users')
     .select('company_id')
-    .eq('employee_id', employee_id)
+    .eq('user_id', user_id)
     .maybeSingle();
   if (employeeError || !employee?.company_id) {
     return NextResponse.json({ error: 'Could not find company for employee' }, { status: 400 });
