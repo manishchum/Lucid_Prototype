@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const { data: existingProgress, error: checkError } = await supabase
       .from('module_progress')
       .select('id, completed_at')
-      .eq('employee_id', employeeId)
+      .eq('user_id', employeeId)
       .eq('module_id', moduleId)
       .single()
 
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
       const { data, error: insertError } = await supabase
         .from('module_progress')
         .insert({
-          employee_id: employeeId,
+          user_id: employeeId,
           module_id: moduleId,
           started_at: completionTime, // Assuming they started when they completed
           completed_at: completionTime,

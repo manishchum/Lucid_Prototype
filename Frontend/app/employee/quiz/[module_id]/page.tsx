@@ -52,11 +52,11 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     if (!authLoading && user?.email) {
       try {
         const { data: emp } = await supabase
-          .from('employees')
-          .select('employee_id')
+          .from('users')
+          .select('user_id')
           .eq('email', user.email)
           .single();
-        employeeId = emp?.employee_id || null;
+        employeeId = emp?.user_id || null;
   employeeName = (user as any)?.displayName || user.email || null;
       } catch (err) {
         console.log('[QUIZ] Error fetching employee record:', err);
@@ -70,7 +70,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       quiz,
       userAnswers,
       // Let the API score module quizzes using GPT
-      employee_id: employeeId,
+      user_id: employeeId,
       employee_name: employeeName,
       assessment_id: assessmentId,
       modules: [{ module_id: moduleId }],
@@ -93,7 +93,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            employee_id: employeeId,
+            user_id: employeeId,
             processed_module_id: moduleId,
             quiz_score: typeof result.score === 'number' ? result.score : null,
             max_score: typeof result.maxScore === 'number' ? result.maxScore : quiz.length,
@@ -188,15 +188,15 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       if (!authLoading && user?.email) {
         try {
           const { data: emp } = await supabase
-            .from('employees')
-            .select('employee_id')
+            .from('users')
+            .select('user_id')
             .eq('email', user.email)
             .single();
-          if (emp?.employee_id) {
+          if (emp?.user_id) {
             const { data: styleData } = await supabase
               .from('employee_learning_style')
               .select('learning_style')
-              .eq('employee_id', emp.employee_id)
+              .eq('user_id', emp.user_id)
               .maybeSingle();
             if (styleData?.learning_style) {
               learningStyle = styleData.learning_style;

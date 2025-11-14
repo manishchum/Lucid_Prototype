@@ -9,7 +9,7 @@ import fetch from "node-fetch";
  * - Set learning_style if provided
  * - Trigger content generation by POSTing to /api/generate-module-content with processed_module_id
  */
-export async function ensureProcessedModulesForPlan(employee_id: string, company_id: string, plan: any) {
+export async function ensureProcessedModulesForPlan(user_id: string, company_id: string, plan: any) {
   try {
     if (!plan || !Array.isArray(plan.modules) || plan.modules.length === 0) return { created: 0 };
 

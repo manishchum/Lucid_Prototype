@@ -5,8 +5,8 @@ import OpenAI from "openai"
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { employee_id, answers } = body
-    if (!employee_id || !answers || !Array.isArray(answers) || answers.length !== 40) {
+    const { user_id, answers } = body
+    if (!user_id || !answers || !Array.isArray(answers) || answers.length !== 40) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
     }
     // Use supabase admin client for server-side inserts
@@ -20,8 +20,8 @@ export async function POST(req: NextRequest) {
     // Check if already exists for this employee
     const { data: existing, error: fetchError } = await adminClient
       .from("employee_learning_style")
-      .select("employee_id")
-      .eq("employee_id", employee_id)
+      .select("user_id")
+      .eq("user_id", user_id)
       .single()
     if (fetchError && fetchError.code !== "PGRST116") { // PGRST116: No rows found
       return NextResponse.json({ error: fetchError.message }, { status: 500 })
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     const now = new Date().toISOString();
     const { error: insertError } = await adminClient
       .from("employee_learning_style")
-      .insert({ employee_id, answers, created_at: now, updated_at: now })
+      .insert({ user_id, answers, created_at: now, updated_at: now })
     if (insertError) {
       return NextResponse.json({ error: insertError.message }, { status: 500 })
     }
@@ -193,7 +193,7 @@ ${qaPairs}`;
           gpt_analysis: gptResult.report,
           updated_at: new Date().toISOString()
         })
-        .eq("employee_id", employee_id)
+        .eq("user_id", user_id)
       console.log("GPT Analysis saved to Supabase")
     }
 

@@ -265,24 +265,24 @@ export default function ScoreHistoryPage() {
     try {
       // First, get employee data including name
       const { data: employeeData } = await supabase
-        .from("employees")
-        .select("employee_id, name")
+        .from("users")
+        .select("user_id, name")
         .eq("email", email)
         .single();
       
-      if (!employeeData?.employee_id) {
+      if (!employeeData?.user_id) {
         setLoading(false);
         return;
       }
       
-      setEmployeeId(employeeData.employee_id);
+      setEmployeeId(employeeData.user_id);
       setEmployeeName(employeeData.name || "");
 
       // Fetch assessment history
       const { data: assessments } = await supabase
         .from("employee_assessments")
         .select("employee_assessment_id, score, max_score, feedback, question_feedback, assessment_id, assessments(type, questions)")
-        .eq("employee_id", employeeData.employee_id)
+        .eq("user_id", employeeData.user_id)
         .order("employee_assessment_id", { ascending: false });
       
       setScoreHistory(assessments || []);
@@ -290,8 +290,8 @@ export default function ScoreHistoryPage() {
       // Fetch learning style data
       const { data: learningStyle, error: learningStyleError } = await supabase
         .from("employee_learning_style")
-        .select("employee_id, answers, learning_style, gpt_analysis, created_at, updated_at")
-        .eq("employee_id", employeeData.employee_id)
+        .select("user_id, answers, learning_style, gpt_analysis, created_at, updated_at")
+        .eq("user_id", employeeData.user_id)
         .single();
       
       if (learningStyleError) {

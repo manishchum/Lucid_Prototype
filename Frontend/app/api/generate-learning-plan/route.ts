@@ -5,14 +5,14 @@
 // const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // export async function POST(req: NextRequest) {
-//   const { employee_id } = await req.json();
-//   if (!employee_id) return NextResponse.json({ error: "Missing employee_id" }, { status: 400 });
+//   const { user_id } = await req.json();
+//   if (!user_id) return NextResponse.json({ error: "Missing user_id" }, { status: 400 });
 
 //   // Fetch learning style and analysis for this employee
 //   const { data: lsData, error: lsError } = await supabase
 //     .from("employee_learning_style")
 //     .select("learning_style, gpt_analysis")
-//     .eq("employee_id", employee_id)
+//     .eq("user_id", user_id)
 //     .single();
 //   let gptText = "";
 //   if (lsData) {
@@ -24,7 +24,7 @@
 //   const { data: assessments, error: assessError } = await supabase
 //     .from("employee_assessments")
 //     .select("score, feedback, assessment_id, assessments(type, questions)")
-//     .eq("employee_id", employee_id);
+//     .eq("user_id", user_id);
 //   if (assessError) return NextResponse.json({ error: assessError.message }, { status: 500 });
 
 //   // Fetch all modules/objectives
@@ -73,7 +73,7 @@
 //   const { error: lpError } = await supabase
 //     .from("learning_plan")
 //     .insert({
-//       employee_id,
+//       user_id,
 //       plan_json: plan,
 //       reasoning: reasoning,
 //       status: "assigned"

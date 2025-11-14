@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
     const { data: companyData, error: companyError } = await supabase
       .from('companies')
       .select('name')
-      .eq('id', companyId)
+      .eq('company_id', companyId)
       .single()
 
     if (companyError) {
@@ -156,10 +156,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get all employees for this company
+    // Get all users for this company
     const { data: employees, error: employeesError } = await supabase
-      .from('employees')
-      .select('id, name, email')
+      .from('users')
+      .select('user_id, name, email')
       .eq('company_id', companyId)
     
     if (employeesError) {

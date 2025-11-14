@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Lightweight feedback for quiz page (no DB insert, just feedback)
-  if (body.quiz && body.userAnswers && (!body.employee_id || !body.assessment_id)) {
+  if (body.quiz && body.userAnswers && (!body.user_id || !body.assessment_id)) {
     try {
       console.log('[API] Lightweight feedback mode');
   const questions = (body.quiz as any[]).map((q: any, i: number) => ({
@@ -73,13 +73,13 @@ export async function POST(request: NextRequest) {
   }
 
   // Original assessment feedback logic
-  let { score, maxScore, answers, feedback, modules, employee_id, employee_name, assessment_id, quiz, userAnswers } = body;
+  let { score, maxScore, answers, feedback, modules, user_id, employee_name, assessment_id, quiz, userAnswers } = body;
   // Ensure answers is set to userAnswers if not provided
   if ((!answers || answers.length === 0) && Array.isArray(userAnswers) && userAnswers.length > 0) {
     answers = userAnswers;
   }
   console.log('[API] Assessment Submission');
-  console.log('[API] Employee ID:', employee_id);
+  console.log('[API] Employee ID:', user_id);
   console.log('[API] Employee Name:', employee_name);
   console.log('[API] Employee Score:', score, '/', maxScore);
   console.log('[API] Employee Feedback (per question):', Array.isArray(feedback) ? feedback.join('\n') : feedback);
@@ -153,7 +153,7 @@ UserAnswers: ${JSON.stringify(userAnswers)}`;
 
   // Prepare data for insertion
   const assessmentRecord = {
-    employee_id,
+    user_id,
     assessment_id,
     answers: answers, // jsonb
     score,
@@ -163,9 +163,9 @@ UserAnswers: ${JSON.stringify(userAnswers)}`;
   };
   console.log('[API] AssessmentRecord Prepared:', JSON.stringify(assessmentRecord, null, 2));
 
-  // 2. Store in employee_assessments if employee_id and assessment_id are provided
+  // 2. Store in employee_assessments if user_id and assessment_id are provided
   let insertResult = null;
-  if (employee_id && assessment_id) {
+  if (user_id && assessment_id) {
     try {
       // Determine assessment type (baseline or module)
       let assessmentType = null;
@@ -192,7 +192,7 @@ UserAnswers: ${JSON.stringify(userAnswers)}`;
           .from('employee_assessments')
           .select('employee_assessment_id')
           .eq('assessment_id', assessment_id)
-          .eq('employee_id', employee_id)
+          .eq('user_id', user_id)
           .maybeSingle();
         if (checkError) {
           console.error('[API] Error checking existing module assessment:', checkError);
@@ -207,7 +207,7 @@ UserAnswers: ${JSON.stringify(userAnswers)}`;
           console.log('[API] Updating module employee_assessment...');
           insertResult = await supabase.from('employee_assessments').update(assessmentRecord)
             .eq('assessment_id', assessment_id)
-            .eq('employee_id', employee_id);
+            .eq('user_id', user_id);
           console.log('[API] Updated module employee_assessment:', JSON.stringify(insertResult, null, 2));
         }
       }
@@ -215,7 +215,7 @@ UserAnswers: ${JSON.stringify(userAnswers)}`;
       console.error('[API] Supabase Insert/Update Error:', err);
     }
   } else {
-    console.log('[API] Missing employee_id or assessment_id, skipping DB insert.');
+    console.log('[API] Missing user_id or assessment_id, skipping DB insert.');
   }
 
   return NextResponse.json({ feedback: aiFeedback, score, maxScore, question_feedback: feedback, insertResult });

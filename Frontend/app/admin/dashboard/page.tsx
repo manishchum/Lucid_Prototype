@@ -1037,7 +1037,7 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
               onChange={handleFileChange}
             />
             <div className="text-xs text-gray-500 mt-1">
-              Table format: company_employee_id, email (header row optional)
+              Table format: company_user_id, email (header row optional)
             </div>
           </div>
           
@@ -2238,7 +2238,7 @@ export default function AdminDashboard() {
               <CardHeader className="sm:flex sm:items-start sm:justify-between">
                 <div>
                   <CardTitle className="flex items-center">KPI Scores Upload</CardTitle>
-                  <CardDescription>Upload a CSV or XLSX file with KPI scores (Company_Employee_ID, Email, KPI, Score)</CardDescription>
+                  <CardDescription>Upload a CSV or XLSX file with KPI scores (Company_user_id, Email, KPI, Score)</CardDescription>
                 </div>
                 <div className="mt-4 sm:mt-0">
                   <Button asChild variant="outline" size="sm">
@@ -2356,7 +2356,7 @@ function AssignModules({ employees, modules, admin, onAssigned }: { employees: E
           "Content-Type": "application/json",
           ...(admin?.id ? { 'x-admin-id': admin.id } : {})
         },
-        body: JSON.stringify({ employee_id: selectedEmployee, moduleIds })
+        body: JSON.stringify({ user_id: selectedEmployee, moduleIds })
       });
       const json = await res.json();
       if (!res.ok) {
