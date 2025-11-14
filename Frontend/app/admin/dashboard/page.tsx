@@ -1088,14 +1088,14 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
 }
 
 
-import { useState, useEffect, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-
+import EmployeeNavigation from "@/components/employee-navigation";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { Building2, Users, Plus, Trash2, LogOut, Edit } from "lucide-react";
@@ -1103,6 +1103,7 @@ import { ContentUpload } from "./content-upload";
 import { UploadedFilesList } from "./uploaded-files-list";
 import { Toaster } from "react-hot-toast";
 import UpdateEmployeeModal from "./update-employee-modal"; // Import UpdateEmployeeModal
+import { useCallback, useEffect, useState } from "react";
 
 // --- KPI Scores Upload UI Component ---
 function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Admin | null }) {
@@ -1370,6 +1371,7 @@ function DepartmentFilter({ employees, onEmployeeChange }: { employees: Employee
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [selectedEmployeeForUpdate, setSelectedEmployeeForUpdate] = useState<Employee | null>(null);
   const [userRoles, setUserRoles] = useState<{[key: string]: string[]}>({});
+  
 
   const removeEmployee = async (employeeId: string) => {
     if (!confirm("Are you sure you want to remove this employee?")) return
@@ -2173,130 +2175,144 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Toaster /> {/* Add Toaster component here */}
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center">
-              <Building2 className="w-8 h-8 text-blue-600 mr-3" />
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-                <p className="text-sm text-gray-600">Welcome back, {admin?.name || user?.email}</p>
+      <Toaster />
+      
+      {/* Add Employee Navigation */}
+      <EmployeeNavigation showBack={false} showForward={false} />
+      
+      {/* Main content area that adapts to sidebar */}
+      <div 
+        className="transition-all duration-300 ease-in-out"
+        style={{ 
+          marginLeft: 'var(--sidebar-width, 0px)',
+        }}
+      >
+        {/* Header */}
+        <div className="bg-white shadow-sm border-b">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center py-4">
+              <div className="flex items-center">
+                <Building2 className="w-8 h-8 text-blue-600 mr-3" />
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+                  <p className="text-sm text-gray-600">Welcome back, {admin?.name || user?.email}</p>
+                </div>
               </div>
+              <Button onClick={handleLogout} variant="outline">
+                <LogOut className="w-4 h-4 mr-2" />
+                Logout
+              </Button>
             </div>
-            <Button onClick={handleLogout} variant="outline">
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
-            </Button>
           </div>
         </div>
-      </div>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid gap-8">
-          {/* KPI Definitions Upload Section */}
-          <Card>
-            <CardHeader className="sm:flex sm:items-start sm:justify-between">
-              <div>
-                <CardTitle className="flex items-center">KPI Definitions Upload</CardTitle>
-                <CardDescription>Upload a CSV or XLSX file with KPI definitions (KPI, Description, Benchmark, Datatype)</CardDescription>
-              </div>
-              <div className="mt-4 sm:mt-0">
-                <Button asChild variant="outline" size="sm">
-                  <a
-                    href="https://manugdmjylsvdjemwzcq.supabase.co/storage/v1/object/public/file_format/KPI_Description.xlsx"
-                    download
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Download Sample File
-                  </a>
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <KPIDefinitionsUpload companyId={admin?.company_id} />
-            </CardContent>
-          </Card>
-          {/* KPI Scores Upload Section */}
-          <Card>
-            <CardHeader className="sm:flex sm:items-start sm:justify-between">
-              <div>
-                <CardTitle className="flex items-center">KPI Scores Upload</CardTitle>
-                <CardDescription>Upload a CSV or XLSX file with KPI scores (Company_Employee_ID, Email, KPI, Score)</CardDescription>
-              </div>
-              <div className="mt-4 sm:mt-0">
-                <Button asChild variant="outline" size="sm">
-                  <a
-                    href="https://manugdmjylsvdjemwzcq.supabase.co/storage/v1/object/public/file_format/Sample_Emplyee.xlsx"
-                    download
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Download Sample File
-                  </a>
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <KPIScoresUpload companyId={admin?.company_id} admin={admin} />
-            </CardContent>
-          </Card>
-          {/* Add Employee Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Users className="w-5 h-5 mr-2" />
-                Manage Employees
-              </CardTitle>
-              <CardDescription>Add employees individually with complete details or in bulk using email lists or file uploads</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <EmployeeBulkAdd 
-                companyId={admin?.company_id} 
-                adminId={admin?.id}
-                onSuccess={() => { 
-                  loadEmployees(admin?.company_id || ""); 
-                  setSuccess("Employee added successfully!"); 
-                }} 
-                onError={setError} 
-              />
 
-              {error && ( 
-                <Alert variant="destructive" className="mt-4">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
+        {/* Page content */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="grid gap-8">
+            {/* KPI Definitions Upload Section */}
+            <Card>
+              <CardHeader className="sm:flex sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="flex items-center">KPI Definitions Upload</CardTitle>
+                  <CardDescription>Upload a CSV or XLSX file with KPI definitions (KPI, Description, Benchmark, Datatype)</CardDescription>
+                </div>
+                <div className="mt-4 sm:mt-0">
+                  <Button asChild variant="outline" size="sm">
+                    <a
+                      href="https://manugdmjylsvdjemwzcq.supabase.co/storage/v1/object/public/file_format/KPI_Description.xlsx"
+                      download
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Download Sample File
+                    </a>
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <KPIDefinitionsUpload companyId={admin?.company_id} />
+              </CardContent>
+            </Card>
+            {/* KPI Scores Upload Section */}
+            <Card>
+              <CardHeader className="sm:flex sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="flex items-center">KPI Scores Upload</CardTitle>
+                  <CardDescription>Upload a CSV or XLSX file with KPI scores (Company_Employee_ID, Email, KPI, Score)</CardDescription>
+                </div>
+                <div className="mt-4 sm:mt-0">
+                  <Button asChild variant="outline" size="sm">
+                    <a
+                      href="https://manugdmjylsvdjemwzcq.supabase.co/storage/v1/object/public/file_format/Sample_Emplyee.xlsx"
+                      download
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Download Sample File
+                    </a>
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <KPIScoresUpload companyId={admin?.company_id} admin={admin} />
+              </CardContent>
+            </Card>
+            {/* Add Employee Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Users className="w-5 h-5 mr-2" />
+                  Manage Employees
+                </CardTitle>
+                <CardDescription>Add employees individually with complete details or in bulk using email lists or file uploads</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <EmployeeBulkAdd 
+                  companyId={admin?.company_id} 
+                  adminId={admin?.id}
+                  onSuccess={() => { 
+                    loadEmployees(admin?.company_id || ""); 
+                    setSuccess("Employee added successfully!"); 
+                  }} 
+                  onError={setError} 
+                />
 
-              {success && (
-                <Alert className="mt-4">
-                  <AlertDescription>{success}</AlertDescription>
-                </Alert>
-              )}
-            </CardContent>
-          </Card>
+                {error && ( 
+                  <Alert variant="destructive" className="mt-4">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
 
-          {/* Department Filter Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Users className="w-5 h-5 mr-2" />
-                Filter Employees by Department
-              </CardTitle>
-              <CardDescription>View and manage employees by department and subdepartment</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DepartmentFilter employees={employees} onEmployeeChange={() => loadEmployees(admin?.company_id || "")} />
-            </CardContent>
-          </Card>
+                {success && (
+                  <Alert className="mt-4">
+                    <AlertDescription>{success}</AlertDescription>
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
 
-          {/* Content Upload Section */}
-          {admin?.company_id && (
-            <ContentUpload companyId={admin.company_id} onUploadSuccess={() => loadTrainingModules(admin.company_id)} />
-          )}
+            {/* Department Filter Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Users className="w-5 h-5 mr-2" />
+                  Filter Employees by Department
+                </CardTitle>
+                <CardDescription>View and manage employees by department and subdepartment</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DepartmentFilter employees={employees} onEmployeeChange={() => loadEmployees(admin?.company_id || "")} />
+              </CardContent>
+            </Card>
 
-          {/* Uploaded Files List */}
-          <UploadedFilesList modules={trainingModules} onModuleDeleted={() => loadTrainingModules(admin!.company_id)} />
+            {/* Content Upload Section */}
+            {admin?.company_id && (
+              <ContentUpload companyId={admin.company_id} onUploadSuccess={() => loadTrainingModules(admin.company_id)} />
+            )}
+
+            {/* Uploaded Files List */}
+            <UploadedFilesList modules={trainingModules} onModuleDeleted={() => loadTrainingModules(admin!.company_id)} />
+          </div>
         </div>
       </div>
     </div>

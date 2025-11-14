@@ -13,6 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Brain, ArrowLeft, Eye, EyeOff } from "lucide-react"
 import { auth, googleProvider } from "@/lib/firebase"
 import { supabase } from "@/lib/supabase"
+import { useAuth } from "@/contexts/auth-context"
 import bcrypt from "bcryptjs"
 
 export default function LoginPage() {
@@ -23,6 +24,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { login } = useAuth() // Get the login function from auth context
 
   useEffect(() => {
     const urlError = searchParams.get("error")
@@ -91,7 +93,7 @@ export default function LoginPage() {
       // Get user from database
       const { data: userData, error: userError } = await supabase
         .from("users")
-        .select("user_id, email, password")
+        .select("user_id, email, password, name")
         .eq("email", email)
         .maybeSingle()
 
@@ -113,16 +115,19 @@ export default function LoginPage() {
       // Check user access and get roles
       const userAccessData = await checkUserAccess(email)
 
-      // Redirect based on roles - check if user has ADMIN or SUPER_ADMIN permission
-      const hasAdminAccess = userAccessData.roles.some(role => 
-        role === 'ADMIN' || role === 'SUPER_ADMIN'
-      )
-
-      if (hasAdminAccess) {
-        router.push('/admin/dashboard')
-      } else {
-        router.push('/employee/welcome')
+      // Create a user object that matches what the auth context expects
+      const userForContext = {
+        uid: userData.user_id,
+        email: userData.email,
+        displayName: userData.name,
+        name: userData.name
       }
+
+      // Set user in auth context
+      await login(userForContext)
+
+      // Redirect all users to the employee dashboard
+      router.push('/employee/welcome')
     } catch (error: any) {
       setError(error.message)
     } finally {
@@ -137,20 +142,17 @@ export default function LoginPage() {
     try {
       const result = await signInWithPopup(auth, googleProvider)
     console.log(result)
+      
       // Check user access and get roles
       const userData = await checkUserAccess(result.user.email!)
 
     console.log(userData)
-      // Redirect based on roles - check if user has ADMIN or SUPER_ADMIN permission
-      const hasAdminAccess = userData.roles.some(role => 
-        role === 'ADMIN' || role === 'SUPER_ADMIN'
-      )
+      
+      // Set user in auth context (Google sign-in should automatically do this via Firebase)
+      await login(result.user)
 
-      if (hasAdminAccess) {
-        router.push('/admin/dashboard')
-      } else {
-        router.push('/employee/welcome')
-      }
+      // Redirect all users to the employee dashboard
+      router.push('/employee/welcome')
     } catch (error: any) {
       if (error.message.includes("Access denied")) {
         setError("Access denied. Your Google account email is not in the allowed users list.")

@@ -113,7 +113,7 @@ export default function EmployeeWelcome() {
       // LOG: Fetching employee data
       console.log("[EmployeeWelcome] Fetching employee data for email:", user.email)
       const { data: employeeData, error: employeeError } = await supabase
-        .from("employees")
+        .from("users")
         .select("*")
         .eq("email", user.email)
         .single()
