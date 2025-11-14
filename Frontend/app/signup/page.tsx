@@ -155,9 +155,10 @@ export default function SignupPage() {
           user_id: newUser.user_id,
           role_id: roleData.role_id,
           scope_type: "COMPANY",
-          assigned_by:newUser.user_id,
+          assigned_by: newUser.user_id,
           scope_id: companyData.company_id,
-          assigned_at: new Date().toISOString()
+          assigned_at: new Date().toISOString(),
+          is_active: true
         })
 
       if (roleAssignmentError) {

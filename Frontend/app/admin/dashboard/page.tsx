@@ -898,8 +898,17 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
           }
           
           // Process roles if provided
-          if (roles && userData) {
-            const roleNames = roles.split(',').map(role => role.trim()).filter(role => role);
+          if (userData) {
+            let roleNames = [];
+            
+            if (roles && roles.trim()) {
+              // If roles are provided, use them
+              roleNames = roles.split(',').map(role => role.trim()).filter(role => role);
+            } else {
+              // If no roles provided, assign default "User" role
+              roleNames = ['User'];
+            }
+            
             const roleAssignments = [];
 
             for (const roleName of roleNames) {
@@ -2061,7 +2070,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (!authLoading) {
       if (!user) {
-        router.push("/admin/login")
+        router.push("login")
       } else {
         checkAdminAccess()
       }
@@ -2080,7 +2089,7 @@ export default function AdminDashboard() {
         .single()
 
       if (adminError || !adminData) {
-        router.push("/admin/login")
+        router.push("/login")
         return
       }
 
@@ -2089,7 +2098,7 @@ export default function AdminDashboard() {
       await loadTrainingModules(adminData.company_id)
     } catch (error) {
       console.error("Admin access check failed:", error)
-      router.push("/admin/login")
+      router.push("/login")
     } finally {
       setLoading(false)
     }

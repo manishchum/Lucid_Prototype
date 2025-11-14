@@ -105,7 +105,7 @@ const generateAdminNotificationTemplate = (
             
             <p>Want to track more progress and analytics? Access your admin dashboard:</p>
             
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/login" class="cta-button">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" class="cta-button">
               View Dashboard →
             </a>
             
@@ -136,7 +136,7 @@ const generateAdminNotificationTemplate = (
       Module: ${moduleTitle}
       Completed: ${completionDate}
       
-      Access your admin dashboard: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/login
+      Access your admin dashboard: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/login
       
       Best regards,
       The Lucid Learning System
