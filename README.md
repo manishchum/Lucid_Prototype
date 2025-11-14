@@ -439,7 +439,7 @@ processed_modules (
 ```sql
 module_progress (
   id UUID PRIMARY KEY,
-  employee_id UUID REFERENCES employees(id),
+  user_id UUID REFERENCES employees(id),
   processed_module_id UUID REFERENCES processed_modules(id),
   viewed_at TIMESTAMP,
   completed_at TIMESTAMP,
@@ -450,7 +450,7 @@ module_progress (
 roleplay_frames (
   id UUID PRIMARY KEY,
   session_id VARCHAR NOT NULL,
-  employee_id UUID REFERENCES employees(id),
+  user_id UUID REFERENCES employees(id),
   timestamp TIMESTAMP,
   feedback TEXT,
   metadata JSONB,          -- Stores multimodal analysis results

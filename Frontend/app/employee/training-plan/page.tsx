@@ -24,17 +24,17 @@ export default function TrainingPlanPage() {
       if (!user?.email) return;
       // Get employee id
       const { data: employeeData } = await supabase
-        .from("employees")
-        .select("employee_id")
+        .from("users")
+        .select("user_id")
         .eq("email", user.email)
         .single();
-      if (!employeeData?.employee_id) return;
+      if (!employeeData?.user_id) return;
       
       // Get completed modules for employee (match employee/welcome logic)
       const { data: progressData } = await supabase
         .from("module_progress")
         .select("processed_module_id, completed_at")
-        .eq("employee_id", employeeData.employee_id)
+        .eq("user_id", employeeData.user_id)
         .not("completed_at", "is", null);
         
       if (progressData) {
@@ -131,11 +131,11 @@ export default function TrainingPlanPage() {
         return;
       }
       const { data: employeeData, error: employeeError } = await supabase
-        .from("employees")
-        .select("employee_id")
+        .from("users")
+        .select("user_id")
         .eq("email", user.email)
         .single();
-      if (employeeError || !employeeData?.employee_id) {
+      if (employeeError || !employeeData?.user_id) {
         setPlan("Could not find employee record.");
         setLoading(false);
         return;
@@ -144,7 +144,7 @@ export default function TrainingPlanPage() {
       const res = await fetch("/api/training-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee_id: employeeData.employee_id }),
+        body: JSON.stringify({ user_id: employeeData.user_id }),
       });
       const result = await res.json();
       // If error, show raw JSON for debugging

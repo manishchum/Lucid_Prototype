@@ -137,8 +137,8 @@ export default function LearningStyleSurvey() {
       // Fetch employee_id from Supabase using user email
       const res = await fetch(`/api/get-employee-id?email=${encodeURIComponent(user.email)}`)
       const data = await res.json()
-      if (data.employee_id) {
-        setEmployeeId(data.employee_id)
+      if (data.user_id) {
+        setEmployeeId(data.user_id)
       } else {
         setEmployeeId(null)
       }
@@ -174,7 +174,7 @@ export default function LearningStyleSurvey() {
       const res = await fetch("/api/learning-style", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee_id: employeeId, answers })
+        body: JSON.stringify({ user_id: employeeId, answers })
       })
       const data = await res.json()
       if (!res.ok) {

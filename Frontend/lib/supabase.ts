@@ -144,7 +144,7 @@ export type Database = {
       employee_assessments: {
         Row: {
           id: string;
-          employee_id: string;
+          user_id: string;
           assessment_id: string;
           score: number;
           max_score: number;
@@ -154,7 +154,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
-          employee_id: string;
+          user_id: string;
           assessment_id: string;
           score: number;
           max_score: number;
@@ -164,7 +164,7 @@ export type Database = {
         };
         Update: {
           id?: string;
-          employee_id?: string;
+          user_id?: string;
           assessment_id?: string;
           score?: number;
           max_score?: number;
@@ -214,7 +214,7 @@ export type Database = {
       module_progress: {
         Row: {
           id: string;
-          employee_id: string | null;
+          user_id: string | null;
           module_id: string | null; // original training_modules id (for grouping)
           processed_module_id?: string | null; // optional if added later
           started_at: string | null;
@@ -226,7 +226,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
-          employee_id?: string | null;
+          user_id?: string | null;
           module_id?: string | null;
           processed_module_id?: string | null;
           started_at?: string | null;
@@ -238,7 +238,7 @@ export type Database = {
         };
         Update: {
           id?: string;
-          employee_id?: string | null;
+          user_id?: string | null;
           module_id?: string | null;
           processed_module_id?: string | null;
           started_at?: string | null;

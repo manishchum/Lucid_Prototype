@@ -1,11 +1,11 @@
--- Migration: Add employee_id and indexes to assessments
+-- Migration: Add user_id and indexes to assessments
 -- Run this in your Supabase/Postgres SQL editor.
 
 BEGIN;
 
--- 1) Add employee_id column if it doesn't already exist
+-- 1) Add user_id column if it doesn't already exist
 ALTER TABLE assessments
-  ADD COLUMN IF NOT EXISTS employee_id UUID;
+  ADD COLUMN IF NOT EXISTS user_id UUID;
 
 -- 2) Add foreign key constraint linking to employees(id) (do nothing if exists)
 DO $$
@@ -16,22 +16,22 @@ BEGIN
       ON tc.constraint_name = kcu.constraint_name
     WHERE tc.table_name = 'assessments'
       AND tc.constraint_type = 'FOREIGN KEY'
-      AND kcu.column_name = 'employee_id'
+      AND kcu.column_name = 'user_id'
   ) THEN
     ALTER TABLE assessments
       ADD CONSTRAINT fk_assessments_employee
-      FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE SET NULL;
+      FOREIGN KEY (user_id) REFERENCES employees(id) ON DELETE SET NULL;
   END IF;
 END$$;
 
 -- 3) Create a composite index to speed lookups by employee/module/type
 CREATE INDEX IF NOT EXISTS idx_assessments_employee_module_type
-  ON assessments (employee_id, module_id, type);
+  ON assessments (user_id, module_id, type);
 
 -- 4) Ensure only one baseline assessment exists per employee + module
---    Use a partial unique index (Postgres). It ignores rows where employee_id or module_id is NULL.
+--    Use a partial unique index (Postgres). It ignores rows where user_id or module_id is NULL.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_assessments_baseline_employee_module
-  ON assessments (employee_id, module_id)
-  WHERE type = 'baseline' AND employee_id IS NOT NULL AND module_id IS NOT NULL;
+  ON assessments (user_id, module_id)
+  WHERE type = 'baseline' AND user_id IS NOT NULL AND module_id IS NOT NULL;
 
 COMMIT;

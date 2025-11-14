@@ -898,8 +898,17 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
           }
           
           // Process roles if provided
-          if (roles && userData) {
-            const roleNames = roles.split(',').map(role => role.trim()).filter(role => role);
+          if (userData) {
+            let roleNames = [];
+            
+            if (roles && roles.trim()) {
+              // If roles are provided, use them
+              roleNames = roles.split(',').map(role => role.trim()).filter(role => role);
+            } else {
+              // If no roles provided, assign default "User" role
+              roleNames = ['User'];
+            }
+            
             const roleAssignments = [];
 
             for (const roleName of roleNames) {
@@ -1037,7 +1046,7 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
               onChange={handleFileChange}
             />
             <div className="text-xs text-gray-500 mt-1">
-              Table format: company_employee_id, email (header row optional)
+              Table format: company_user_id, email (header row optional)
             </div>
           </div>
           
@@ -2061,7 +2070,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (!authLoading) {
       if (!user) {
-        router.push("/admin/login")
+        router.push("login")
       } else {
         checkAdminAccess()
       }
@@ -2080,7 +2089,7 @@ export default function AdminDashboard() {
         .single()
 
       if (adminError || !adminData) {
-        router.push("/admin/login")
+        router.push("/login")
         return
       }
 
@@ -2089,7 +2098,7 @@ export default function AdminDashboard() {
       await loadTrainingModules(adminData.company_id)
     } catch (error) {
       console.error("Admin access check failed:", error)
-      router.push("/admin/login")
+      router.push("/login")
     } finally {
       setLoading(false)
     }
@@ -2238,7 +2247,7 @@ export default function AdminDashboard() {
               <CardHeader className="sm:flex sm:items-start sm:justify-between">
                 <div>
                   <CardTitle className="flex items-center">KPI Scores Upload</CardTitle>
-                  <CardDescription>Upload a CSV or XLSX file with KPI scores (Company_Employee_ID, Email, KPI, Score)</CardDescription>
+                  <CardDescription>Upload a CSV or XLSX file with KPI scores (Company_user_id, Email, KPI, Score)</CardDescription>
                 </div>
                 <div className="mt-4 sm:mt-0">
                   <Button asChild variant="outline" size="sm">
@@ -2356,7 +2365,7 @@ function AssignModules({ employees, modules, admin, onAssigned }: { employees: E
           "Content-Type": "application/json",
           ...(admin?.id ? { 'x-admin-id': admin.id } : {})
         },
-        body: JSON.stringify({ employee_id: selectedEmployee, moduleIds })
+        body: JSON.stringify({ user_id: selectedEmployee, moduleIds })
       });
       const json = await res.json();
       if (!res.ok) {

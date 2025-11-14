@@ -15,7 +15,7 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        employee_id: employeeId,
+        user_id: employeeId,
         processed_module_id: processedModuleId,
         module_id: moduleId,
         audio_listen_duration: 0,
@@ -29,7 +29,7 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        employee_id: employeeId,
+        user_id: employeeId,
         processed_module_id: processedModuleId,
         module_id: moduleId,
         audio_listen_duration: Math.round(duration),
