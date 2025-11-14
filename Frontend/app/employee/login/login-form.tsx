@@ -94,7 +94,7 @@ export default function EmployeeLoginForm() {
 
       // Send sign-in link to email
       const actionCodeSettings = {
-        url: `${window.location.origin}/employee/login`,
+        url: `${window.location.origin}/login`,
         handleCodeInApp: true,
       }
 

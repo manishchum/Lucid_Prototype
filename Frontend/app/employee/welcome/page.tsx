@@ -98,7 +98,7 @@ export default function EmployeeWelcome() {
     if (!authLoading) {
       if (!user) {
         console.log("[EmployeeWelcome] No user, redirecting to login.")
-        router.push("/employee/login")
+        router.push("/login")
       } else {
         console.log("[EmployeeWelcome] User found, calling checkEmployeeAccess().")
         checkEmployeeAccess()
@@ -113,14 +113,14 @@ export default function EmployeeWelcome() {
       // LOG: Fetching employee data
       console.log("[EmployeeWelcome] Fetching employee data for email:", user.email)
       const { data: employeeData, error: employeeError } = await supabase
-        .from("employees")
+        .from("users")
         .select("*")
         .eq("email", user.email)
         .single()
 
       if (employeeError || !employeeData) {
         console.error("[EmployeeWelcome] Employee fetch error:", employeeError)
-        router.push("/employee/login")
+        router.push("/login")
         return
       }
 
@@ -285,7 +285,7 @@ export default function EmployeeWelcome() {
       setModuleProgress(progressData || [])
     } catch (error) {
       console.error("Employee access check failed:", error)
-      router.push("/employee/login")
+      router.push("/login")
     } finally {
       setLoading(false)
     }
@@ -424,8 +424,8 @@ export default function EmployeeWelcome() {
                   active={!learningStyle}
                   onClick={() => !learningStyle && router.push("/employee/learning-style")}
                 />
-                {/* PHASED RELEASE: Steps 2 and 3 now visible */}
-
+                {/* PHASED RELEASE: Steps 2 and 3 hidden until later rollout */}
+                
                 <StepCircle
                   step={2}
                   label="Baseline Assessment"
@@ -435,6 +435,7 @@ export default function EmployeeWelcome() {
                   onClick={() => learningStyle && baselineScore === null && router.push("/employee/assessment")}
                 />
 
+                
                 <StepCircle
                   step={3}
                   label="Learning Plan"
@@ -443,6 +444,7 @@ export default function EmployeeWelcome() {
                   active={!!learningStyle && baselineScore !== null && !allAssignedCompleted}
                   onClick={() => learningStyle && baselineScore !== null && !allAssignedCompleted && router.push("/employee/training-plan")}
                 />
+               
               </div>
             </CardContent>
           </Card>
