@@ -70,6 +70,7 @@ const EmployeeNavigation = ({
               .eq("is_active", true);
 
             if (!roleError && roleData) {
+              // @ts-ignore
               const roles = roleData.map(assignment => assignment.roles?.name).filter(Boolean);
               console.log("These are the roles assigned to the user:");
               console.log(roles);
