@@ -228,8 +228,8 @@ export async function POST(request: NextRequest) {
   // 1. Get all selected modules' content for this company only
   const { data, error } = await supabase
     .from('training_modules')
-    .select('id, gpt_summary, ai_modules, ai_objectives, company_id')
-    .in('id', moduleIds)
+    .select('module_id, gpt_summary, ai_modules, ai_objectives, company_id')
+    .in('module_id', moduleIds)
     .eq('company_id', companyId);
   if (error || !data || data.length === 0) return NextResponse.json({ error: 'Modules not found' }, { status: 404 });
   // 2. Prepare normalized snapshot
@@ -300,14 +300,14 @@ export async function POST(request: NextRequest) {
           modules_snapshot: normalizedSnapshot
         }
       ])
-      .select('id')
+      .select('assessment_id')
       .maybeSingle();
     if (insertError) {
       console.error('[gpt-mcq-quiz] Failed to insert baseline assessment:', insertError);
       return NextResponse.json({ error: 'Failed to save baseline assessment (insert).' }, { status: 500 });
     }
-    console.log('[gpt-mcq-quiz] Inserted baseline assessment id:', insertData?.id);
-    return NextResponse.json({ quiz, source: 'generated', assessmentId: insertData?.id });
+    console.log('[gpt-mcq-quiz] Inserted baseline assessment id:', insertData?.assessment_id);
+    return NextResponse.json({ quiz, source: 'generated', assessmentId: insertData?.assessment_id });
   }
   
 }
