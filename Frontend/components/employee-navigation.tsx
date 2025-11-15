@@ -286,7 +286,7 @@ const EmployeeNavigation = ({
               onClick={closeMobileSidebar}
               className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${
                 isActiveRoute('/admin/dashboard') 
-                  ? 'text-orange-600 bg-orange-100' 
+                  ? 'text-blue-600 bg-blue-100' 
                   : 'text-gray-700 hover:bg-gray-100'
               } ${isCollapsed ? 'justify-center' : ''}`}
               title={isCollapsed ? 'Admin Panel' : ''}

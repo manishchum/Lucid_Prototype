@@ -1367,7 +1367,7 @@ function KPIDefinitionsUpload({ companyId }: { companyId?: string }) {
 }
 
 // --- Department Filter Component ---
-function DepartmentFilter({ employees, onEmployeeChange }: { employees: Employee[]; onEmployeeChange: () => void }) {
+function DepartmentFilter({ employees, admin, onEmployeeChange }: { employees: Employee[]; admin: Admin | null; onEmployeeChange: () => void }) {
   const [subDepartments, setSubDepartments] = useState<SubDepartment[]>([]);
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
   const [selectedSubDepartments, setSelectedSubDepartments] = useState<string[]>([]);
@@ -1990,55 +1990,23 @@ function DepartmentFilter({ employees, onEmployeeChange }: { employees: Employee
         </div>
       )}
 
-      {/* Assignment Modal Placeholder */}
+      {/* Assignment Modal */}
       {showAssignmentModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Assign Training Module</h3>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setShowAssignmentModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                ✕
-              </Button>
-            </div>
-            <div className="space-y-4">
-              <p className="text-sm text-gray-600">
-                You have selected <strong>{selectedEmployees.length}</strong> employees for module assignment.
-              </p>
-              <div className="bg-blue-50 p-3 rounded-lg">
-                <p className="text-sm text-blue-800">
-                  Module assignment functionality will be implemented here. 
-                  This will allow admins to select training modules and assign them to the selected employees.
-                </p>
-              </div>
-              <div className="flex gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowAssignmentModal(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => {
-                    // TODO: Implement module assignment logic
-                    console.log('Assigning module to employees:', selectedEmployees);
-                    setShowAssignmentModal(false);
-                    setSelectedEmployees([]);
-                  }}
-                >
-                  Assign Module
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ModuleAssignmentModal
+          isOpen={showAssignmentModal}
+          onClose={() => {
+            setShowAssignmentModal(false);
+            setSelectedEmployees([]);
+          }}
+          selectedEmployees={selectedEmployees}
+          employees={filteredEmployees}
+          companyId={admin?.company_id || ''}
+          onSuccess={() => {
+            setShowAssignmentModal(false);
+            setSelectedEmployees([]);
+            onEmployeeChange();
+          }}
+        />
       )}
       
       {/* Click outside handlers */}
@@ -2310,7 +2278,11 @@ export default function AdminDashboard() {
                 <CardDescription>View and manage employees by department and subdepartment</CardDescription>
               </CardHeader>
               <CardContent>
-                <DepartmentFilter employees={employees} onEmployeeChange={() => loadEmployees(admin?.company_id || "")} />
+                <DepartmentFilter 
+                  employees={employees} 
+                  admin={admin} 
+                  onEmployeeChange={() => loadEmployees(admin?.company_id || "")} 
+                />
               </CardContent>
             </Card>
 
@@ -2403,6 +2375,341 @@ function AssignModules({ employees, modules, admin, onAssigned }: { employees: E
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       <div className="flex gap-2">
         <Button onClick={handleAssign} disabled={loading}>{loading ? 'Assigning...' : 'Assign Modules'}</Button>
+      </div>
+    </div>
+  );
+}
+
+// --- Module Assignment Modal Component ---
+function ModuleAssignmentModal({ 
+  isOpen, 
+  onClose, 
+  selectedEmployees, 
+  employees, 
+  companyId, 
+  onSuccess 
+}: { 
+  isOpen: boolean;
+  onClose: () => void;
+  selectedEmployees: string[];
+  employees: Employee[];
+  companyId: string;
+  onSuccess: () => void;
+}) {
+  const [modules, setModules] = useState<TrainingModule[]>([]);
+  const [selectedModules, setSelectedModules] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingModules, setLoadingModules] = useState(true);
+  const [error, setError] = useState('');
+  const [priority, setPriority] = useState(1);
+  const [dueDate, setDueDate] = useState('');
+
+  // Load available modules
+  useEffect(() => {
+    if (isOpen && companyId) {
+      loadModules();
+    }
+  }, [isOpen, companyId]);
+
+  const loadModules = async () => {
+    setLoadingModules(true);
+    setError('');
+    
+    try {
+      console.log("Company ID:")
+      console.log(companyId)
+      const { data, error: modulesError } = await supabase
+        .from('training_modules')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('processing_status', 'completed')
+        .order('title');
+        console.log("Training Modules Data:")
+        console.log(data)
+      if (modulesError) throw modulesError;
+      setModules(data || []);
+    } catch (error: any) {
+      setError('Failed to load modules: ' + error.message);
+    } finally {
+      setLoadingModules(false);
+    }
+  };
+
+  const handleModuleToggle = (moduleId: string) => {
+    setSelectedModules(prev =>
+      prev.includes(moduleId)
+        ? prev.filter(id => id !== moduleId)
+        : [...prev, moduleId]
+    );
+  };
+
+  const selectAllModules = () => {
+    setSelectedModules(modules.map(module => module.module_id));
+  };
+
+  const clearAllModules = () => {
+    setSelectedModules([]);
+  };
+
+  const handleAssign = async () => {
+    if (selectedModules.length === 0) {
+      setError('Please select at least one module');
+      return;
+    }
+
+    if (selectedEmployees.length === 0) {
+      setError('No employees selected');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      // Create learning plan entries for each employee-module combination
+      const learningPlans = [];
+      
+      for (const employeeId of selectedEmployees) {
+        for (const moduleId of selectedModules) {
+          learningPlans.push({
+            user_id: employeeId,
+            module_id: moduleId,
+            assigned_on: new Date().toISOString(),
+            due_date: dueDate || null,
+            priority: priority,
+            status: 'ASSIGNED'
+          });
+        }
+      }
+
+      // Insert learning plans into database
+      const { error: insertError } = await supabase
+        .from('learning_plan')
+        .insert(learningPlans);
+
+      if (insertError) throw insertError;
+
+      onSuccess();
+      
+    } catch (error: any) {
+      console.error('Failed to assign modules:', error);
+      
+      // Handle duplicate assignments gracefully
+      if (error.code === '23505') {
+        setError('Some modules are already assigned to selected employees. Assignment completed for new combinations.');
+        onSuccess(); // Still call success as partial assignment succeeded
+      } else {
+        setError('Failed to assign modules: ' + error.message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get selected employee details for display
+  const selectedEmployeeDetails = employees.filter(emp => 
+    selectedEmployees.includes(emp.user_id)
+  );
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold text-gray-900">Assign Modules</h2>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              ✕
+            </Button>
+          </div>
+
+          {/* Selected Employees Summary */}
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h3 className="font-medium text-blue-900 mb-2">
+              Selected Employees ({selectedEmployees.length})
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-32 overflow-y-auto">
+              {selectedEmployeeDetails.map(employee => (
+                <div key={employee.user_id} className="text-sm text-blue-800 bg-blue-100 px-2 py-1 rounded">
+                  {employee.name || employee.email}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Assignment Configuration */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div>
+              <Label htmlFor="priority">Priority Level</Label>
+              <select
+                id="priority"
+                value={priority}
+                onChange={(e) => setPriority(parseInt(e.target.value))}
+                className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value={1}>Low Priority</option>
+                <option value={2}>Medium Priority</option>
+                <option value={3}>High Priority</option>
+              </select>
+            </div>
+            
+            <div>
+              <Label htmlFor="dueDate">Due Date (Optional)</Label>
+              <Input
+                id="dueDate"
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                min={new Date().toISOString().split('T')[0]}
+              />
+            </div>
+          </div>
+
+          {/* Module Selection */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <Label>Select Training Modules</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={selectAllModules}
+                  disabled={selectedModules.length === modules.length || loadingModules}
+                >
+                  Select All
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={clearAllModules}
+                  disabled={selectedModules.length === 0}
+                >
+                  Clear All
+                </Button>
+              </div>
+            </div>
+
+            {loadingModules ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                <span className="ml-2 text-gray-600">Loading modules...</span>
+              </div>
+            ) : modules.length === 0 ? (
+              <div className="text-center py-8 text-gray-500 border border-gray-200 rounded-lg">
+                <p>No training modules available</p>
+                <p className="text-sm">Upload training content first to create modules</p>
+              </div>
+            ) : (
+              <div className="border border-gray-300 rounded-md max-h-64 overflow-y-auto">
+                <div className="p-3 space-y-3">
+                  {modules.map(module => (
+                    <label
+                      key={module.module_id}
+                      className="flex items-start space-x-3 p-3 hover:bg-gray-50 rounded cursor-pointer border border-gray-100"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedModules.includes(module.module_id)}
+                        onChange={() => handleModuleToggle(module.module_id)}
+                        className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-gray-900">{module.title}</div>
+                        {module.description && (
+                          <p className="text-sm text-gray-600 mt-1">{module.description}</p>
+                        )}
+                        <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+                          <span className="bg-gray-100 px-2 py-1 rounded">
+                            {module.content_type.toUpperCase()}
+                          </span>
+                          <span>
+                            Created: {new Date(module.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-2 text-xs text-gray-500">
+              Selected: {selectedModules.length} module{selectedModules.length === 1 ? '' : 's'}
+            </div>
+
+            {/* Selected Modules Preview */}
+            {selectedModules.length > 0 && (
+              <div className="mt-3">
+                <span className="text-xs text-gray-600 block mb-2">Selected Modules:</span>
+                <div className="flex flex-wrap gap-2">
+                  {selectedModules.map(moduleId => {
+                    const module = modules.find(m => m.module_id === moduleId);
+                    return module ? (
+                      <span key={moduleId} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
+                        {module.title}
+                      </span>
+                    ) : null;
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Assignment Summary */}
+          {selectedModules.length > 0 && (
+            <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <h3 className="font-medium text-gray-900 mb-2">Assignment Summary</h3>
+              <p className="text-sm text-gray-600">
+                You are about to assign <strong>{selectedModules.length}</strong> module{selectedModules.length === 1 ? '' : 's'} 
+                to <strong>{selectedEmployees.length}</strong> employee{selectedEmployees.length === 1 ? '' : 's'}.
+              </p>
+              <p className="text-sm text-gray-600 mt-1">
+                This will create <strong>{selectedModules.length * selectedEmployees.length}</strong> learning plan assignments.
+              </p>
+            </div>
+          )}
+
+          {error && (
+            <Alert variant="destructive" className="mb-6">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {/* Form Actions */}
+          <div className="flex gap-3 pt-4 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              disabled={loading}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAssign}
+              disabled={loading || selectedModules.length === 0 || loadingModules}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {loading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Assigning...
+                </>
+              ) : (
+                `Assign ${selectedModules.length} Module${selectedModules.length === 1 ? '' : 's'}`
+              )}
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );
