@@ -693,7 +693,7 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
       for (const email of emails) {
         try {
           const { error } = await supabase
-            .from("employees")
+            .from("users")
             .insert({
               email: email.toLowerCase(),
               company_id: companyId,
@@ -2102,35 +2102,6 @@ export default function AdminDashboard() {
     }
   }, [])
 
-  const addEmployee = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!admin) return
-
-    setAddingEmployee(true)
-    setError("")
-    setSuccess("")
-
-    try {
-      const { data, error } = await supabase
-        .from("employees")
-        .insert({
-          email: newEmployeeEmail,
-          company_id: admin.company_id,
-        })
-        .select()
-        .single()
-
-      if (error) throw error
-
-      setEmployees([data, ...employees])
-      setNewEmployeeEmail("")
-      setSuccess("Employee added successfully!")
-    } catch (error: any) {
-      setError("Failed to add employee: " + error.message)
-    } finally {
-      setAddingEmployee(false)
-    }
-  }
 
   
 
@@ -2401,7 +2372,7 @@ function ModuleAssignmentModal({
   const [loading, setLoading] = useState(false);
   const [loadingModules, setLoadingModules] = useState(true);
   const [error, setError] = useState('');
-  const [priority, setPriority] = useState(1);
+  const [baselineAssessment, setBaselineAssessment] = useState(true);
   const [dueDate, setDueDate] = useState('');
 
   // Load available modules
@@ -2476,7 +2447,7 @@ function ModuleAssignmentModal({
             module_id: moduleId,
             assigned_on: new Date().toISOString(),
             due_date: dueDate || null,
-            priority: priority,
+            baseline_assessment: baselineAssessment ? 1 : 0,
             status: 'ASSIGNED'
           });
         }
@@ -2547,17 +2518,33 @@ function ModuleAssignmentModal({
           {/* Assignment Configuration */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div>
-              <Label htmlFor="priority">Priority Level</Label>
-              <select
-                id="priority"
-                value={priority}
-                onChange={(e) => setPriority(parseInt(e.target.value))}
-                className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value={1}>Low Priority</option>
-                <option value={2}>Medium Priority</option>
-                <option value={3}>High Priority</option>
-              </select>
+              <Label htmlFor="baselineAssessment">Baseline Assessment Required</Label>
+              <div className="flex items-center space-x-3 mt-2">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      id="baselineAssessment"
+                      checked={baselineAssessment}
+                      onChange={(e) => setBaselineAssessment(e.target.checked)}
+                      className="sr-only"
+                    />
+                    <div className={`w-11 h-6 rounded-full transition-colors ${
+                      baselineAssessment ? 'bg-blue-600' : 'bg-gray-300'
+                    }`}>
+                      <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${
+                        baselineAssessment ? 'translate-x-5' : 'translate-x-0.5'
+                      } mt-0.5`}></div>
+                    </div>
+                  </div>
+                  <span className="text-sm text-gray-700">
+                    {baselineAssessment ? 'Yes' : 'No'}
+                  </span>
+                </label>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Employees will need to complete a baseline assessment before starting the training modules
+              </p>
             </div>
             
             <div>
@@ -2674,6 +2661,9 @@ function ModuleAssignmentModal({
               </p>
               <p className="text-sm text-gray-600 mt-1">
                 This will create <strong>{selectedModules.length * selectedEmployees.length}</strong> learning plan assignments.
+              </p>
+              <p className="text-sm text-gray-600 mt-1">
+                <strong>Baseline Assessment:</strong> {baselineAssessment ? 'Required' : 'Not Required'}
               </p>
             </div>
           )}
