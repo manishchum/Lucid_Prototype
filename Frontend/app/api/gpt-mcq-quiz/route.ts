@@ -103,6 +103,23 @@ Objectives: ${JSON.stringify(objectives)}
 export async function POST(request: NextRequest) {
   const body = await request.json();
   console.log("[gpt-mcq-quiz] POST body:", body);
+  // Derive learning style from provided user_id when available
+  const reqUserId = body.user_id || body.userId || null;
+  let userLearningStyle: string | null = null;
+  if (reqUserId) {
+    try {
+      const { data: lsRow, error: lsErr } = await supabase
+        .from('employee_learning_style')
+        .select('learning_style')
+        .eq('user_id', reqUserId)
+        .maybeSingle();
+      if (lsErr) console.warn('[gpt-mcq-quiz] learning style lookup warning:', lsErr);
+      userLearningStyle = lsRow?.learning_style ?? null;
+      console.log('[gpt-mcq-quiz] Resolved user learning style for user:', reqUserId, userLearningStyle);
+    } catch (e) {
+      console.warn('[gpt-mcq-quiz] Error fetching learning style:', e);
+    }
+  }
   // Per-module quiz branch: only run this when a single moduleId is provided
   // and no moduleIds array is present (avoid accidental branch when both are sent).
   if (body.moduleId && !body.moduleIds) {
@@ -110,25 +127,63 @@ export async function POST(request: NextRequest) {
     if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
       return NextResponse.json({ error: 'Invalid moduleId' }, { status: 400 });
     }
-    const learningStyle = body.learningStyle || null;
+    // Prefer explicit learningStyle in body, otherwise use the user's stored learning style
+    const learningStyle = body.learningStyle || userLearningStyle || null;
     if (!learningStyle) {
-      return NextResponse.json({ error: 'Missing learningStyle in request.' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing learningStyle; provide user_id or learningStyle in request.' }, { status: 400 });
     }
     console.log(`[gpt-mcq-quiz] Per-module quiz requested for moduleId: ${moduleId}, learningStyle: ${learningStyle}`);
-    // Fetch module info  
-    const { data: moduleData, error: moduleError } = await supabase
-      .from('processed_modules')
-      .select('processed_module_id, title, content')
-      .eq('module_id', moduleId)
-      .maybeSingle();
-    if (moduleError || !moduleData) return NextResponse.json({ error: 'Module not found' }, { status: 404 });
+    // Use processed_modules as the canonical source of content for per-module quizzes.
+    // Try to find a processed_module by processed_module_id first (new-style), then by original_module_id (legacy).
+    let processedModuleId: string | null = null;
+    let existingProcessed: any = null;
 
-    // Check if quiz already exists for this module and learning style (robust to duplicates)
+    try {
+      const { data: pmById, error: pmIdErr } = await supabase
+        .from('processed_modules')
+        .select('processed_module_id, title, content, original_module_id, learning_style')
+        .eq('processed_module_id', moduleId)
+        .maybeSingle();
+      if (pmIdErr) console.warn('[gpt-mcq-quiz] lookup processed_modules by processed_module_id warning:', pmIdErr);
+      if (pmById && pmById.processed_module_id) {
+        existingProcessed = pmById;
+        processedModuleId = pmById.processed_module_id;
+      }
+    } catch (e) {
+      console.warn('[gpt-mcq-quiz] Error querying processed_modules by id:', e);
+    }
+
+    if (!processedModuleId) {
+      try {
+        const { data: pmByOriginal, error: pmOrigErr } = await supabase
+          .from('processed_modules')
+          .select('processed_module_id, title, content, original_module_id, learning_style')
+          .eq('original_module_id', moduleId)
+          .maybeSingle();
+        if (pmOrigErr) console.warn('[gpt-mcq-quiz] lookup processed_modules by original_module_id warning:', pmOrigErr);
+        if (pmByOriginal && pmByOriginal.processed_module_id) {
+          existingProcessed = pmByOriginal;
+          processedModuleId = pmByOriginal.processed_module_id;
+        }
+      } catch (e) {
+        console.warn('[gpt-mcq-quiz] Error querying processed_modules by original_module_id:', e);
+      }
+    }
+
+    if (!processedModuleId) {
+      return NextResponse.json({ error: 'Processed module not found. Ensure a processed_modules entry exists for this module.' }, { status: 404 });
+    }
+
+    // Prepare module title/content for prompt from processed_modules
+    const moduleTitle = existingProcessed?.title || '';
+    const moduleContent = existingProcessed?.content || '';
+
+    // Check if quiz already exists for this processed module id and learning style (robust to duplicates)
     const { data: assessmentsList } = await supabase
       .from('assessments')
       .select('assessment_id, questions')
       .eq('type', 'module')
-      .eq('module_id', moduleId)
+      .eq('processed_module_id', processedModuleId)
       .eq('learning_style', learningStyle)
       .order('assessment_id', { ascending: false })
       .limit(1);
@@ -144,7 +199,51 @@ export async function POST(request: NextRequest) {
       }
     }
   // Compose prompt for per-module MCQ quiz (no mixed question types)
-  const prompt = `You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom’s Taxonomy.\n\nInput: A learning asset (text, notes, or structured content).\n\nOutput: A set of 10-13 MCQs (Multiple Choice Questions) distributed across difficulty levels based on Bloom’s Taxonomy.\n\nEasy → Remember & Understand (default: 20%)\nAverage → Apply & Analyze (default: 50%)\nDifficult → Evaluate & Create (default: 30%)\n\nBloom’s Level Mapping:\nRemember: Define, List, Identify, Recall, Name, Label, Recognize, State, Match, Repeat, Select\nUnderstand: Explain, Summarize, Describe, Interpret, Restate, Paraphrase, Classify, Discuss, Illustrate, Compare (basic), Report\nApply: Solve, Demonstrate, Use, Implement, Apply, Execute, Practice, Show, Operate, Employ, Perform\nAnalyze: Differentiate, Compare, Contrast, Organize, Examine, Break down, Categorize, Investigate, Distinguish, Attribute, Diagram\nEvaluate: Judge, Critique, Justify, Recommend, Assess, Evaluate, Defend, Support, Argue, Prioritize, Appraise, Rate, Validate\nCreate: Design, Generate, Propose, Develop, Formulate, Construct, Invent, Plan, Compose, Produce, Hypothesize, Integrate, Originate\n\nExhaustive Question-Type Bank (Stems/Patterns):\nRemember: “What is…?”, “Which of the following defines…?”, “Identify…”, “Who discovered…?”, “When/Where did…?”, “Match the term with…”\nUnderstand: “Which best explains…?”, “Summarize…”, “What does this mean…?”, “Which example illustrates…?”, “Why does…happen?”\nApply: “Which principle would you use if…?”, “What is the correct method to…?”, “How would you solve…?”, “Which tool/technique applies to…?”, “Which step comes next…?”\nAnalyze: “Which factor contributes most to…?”, “What pattern best explains…?”, “Which cause-effect relationship is correct…?”, “What evidence supports…?”, “Which statement best differentiates between…?”\nEvaluate: “Which option provides the best justification…?”, “Which solution is most effective and why?”, “Which argument is strongest?”, “Which evidence best supports…?”, “What decision is most appropriate…?”\nCreate: “What new approach could be developed…?”, “Which design achieves…?”, “How would you improve…?”, “Which combination of ideas solves…?”, “What hypothesis could you form…?”\n\nQuestion Design Rules:\n- Each question must explicitly map to its Bloom’s level.\n- Provide 4 answer choices (A–D).\n- Clearly mark the correct answer.\n- Avoid ambiguity; test one concept per question. Ensure every concept is tested.\n\nReturn ONLY a valid JSON array of 10-13 question objects, with no extra text, markdown, code blocks, or formatting. Each object must include:\n{\n  "question": string,\n  "bloomLevel": string,\n  "options": [string, string, string, string],\n  "correctIndex": number,\n  "explanation": string (optional)\n}\n\nLearning Content:\nSummary: ${moduleData.title}\nModules: ${JSON.stringify([moduleData.title])}\nObjectives: ${JSON.stringify([moduleData.content])}`;
+  const prompt = `You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom’s Taxonomy.
+
+Input: A learning asset (text, notes, or structured content).
+
+Output: A set of 10-13 MCQs (Multiple Choice Questions) distributed across difficulty levels based on Bloom’s Taxonomy.
+
+Easy → Remember & Understand (default: 20%)
+Average → Apply & Analyze (default: 50%)
+Difficult → Evaluate & Create (default: 30%)
+
+Bloom’s Level Mapping:
+Remember: Define, List, Identify, Recall, Name, Label, Recognize, State, Match, Repeat, Select
+Understand: Explain, Summarize, Describe, Interpret, Restate, Paraphrase, Classify, Discuss, Illustrate, Compare (basic), Report
+Apply: Solve, Demonstrate, Use, Implement, Apply, Execute, Practice, Show, Operate, Employ, Perform
+Analyze: Differentiate, Compare, Contrast, Organize, Examine, Break down, Categorize, Investigate, Distinguish, Attribute, Diagram
+Evaluate: Judge, Critique, Justify, Recommend, Assess, Evaluate, Defend, Support, Argue, Prioritize, Appraise, Rate, Validate
+Create: Design, Generate, Propose, Develop, Formulate, Construct, Invent, Plan, Compose, Produce, Hypothesize, Integrate, Originate
+
+Exhaustive Question-Type Bank (Stems/Patterns):
+Remember: “What is…?”, “Which of the following defines…?”, “Identify…”, “Who discovered…?”, “When/Where did…?”, “Match the term with…”
+Understand: “Which best explains…?”, “Summarize…”, “What does this mean…?”, “Which example illustrates…?”, “Why does…happen?”
+Apply: “Which principle would you use if…?”, “What is the correct method to…?”, “How would you solve…?”, “Which tool/technique applies to…?”, “Which step comes next…?”
+Analyze: “Which factor contributes most to…?”, “What pattern best explains…?”, “Which cause-effect relationship is correct…?”, “What evidence supports…?”, “Which statement best differentiates between…?”
+Evaluate: “Which option provides the best justification…?”, “Which solution is most effective and why?”, “Which argument is strongest?”, “Which evidence best supports…?”, “What decision is most appropriate…?”
+Create: “What new approach could be developed…?”, “Which design achieves…?”, “How would you improve…?”, “Which combination of ideas solves…?”, “What hypothesis could you form…?”
+
+Question Design Rules:
+- Each question must explicitly map to its Bloom’s level.
+- Provide 4 answer choices (A–D).
+- Clearly mark the correct answer.
+- Avoid ambiguity; test one concept per question. Ensure every concept is tested.
+
+Return ONLY a valid JSON array of 10-13 question objects, with no extra text, markdown, code blocks, or formatting. Each object must include:
+{
+  "question": string,
+  "bloomLevel": string,
+  "options": [string, string, string, string],
+  "correctIndex": number,
+  "explanation": string (optional)
+}
+
+Learning Content:
+Summary: ${moduleTitle}
+Modules: ${JSON.stringify([moduleTitle])}
+Objectives: ${JSON.stringify([moduleContent])}`;
     console.log(`[gpt-mcq-quiz] Calling OpenAI for moduleId: ${moduleId} with learning style: ${learningStyle}`);
     // Call OpenAI API
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -175,15 +274,15 @@ export async function POST(request: NextRequest) {
     }
     console.log('[gpt-mcq-quiz][DEBUG] Generated quiz:', quiz);
     // Save quiz for this learning style, using a deterministic UUID to avoid race-condition duplicates
-    const stableIdSeed = `module:${moduleId}|style:${learningStyle}`;
+    const stableIdSeed = `module:${processedModuleId}|style:${learningStyle}`;
     const hash = crypto.createHash('sha1').update(stableIdSeed).digest('hex');
     const stableId = `${hash.substring(0,8)}-${hash.substring(8,12)}-${hash.substring(12,16)}-${hash.substring(16,20)}-${hash.substring(20,32)}`;
     const { data: insertResult, error: insertError } = await supabase
       .from('assessments')
       .insert({
-        id: stableId,
+        assessment_id: stableId,
         type: 'module',
-        module_id: moduleId,
+        processed_module_id: processedModuleId,
         questions: JSON.stringify(quiz),
         learning_style: learningStyle
       });
@@ -194,7 +293,7 @@ export async function POST(request: NextRequest) {
           .from('assessments')
           .select('assessment_id, questions')
           .eq('type', 'module')
-          .eq('module_id', moduleId)
+          .eq('processed_module_id', processedModuleId)
           .eq('learning_style', learningStyle)
           .order('assessment_id', { ascending: false })
           .limit(1);
@@ -225,20 +324,88 @@ export async function POST(request: NextRequest) {
   if (!companyId) {
     return NextResponse.json({ error: 'companyId required' }, { status: 400 });
   }
-  // 1. Get all selected modules' content for this company only
+  // 1. Get all selected training modules' content for this company only
   const { data, error } = await supabase
     .from('training_modules')
-    .select('id, gpt_summary, ai_modules, ai_objectives, company_id')
-    .in('id', moduleIds)
+    .select('module_id, title, gpt_summary, ai_modules, ai_objectives, company_id')
+    .in('module_id', moduleIds)
     .eq('company_id', companyId);
   if (error || !data || data.length === 0) return NextResponse.json({ error: 'Modules not found' }, { status: 404 });
+  // Map training module_id -> row for easy lookup
+  const tmMap = new Map<string, any>();
+  for (const r of data) tmMap.set(String(r.module_id), r);
+
+  // 2. Ensure processed_modules exist for each training module (create missing entries)
+  // Fetch existing processed_modules by original_module_id
+  const { data: processedRows, error: processedError } = await supabase
+    .from('processed_modules')
+    .select('processed_module_id, original_module_id')
+    .in('original_module_id', moduleIds);
+  if (processedError) console.warn('[gpt-mcq-quiz] lookup processed_modules warning:', processedError);
+
+  const processedMap = new Map<string, string>();
+  if (Array.isArray(processedRows)) {
+    for (const p of processedRows) {
+      if (p && p.original_module_id && p.processed_module_id) processedMap.set(String(p.original_module_id), String(p.processed_module_id));
+    }
+  }
+
+  // Insert missing processed_modules in bulk
+  const missingModuleIds = moduleIds.filter((m: any) => !processedMap.has(String(m)));
+  if (missingModuleIds.length > 0) {
+    const inserts = missingModuleIds.map((mId: any) => {
+      const tm = tmMap.get(String(mId)) || {};
+      return {
+        original_module_id: String(mId),
+        title: tm.title || null,
+        content: tm.gpt_summary || null,
+        learning_style: userLearningStyle || null
+      };
+    });
+    const { data: insData, error: insErr } = await supabase
+      .from('processed_modules')
+      .insert(inserts)
+      .select('processed_module_id, original_module_id');
+    if (insErr) {
+      console.error('[gpt-mcq-quiz] Failed to insert processed_modules:', insErr);
+      return NextResponse.json({ error: 'Failed to ensure processed_modules entries' }, { status: 500 });
+    }
+    if (Array.isArray(insData)) {
+      for (const p of insData) {
+        if (p && p.original_module_id && p.processed_module_id) processedMap.set(String(p.original_module_id), String(p.processed_module_id));
+      }
+    }
+  }
+
+  // Build array of processed_module_ids corresponding to requested training moduleIds
+  const processedIds = moduleIds.map((m: any) => processedMap.get(String(m))).filter(Boolean);
+
+  // 3. Ensure no baseline already exists for any requested processed_module_id
+  const { data: existingBaselinesByModule, error: existingBaselinesError } = await supabase
+    .from('assessments')
+    .select('assessment_id, processed_module_id, company_id')
+    .eq('type', 'baseline')
+    .in('processed_module_id', processedIds);
+  if (existingBaselinesError) {
+    console.warn('[gpt-mcq-quiz] lookup baseline by processed_module_id warning:', existingBaselinesError);
+  }
+  if (existingBaselinesByModule && Array.isArray(existingBaselinesByModule) && existingBaselinesByModule.length > 0) {
+    const conflicted = existingBaselinesByModule.map((r: any) => ({ processed_module_id: r.module_id, assessment_id: r.assessment_id }));
+    // Map processed_module_id back to training module_id for user clarity
+    const conflictsMapped = conflicted.map((c: any) => ({
+      processed_module_id: c.processed_module_id,
+      assessment_id: c.assessment_id,
+      module_id: Array.from(processedMap.entries()).find(([k, v]) => v === c.processed_module_id)?.[0] || null
+    }));
+    return NextResponse.json({ error: 'Baseline assessment already exists for one or more moduleIds', conflicts: conflictsMapped }, { status: 409 });
+  }
   // 2. Prepare normalized snapshot
   const currentModules = data.flatMap((mod: any) => mod.ai_modules ? JSON.parse(mod.ai_modules) : []);
   const normalizedSnapshot = JSON.stringify(normalizeModules(currentModules));
   // 3. Check for existing assessment with snapshot
   const { data: existingAssessment, error: assessmentError } = await supabase
     .from('assessments')
-    .select('id, questions, company_id, modules_snapshot')
+    .select('assessment_id, questions, company_id, modules_snapshot')
     .eq('type', 'baseline')
     .eq('company_id', companyId)
     .order('created_at', { ascending: false })
@@ -255,7 +422,7 @@ export async function POST(request: NextRequest) {
         const quizData = typeof existingAssessment.questions === 'string'
           ? JSON.parse(existingAssessment.questions)
           : existingAssessment.questions;
-        return NextResponse.json({ quiz: quizData, source: 'db', assessmentId: existingAssessment.id });
+        return NextResponse.json({ quiz: quizData, source: 'db', assessmentId: existingAssessment.assessment_id });
       } catch {
         // If parse fails, treat as missing and regenerate below
       }
@@ -273,7 +440,7 @@ export async function POST(request: NextRequest) {
     console.error('[gpt-mcq-quiz][ERROR] Quiz array is empty or invalid. Not storing.');
     return NextResponse.json({ error: 'Quiz generation failed or returned empty array.', rawResponse: quiz }, { status: 500 });
   }
-  if (existingAssessment && existingAssessment.id) {
+  if (existingAssessment && existingAssessment.assessment_id) {
     // Update the existing assessment
     const { error: updateError } = await supabase
       .from('assessments')
@@ -281,33 +448,37 @@ export async function POST(request: NextRequest) {
         questions: JSON.stringify(quiz),
         modules_snapshot: normalizedSnapshot
       })
-      .eq('assessment_id', existingAssessment.id)
+      .eq('assessment_id', existingAssessment.assessment_id)
       .eq('company_id', companyId);
     if (updateError) {
       console.error('[gpt-mcq-quiz] Failed to update baseline assessment:', updateError);
       return NextResponse.json({ error: 'Failed to save baseline assessment (update).' }, { status: 500 });
     }
-    return NextResponse.json({ quiz, source: 'generated', assessmentId: existingAssessment.id });
+    return NextResponse.json({ quiz, source: 'generated', assessmentId: existingAssessment.assessment_id });
   } else {
-    // Insert new assessment
+    // Insert new assessment(s): create one baseline row per module_id so each
+    // assessment record stores the module_id and enforces "one baseline per module"
+    const rowsToInsert = moduleIds.map((mId: any) => ({
+      type: 'baseline',
+      questions: JSON.stringify(quiz),
+      company_id: companyId,
+      modules_snapshot: normalizedSnapshot,
+      processed_module_id: processedMap.get(String(mId)),
+      learning_style: userLearningStyle || null
+    }));
+
     const { data: insertData, error: insertError } = await supabase
       .from('assessments')
-      .insert([
-        {
-          type: 'baseline',
-          questions: JSON.stringify(quiz),
-          company_id: companyId,
-          modules_snapshot: normalizedSnapshot
-        }
-      ])
-      .select('id')
-      .maybeSingle();
+      .insert(rowsToInsert)
+      .select('assessment_id, processed_module_id');
+
     if (insertError) {
-      console.error('[gpt-mcq-quiz] Failed to insert baseline assessment:', insertError);
+      console.error('[gpt-mcq-quiz] Failed to insert baseline assessment(s):', insertError);
       return NextResponse.json({ error: 'Failed to save baseline assessment (insert).' }, { status: 500 });
     }
-    console.log('[gpt-mcq-quiz] Inserted baseline assessment id:', insertData?.id);
-    return NextResponse.json({ quiz, source: 'generated', assessmentId: insertData?.id });
+
+    console.log('[gpt-mcq-quiz] Inserted baseline assessment rows:', insertData);
+    return NextResponse.json({ quiz, source: 'generated', inserted: insertData });
   }
   
 }
