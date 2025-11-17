@@ -14,20 +14,27 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 }
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig)
+// Initialize Firebase - will error if credentials are missing, which is expected
+let app: any = null;
+let auth: any = null;
+let googleProvider: any = null;
 
-// Initialize Firebase Auth
-export const auth = getAuth(app)
-
-// Initialize Google Auth Provider
-export const googleProvider = new GoogleAuthProvider()
-
-// Initialize Analytics (only in browser)
-// export const analytics = typeof window !== "undefined" ? getAnalytics(app) : null
-if (typeof window !== "undefined") {
-  const analytics = getAnalytics(app);
+try {
+  app = initializeApp(firebaseConfig)
+  auth = getAuth(app)
+  googleProvider = new GoogleAuthProvider()
+  
+  // Initialize Analytics (only in browser)
+  if (typeof window !== "undefined") {
+    try {
+      getAnalytics(app);
+    } catch (e) {
+      // Analytics may not be available
+    }
+  }
+} catch (error) {
+  console.error("Firebase initialization error:", error);
 }
 
-
+export { auth, googleProvider }
 export default app

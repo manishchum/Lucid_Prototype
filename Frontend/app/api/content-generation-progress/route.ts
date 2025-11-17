@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   }
 
   const total = rows?.length || 0;
-  const completed = rows?.filter(r => r.content && r.content.trim() !== "").length || 0;
+  const completed = rows?.filter((r: any) => r.content && r.content.trim() !== "").length || 0;
   const percent = total ? Math.round((completed / total) * 100) : 0;
 
   // Get job status from content_jobs

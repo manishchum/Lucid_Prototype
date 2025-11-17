@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
         .select("order_index, learning_style")
         .eq("original_module_id", mod.module_id);
       const existingSet = new Set(
-        (existingRows || []).map(r => `${r.order_index}|${r.learning_style}`)
+        (existingRows || []).map((r: any) => `${r.order_index}|${r.learning_style}`)
       );
 
       for (let i = 0; i < aiModulesArr.length; i++) {

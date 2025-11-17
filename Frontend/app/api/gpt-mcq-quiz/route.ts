@@ -233,7 +233,7 @@ export async function POST(request: NextRequest) {
     .eq('company_id', companyId);
   if (error || !data || data.length === 0) return NextResponse.json({ error: 'Modules not found' }, { status: 404 });
   // 2. Prepare normalized snapshot
-  const currentModules = data.flatMap((mod) => mod.ai_modules ? JSON.parse(mod.ai_modules) : []);
+  const currentModules = data.flatMap((mod: any) => mod.ai_modules ? JSON.parse(mod.ai_modules) : []);
   const normalizedSnapshot = JSON.stringify(normalizeModules(currentModules));
   // 3. Check for existing assessment with snapshot
   const { data: existingAssessment, error: assessmentError } = await supabase
@@ -262,8 +262,8 @@ export async function POST(request: NextRequest) {
     }
   }
   // 4. Generate new quiz and update or insert assessment
-  const combinedSummary = data.map((mod) => mod.gpt_summary).filter(Boolean).join('\n');
-  const combinedObjectives = data.flatMap((mod) => mod.ai_objectives ? JSON.parse(mod.ai_objectives) : []);
+  const combinedSummary = data.map((mod: any) => mod.gpt_summary).filter(Boolean).join('\n');
+  const combinedObjectives = data.flatMap((mod: any) => mod.ai_objectives ? JSON.parse(mod.ai_objectives) : []);     
   const quiz = await generateMCQQuiz(
     combinedSummary,
     currentModules,

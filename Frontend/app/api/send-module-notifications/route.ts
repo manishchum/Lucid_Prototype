@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
     const transporter = await createTransporter()
 
     // Send emails to all active employees
-    const emailPromises = employees.map(async (employee) => {
+    const emailPromises = employees.map(async (employee: any) => {
       const employeeName = employee.name || 'Employee'
       const emailTemplate = generateEmailTemplate(employeeName, moduleTitle, companyData.name)
 

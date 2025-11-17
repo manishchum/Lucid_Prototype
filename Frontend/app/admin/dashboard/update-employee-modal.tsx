@@ -121,7 +121,7 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
 
       if (error && error.code !== 'PGRST116') throw error;
       
-      const roleIds = roleAssignments?.map(ra => ra.role_id) || [];
+      const roleIds = roleAssignments?.map((ra: any) => ra.role_id) || [];
       setCurrentRoleAssignments(roleIds);
       setFormData(prev => ({
         ...prev,

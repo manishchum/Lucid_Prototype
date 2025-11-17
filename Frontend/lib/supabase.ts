@@ -3,7 +3,109 @@ import { createClient } from "@supabase/supabase-js"
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// Toggle mock supabase behavior during development. Set `USE_MOCK_API=true` in your env to enable.
+const useMock = process.env.USE_MOCK_API === "true";
+
+// Mock data and helpers
+const mockUser = {
+  user_id: "mock-user-1",
+  email: "user@example.com",
+  name: "Mock User",
+  company_id: "mock-company-1",
+};
+
+const mockTrainingModules = [
+  {
+    id: "module-1",
+    company_id: "mock-company-1",
+    title: "Introduction to Product",
+    description: "A short intro module",
+    content_type: "article",
+    content_url: "",
+    gpt_summary: null,
+    transcription: null,
+    ai_modules: null,
+    ai_topics: null,
+    ai_objectives: null,
+    processing_status: "completed",
+    created_at: new Date().toISOString(),
+  },
+];
+
+const mockProcessedModules = [
+  { id: "pm-1", original_module_id: "module-1", title: "Intro - Section 1", content: "Content 1", order_index: 1 },
+];
+
+function mockResponseForTable(table: string) {
+  switch (table) {
+    case "users":
+      return [mockUser];
+    case "user_role_assignments":
+      return [{ roles: { name: "employee" } }];
+    case "training_modules":
+      return mockTrainingModules;
+    case "processed_modules":
+      return mockProcessedModules;
+    case "module_progress":
+      return [];
+    case "employee_assessments":
+    case "assessments":
+      return [];
+    default:
+      return [];
+  }
+}
+
+function createMockFrom(table: string) {
+  const chain: any = {
+    _table: table,
+    select(_s?: string) {
+      return chain;
+    },
+    maybeSingle() {
+      const data = mockResponseForTable(table);
+      return Promise.resolve({ data: data.length > 0 ? data[0] : null, error: null });
+    },
+    single() {
+      const data = mockResponseForTable(table);
+      return Promise.resolve({ data: data.length > 0 ? data[0] : null, error: null });
+    },
+    eq(_k: string, _v: any) {
+      return chain;
+    },
+    in(_k: string, _v: any[]) {
+      return chain;
+    },
+    order() { return chain; },
+    limit() { return chain; },
+    insert(payload: any) {
+      return Promise.resolve({ data: payload, error: null });
+    },
+    update(payload: any) {
+      return Promise.resolve({ data: payload, error: null });
+    },
+    delete() {
+      return Promise.resolve({ data: [], error: null });
+    },
+  };
+  return chain;
+}
+
+const mockAuth = {
+  getUser: async () => ({ data: { user: mockUser }, error: null }),
+  signInWithPassword: async () => ({ data: { user: mockUser }, error: null }),
+  signOut: async () => ({ error: null }),
+};
+
+const mockSupabase = {
+  from: createMockFrom,
+  auth: mockAuth,
+  _isMock: true,
+};
+
+const realSupabase = createClient(supabaseUrl, supabaseAnonKey);
+
+export const supabase: any = useMock ? mockSupabase : realSupabase;
 
 export type Database = {
   public: {
