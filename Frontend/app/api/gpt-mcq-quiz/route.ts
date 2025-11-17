@@ -381,23 +381,106 @@ Objectives: ${JSON.stringify([moduleContent])}`;
   const processedIds = moduleIds.map((m: any) => processedMap.get(String(m))).filter(Boolean);
 
   // 3. Ensure no baseline already exists for any requested processed_module_id
-  const { data: existingBaselinesByModule, error: existingBaselinesError } = await supabase
-    .from('assessments')
-    .select('assessment_id, processed_module_id, company_id')
-    .eq('type', 'baseline')
-    .in('processed_module_id', processedIds);
+  // Use `employee_assessments` so checks respect the per-user mapping. Fetch the
+  // related `assessments` fields and filter client-side for type = 'baseline'
+  // and processed_module_id in our requested list.
+  const { data: existingEmployeeAssessments, error: existingBaselinesError } = await supabase
+    .from('employee_assessments')
+    .select('assessment_id, assessments(assessment_id, processed_module_id, company_id, type)');
   if (existingBaselinesError) {
-    console.warn('[gpt-mcq-quiz] lookup baseline by processed_module_id warning:', existingBaselinesError);
+    console.warn('[gpt-mcq-quiz] lookup employee_assessments warning:', existingBaselinesError);
   }
-  if (existingBaselinesByModule && Array.isArray(existingBaselinesByModule) && existingBaselinesByModule.length > 0) {
-    const conflicted = existingBaselinesByModule.map((r: any) => ({ processed_module_id: r.module_id, assessment_id: r.assessment_id }));
-    // Map processed_module_id back to training module_id for user clarity
-    const conflictsMapped = conflicted.map((c: any) => ({
-      processed_module_id: c.processed_module_id,
-      assessment_id: c.assessment_id,
-      module_id: Array.from(processedMap.entries()).find(([k, v]) => v === c.processed_module_id)?.[0] || null
-    }));
-    return NextResponse.json({ error: 'Baseline assessment already exists for one or more moduleIds', conflicts: conflictsMapped }, { status: 409 });
+
+  const matched = Array.isArray(existingEmployeeAssessments)
+    ? existingEmployeeAssessments.filter((r: any) => r.assessments && r.assessments.type === 'baseline' && processedIds.includes(String(r.assessments.processed_module_id)))
+    : [];
+  if (matched.length > 0) {
+    // We found existing baseline templates. Map those template assessments to the
+    // requesting user (or bulk-assign to ASSIGNED users) and return the stored
+    // questions so the client can render immediately.
+    const templateMap = new Map<string, string | null>(); // assessment_id -> processed_module_id
+    for (const r of matched) {
+      const rel = Array.isArray(r?.assessments) ? r.assessments[0] : r?.assessments;
+      const aid = rel?.assessment_id;
+      const pmid = rel?.processed_module_id;
+      if (aid) templateMap.set(String(aid), pmid ? String(pmid) : null);
+    }
+
+    const templateIds = Array.from(templateMap.keys());
+    // Fetch full assessment rows to get questions and original_module_id if present
+    const { data: assessmentsRows, error: assessmentsErr } = await supabase
+      .from('assessments')
+      .select('assessment_id, questions, processed_module_id, original_module_id')
+      .in('assessment_id', templateIds);
+    if (assessmentsErr) console.warn('[gpt-mcq-quiz] fetch assessments for existing templates warning:', assessmentsErr);
+
+    // Prepare mapping to return to client, keyed by training module_id when possible
+    const resultMap: any[] = [];
+    for (const a of assessmentsRows || []) {
+      let questions = a?.questions ?? null;
+      try {
+        if (typeof questions === 'string') questions = JSON.parse(questions);
+      } catch (e) {
+        // keep raw
+      }
+      const procId = a?.processed_module_id ?? templateMap.get(a.assessment_id) ?? null;
+      const moduleId = Array.from(processedMap.entries()).find(([k, v]) => v === String(procId))?.[0] || a?.original_module_id || null;
+      resultMap.push({ module_id: moduleId, processed_module_id: procId, assessment_id: a.assessment_id, questions });
+    }
+
+    // If a requesting user is present, upsert a per-user employee_assessments row
+    if (reqUserId) {
+      const rowsToUpsert = (assessmentsRows || []).map((a: any) => ({
+        user_id: reqUserId,
+        assessment_id: a.assessment_id,
+        score: null,
+        max_score: null,
+        answers: null,
+        feedback: null,
+        question_feedback: null
+      }));
+      if (rowsToUpsert.length > 0) {
+        const { error: upsertErr } = await supabase
+          .from('employee_assessments')
+          .upsert(rowsToUpsert, { onConflict: 'user_id,assessment_id' });
+        if (upsertErr) console.warn('[gpt-mcq-quiz] upsert employee_assessments warning:', upsertErr);
+      }
+      // If there's only one mapped template, include a top-level `quiz` for
+      // backward compatibility with clients expecting `{ quiz: [...] }`.
+      if (resultMap.length === 1) {
+        return NextResponse.json({ quizMapping: resultMap, quiz: resultMap[0].questions, source: 'db', assignedTo: reqUserId });
+      }
+      return NextResponse.json({ quizMapping: resultMap, source: 'db', assignedTo: reqUserId });
+    }
+
+    // No requesting user -> bulk assign to users with ASSIGNED plans for this company
+    try {
+      const { data: plans } = await supabase
+        .from('learning_plan')
+        .select('user_id')
+        .eq('company_id', companyId)
+        .eq('status', 'ASSIGNED');
+      const users = Array.isArray(plans) ? plans.map((p: any) => p.user_id) : [];
+      const bulkRows: any[] = [];
+      for (const u of users) {
+        for (const a of assessmentsRows || []) {
+          bulkRows.push({ user_id: u, assessment_id: a.assessment_id, score: null, max_score: null, answers: null, feedback: null, question_feedback: null });
+        }
+      }
+      if (bulkRows.length > 0) {
+        const { error: bulkErr } = await supabase
+          .from('employee_assessments')
+          .upsert(bulkRows, { onConflict: 'user_id,assessment_id' });
+        if (bulkErr) console.warn('[gpt-mcq-quiz] bulk upsert employee_assessments warning:', bulkErr);
+      }
+    } catch (e) {
+      console.warn('[gpt-mcq-quiz] bulk-assign warning:', e);
+    }
+
+    if (resultMap.length === 1) {
+      return NextResponse.json({ quizMapping: resultMap, quiz: resultMap[0].questions, source: 'db', assignedTo: 'bulk' });
+    }
+    return NextResponse.json({ quizMapping: resultMap, source: 'db', assignedTo: 'bulk' });
   }
   // 2. Prepare normalized snapshot
   const currentModules = data.flatMap((mod) => mod.ai_modules ? JSON.parse(mod.ai_modules) : []);
