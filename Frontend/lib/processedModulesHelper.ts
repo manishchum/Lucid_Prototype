@@ -11,6 +11,19 @@ import fetch from "node-fetch";
  */
 export async function ensureProcessedModulesForPlan(user_id: string, company_id: string, plan: any) {
   try {
+    // Fetch user's learning style to assign to processed modules when not provided in plan
+    let userLearningStyle: string | null = null;
+    try {
+      const { data: lsRow, error: lsErr } = await supabase
+        .from('employee_learning_style')
+        .select('learning_style')
+        .eq('user_id', user_id)
+        .maybeSingle();
+      if (lsErr) console.warn('[processedModulesHelper] learning style lookup warning:', lsErr);
+      userLearningStyle = lsRow?.learning_style ?? null;
+    } catch (e) {
+      console.warn('[processedModulesHelper] Error fetching learning style:', e);
+    }
     if (!plan || !Array.isArray(plan.modules) || plan.modules.length === 0) return { created: 0 };
 
     // Fetch company's training modules (id + title)
@@ -48,19 +61,22 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
         }
       }
 
+      let original_module_id: string | null = null;
       if (!match) {
-        console.log("[processedModulesHelper] No matching training_module for plan module:", title);
-        continue;
+        console.log("[processedModulesHelper] No matching training_module for plan module:", title, "— will create a plan-only processed_module");
+      } else {
+        original_module_id = match.module_id;
       }
 
-      const original_module_id = match.module_id;
-
-      // Check if a processed_modules row already exists for this original_module_id and learning_style (null allowed)
-      const { data: existing, error: exErr } = await supabase
-        .from("processed_modules")
-        .select("processed_module_id")
-        .eq("original_module_id", original_module_id)
-        .limit(1);
+      // Check if a processed_modules row already exists for this original_module_id (if present)
+      // or by title (for plan-only modules) to avoid duplicates
+      let existingQuery: any = supabase.from("processed_modules").select("processed_module_id").limit(1);
+      if (original_module_id) {
+        existingQuery = existingQuery.eq("original_module_id", original_module_id);
+      } else {
+        existingQuery = existingQuery.ilike("title", title);
+      }
+      const { data: existing, error: exErr } = await existingQuery;
       if (exErr) {
         console.error("[processedModulesHelper] Error checking existing processed_modules:", exErr);
         continue;
@@ -72,13 +88,13 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
 
       // Insert processed_module row with basic fields
       const insertPayload: any = {
-        original_module_id,
+        original_module_id: original_module_id || null,
         title,
         // content will be generated later by generate-module-content
         content: "",
         section_type: m.section_type || null,
         order_index: typeof m.order_index === "number" ? m.order_index : null,
-        learning_style: m.learning_style || null,
+        learning_style: m.learning_style || userLearningStyle || null,
       };
 
       const { data: insData, error: insErr } = await supabase

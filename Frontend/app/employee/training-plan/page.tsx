@@ -229,15 +229,32 @@ export default function TrainingPlanPage() {
       const moduleName = mod?.title || mod?.name;
       if (moduleName) {
         console.log('[resolveModuleId] Searching by title/name:', moduleName);
+        // Use a wildcard ILIKE search to match partial titles and ignore case
+        const titlePattern = `%${moduleName}%`;
         const { data: pmByTitle } = await supabase
           .from('processed_modules')
           .select('processed_module_id')
-          .ilike('title', moduleName)
+          .ilike('title', titlePattern)
           .limit(1)
           .maybeSingle();
         if (pmByTitle?.processed_module_id) {
           console.log('[resolveModuleId] Found by title/name:', pmByTitle.processed_module_id);
           return pmByTitle.processed_module_id;
+        }
+        // Also try a looser search on gpt_summary or ai_modules if present
+        try {
+          const { data: pmBySummary } = await supabase
+            .from('processed_modules')
+            .select('processed_module_id')
+            .ilike('gpt_summary', titlePattern)
+            .limit(1)
+            .maybeSingle();
+          if (pmBySummary?.processed_module_id) {
+            console.log('[resolveModuleId] Found by gpt_summary:', pmBySummary.processed_module_id);
+            return pmBySummary.processed_module_id;
+          }
+        } catch (e) {
+          // ignore if column doesn't exist
         }
       }
 

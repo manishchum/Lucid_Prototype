@@ -174,8 +174,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         const { data: moduleData } = await supabase
           .from('processed_modules')
           .select('title')
-          .eq('module_id', moduleId)
-          .single();
+          .eq('processed_module_id', moduleId)
+          .maybeSingle();
         
         if (moduleData?.title) {
           setModuleName(moduleData.title);
@@ -216,7 +216,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         .from("assessments")
         .select("assessment_id, questions")
         .eq("type", "module")
-        .eq("module_id", moduleId)
+        .eq("processed_module_id", moduleId)
         .eq("learning_style", learningStyle);
       const { data: assessment } = await query.maybeSingle();
       console.log('[QUIZ DEBUG] Assessment fetch result:', assessment);
@@ -250,7 +250,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             .from("assessments")
             .select("assessment_id")
             .eq("type", "module")
-            .eq("module_id", moduleId)
+            .eq("processed_module_id", moduleId)
             .eq("learning_style", learningStyle)
             .maybeSingle();
           console.log('[QUIZ DEBUG] New assessment after quiz generation:', newAssessment);

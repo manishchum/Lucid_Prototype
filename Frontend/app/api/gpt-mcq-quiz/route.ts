@@ -103,6 +103,23 @@ Objectives: ${JSON.stringify(objectives)}
 export async function POST(request: NextRequest) {
   const body = await request.json();
   console.log("[gpt-mcq-quiz] POST body:", body);
+  // Derive learning style from provided user_id when available
+  const reqUserId = body.user_id || body.userId || null;
+  let userLearningStyle: string | null = null;
+  if (reqUserId) {
+    try {
+      const { data: lsRow, error: lsErr } = await supabase
+        .from('employee_learning_style')
+        .select('learning_style')
+        .eq('user_id', reqUserId)
+        .maybeSingle();
+      if (lsErr) console.warn('[gpt-mcq-quiz] learning style lookup warning:', lsErr);
+      userLearningStyle = lsRow?.learning_style ?? null;
+      console.log('[gpt-mcq-quiz] Resolved user learning style for user:', reqUserId, userLearningStyle);
+    } catch (e) {
+      console.warn('[gpt-mcq-quiz] Error fetching learning style:', e);
+    }
+  }
   // Per-module quiz branch: only run this when a single moduleId is provided
   // and no moduleIds array is present (avoid accidental branch when both are sent).
   if (body.moduleId && !body.moduleIds) {
@@ -110,54 +127,56 @@ export async function POST(request: NextRequest) {
     if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
       return NextResponse.json({ error: 'Invalid moduleId' }, { status: 400 });
     }
-    const learningStyle = body.learningStyle || null;
+    // Prefer explicit learningStyle in body, otherwise use the user's stored learning style
+    const learningStyle = body.learningStyle || userLearningStyle || null;
     if (!learningStyle) {
-      return NextResponse.json({ error: 'Missing learningStyle in request.' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing learningStyle; provide user_id or learningStyle in request.' }, { status: 400 });
     }
     console.log(`[gpt-mcq-quiz] Per-module quiz requested for moduleId: ${moduleId}, learningStyle: ${learningStyle}`);
-    // Ensure a processed_modules row exists for this training module (original_module_id)
+    // Use processed_modules as the canonical source of content for per-module quizzes.
+    // Try to find a processed_module by processed_module_id first (new-style), then by original_module_id (legacy).
     let processedModuleId: string | null = null;
-    let tmRow: any = null;
-    const { data: existingProcessed, error: existingProcessedErr } = await supabase
-      .from('processed_modules')
-      .select('processed_module_id, title, content, original_module_id')
-      .eq('original_module_id', moduleId)
-      .maybeSingle();
-    if (existingProcessedErr) console.warn('[gpt-mcq-quiz] lookup processed_modules warning:', existingProcessedErr);
-    if (existingProcessed && existingProcessed.processed_module_id) {
-      processedModuleId = existingProcessed.processed_module_id;
-    } else {
-      // Create a processed_modules row from the training_modules data
-      let tmRow: any = null;
-      const { data: _tmRow, error: tmErr } = await supabase
-        .from('training_modules')
-        .select('module_id, title, gpt_summary')
-        .eq('module_id', moduleId)
-        .maybeSingle();
-      tmRow = _tmRow;
-      if (tmErr || !tmRow) return NextResponse.json({ error: 'Module not found' }, { status: 404 });
-      const insertPayload: any = {
-        original_module_id: String(moduleId),
-        title: tmRow.title || null,
-        content: tmRow.gpt_summary || null,
-        learning_style: null
-      };
-      const { data: insData, error: insErr } = await supabase
+    let existingProcessed: any = null;
+
+    try {
+      const { data: pmById, error: pmIdErr } = await supabase
         .from('processed_modules')
-        .insert(insertPayload)
-        .select('processed_module_id')
-        .limit(1);
-      if (insErr) {
-        console.error('[gpt-mcq-quiz] Failed to create processed_modules row:', insErr);
-        return NextResponse.json({ error: 'Failed to create processed module' }, { status: 500 });
+        .select('processed_module_id, title, content, original_module_id, learning_style')
+        .eq('processed_module_id', moduleId)
+        .maybeSingle();
+      if (pmIdErr) console.warn('[gpt-mcq-quiz] lookup processed_modules by processed_module_id warning:', pmIdErr);
+      if (pmById && pmById.processed_module_id) {
+        existingProcessed = pmById;
+        processedModuleId = pmById.processed_module_id;
       }
-      processedModuleId = Array.isArray(insData) && insData[0] ? insData[0].processed_module_id : null;
-      if (!processedModuleId) return NextResponse.json({ error: 'Failed to resolve processed module id' }, { status: 500 });
+    } catch (e) {
+      console.warn('[gpt-mcq-quiz] Error querying processed_modules by id:', e);
     }
 
-    // Prepare module title/content for prompt
-    const moduleTitle = (existingProcessed && existingProcessed.title) || (typeof tmRow !== 'undefined' && tmRow && tmRow.title) || '';
-    const moduleContent = (existingProcessed && existingProcessed.content) || (typeof tmRow !== 'undefined' && tmRow && tmRow.gpt_summary) || '';
+    if (!processedModuleId) {
+      try {
+        const { data: pmByOriginal, error: pmOrigErr } = await supabase
+          .from('processed_modules')
+          .select('processed_module_id, title, content, original_module_id, learning_style')
+          .eq('original_module_id', moduleId)
+          .maybeSingle();
+        if (pmOrigErr) console.warn('[gpt-mcq-quiz] lookup processed_modules by original_module_id warning:', pmOrigErr);
+        if (pmByOriginal && pmByOriginal.processed_module_id) {
+          existingProcessed = pmByOriginal;
+          processedModuleId = pmByOriginal.processed_module_id;
+        }
+      } catch (e) {
+        console.warn('[gpt-mcq-quiz] Error querying processed_modules by original_module_id:', e);
+      }
+    }
+
+    if (!processedModuleId) {
+      return NextResponse.json({ error: 'Processed module not found. Ensure a processed_modules entry exists for this module.' }, { status: 404 });
+    }
+
+    // Prepare module title/content for prompt from processed_modules
+    const moduleTitle = existingProcessed?.title || '';
+    const moduleContent = existingProcessed?.content || '';
 
     // Check if quiz already exists for this processed module id and learning style (robust to duplicates)
     const { data: assessmentsList } = await supabase
@@ -261,7 +280,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
     const { data: insertResult, error: insertError } = await supabase
       .from('assessments')
       .insert({
-        id: stableId,
+        assessment_id: stableId,
         type: 'module',
         processed_module_id: processedModuleId,
         questions: JSON.stringify(quiz),
@@ -340,7 +359,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
         original_module_id: String(mId),
         title: tm.title || null,
         content: tm.gpt_summary || null,
-        learning_style: null
+        learning_style: userLearningStyle || null
       };
     });
     const { data: insData, error: insErr } = await supabase
@@ -444,7 +463,8 @@ Objectives: ${JSON.stringify([moduleContent])}`;
       questions: JSON.stringify(quiz),
       company_id: companyId,
       modules_snapshot: normalizedSnapshot,
-      processed_module_id: processedMap.get(String(mId))
+      processed_module_id: processedMap.get(String(mId)),
+      learning_style: userLearningStyle || null
     }));
 
     const { data: insertData, error: insertError } = await supabase
