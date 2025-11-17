@@ -203,12 +203,12 @@ export default function TrainingPlanPage() {
         if (!cand || cand === 'undefined' || cand === 'null') continue;
         const { data: pmById } = await supabase
           .from('processed_modules')
-          .select('module_id')
-          .eq('module_id', cand)
+          .select('processed_module_id')
+          .eq('processed_module_id', cand)
           .maybeSingle();
-        if (pmById?.module_id) {
-          console.log('[resolveModuleId] Found by id:', pmById.module_id);
-          return pmById.module_id;
+        if (pmById?.processed_module_id) {
+          console.log('[resolveModuleId] Found by processed_module_id:', pmById.processed_module_id);
+          return pmById.processed_module_id;
         }
       }
 
@@ -216,12 +216,12 @@ export default function TrainingPlanPage() {
       if (mod?.original_module_id && mod.original_module_id !== 'undefined' && mod.original_module_id !== 'null') {
         const { data: pmByOriginal } = await supabase
           .from('processed_modules')
-          .select('module_id')
+          .select('processed_module_id')
           .eq('original_module_id', mod.original_module_id)
           .maybeSingle();
-        if (pmByOriginal?.module_id) {
-          console.log('[resolveModuleId] Found by original_module_id:', pmByOriginal.module_id);
-          return pmByOriginal.module_id;
+        if (pmByOriginal?.processed_module_id) {
+          console.log('[resolveModuleId] Found by original_module_id:', pmByOriginal.processed_module_id);
+          return pmByOriginal.processed_module_id;
         }
       }
 
@@ -231,14 +231,21 @@ export default function TrainingPlanPage() {
         console.log('[resolveModuleId] Searching by title/name:', moduleName);
         const { data: pmByTitle } = await supabase
           .from('processed_modules')
-          .select('module_id')
+          .select('processed_module_id')
           .ilike('title', moduleName)
           .limit(1)
           .maybeSingle();
-        if (pmByTitle?.module_id) {
-          console.log('[resolveModuleId] Found by title/name:', pmByTitle.module_id);
-          return pmByTitle.module_id;
+        if (pmByTitle?.processed_module_id) {
+          console.log('[resolveModuleId] Found by title/name:', pmByTitle.processed_module_id);
+          return pmByTitle.processed_module_id;
         }
+      }
+
+      // Final fallback: if the module object contains an original_module_id (training id),
+      // return it so the module page can try to resolve by `original_module_id`.
+      if (mod?.original_module_id) {
+        console.log('[resolveModuleId] Falling back to original_module_id:', mod.original_module_id);
+        return String(mod.original_module_id);
       }
       
       console.error('[resolveModuleId] Could not resolve module id for:', mod);

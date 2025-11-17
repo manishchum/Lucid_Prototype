@@ -56,15 +56,15 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       } catch (e) {
         console.log('[module] employee fetch error', e);
       }
-      // Fetch module info, supporting both processed_modules.id and original_module_id and style fallbacks
-      const selectCols = "id, title, content, audio_url, original_module_id, learning_style";
+      // Fetch module info, supporting both processed_modules.processed_module_id and original_module_id and style fallbacks
+      const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style";
       const tryFetch = async () => {
         // 1) Try by processed_modules.id with style
         if (style) {
           const { data } = await supabase
             .from('processed_modules')
             .select(selectCols)
-            .eq('module_id', moduleId)
+            .eq('processed_module_id', moduleId)
             .eq('learning_style', style)
             .maybeSingle();
           if (data) return data;
@@ -88,12 +88,12 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             .maybeSingle();
           if (data) return data;
         }
-        // 4) Try by processed_modules.id without style
+        // 4) Try by processed_modules.processed_module_id without style
         {
           const { data } = await supabase
             .from('processed_modules')
             .select(selectCols)
-            .eq('module_id', moduleId)
+            .eq('processed_module_id', moduleId)
             .maybeSingle();
           if (data) return data;
         }
@@ -106,13 +106,13 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         // Log view to module_progress using processed_module_id and module_id, and started_at
         try {
           if (empObj?.user_id) {
-            console.log('[module] Logging progress for employee:', empObj.user_id, 'module:', data.id);
+            console.log('[module] Logging progress for employee:', empObj.user_id, 'module:', data.processed_module_id);
             await fetch('/api/module-progress', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 user_id: empObj.user_id,
-                processed_module_id: data.id,
+                processed_module_id: data.processed_module_id,
                 module_id: data.original_module_id,
                 viewed_at: new Date().toISOString(),
                 started_at: new Date().toISOString(),
@@ -168,13 +168,13 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             <div className="mt-8">
               {module.audio_url ? (
                 <AudioPlayer
-                  employeeId={employee?.id}
-                  processedModuleId={module.id}
+                  employeeId={employee?.user_id}
+                  processedModuleId={module.processed_module_id}
                   moduleId={module.original_module_id}
                   audioUrl={module.audio_url}
                 />
               ) : (
-                <GenerateAudioButton moduleId={module.id} onAudioGenerated={url => setModule((m: any) => ({ ...m, audio_url: url }))} />
+                <GenerateAudioButton moduleId={module.processed_module_id} onAudioGenerated={url => setModule((m: any) => ({ ...m, audio_url: url }))} />
               )}
             </div>
           </CardContent>
