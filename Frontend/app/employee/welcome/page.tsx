@@ -237,6 +237,20 @@ export default function EmployeeWelcome() {
         }
         setBaselineRequired(requiresBaseline) // Set baselineRequired state
 
+        // If the company's learning plan does NOT require a baseline assessment,
+        // provide a safe default baseline score so existing UI logic that
+        // expects a baselineScore does not block navigation. The backend may
+        // also insert an employee_assessments row with 50% — in that case the
+        // real value will already be set above and we won't overwrite it.
+        if (!requiresBaseline) {
+          if (baselineScore === null || baselineScore === undefined) {
+            setBaselineScore(50);
+          }
+          if (baselineMaxScore === null || baselineMaxScore === undefined) {
+            setBaselineMaxScore(100);
+          }
+        }
+
         // Check completion status for assigned plans
         const assignedPlan = planRows?.find(plan => plan.status === 'ASSIGNED')
         let completed = false
@@ -452,8 +466,18 @@ export default function EmployeeWelcome() {
                   label="Learning Plan"
                   subtitle="Get your personalized learning roadmap"
                   completed={allAssignedCompleted}
-                  active={!!learningStyle && baselineScore !== null && !allAssignedCompleted}
-                  onClick={() => learningStyle && baselineScore !== null && !allAssignedCompleted && router.push("/employee/training-plan")}
+                  active={
+                    baselineRequired
+                      ? !!learningStyle && baselineScore !== null && !allAssignedCompleted
+                      : !!learningStyle && !allAssignedCompleted
+                  }
+                  onClick={() => {
+                    if (baselineRequired) {
+                      if (learningStyle && baselineScore !== null && !allAssignedCompleted) router.push("/employee/training-plan");
+                    } else {
+                      if (learningStyle && !allAssignedCompleted) router.push("/employee/training-plan");
+                    }
+                  }}
                 />
                
               </div>
