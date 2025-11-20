@@ -290,26 +290,26 @@ const EmployeeNavigation = ({
                         <ul className="flex flex-col gap-2">
                           <li className="flex items-center justify-between">
                             <div className="relative flex items-center">
-                              <span className="absolute -left-6 top-2 w-2 h-2 bg-violet-500 rounded-full" />
+                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/courses/active') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
                               <Link href="/employee/courses/active" onClick={closeMobileSidebar} className="text-sm text-gray-700">Active Modules</Link>
                             </div>
-                            <span className="ml-2 text-xs bg-violet-50 text-violet-600 px-2 py-0.5 rounded">2</span>
+                            {/* <span className="ml-2 text-xs bg-violet-50 text-violet-600 px-2 py-0.5 rounded">2</span> */}
                           </li>
 
                           <li className="flex items-center justify-between text-sm text-gray-700">
                             <div className="relative flex items-center">
-                              <span className="absolute -left-6 top-2 w-1 h-1 bg-gray-300 rounded-full" />
+                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/courses/completed') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
                               <Link href="/employee/courses/completed" onClick={closeMobileSidebar}>Completed</Link>
                             </div>
-                            <span className="ml-2 text-xs text-gray-500">4</span>
+                            {/* <span className="ml-2 text-xs text-gray-500">4</span> */}
                           </li>
 
                           <li className="flex items-center justify-between text-sm text-gray-700">
                             <div className="relative flex items-center">
-                              <span className="absolute -left-6 top-2 w-1 h-1 bg-gray-300 rounded-full" />
+                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/courses/all') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
                               <Link href="/employee/courses/all" onClick={closeMobileSidebar}>All Modules</Link>
                             </div>
-                            <span className="ml-2 text-xs text-gray-500">56</span>
+                            {/* <span className="ml-2 text-xs text-gray-500">56</span> */}
                           </li>
                         </ul>
                       </div>
