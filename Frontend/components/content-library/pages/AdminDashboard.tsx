@@ -1,24 +1,62 @@
-import React, { useState } from "react";
-import FolderList from "../components/folder/folderlist";
-import UploadFile from "../components/folder/uploadfile";
+import React, { useState, useEffect } from "react";
+import FolderList from "../components/folder/FolderList";
+import UploadFile from "../components/folder/UploadFile";
 import { Folder } from "../types/folder.types";
 
 const initialFolders: Folder[] = [];
 
+const categories = [
+  'Sales',
+  'Marketing',
+  'Finance',
+  'HR',
+  'Product',
+  'Engineering',
+  'Prompt Engineering',
+  'AI in Sales',
+  'AI in Marketing',
+  'Operations',
+  'Customer Support'
+];
+
 const AdminDashboard: React.FC<{ activeSection?: string }> = ({ activeSection = 'overview' }) => {
   const [folders, setFolders] = useState<Folder[]>(initialFolders);
-  const [selectedFolder, setSelectedFolder] = useState<string | null>(folders[0]?.id ?? null);
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [descriptions, setDescriptions] = useState<Record<string,string>>({});
+  const [selectedCategory, setSelectedCategory] = useState<string>(categories[0]);
 
-  const handleCreateFolder = (name: string) => {
-    const newFolder = { id: Date.now().toString(), name, files: [] };
-    setFolders(prev => [...prev, newFolder]);
+  // Load folders from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('lucid_folders') || '[]');
+      if (Array.isArray(stored) && stored.length > 0) {
+        setFolders(stored);
+        setSelectedFolder(stored[0].id);
+      }
+    } catch (e) {
+      // ignore parse errors
+    }
+  }, []);
+
+  const persistFolders = (updated: Folder[]) => {
+    setFolders(updated);
+    try {
+      localStorage.setItem('lucid_folders', JSON.stringify(updated));
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  const handleCreateFolder = (name: string, category?: string) => {
+    const newFolder: Folder = { id: Date.now().toString(), name, files: [], category };
+    const updated = [...folders, newFolder];
+    persistFolders(updated);
     setSelectedFolder(newFolder.id);
   };
 
   const handleUpload = (folderId: string, files: FileList | null) => {
     if (!files) return;
-    setFolders(prev => prev.map(folder =>
+    const updated = folders.map(folder =>
       folder.id === folderId
         ? {
             ...folder,
@@ -32,14 +70,15 @@ const AdminDashboard: React.FC<{ activeSection?: string }> = ({ activeSection = 
             ]
           }
         : folder
-    ));
+    );
+    persistFolders(updated);
   };
 
   const handleDescriptionChange = (folderId: string, value: string) => {
     setDescriptions(prev => ({ ...prev, [folderId]: value }));
   };
 
-  // Overview view (default) — show first-time CTA when no folders exist
+  // Overview view (default) � show first-time CTA when no folders exist
   if (activeSection === 'overview') {
     if (folders.length === 0) {
       return (
@@ -48,22 +87,39 @@ const AdminDashboard: React.FC<{ activeSection?: string }> = ({ activeSection = 
             <h1 style={{ fontSize: 28, marginBottom: 12 }}>Create a new folder <span style={{ fontSize: 14, color: '#6b7280', fontWeight: 500 }}>(for first time creators)</span></h1>
             <p style={{ marginBottom: 18, color: '#6b7280' }}>Get started by creating your first content folder. You can add PDFs, DOCX and other documents inside it.</p>
 
-            <button
-              onClick={() => {
-                const folderName = prompt("Folder Name?");
-                if (folderName) handleCreateFolder(folderName);
-              }}
-              style={{
-                background: '#2563eb',
-                color: '#fff',
-                padding: '10px 16px',
-                borderRadius: 8,
-                border: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              Create Folder
-            </button>
+            <div style={{ display: 'flex', gap: 0, alignItems: 'center' }}>
+              <div style={{ marginRight: 16 }}>
+                <select
+                  value={selectedCategory}
+                  onChange={e => setSelectedCategory(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #d1d5db', minWidth: 160, fontSize: 16 }}
+                >
+                  <option value="">Select Category</option>
+                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <button
+                disabled={!selectedCategory}
+                onClick={() => {
+                  if (!selectedCategory) return;
+                  const folderName = prompt("Folder Name? (leave blank to use category)") || selectedCategory;
+                  if (folderName) handleCreateFolder(folderName, selectedCategory);
+                }}
+                style={{
+                  background: selectedCategory ? '#2563eb' : '#f3f4f6',
+                  color: selectedCategory ? '#fff' : '#9ca3af',
+                  padding: '10px 20px',
+                  borderRadius: 8,
+                  border: 'none',
+                  cursor: selectedCategory ? 'pointer' : 'not-allowed',
+                  fontWeight: 600,
+                  fontSize: 16,
+                  transition: 'background 0.2s, color 0.2s'
+                }}
+              >
+                Create Folder
+              </button>
+            </div>
           </div>
         </main>
       );
@@ -72,19 +128,34 @@ const AdminDashboard: React.FC<{ activeSection?: string }> = ({ activeSection = 
     return (
       <main style={{ padding: 32 }}>
         <h1>Admin Content Library</h1>
-        <div style={{ marginBottom: 12 }}>
+        <div style={{ marginBottom: 12, display: 'flex', gap: 0, alignItems: 'center' }}>
+          <div style={{ marginRight: 16 }}>
+            <select
+              value={selectedCategory}
+              onChange={e => setSelectedCategory(e.target.value)}
+              style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #d1d5db', minWidth: 160, fontSize: 16 }}
+            >
+              <option value="">Select Category</option>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
           <button
+            disabled={!selectedCategory}
             onClick={() => {
-              const folderName = prompt("Folder Name?");
-              if (folderName) handleCreateFolder(folderName);
+              if (!selectedCategory) return;
+              const folderName = prompt("Folder Name? (leave blank to use category)") || selectedCategory;
+              if (folderName) handleCreateFolder(folderName, selectedCategory);
             }}
             style={{
-              background: '#2563eb',
-              color: '#fff',
-              padding: '8px 12px',
+              background: selectedCategory ? '#2563eb' : '#f3f4f6',
+              color: selectedCategory ? '#fff' : '#9ca3af',
+              padding: '10px 20px',
               borderRadius: 8,
               border: 'none',
-              cursor: 'pointer'
+              cursor: selectedCategory ? 'pointer' : 'not-allowed',
+              fontWeight: 600,
+              fontSize: 16,
+              transition: 'background 0.2s, color 0.2s'
             }}
           >
             Add Folder
@@ -98,14 +169,41 @@ const AdminDashboard: React.FC<{ activeSection?: string }> = ({ activeSection = 
   // Content view - show folders on left and editor on right
   return (
     <main style={{ padding: 24 }}>
-      <h1>Admin Content Library — Content</h1>
+      <h1>Admin Content Library � Content</h1>
       <div style={{ display: 'flex', gap: 20 }}>
         <div style={{ width: 260 }}>
-          <div style={{ marginBottom: 12 }}>
-            <button onClick={() => {
-              const folderName = prompt("Folder Name?");
-              if (folderName) handleCreateFolder(folderName);
-            }}>Create Folder</button>
+          <div style={{ marginBottom: 12, display: 'flex', gap: 0, alignItems: 'center' }}>
+            <div style={{ marginRight: 16 }}>
+              <select
+                value={selectedCategory}
+                onChange={e => setSelectedCategory(e.target.value)}
+                style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #d1d5db', minWidth: 160, fontSize: 16 }}
+              >
+                <option value="">Select Category</option>
+                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <button
+              disabled={!selectedCategory}
+              onClick={() => {
+                if (!selectedCategory) return;
+                const folderName = prompt("Folder Name? (leave blank to use category)") || selectedCategory;
+                if (folderName) handleCreateFolder(folderName, selectedCategory);
+              }}
+              style={{
+                background: selectedCategory ? '#2563eb' : '#f3f4f6',
+                color: selectedCategory ? '#fff' : '#9ca3af',
+                padding: '10px 20px',
+                borderRadius: 8,
+                border: 'none',
+                cursor: selectedCategory ? 'pointer' : 'not-allowed',
+                fontWeight: 600,
+                fontSize: 16,
+                transition: 'background 0.2s, color 0.2s'
+              }}
+            >
+              Create Folder
+            </button>
           </div>
           <div>
             <FolderList folders={folders} onOpen={id => setSelectedFolder(id)} />

@@ -7,5 +7,7 @@ export type FileItem = {
 export type Folder = {
   id: string;
   name: string;
+  // Optional category to group folders (e.g. Sales, Marketing, Finance)
+  category?: string;
   files: FileItem[];
 };

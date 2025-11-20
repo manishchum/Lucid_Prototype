@@ -4,8 +4,8 @@ import './styles/content-library.css';
 
 export type Role = 'admin' | 'user' | 'super_admin';
 
-export default function ContentLibrary({ role } : { role: Role }) {
+export default function ContentLibrary({ isAdmin, onNavigate } : { isAdmin?: boolean; onNavigate?: (s:any) => void }) {
   // Always render the card-based UserDashboard in content mode.
-  // Route-level access control ensures only admin/super_admin reach this page.
-  return <UserDashboard activeSection="content" />;
+  // Upload controls are shown when `isAdmin` is true.
+  return <UserDashboard activeSection="content" isAdmin={isAdmin} />;
 }

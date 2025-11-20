@@ -279,22 +279,20 @@ const EmployeeNavigation = ({
             {!isCollapsed && <span>Dashboard</span>}
           </Link>
 
-          {/* Content Library Link - only visible to admins */}
-          {hasAdminAccess() && (
-            <Link
-              href="/content-library"
-              onClick={closeMobileSidebar}
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${
-                isActiveRoute('/content-library')
-                  ? 'text-green-600 bg-green-100'
-                  : 'text-gray-700 hover:bg-gray-100'
-              } ${isCollapsed ? 'justify-center' : ''}`}
-              title={isCollapsed ? 'Content Library' : ''}
-            >
-              <FileText className="w-5 h-5 flex-shrink-0" />
-              {!isCollapsed && <span>Content Library</span>}
-            </Link>
-          )}
+          {/* Content Library Link - visible to all users */}
+          <Link
+            href="/content-library"
+            onClick={closeMobileSidebar}
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${
+              isActiveRoute('/content-library')
+                ? 'text-blue-600 bg-blue-100'
+                : 'text-gray-700 hover:bg-gray-100'
+            } ${isCollapsed ? 'justify-center' : ''}`}
+            title={isCollapsed ? 'Content Library' : ''}
+          >
+            <FileText className="w-5 h-5 flex-shrink-0" />
+            {!isCollapsed && <span>Content Library</span>}
+          </Link>
 
           {/* Admin Panel - Only visible to admins */}
           {hasAdminAccess() && (

@@ -57,26 +57,18 @@ export default function ContentLibraryPage() {
     fetchRoles();
   }, [user]);
 
-  if (loading || checking) return <div className="p-8">Loading...</div>;
+    if (loading || checking) return <div className="p-8">Loading...</div>;
 
-  const isAdmin = (roles || []).some(r => r === 'ADMIN' || r === 'SUPER_ADMIN');
+    const isAdmin = (roles || []).some(r => r === 'ADMIN' || r === 'SUPER_ADMIN');
 
-  if (!isAdmin) {
+    // Allow all authenticated users to view the Content Library.
+    // Only surface upload/create-folder controls to admins.
     return (
-      <div className="p-8">
-        <h2 className="text-xl font-semibold mb-4">Not authorized</h2>
-        <p className="mb-6">You do not have access to the Content Library. If you believe this is an error, contact your administrator.</p>
-        <Link href="/employee/welcome" className="inline-block bg-blue-600 text-white px-4 py-2 rounded">Back to dashboard</Link>
-      </div>
+      <>
+        <EmployeeNavigation />
+        <EmployeeLayout>
+          <ContentLibrary isAdmin={isAdmin} onNavigate={(s) => console.log('nav', s)} />
+        </EmployeeLayout>
+      </>
     );
-  }
-
-  return (
-    <>
-      <EmployeeNavigation />
-      <EmployeeLayout>
-        <ContentLibrary role="admin" onNavigate={(s) => console.log('nav', s)} />
-      </EmployeeLayout>
-    </>
-  );
 }
