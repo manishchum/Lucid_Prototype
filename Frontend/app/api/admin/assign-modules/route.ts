@@ -1,11 +1,62 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
-// Simple helper to get admin id from request header (prototype pattern used elsewhere)
-async function getAdminId(req: Request): Promise<string | null> {
-  const adminId = req.headers.get("x-admin-id");
-  console.log(adminId)
-  return adminId || null;
+// Helper to get user id from request header and validate admin role
+async function getAdminUser(req: Request): Promise<{ user_id: string; company_id: string } | null> {
+  const userId = req.headers.get("x-admin-id");
+  console.log("User ID from header:", userId);
+  
+  if (!userId) return null;
+
+  try {
+    // Get user data and check if they have admin role
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .select("user_id, company_id, email")
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .single();
+
+    if (userError || !userData) {
+      console.log("User not found or inactive:", userError);
+      return null;
+    }
+
+    // Check if user has admin role through user_role_assignments
+    const { data: roleData, error: roleError } = await supabase
+      .from("user_role_assignments")
+      .select(`
+        role_id,
+        roles!inner(name)
+      `)
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .eq("scope_type", "COMPANY")
+      .eq("scope_id", userData.company_id);
+
+    if (roleError || !roleData || roleData.length === 0) {
+      console.log("No active roles found for user:", roleError);
+      return null;
+    }
+
+    // Check if user has Admin role
+    const hasAdminRole = roleData.some((assignment: any) => 
+      assignment.roles?.name?.toLowerCase() === 'admin'
+    );
+
+    if (!hasAdminRole) {
+      console.log("User does not have admin role");
+      return null;
+    }
+
+    return {
+      user_id: userData.user_id,
+      company_id: userData.company_id
+    };
+  } catch (error) {
+    console.error("Error validating admin user:", error);
+    return null;
+  }
 }
 
 export async function POST(req: Request) {
@@ -16,23 +67,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing user_id or moduleIds" }, { status: 400 });
     }
 
-    const adminId = await getAdminId(req);
-    if (!adminId) {
-      return NextResponse.json({ error: "Missing admin id header (x-admin-id)" }, { status: 401 });
+    const adminUser = await getAdminUser(req);
+    if (!adminUser) {
+      return NextResponse.json({ error: "Unauthorized: Admin access required" }, { status: 401 });
     }
 
-    // Fetch admin record to validate company
-    const { data: adminData, error: adminErr } = await supabase
-      .from("admins")
-      .select("admin_id, company_id")
-      .eq("admin_id", adminId)
-      .maybeSingle();
-
-    if (adminErr || !adminData) {
-      return NextResponse.json({ error: "Admin not found or unauthorized" }, { status: 403 });
-    }
-
-    const companyId = adminData.company_id;
+    const { user_id: adminUserId, company_id: companyId } = adminUser;
 
     // Verify employee belongs to same company
     const { data: emp, error: empErr } = await supabase
@@ -44,18 +84,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Employee not found in your company" }, { status: 403 });
     }
 
-
     // Verify modules belong to this company
     const { data: mods, error: modsErr } = await supabase
       .from("training_modules")
       .select("module_id, title")
-      .in("id", moduleIds || [])
+      .in("module_id", moduleIds || [])
       .eq("company_id", companyId);
     if (modsErr) {
       return NextResponse.json({ error: modsErr.message }, { status: 500 });
     }
 
-    const modIdsFound = (mods || []).map((m: any) => m.id);
+    const modIdsFound = (mods || []).map((m: any) => m.module_id);
     if (modIdsFound.length === 0) {
       return NextResponse.json({ error: "No matching modules found for your company" }, { status: 400 });
     }
@@ -63,9 +102,9 @@ export async function POST(req: Request) {
     // Prepare rows: one learning_plan row per module with module_id set
     const rowsToInsert = (mods || []).map((m: any) => ({
       user_id,
-      module_id: m.id,
+      module_id: m.module_id,
       status: "ASSIGNED",
-      reasoning: `Manual assignment by admin ${adminId}`,
+      reasoning: `Manual assignment by admin ${adminUserId}`,
       assigned_on: new Date().toISOString(),
     }));
 
@@ -77,7 +116,7 @@ export async function POST(req: Request) {
       .from("learning_plan")
       .select("learning_plan_id, module_id")
       .eq("user_id", user_id)
-      .in("module_id", (mods || []).map((m: any) => m.id));
+      .in("module_id", (mods || []).map((m: any) => m.module_id));
 
     if (existingErr) {
       return NextResponse.json({ error: existingErr.message }, { status: 500 });

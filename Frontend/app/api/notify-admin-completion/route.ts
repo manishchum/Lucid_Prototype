@@ -203,11 +203,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get admin users for this company from the database
+    // Get admin users for this company using the new role-based system
     const { data: adminData, error: adminError } = await supabase
-      .from('admins')
-      .select('email, name')
-      .eq('company_id', employeeData.company_id)
+      .from('user_role_assignments')
+      .select(`
+        user_id,
+        users!inner(email, name, company_id),
+        roles!inner(name)
+      `)
+      .eq('users.company_id', employeeData.company_id)
+      .eq('roles.name', 'Admin')
+      .eq('is_active', true)
+      .eq('scope_type', 'COMPANY')
+      .eq('scope_id', employeeData.company_id)
     
     if (adminError) {
       console.error('📧 DEBUG: Error fetching admins:', adminError)
@@ -225,7 +233,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const adminEmails = adminData.map(admin => admin.email)
+    //@ts-ignore
+    const adminEmails = adminData.map(admin => admin.users.email)
     console.log(`📧 DEBUG: Sending notifications to ${adminEmails.length} admins:`, adminEmails)
 
     // Create email transporter
