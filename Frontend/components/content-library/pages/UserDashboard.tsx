@@ -246,7 +246,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
 
         console.log('Uploading file, finalCategory=', finalCategory, 'selectedCategory=', selectedCategory, 'uploadMeta=', meta);
         const resolvedCat = finalCategory;
-        if (resolvedCat !== null && resolvedCat !== undefined) form.append('category_id', String(resolvedCat));
+        if (resolvedCat !== null && resolvedCat !== undefined) form.append('category_id', String(selectedCategory));
         console.log('--- IGNORE ---');
         console.log(form);
         const res = await fetch("/api/content-library/upload", { method: 'POST', body: form });
@@ -401,28 +401,11 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
     }
     const deduped = Array.from(mapByTitle.values());
     console.log(deduped);
-    // First filter by search text
-    const searched = deduped.filter(course =>
+    return deduped.filter(course =>
       (course.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (course.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (course.category || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
-
-    // If a filterCategory is selected, bring matching category courses to the front
-    if (filterCategory && filterCategory !== '') {
-      const num = Number(filterCategory);
-      const isNum = !Number.isNaN(num);
-      const sorted = [...searched];
-      sorted.sort((a, b) => {
-        const aMatches = isNum ? ((a.category_id ?? (a as any).id) === num) : ((a.category || '').toLowerCase() === filterCategory.toString().toLowerCase());
-        const bMatches = isNum ? ((b.category_id ?? (b as any).id) === num) : ((b.category || '').toLowerCase() === filterCategory.toString().toLowerCase());
-        if (aMatches === bMatches) return 0;
-        return aMatches ? -1 : 1; // matching items first
-      });
-      return sorted;
-    }
-
-    return searched;
   }, [searchQuery, courses, categories]);
 
   
