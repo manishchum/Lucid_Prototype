@@ -483,7 +483,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
     return NextResponse.json({ quizMapping: resultMap, source: 'db', assignedTo: 'bulk' });
   }
   // 2. Prepare normalized snapshot
-  const currentModules = data.flatMap((mod) => mod.ai_modules ? JSON.parse(mod.ai_modules) : []);
+  const currentModules = data.flatMap((mod: any) => mod.ai_modules ? JSON.parse(mod.ai_modules) : []);
   const normalizedSnapshot = JSON.stringify(normalizeModules(currentModules));
   // 3. Check for existing assessment with snapshot
   const { data: existingAssessment, error: assessmentError } = await supabase
@@ -512,8 +512,8 @@ Objectives: ${JSON.stringify([moduleContent])}`;
     }
   }
   // 4. Generate new quiz and update or insert assessment
-  const combinedSummary = data.map((mod) => mod.gpt_summary).filter(Boolean).join('\n');
-  const combinedObjectives = data.flatMap((mod) => mod.ai_objectives ? JSON.parse(mod.ai_objectives) : []);
+  const combinedSummary = data.map((mod: any) => mod.gpt_summary).filter(Boolean).join('\n');
+  const combinedObjectives = data.flatMap((mod: any) => mod.ai_objectives ? JSON.parse(mod.ai_objectives) : []);     
   const quiz = await generateMCQQuiz(
     combinedSummary,
     currentModules,

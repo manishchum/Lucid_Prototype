@@ -233,8 +233,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    //@ts-ignore
-    const adminEmails = adminData.map(admin => admin.users.email)
+    const adminEmails = adminData.map((admin: any) => admin.email)
     console.log(`📧 DEBUG: Sending notifications to ${adminEmails.length} admins:`, adminEmails)
 
     // Create email transporter
@@ -244,7 +243,7 @@ export async function POST(request: NextRequest) {
     const formattedDate = completionDate ? new Date(completionDate).toLocaleString() : new Date().toLocaleString()
 
     // Send emails to all admins
-    const emailPromises = adminEmails.map(async (adminEmail) => {
+    const emailPromises = adminEmails.map(async (adminEmail: any) => {
       const emailTemplate = generateAdminNotificationTemplate(
         employeeData.name || 'Employee',
         moduleData.title,

@@ -272,7 +272,7 @@ export default function EmployeeWelcome() {
                 .select('processed_module_id, completed_at')
                 .eq('user_id', employeeData.user_id)
                 .in('processed_module_id', processedIds)
-              const completedSet = new Set((progP || []).filter(r => r.completed_at).map(r => String(r.processed_module_id)))
+                const completedSet = new Set((progP || []).filter((r: any) => r.completed_at).map((r: any) => String(r.processed_module_id)))
               completedCount += completedSet.size
             }
             if (originalIds.length > 0) {
@@ -281,7 +281,7 @@ export default function EmployeeWelcome() {
                 .select('module_id, completed_at')
                 .eq('user_id', employeeData.user_id)
                 .in('module_id', originalIds)
-              const completedSet = new Set((progO || []).filter(r => r.completed_at).map(r => String(r.module_id)))
+                const completedSet = new Set((progO || []).filter((r: any) => r.completed_at).map((r: any) => String(r.module_id)))
               // Merge: assume overlap minimal; union approximate
               completedCount = Math.max(completedCount, completedSet.size)
             }

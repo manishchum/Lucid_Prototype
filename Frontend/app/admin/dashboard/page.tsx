@@ -809,9 +809,9 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
       const { data: departmentsData } = await supabase.from('sub_department').select('department_id, department_name, sub_department_name');
       const { data: companiesData } = await supabase.from('companies').select('company_id, name');
       
-      const rolesMap = new Map(rolesData?.map(r => [r.name.toLowerCase(), r.role_id]) || []);
-      const departmentsMap = new Map(departmentsData?.map(d => [`${d.department_name.toLowerCase()}-${d.sub_department_name.toLowerCase()}`, d.department_id]) || []);
-      const companiesMap = new Map(companiesData?.map(c => [c.name.toLowerCase(), c.company_id]) || []);
+      const rolesMap = new Map(rolesData?.map((r: any) => [r.name.toLowerCase(), r.role_id]) || []);
+      const departmentsMap = new Map(departmentsData?.map((d: any) => [`${d.department_name.toLowerCase()}-${d.sub_department_name.toLowerCase()}`, d.department_id]) || []);
+      const companiesMap = new Map(companiesData?.map((c: any) => [c.name.toLowerCase(), c.company_id]) || []);
       console.log(dataRows)
       for (const row of dataRows) {
         // Expected format: name, company_name, email, department, sub_department, employment_status, roles, position, phone
@@ -863,7 +863,7 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
           }
 
           // Find company ID
-          let userCompanyId = companyId; // Default to admin's company
+          let userCompanyId: any = companyId; // Default to admin's company
           if (companyName) {
             const foundCompanyId = companiesMap.get(companyName.toLowerCase());
             if (foundCompanyId) {
@@ -1448,13 +1448,13 @@ function DepartmentFilter({ employees, admin, onEmployeeChange }: { employees: E
             user_id,
             roles!inner(name)
           `)
-          .in('user_id', employees.map(emp => emp.user_id))
+          .in('user_id', employees.map((emp: any) => emp.user_id))
           .eq('is_active', true);
 
         if (error) throw error;
 
         const rolesMap: {[key: string]: string[]} = {};
-        roleAssignments?.forEach(assignment => {
+        roleAssignments?.forEach((assignment: any) => {
           if (!rolesMap[assignment.user_id]) {
             rolesMap[assignment.user_id] = [];
           }

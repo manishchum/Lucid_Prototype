@@ -9,6 +9,16 @@ import * as XLSX from "xlsx";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// Type guard for assistant message content blocks that carry text
+type TextContentBlock = { type: "text"; text: string | { value?: string } };
+function isTextContentBlock(c: any): c is TextContentBlock {
+  if (!c || typeof c !== "object") return false;
+  if (c.type !== "text") return false;
+  if (typeof c.text === "string") return true;
+  if (c.text && typeof c.text === "object" && ("value" in c.text || Object.keys(c.text).length === 0)) return true;
+  return false;
+}
+
 
 export async function POST(req: Request) {
   let tempFilePath: string | undefined;
@@ -170,7 +180,15 @@ Additional instructions to maximize quality:
     const assistantMessage = result?.data?.find((msg: any) => msg.role === "assistant");
     const firstContent = assistantMessage?.content?.find((c: any) => c.type === "text");
 
-    const message: string = (firstContent?.text?.value || firstContent?.text || "").trim();
+    let message: string = "";
+    if (isTextContentBlock(firstContent)) {
+      if (typeof firstContent.text === "string") {
+        message = firstContent.text;
+      } else {
+        message = firstContent.text?.value ?? "";
+      }
+    }
+    message = message.trim();
     console.log("🟡 Raw GPT response:", message);
 
     let summary: string | null = null;
@@ -429,7 +447,15 @@ ${text}
     const assistantMessage = result?.data?.find((msg: any) => msg.role === "assistant");
     const firstContent = assistantMessage?.content?.find((c: any) => c.type === "text");
 
-    const message: string = (firstContent?.text?.value || firstContent?.text || "").trim();
+    let message: string = "";
+    if (isTextContentBlock(firstContent)) {
+      if (typeof firstContent.text === "string") {
+        message = firstContent.text;
+      } else {
+        message = firstContent.text?.value ?? "";
+      }
+    }
+    message = message.trim();
     console.log("🟡 Raw GPT response:", message);
 
     // Parse the response and save to database (same logic as file upload)

@@ -1,0 +1,51 @@
+.content-library__root { display: flex; }
+
+/* Reuse global theme variables so the content-library sidebar matches the main app sidebar */
+:root {
+  --cl-color-background: color-mix(in srgb, var(--background, 255 255 255) 100%, transparent);
+  --cl-color-foreground: color-mix(in srgb, rgb(var(--foreground)), transparent);
+  --cl-color-primary: rgb(var(--sidebar-primary));
+  --cl-color-secondary: color-mix(in srgb, rgb(var(--secondary, 245 245 245)), transparent);
+  --cl-color-accent: rgb(var(--sidebar-accent));
+  --cl-color-destructive: rgb(var(--destructive));
+  --cl-color-border: rgb(var(--sidebar-border));
+  --cl-color-input: rgb(var(--input));
+  --cl-color-ring: rgb(var(--ring));
+  --cl-sidebar-bg: rgb(var(--sidebar-background));
+  --cl-sidebar-primary: rgb(var(--sidebar-primary));
+  --cl-sidebar-primary-foreground: rgb(var(--sidebar-primary-foreground));
+  --cl-sidebar-accent: rgb(var(--sidebar-accent));
+}
+
+/* Sidebar styles (prefixed) */
+.app-sidebar {
+  width: 220px;
+  background: #ffffff; /* match main Learner dashboard sidebar */
+  color: #111827; /* dark text */
+  padding: 18px;
+  border-right: 1px solid #e6e9ef;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.app-sidebar .brand { display:flex; align-items:center; gap:10px; }
+.app-sidebar .logo { width:40px; height:40px; border-radius:8px; background: #2563eb; color: #fff; display:flex; align-items:center; justify-content:center; font-weight:700 }
+.app-sidebar .title { font-weight:700; color:#111827; }
+.nav-tabs { display:flex; flex-direction:column; gap:8px; margin-top:6px; }
+.nav-tab { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:8px; background:transparent; color:#111827; border:none; text-align:left; cursor:pointer; transition:background 120ms ease, color 120ms ease, transform 80ms ease; }
+.nav-tab:hover { background: #f3f4f6; transform: translateY(-1px); }
+.nav-tab.active { background: #dbeafe; color: #2563eb; box-shadow:0 6px 18px rgba(37,99,235,0.08); }
+.nav-tab .label { font-weight:600; }
+.app-main { flex:1; padding:32px; }
+.muted { color:#6b6b6b; font-size:13px; }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cl-color-background: #0A0A0A;
+    --cl-color-foreground: #FAFAFA;
+    --cl-sidebar-bg: #0A0A0A;
+    --cl-sidebar-accent: #262626;
+    --cl-color-border: #262626;
+  }
+}
