@@ -50,17 +50,8 @@ export default function AdminLoginForm() {
   }, [searchParams])
 
   const checkAdminAccess = async (userEmail: string) => {
-    const { data: adminData, error: adminError } = await supabase
-      .from("admins")
-      .select("*")
-      .eq("email", userEmail)
-      .single()
+    console.log("Not a valid admin login page")
 
-    if (adminError || !adminData) {
-      throw new Error("Access denied. Admin account not found.")
-    }
-
-    return adminData
   }
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -107,13 +98,13 @@ export default function AdminLoginForm() {
       await sendEmailVerification(userCredential.user)
 
       // Create admin record in Supabase
-      const { error: adminError } = await supabase.from("admins").insert({
-        email,
-        name: adminName,
-        company_id: companyData.id,
-      })
+      // const { error: adminError } = await supabase.from("admins").insert({
+      //   email,
+      //   name: adminName,
+      //   company_id: companyData.id,
+      // })
 
-      if (adminError) throw adminError
+      // if (adminError) throw adminError
 
       setError("Account created successfully! Please check your email to verify your account.")
     } catch (error: any) {

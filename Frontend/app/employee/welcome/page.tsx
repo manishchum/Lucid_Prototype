@@ -88,6 +88,7 @@ export default function EmployeeWelcome() {
   const [baselineMaxScore, setBaselineMaxScore] = useState<number | null>(null)
   const [allAssignedCompleted, setAllAssignedCompleted] = useState<boolean>(false)
   const [showProfileDropdown, setShowProfileDropdown] = useState(false)
+  const [baselineRequired, setBaselineRequired] = useState<boolean>(true) // New state for baseline requirement
   const router = useRouter()
   // LOG: Initial state
   console.log("[EmployeeWelcome] Initial user:", user)
@@ -178,7 +179,7 @@ export default function EmployeeWelcome() {
             const { data: baselineEAList, error: beaError } = await supabase
               .from('employee_assessments')
               .select('score, max_score')
-              .eq('user_id', employeeData.id)
+              .eq('user_id', employeeData.user_id)
               .eq('assessment_id', baselineAssessment.assessment_id)
               .order('employee_assessment_id', { ascending: false })
               .limit(1)
@@ -223,17 +224,38 @@ export default function EmployeeWelcome() {
 
       // Determine if assigned learning plan modules are all completed
       try {
-        const { data: planRow } = await supabase
+        const { data: planRows } = await supabase
           .from('learning_plan')
-          .select('learning_plan_id, status, plan_json')
-          .eq('user_id', employeeData.id)
-          .eq('status', 'assigned')
+          .select('learning_plan_id, status, plan_json, baseline_assessment') // Fetch baseline_assessment column
+          .eq('user_id', employeeData.user_id)
           .order('learning_plan_id', { ascending: false })
-          .limit(1)
-          .maybeSingle()
+
+        // Check if any learning plan requires baseline assessment
+        let requiresBaseline = false
+        if (planRows && planRows.length > 0) {
+          requiresBaseline = planRows.some(plan => plan.baseline_assessment === 1)
+        }
+        setBaselineRequired(requiresBaseline) // Set baselineRequired state
+
+        // If the company's learning plan does NOT require a baseline assessment,
+        // provide a safe default baseline score so existing UI logic that
+        // expects a baselineScore does not block navigation. The backend may
+        // also insert an employee_assessments row with 50% — in that case the
+        // real value will already be set above and we won't overwrite it.
+        if (!requiresBaseline) {
+          if (baselineScore === null || baselineScore === undefined) {
+            setBaselineScore(50);
+          }
+          if (baselineMaxScore === null || baselineMaxScore === undefined) {
+            setBaselineMaxScore(100);
+          }
+        }
+
+        // Check completion status for assigned plans
+        const assignedPlan = planRows?.find(plan => plan.status === 'ASSIGNED')
         let completed = false
-        if (planRow?.plan_json) {
-          let planObj: any = planRow.plan_json
+        if (assignedPlan?.plan_json) {
+          let planObj: any = assignedPlan.plan_json
           if (typeof planObj === 'string') {
             try { planObj = JSON.parse(planObj) } catch {}
           }
@@ -248,7 +270,7 @@ export default function EmployeeWelcome() {
               const { data: progP } = await supabase
                 .from('module_progress')
                 .select('processed_module_id, completed_at')
-                .eq('user_id', employeeData.id)
+                .eq('user_id', employeeData.user_id)
                 .in('processed_module_id', processedIds)
                 const completedSet = new Set((progP || []).filter((r: any) => r.completed_at).map((r: any) => String(r.processed_module_id)))
               completedCount += completedSet.size
@@ -257,7 +279,7 @@ export default function EmployeeWelcome() {
               const { data: progO } = await supabase
                 .from('module_progress')
                 .select('module_id, completed_at')
-                .eq('user_id', employeeData.id)
+                .eq('user_id', employeeData.user_id)
                 .in('module_id', originalIds)
                 const completedSet = new Set((progO || []).filter((r: any) => r.completed_at).map((r: any) => String(r.module_id)))
               // Merge: assume overlap minimal; union approximate
@@ -270,6 +292,7 @@ export default function EmployeeWelcome() {
       } catch (e) {
         console.warn('[EmployeeWelcome] assigned modules completion check failed:', e)
         setAllAssignedCompleted(false)
+        setBaselineRequired(true) // Default to requiring baseline if check fails
       }
 
       // Fetch module progress for this employee, join processed_modules for title
@@ -426,23 +449,35 @@ export default function EmployeeWelcome() {
                 />
                 {/* PHASED RELEASE: Steps 2 and 3 hidden until later rollout */}
                 
-                <StepCircle
-                  step={2}
-                  label="Baseline Assessment"
-                  subtitle="Evaluate your current skill level"
-                  completed={!!baselineScore}
-                  active={!!learningStyle && baselineScore === null}
-                  onClick={() => learningStyle && baselineScore === null && router.push("/employee/assessment")}
-                />
+                {baselineRequired && (
+                  <StepCircle
+                    step={2}
+                    label="Baseline Assessment"
+                    subtitle="Evaluate your current skill level"
+                    completed={!!baselineScore}
+                    active={!!learningStyle && baselineScore === null}
+                    onClick={() => learningStyle && baselineScore === null && router.push("/employee/assessment")}
+                  />
+                )}
 
                 
                 <StepCircle
-                  step={3}
+                  step={baselineRequired ? 3 : 2}
                   label="Learning Plan"
                   subtitle="Get your personalized learning roadmap"
                   completed={allAssignedCompleted}
-                  active={!!learningStyle && baselineScore !== null && !allAssignedCompleted}
-                  onClick={() => learningStyle && baselineScore !== null && !allAssignedCompleted && router.push("/employee/training-plan")}
+                  active={
+                    baselineRequired
+                      ? !!learningStyle && baselineScore !== null && !allAssignedCompleted
+                      : !!learningStyle && !allAssignedCompleted
+                  }
+                  onClick={() => {
+                    if (baselineRequired) {
+                      if (learningStyle && baselineScore !== null && !allAssignedCompleted) router.push("/employee/training-plan");
+                    } else {
+                      if (learningStyle && !allAssignedCompleted) router.push("/employee/training-plan");
+                    }
+                  }}
                 />
                
               </div>
