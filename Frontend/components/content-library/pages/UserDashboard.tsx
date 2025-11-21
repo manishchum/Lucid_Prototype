@@ -55,10 +55,25 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
   const [moduleDescription, setModuleDescription] = useState('');
   const [uploadMeta, setUploadMeta] = useState<{ category_id: number; moduleName: string; moduleDescription: string; } | null>(null);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [duplicateError, setDuplicateError] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('');
 
   const triggerUpload = () => { 
     console.log(selectedCategory)
+    // Prevent creating/uploading a module with a duplicate title (case-insensitive)
+    const title = (moduleName || '').toString().trim();
+    if (!title) {
+      setDuplicateError('Please provide a module title.');
+      return;
+    }
+    const normalized = title.toLowerCase();
+    const existsInCourses = courses.some(c => ((c.title || '').toString().trim().toLowerCase()) === normalized);
+    const existsInStatic = staticCourses.some(sc => ((sc.title || '').toString().trim().toLowerCase()) === normalized);
+    if (existsInCourses || existsInStatic) {
+      setDuplicateError('This module already exists. Try a different name.');
+      return;
+    }
+    setDuplicateError('');
     if (selectedCategory === '') return;
     // Resolve category id robustly from the dropdown value (which might be numeric string or name)
     let catId: number = 0;
@@ -106,6 +121,21 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
   
   // Add new module to course list (local only)
   const addNewModuleToCourseList = () => {
+    // Prevent duplicate titles
+    const title = (moduleName || '').toString().trim();
+    if (!title) {
+      setDuplicateError('Please provide a module title.');
+      return;
+    }
+    const normalized = title.toLowerCase();
+    const existsInCourses = courses.some(c => ((c.title || '').toString().trim().toLowerCase()) === normalized);
+    const existsInStatic = staticCourses.some(sc => ((sc.title || '').toString().trim().toLowerCase()) === normalized);
+    if (existsInCourses || existsInStatic) {
+      setDuplicateError('This module already exists. Try a different name.');
+      return;
+    }
+    setDuplicateError('');
+
     const newCourse = {
       id: Date.now().toString(),
       title: moduleName,
@@ -555,6 +585,9 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
                         </div>
                         {/* Title above Description inputs (stacked) */}
                         <input type="text" placeholder="Module title" value={moduleName} onChange={e => setModuleName(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, marginBottom: 12, border: '1px solid #e5e7eb', fontSize: 15 }} />
+                        {duplicateError && (
+                          <div style={{ color: '#dc2626', fontSize: 13, marginTop: -8, marginBottom: 8 }}>{duplicateError}</div>
+                        )}
                         <textarea placeholder="Module description" value={moduleDescription} onChange={e => setModuleDescription(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, marginBottom: 12, border: '1px solid #e5e7eb', fontSize: 15, resize: 'vertical', minHeight: 90 }} />
                         {/* Removed Create (local) and Create Module buttons as requested */}
                       </div>
