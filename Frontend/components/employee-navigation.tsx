@@ -92,6 +92,13 @@ const EmployeeNavigation = ({
     }
   }, [providedUser, authUser?.email]);
 
+  // Debugging: log auth/employee/roles changes to help trace redirect issues
+  useEffect(() => {
+    console.log('[EmployeeNavigation] authUser:', authUser)
+    console.log('[EmployeeNavigation] employee:', employee)
+    console.log('[EmployeeNavigation] userRoles:', userRoles)
+  }, [authUser, employee, userRoles]);
+
   // Helper function to check if a route is active
   const isActiveRoute = (route: string) => {
     if (route === '/employee/welcome') {

@@ -2057,7 +2057,59 @@ export default function AdminDashboard() {
         .single()
 
       if (adminError || !adminData) {
-        router.push("/login")
+        // Fallback: check if user has ADMIN role via user_role_assignments
+        console.warn("No admin row found for", user.email, "- falling back to role check")
+
+        // Get user row to resolve user_id and company_id
+        const { data: userRow, error: userRowError } = await supabase
+          .from("users")
+          .select("*")
+          .eq("email", user.email)
+          .single()
+
+        if (userRowError || !userRow) {
+          router.push("/login")
+          return
+        }
+
+        // Check user_role_assignments for ADMIN or SUPER_ADMIN
+        const { data: roleData, error: roleError } = await supabase
+          .from("user_role_assignments")
+          .select(`roles!inner(name), *`)
+          .eq("user_id", userRow.user_id ?? userRow.id)
+          .eq("is_active", true)
+
+        if (roleError || !roleData) {
+          router.push("/login")
+          return
+        }
+
+        const roleNames = (roleData as any[])
+          .map(r => {
+            const roles = r.roles
+            if (!roles) return null
+            if (Array.isArray(roles)) return roles.map((x:any)=>x.name)
+            return roles.name
+          })
+          .flat()
+          .filter(Boolean)
+          .map((s:any)=>String(s).toUpperCase())
+
+        if (!roleNames.includes("ADMIN") && !roleNames.includes("SUPER_ADMIN")) {
+          router.push("/login")
+          return
+        }
+
+        // Treat user as admin using their company_id from users table
+        const pseudoAdmin = {
+          admin_id: userRow.user_id ?? userRow.id,
+          email: user.email,
+          company_id: userRow.company_id
+        } as any
+
+        setAdmin(pseudoAdmin)
+        await loadEmployees(pseudoAdmin.company_id)
+        await loadTrainingModules(pseudoAdmin.company_id)
         return
       }
 
