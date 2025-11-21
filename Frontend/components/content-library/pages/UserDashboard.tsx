@@ -168,13 +168,59 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
         console.error('Seeding static courses failed', e);
       }
     };
-    const fetchCourses = async () => {
-      const { data, error } = await supabase.from('courses').select('*').order('created_at', { ascending: false });
-      if (!error && data) setCourses(data as Course[]);
+    const fetchCourses = async (categoryFilter?: string) => {
+      try {
+        let query: any = supabase.from('courses').select('*').order('created_at', { ascending: false });
+        if (categoryFilter && categoryFilter !== '') {
+          const num = Number(categoryFilter);
+          if (!Number.isNaN(num)) {
+            query = query.eq('category_id', num);
+          }
+        }
+        const { data, error } = await query;
+        if (!error && data) setCourses(data as Course[]);
+      } catch (err) {
+        console.error('fetchCourses failed', err);
+      }
     };
+
     seedAndFetchCategories();
+    // initial load without any category filter
     fetchCourses();
   }, []);
+
+
+  const callSetFilterCategory=(val:string)=>{
+    
+    console.log('Setting filter category to:', val);
+    setFilterCategory(val);
+
+  }
+  // When the category filter changes, re-fetch courses from the server so
+  // the UI reflects server-side filtering/assignments (e.g., when selecting
+  // an employee or a category in admin view).
+  useEffect(() => {
+    const fetchForFilter = async () => {
+      try {
+        if (filterCategory && filterCategory !== '') {
+          
+            const { data, error } = await supabase.from('courses').select('*').eq('category_id', filterCategory).order('created_at', { ascending: false });
+            if (!error && data) setCourses(data as Course[]);
+            return;
+          
+          
+        }else{
+          console.log('No filter category set');
+        }
+        // fallback: fetch all
+        const { data, error } = await supabase.from('courses').select('*').order('created_at', { ascending: false });
+        if (!error && data) setCourses(data as Course[]);
+      } catch (err) {
+        console.error('fetchForFilter failed', err);
+      }
+    };
+    fetchForFilter();
+  }, [filterCategory]);
 
   // Restore refreshCategories for the refresh button
   const refreshCategories = async () => {
@@ -333,6 +379,9 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
         <button
           onMouseEnter={() => setHoveredCourseId(course.id)}
           onMouseLeave={() => setHoveredCourseId(null)}
+          // remove click behavior: make non-clickable but preserve hover
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          tabIndex={-1}
           style={{
             background: '#2563eb',
             border: 'none',
@@ -340,7 +389,8 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
             padding: '8px 12px',
             borderRadius: 8,
             fontWeight: 600,
-            cursor: 'pointer',
+            cursor: 'default',
+            pointerEvents: 'auto'
           }}
         >
           Overview
@@ -401,11 +451,32 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
     }
     const deduped = Array.from(mapByTitle.values());
     console.log(deduped);
-    return deduped.filter(course =>
+    // First filter by search text
+    const searched = deduped.filter(course =>
       (course.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (course.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (course.category || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    console.log('--- IGNORE ---');
+    console.log(searched);
+    console.log(courses);
+    console.log(categories);
+    // If a category filter is selected, sort so matching-category courses come first
+    if (filterCategory && filterCategory !== '') {
+      const num = Number(filterCategory);
+      const isNum = !Number.isNaN(num);
+      const sorted = [...searched];
+      sorted.sort((a, b) => {
+        const aMatches = isNum ? ((a.category_id ?? (a as any).id) === num) : ((a.category || '').toLowerCase() === filterCategory.toLowerCase());
+        const bMatches = isNum ? ((b.category_id ?? (b as any).id) === num) : ((b.category || '').toLowerCase() === filterCategory.toLowerCase());
+        if (aMatches === bMatches) return 0;
+        return aMatches ? -1 : 1; // matching items first
+      });
+      return sorted;
+    }
+
+    return searched;
   }, [searchQuery, courses, categories]);
 
   
@@ -420,7 +491,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
             </h1>
             {isAdmin && (
               <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} style={{ padding: 8, borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 14, minWidth: 160 }}>
+                <select value={filterCategory} onChange={e => callSetFilterCategory(e.target.value)} style={{ padding: 8, borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 14, minWidth: 160 }}>
                   <option value="">All Categories</option>
                   {categories.map(c => (
                     <option key={c.category_id} value={c.category_id}>{c.name}</option>
