@@ -273,11 +273,7 @@ const EmployeeNavigation = ({
                 icon: <FileText className="w-5 h-5" />, 
                 label: 'Content Library' },
 
-              { 
-                href: '/admin/dashboard', 
-                icon: <Shield className="w-5 h-5" />, 
-                label: 'Admin Panel',
-                 admin: true },
+             
 
             ].map((m) => {
               if (m.admin && !hasAdminAccess()) return null;
