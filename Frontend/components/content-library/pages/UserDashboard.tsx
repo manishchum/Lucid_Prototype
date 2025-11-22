@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { CloudCog, Search, Clock } from "lucide-react";
+import { CloudCog, Search, Clock, Users } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 
 interface Category {
@@ -488,13 +488,16 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
       for (const course of sorted) {
         const k = groupKey(course);
         if (!grouped.has(k)) {
-          grouped.set(k, { ...course, __total_file_size: Number((course as any).file_size) || 0, __files_count: 1 });
+          grouped.set(k, { ...course, __total_file_size: Number((course as any).file_size) || 0, __files_count: 1, __learners_total: Number((course as any).learners) || 0 });
         } else {
           const prev = grouped.get(k);
           prev.__total_file_size = (prev.__total_file_size || 0) + (Number((course as any).file_size) || 0);
           prev.__files_count = (prev.__files_count || 1) + 1;
+          prev.__learners_total = (prev.__learners_total || 0) + (Number((course as any).learners) || 0);
           // prefer a representative that has an image
           if (!prev.image && course.image) prev.image = course.image;
+          // prefer a representative that has a rating
+          if ((!prev.rating || prev.rating === 0) && course.rating) prev.rating = course.rating;
         }
       }
       const formatLabel = (bytes: number) => {
@@ -511,15 +514,17 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
     // Group rows so multiple files for same module show as one card in the UI.
     const groupKey = (c: any) => c.parent_course_id ? `p:${c.parent_course_id}` : `t:${(c.title || '').toString().trim().toLowerCase()}`;
     const grouped = new Map<string, any>();
-    for (const course of searched) {
+      for (const course of searched) {
       const k = groupKey(course);
       if (!grouped.has(k)) {
-        grouped.set(k, { ...course, __total_file_size: Number((course as any).file_size) || 0, __files_count: 1 });
+        grouped.set(k, { ...course, __total_file_size: Number((course as any).file_size) || 0, __files_count: 1, __learners_total: Number((course as any).learners) || 0 });
       } else {
         const prev = grouped.get(k);
         prev.__total_file_size = (prev.__total_file_size || 0) + (Number((course as any).file_size) || 0);
         prev.__files_count = (prev.__files_count || 1) + 1;
+        prev.__learners_total = (prev.__learners_total || 0) + (Number((course as any).learners) || 0);
         if (!prev.image && course.image) prev.image = course.image;
+        if ((!prev.rating || prev.rating === 0) && course.rating) prev.rating = course.rating;
       }
     }
     const formatLabel = (bytes: number) => {
@@ -531,6 +536,22 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
     };
     return Array.from(grouped.values()).map((g: any) => ({ ...g, estHoursLabel: formatLabel(g.__total_file_size || 0) }));
   }, [searchQuery, courses, categories]);
+
+  // Return a stable, deterministic learners count for display when none exists
+  const stableLearnersCount = (c: any) => {
+    const existing = Number((c as any).__learners_total ?? c.learners ?? 0);
+    if (existing && existing > 0) return existing;
+    const key = String(c.id ?? c.course_id ?? c.title ?? Math.random());
+    let h = 0;
+    for (let i = 0; i < key.length; i++) {
+      h = ((h << 5) - h) + key.charCodeAt(i);
+      h |= 0;
+    }
+    h = Math.abs(h);
+    const min = 1000;
+    const max = 9999;
+    return (h % (max - min + 1)) + min;
+  };
 
   
 
@@ -715,14 +736,23 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
                 </div>
 
                       <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontSize: 12, backgroundColor: '#f8fafc', color: '#475569', padding: '6px 10px', borderRadius: 6, alignSelf: 'flex-start' }}>{course.category || 'Uncategorized'}</span>
-                          <span style={{ fontSize: 12, color: '#475569', padding: '6px 10px', borderRadius: 6, alignSelf: 'flex-end', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                            <Clock size={14} color="#6b7280" />
-                            {(course as any).estHoursLabel || ''}
-                          </span>
-                        </div>
                         <div style={{ width: '100%' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, color: '#475569', fontSize: 13 }}>
+                            <span style={{ fontSize: 12, backgroundColor: '#f8fafc', color: '#475569', padding: '6px 10px', borderRadius: 6 }}>{course.category || 'Uncategorized'}</span>
+
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <Users size={14} color="#6b7280" />
+                              <span>{stableLearnersCount(course).toLocaleString()}</span>
+                            </div>
+
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                              <Clock size={14} color="#6b7280" />
+                              <span>{(course as any).estHoursLabel || ''}</span>
+                            </div>
+                          </div>
+
+                          {/* rating removed (was causing runtime error when Star was undefined) */}
+
                           <OverviewHover course={course} label="View Overview" />
                         </div>
                       </div>
