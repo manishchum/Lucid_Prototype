@@ -299,89 +299,43 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
       }
       return null;
     };
-    const uploadedRows: any[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i] as File;
-      try {
-        const form = new FormData();
-        form.append('file', f);
-        form.append('title', meta?.moduleName || moduleName || f.name);
-        form.append('description', meta?.moduleDescription || moduleDescription || '');
-
-        // Determine final category id: prefer meta, then numeric dropdown value, then name match
-        let finalCategory: number | null = null;
-        if (meta && meta.category_id) finalCategory = Number(meta.category_id);
-        if (finalCategory === null) {
-          const num = Number(selectedCategory);
-          if (!Number.isNaN(num)) finalCategory = num;
-        }
-        if (finalCategory === null) {
-          const byName = categories.find(c => (c.name || '').toLowerCase() === (selectedCategory || '').toString().toLowerCase());
-          if (byName) finalCategory = byName.category_id;
-        }
-
-        console.log('Uploading file, finalCategory=', finalCategory, 'selectedCategory=', selectedCategory, 'uploadMeta=', meta);
-        const resolvedCat = finalCategory;
-        if (resolvedCat !== null && resolvedCat !== undefined) form.append('category_id', String(selectedCategory));
-        console.log('--- IGNORE ---');
-        console.log(form);
-        const res = await fetch("/api/content-library/upload", { method: 'POST', body: form });
-        console.log(res);
-        const json = await res.json();
-        if (!res.ok) {
-          console.error('Server upload failed', json);
-          // fallback to a local-only entry so the UI still shows something
-          const localCourse = {
-            id: Date.now().toString(),
-            title: meta?.moduleName || moduleName || f.name,
-            description: meta?.moduleDescription || moduleDescription || '',
-            category_id: resolvedCat,
-            category: (categories.find(c => (c.category_id ?? (c as any).id) === resolvedCat) as any)?.name || '',
-            image: undefined,
-            rating: undefined,
-            learners: undefined,
-            duration: undefined,
-            module: `${Date.now()}_${i}_${f.name}`,
-          };
-          uploadedRows.push(localCourse);
-        } else {
-          const inserted = json.inserted;
-          if (inserted) uploadedRows.push(inserted as any);
-          else {
-            // Unexpected: no inserted row returned — add local fallback
-            const localCourse = {
-              id: Date.now().toString(),
-              title: meta?.moduleName || moduleName || f.name,
-              description: meta?.moduleDescription || moduleDescription || '',
-              category_id: resolvedCat,
-              category: (categories.find(c => (c.category_id ?? (c as any).id) === resolvedCat) as any)?.name || '',
-              image: undefined,
-              module: `${Date.now()}_${i}_${f.name}`,
-            };
-            uploadedRows.push(localCourse);
-          }
-        }
-      } catch (err) {
-        console.error('File upload failed', err);
-        const resolvedCat = resolveCategoryId();
-        const localCourse = {
-          id: Date.now().toString(),
-          title: meta?.moduleName || moduleName || f.name,
-          description: meta?.moduleDescription || moduleDescription || '',
-          category_id: resolvedCat,
-          category: (categories.find(c => (c.category_id ?? (c as any).id) === resolvedCat) as any)?.name || '',
-          image: undefined,
-          module: `${Date.now()}_${i}_${f.name}`,
-        };
-        uploadedRows.push(localCourse);
+    // Send all selected files in a single request so the server can create
+    // one parent course and insert one child row per file with the same parent ID.
+    try {
+      const form = new FormData();
+      for (let i = 0; i < files.length; i++) {
+        form.append('file', files[i]);
       }
-    }
+      // send a group title (used to create parent course if not provided)
+      const groupTitle = (uploadMetaRef.current?.moduleName) || moduleName || '';
+      if (groupTitle) form.append('groupTitle', groupTitle);
+      const descr = (uploadMetaRef.current?.moduleDescription) || moduleDescription || '';
+      if (descr) form.append('description', descr);
 
-    if (uploadedRows.length > 0) {
-      setCourses(prev => [...uploadedRows, ...prev]);
-      alert(`Uploaded ${uploadedRows.length} file(s) ${uploadType}.${metaTxt}\n(Saved to DB)`);
-    } else {
-      alert(`No files were uploaded.${metaTxt}`);
+      // Append resolved category id
+      const finalCat = resolveCategoryId();
+      if (finalCat !== null && finalCat !== undefined) form.append('category_id', String(finalCat));
+
+      console.log('Uploading batch of', files.length, 'files, category=', finalCat, 'groupTitle=', groupTitle);
+      const res = await fetch('/api/content-library/upload', { method: 'POST', body: form });
+      const json = await res.json();
+      console.log('Batch upload response', json);
+
+      if (!res.ok || json.error) {
+        console.error('Batch upload failed', json);
+        alert(`Upload failed: ${json?.error || 'Unknown error'}`);
+      } else {
+        const inserted = json.inserted || json.insertedChildren || json.inserted_rows || [];
+        if (Array.isArray(inserted) && inserted.length > 0) {
+          setCourses(prev => [...inserted, ...prev]);
+          alert(`Uploaded ${inserted.length} file(s) ${uploadType}.${metaTxt}\n(Saved to DB)`);
+        } else {
+          alert(`Upload completed but no rows returned from server.${metaTxt}`);
+        }
+      }
+    } catch (err) {
+      console.error('Batch upload failed', err);
+      alert(`Upload failed: ${String(err)}`);
     }
 
     setUploadMeta(null);
@@ -442,6 +396,9 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
     );
   };
 
+  const [filesModalParent, setFilesModalParent] = useState<string | null>(null);
+
+
   // Merge static and DB courses for display
   const filteredCourses = useMemo(() => {
     const defaultImage = 'https://images.unsplash.com/photo-1527689368864-3a821dbccc34?w=400&h=300&fit=crop';
@@ -466,23 +423,33 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
       duration: undefined,
       category: (categories.find(cat => ((cat.category_id ?? (cat as any).id) === (c.category_id ?? (c as any).id))) as any)?.name || '',
     }));
-    // Deduplicate by title (case-insensitive). Prefer DB entries over static ones so
-    // uploaded/DB-backed courses (with images) replace static copies with same title.
-    const mapByTitle = new Map<string, Course>();
-    // insert static first
-    for (const sc of staticCourses) {
-      const key = (sc.title || '').toLowerCase();
-      mapByTitle.set(key, sc);
-    }
-    // then insert DB courses, overwriting static entries when titles match
-    for (const dc of dbCourses) {
-      const key = ((dc.title as string) || '').toLowerCase();
-      mapByTitle.set(key, dc);
-    }
-    const deduped = Array.from(mapByTitle.values());
+    // Keep all DB courses (they represent uploaded/DB-backed modules).
+    // Only include staticCourses when there's no DB course with the same title.
+    const dbTitles = new Set<string>(dbCourses.map(d => ((d.title || '') as string).toLowerCase()));
+    const deduped: Course[] = [
+      // DB courses first so uploaded items appear before static suggestions
+      ...dbCourses,
+      // append static ones that are not present in DB
+      ...staticCourses.filter(sc => !dbTitles.has((sc.title || '').toLowerCase()))
+    ];
     console.log(deduped);
+    // Only show one entry per module group. If a parent_course exists
+    // (we inserted a parent row when multiple files were uploaded), show
+    // the parent row only. Otherwise show standalone rows (legacy single-file uploads).
+    const parentIds = new Set((courses || []).map((c: any) => c.parent_course_id).filter(Boolean));
+
+    const dedupedForDisplay = deduped.filter((course: any) => {
+      const cid = (course.course_id ?? course.id ?? '').toString();
+      // If this course is a parent (its id appears as a parent_course_id on other rows), show it
+      if (parentIds.has(cid) || parentIds.has(course.course_id) || parentIds.has(course.id)) return true;
+      // Otherwise, if this row is not a child (no parent_course_id), show it (legacy single-file row)
+      if (!course.parent_course_id) return true;
+      // It's a child row and its parent exists — skip showing the child individually
+      return false;
+    });
+
     // First filter by search text
-    const searched = deduped.filter(course =>
+    const searched = dedupedForDisplay.filter(course =>
       (course.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (course.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (course.category || '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -519,105 +486,107 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
             <h1 style={{ margin: 0, fontSize: 28, fontWeight: 600, color: '#1f2937' }}>
               Browse Courses
             </h1>
-            {isAdmin && (
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <select value={filterCategory} onChange={e => callSetFilterCategory(e.target.value)} style={{ padding: 8, borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 14, minWidth: 160 }}>
-                  <option value="">All Categories</option>
-                  {categories.map(c => (
-                    <option key={c.category_id} value={c.category_id}>{c.name}</option>
-                  ))}
-                </select>
-                <button
-                  style={{
-                    background: '#2563eb',
-                    color: 'white',
-                    border: 'none',
-                    padding: '10px 18px',
-                    borderRadius: 10,
-                    fontSize: 14,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    boxShadow: '0 4px 12px rgba(37,99,235,0.15)',
-                  }}
-                  onClick={() => setShowUploadModal(true)}
-                >
-                  + Upload
-                </button>
-                {showUploadModal && (
-                  <div style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    width: '100vw',
-                    height: '100vh',
-                    background: 'rgba(0,0,0,0.18)',
-                    zIndex: 1000,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <select value={filterCategory} onChange={e => callSetFilterCategory(e.target.value)} style={{ padding: 8, borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 14, minWidth: 160 }}>
+                <option value="">All Categories</option>
+                {categories.map(c => (
+                  <option key={c.category_id} value={c.category_id}>{c.name}</option>
+                ))}
+              </select>
+              {isAdmin && (
+                <>
+                  <button
+                    style={{
+                      background: '#2563eb',
+                      color: 'white',
+                      border: 'none',
+                      padding: '10px 18px',
+                      borderRadius: 10,
+                      fontSize: 14,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 12px rgba(37,99,235,0.15)',
+                    }}
+                    onClick={() => setShowUploadModal(true)}
+                  >
+                    + Upload
+                  </button>
+                  {showUploadModal && (
                     <div style={{
-                      background: '#fff',
-                      borderRadius: 16,
-                      boxShadow: '0 8px 32px rgba(2,6,23,0.12)',
-                      padding: 36,
-                      minWidth: 520,
-                      maxWidth: 700,
-                      width: '100%',
+                      position: 'fixed',
+                      top: 0,
+                      left: 0,
+                      width: '100vw',
+                      height: '100vh',
+                      background: 'rgba(0,0,0,0.18)',
+                      zIndex: 1000,
                       display: 'flex',
-                      gap: 32,
-                      position: 'relative',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                     }}>
-                      <button onClick={() => setShowUploadModal(false)} style={{ position: 'absolute', top: 18, right: 18, background: 'none', border: 'none', fontSize: 22, color: '#888', cursor: 'pointer' }}>&times;</button>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Create Folder</div>
-                        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                          <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 15 }}>
-                            <option value="">Select Category</option>
-                            {categories.map(c => (
-                              <option key={c.category_id} value={c.category_id}>{c.name}</option>
-                            ))}
-                          </select>
+                      <div style={{
+                        background: '#fff',
+                        borderRadius: 16,
+                        boxShadow: '0 8px 32px rgba(2,6,23,0.12)',
+                        padding: 36,
+                        minWidth: 520,
+                        maxWidth: 700,
+                        width: '100%',
+                        display: 'flex',
+                        gap: 32,
+                        position: 'relative',
+                      }}>
+                        <button onClick={() => setShowUploadModal(false)} style={{ position: 'absolute', top: 18, right: 18, background: 'none', border: 'none', fontSize: 22, color: '#888', cursor: 'pointer' }}>&times;</button>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Create Folder</div>
+                          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                            <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 15 }}>
+                              <option value="">Select Category</option>
+                              {categories.map(c => (
+                                <option key={c.category_id} value={c.category_id}>{c.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          {/* Always show tabs below the dropdown so user can type title/description */}
+                          <div style={{ marginBottom: 10, fontWeight: 600, color: '#2563eb', fontSize: 15 }}>
+                            {selectedCategory !== '' ? (categories.find(c => c.category_id === Number(selectedCategory))?.name || '') : ''}
+                          </div>
+                          {/* Title above Description inputs (stacked) */}
+                          <input type="text" placeholder="Module title" value={moduleName} onChange={e => setModuleName(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, marginBottom: 12, border: '1px solid #e5e7eb', fontSize: 15 }} />
+                          {duplicateError && (
+                            <div style={{ color: '#dc2626', fontSize: 13, marginTop: -8, marginBottom: 8 }}>{duplicateError}</div>
+                          )}
+                          <textarea placeholder="Module description" value={moduleDescription} onChange={e => setModuleDescription(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, marginBottom: 12, border: '1px solid #e5e7eb', fontSize: 15, resize: 'vertical', minHeight: 90 }} />
+                          {/* Removed Create (local) and Create Module buttons as requested */}
                         </div>
-                        {/* Always show tabs below the dropdown so user can type title/description */}
-                        <div style={{ marginBottom: 10, fontWeight: 600, color: '#2563eb', fontSize: 15 }}>
-                          {selectedCategory !== '' ? (categories.find(c => c.category_id === Number(selectedCategory))?.name || '') : ''}
+                        <div style={{ width: 1, background: '#eef2f6', margin: '0 24px' }} />
+                        <div style={{ width: 240 }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Upload Module</div>
+                          <div style={{ fontSize: 14, color: '#6b7280', marginBottom: 16 }}>Upload a local folder (Chrome/Edge only).</div>
+                          <button
+                            onClick={triggerUpload}
+                            disabled={!(selectedCategory !== '' && moduleName && moduleDescription)}
+                            style={{
+                              background: selectedCategory !== '' && moduleName && moduleDescription ? '#10b981' : '#ffffff',
+                              color: selectedCategory !== '' && moduleName && moduleDescription ? '#fff' : '#374151',
+                              padding: '10px 18px',
+                              borderRadius: 8,
+                              border: selectedCategory !== '' && moduleName && moduleDescription ? 'none' : '1px solid #e5e7eb',
+                              cursor: selectedCategory !== '' && moduleName && moduleDescription ? 'pointer' : 'not-allowed',
+                              width: '100%',
+                              fontWeight: 600,
+                              fontSize: 15
+                            }}
+                          >
+                            Upload Module
+                          </button>
                         </div>
-                        {/* Title above Description inputs (stacked) */}
-                        <input type="text" placeholder="Module title" value={moduleName} onChange={e => setModuleName(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, marginBottom: 12, border: '1px solid #e5e7eb', fontSize: 15 }} />
-                        {duplicateError && (
-                          <div style={{ color: '#dc2626', fontSize: 13, marginTop: -8, marginBottom: 8 }}>{duplicateError}</div>
-                        )}
-                        <textarea placeholder="Module description" value={moduleDescription} onChange={e => setModuleDescription(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, marginBottom: 12, border: '1px solid #e5e7eb', fontSize: 15, resize: 'vertical', minHeight: 90 }} />
-                        {/* Removed Create (local) and Create Module buttons as requested */}
-                      </div>
-                      <div style={{ width: 1, background: '#eef2f6', margin: '0 24px' }} />
-                      <div style={{ width: 240 }}>
-                        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Upload Module</div>
-                        <div style={{ fontSize: 14, color: '#6b7280', marginBottom: 16 }}>Upload a local folder (Chrome/Edge only).</div>
-                        <button
-                          onClick={triggerUpload}
-                          disabled={!(selectedCategory !== '' && moduleName && moduleDescription)}
-                          style={{
-                            background: selectedCategory !== '' && moduleName && moduleDescription ? '#10b981' : '#ffffff',
-                            color: selectedCategory !== '' && moduleName && moduleDescription ? '#fff' : '#374151',
-                            padding: '10px 18px',
-                            borderRadius: 8,
-                            border: selectedCategory !== '' && moduleName && moduleDescription ? 'none' : '1px solid #e5e7eb',
-                            cursor: selectedCategory !== '' && moduleName && moduleDescription ? 'pointer' : 'not-allowed',
-                            width: '100%',
-                            fontWeight: 600,
-                            fontSize: 15
-                          }}
-                        >
-                          Upload Module
-                        </button>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </>
+              )}
+            </div>
            </div>
 
           {isAdmin && (
@@ -692,11 +661,56 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
                   <OverviewHover course={course} />
+                  { /* Show Files button for parent groups so admin can inspect uploaded files */ }
+                  {isAdmin && (
+                    <button
+                      onClick={() => {
+                        const key = String((course as any).course_id ?? (course as any).id ?? '');
+                        setFilesModalParent(key || null);
+                      }}
+                      style={{ background: 'transparent', border: '1px solid #e5e7eb', padding: '6px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}
+                    >
+                      Files
+                    </button>
+                  )}
                   {/* Admin delete removed from UI; deletions should be done directly in Supabase */}
                 </div>
               </div>
             ))}
           </div>
+
+          {filesModalParent && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.32)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setFilesModalParent(null)}>
+              <div style={{ width: 760, maxHeight: '80vh', overflow: 'auto', background: '#fff', borderRadius: 12, padding: 20 }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>Uploaded files</div>
+                  <button onClick={() => setFilesModalParent(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer' }}>&times;</button>
+                </div>
+                <div style={{ fontSize: 13, color: '#374151', marginBottom: 12 }}>Files uploaded under this module (click to open)</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {(() => {
+                    const parentKey = filesModalParent;
+                    if (!parentKey) return null;
+                    const children = (courses || []).filter((c: any) => String(c.parent_course_id) === parentKey);
+                    if (!children || children.length === 0) return <div style={{ color: '#666' }}>No files found for this module.</div>;
+                    return children.map((ch: any) => (
+                      <div key={(ch.course_id ?? ch.id) || Math.random()} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', border: '1px solid #eef2f6', borderRadius: 8 }}>
+                        <div style={{ overflow: 'hidden', minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, color: '#0f172a', fontSize: 14 }}>{ch.title}</div>
+                          <div style={{ fontSize: 13, color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ch.module || 'No file URL'}</div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          {ch.module && (
+                            <a href={ch.module} target="_blank" rel="noreferrer" style={{ padding: '6px 10px', borderRadius: 8, background: '#2563eb', color: '#fff', textDecoration: 'none' }}>Open</a>
+                          )}
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
 
           {filteredCourses.length === 0 && (
             <div style={{ textAlign: 'center', paddingTop: 40, color: '#999', fontSize: 16 }}>
