@@ -25,6 +25,21 @@ const AdminDashboard: React.FC<{ activeSection?: string }> = ({ activeSection = 
   const [descriptions, setDescriptions] = useState<Record<string,string>>({});
   const [selectedCategory, setSelectedCategory] = useState<string>(categories[0]);
 
+  const primaryButtonStyle = (enabled: boolean, width: string | number = '100%'): React.CSSProperties => ({
+    background: enabled ? '#2563eb' : '#f3f4f6',
+    color: enabled ? '#fff' : '#9ca3af',
+    padding: '10px 14px',
+    borderRadius: 8,
+    border: 'none',
+    cursor: enabled ? 'pointer' : 'not-allowed',
+    fontWeight: 700,
+    fontSize: 15,
+    transition: 'background 0.2s, color 0.2s',
+    boxShadow: enabled ? '0 4px 12px rgba(37,99,235,0.12)' : 'none',
+    width,
+    textAlign: 'center'
+  });
+
   // Load folders from localStorage on mount
   useEffect(() => {
     try {
@@ -105,17 +120,7 @@ const AdminDashboard: React.FC<{ activeSection?: string }> = ({ activeSection = 
                   const folderName = prompt("Folder Name? (leave blank to use category)") || selectedCategory;
                   if (folderName) handleCreateFolder(folderName, selectedCategory);
                 }}
-                style={{
-                  background: selectedCategory ? '#2563eb' : '#f3f4f6',
-                  color: selectedCategory ? '#fff' : '#9ca3af',
-                  padding: '10px 20px',
-                  borderRadius: 8,
-                  border: 'none',
-                  cursor: selectedCategory ? 'pointer' : 'not-allowed',
-                  fontWeight: 600,
-                  fontSize: 16,
-                  transition: 'background 0.2s, color 0.2s'
-                }}
+                style={primaryButtonStyle(!!selectedCategory, 456)}
               >
                 Create Folder
               </button>
@@ -146,17 +151,7 @@ const AdminDashboard: React.FC<{ activeSection?: string }> = ({ activeSection = 
               const folderName = prompt("Folder Name? (leave blank to use category)") || selectedCategory;
               if (folderName) handleCreateFolder(folderName, selectedCategory);
             }}
-            style={{
-              background: selectedCategory ? '#2563eb' : '#f3f4f6',
-              color: selectedCategory ? '#fff' : '#9ca3af',
-              padding: '10px 20px',
-              borderRadius: 8,
-              border: 'none',
-              cursor: selectedCategory ? 'pointer' : 'not-allowed',
-              fontWeight: 600,
-              fontSize: 16,
-              transition: 'background 0.2s, color 0.2s'
-            }}
+            style={primaryButtonStyle(!!selectedCategory, 456)}
           >
             Add Folder
           </button>
@@ -190,17 +185,7 @@ const AdminDashboard: React.FC<{ activeSection?: string }> = ({ activeSection = 
                 const folderName = prompt("Folder Name? (leave blank to use category)") || selectedCategory;
                 if (folderName) handleCreateFolder(folderName, selectedCategory);
               }}
-              style={{
-                background: selectedCategory ? '#2563eb' : '#f3f4f6',
-                color: selectedCategory ? '#fff' : '#9ca3af',
-                padding: '10px 20px',
-                borderRadius: 8,
-                border: 'none',
-                cursor: selectedCategory ? 'pointer' : 'not-allowed',
-                fontWeight: 600,
-                fontSize: 16,
-                transition: 'background 0.2s, color 0.2s'
-              }}
+              style={primaryButtonStyle(!!selectedCategory)}
             >
               Create Folder
             </button>

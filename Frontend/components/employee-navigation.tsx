@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Users, Mail, Settings } from "lucide-react";
+import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Users, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { useState, useEffect } from "react";
@@ -270,7 +270,7 @@ const EmployeeNavigation = ({
               { href: '/admin/dashboard', icon: <Shield className="w-5 h-5" /> , label: 'Admin Panel', admin: true},
               { href: '/employee/score-history', icon: <FileText className="w-5 h-5" /> , label: 'Reports'},
               {  href: '/content-library', 
-                icon: <FileText className="w-5 h-5" />, 
+                icon: <Folder className="w-5 h-5" />, 
                 label: 'Content Library' },
 
              

@@ -60,34 +60,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No files provided' }, { status: 400 });
     }
 
-    // Determine parent_course_id: accept from client or create one
-    let parentCourseId: number | null = null;
+    // Accept optional parent_course_id from the client. If provided, child rows
+    // will be linked to that parent. We DO NOT auto-create a parent row here —
+    // that prevented single-file uploads from creating exactly one row.
     const parentRaw = form.get('parent_course_id') ?? form.get('parentCourseId') ?? null;
+    let parentCourseId: number | null = null;
     if (parentRaw !== null && parentRaw !== undefined) {
       const p = Number(String(parentRaw));
       if (!Number.isNaN(p)) parentCourseId = p;
-    }
-
-    // If no parent was provided, create a parent course row using the groupTitle
-    if (parentCourseId === null) {
-      const parentPayload: any = {
-        title: groupTitle || (files[0] && files[0].name) || `Course ${Date.now()}`,
-        description: description || '',
-        category_id: category_id !== null ? category_id : categoryIdRaw,
-        created_at: new Date().toISOString(),
-      };
-      const { data: parentData, error: parentError } = await supabaseService.from('courses').insert([parentPayload]).select();
-      if (parentError) {
-        console.error('Failed to create parent course', parentError);
-        return NextResponse.json({ error: parentError.message || 'Failed to create parent course' }, { status: 500 });
-      }
-      // The courses table may use a different PK name (e.g. `course_id` UUID).
-      // Accept either `id` or `course_id` from the inserted parent row.
-      if (parentData && parentData[0]) {
-        parentCourseId = (parentData[0].id ?? parentData[0].course_id) ?? null;
-      } else {
-        parentCourseId = null;
-      }
     }
 
     const childPayloads: any[] = [];
@@ -124,8 +104,11 @@ export async function POST(req: Request) {
           category_id: category_id !== null ? category_id : categoryIdRaw,
           created_at: new Date().toISOString(),
           module: fileUrl,
-          parent_course_id: parentCourseId,
         };
+        // Only set parent_course_id when passed from the client
+        if (parentCourseId !== null) childPayload.parent_course_id = parentCourseId;
+        // include file size so UI can estimate duration
+        try { childPayload.file_size = buffer.length; } catch (e) { childPayload.file_size = null; }
         childPayloads.push(childPayload);
       } catch (err) {
         console.error('Failed to process file', files[i]?.name, err);

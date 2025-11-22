@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { CloudCog, Search } from "lucide-react";
+import { CloudCog, Search, Clock } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 
 interface Category {
@@ -34,7 +34,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
   const uploadMetaRef = useRef<{ category_id: number; moduleName: string; moduleDescription: string; } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadSummary, setUploadSummary] = useState<{ files: number; folders: number } | null>(null);
-  const [hoveredCourseId, setHoveredCourseId] = useState<string | number | null>(null);
+  
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
@@ -356,13 +356,15 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
     ];
   };
 
-  const OverviewHover: React.FC<{ course: Course }> = ({ course }) => {
+  const OverviewHover: React.FC<{ course: Course; label?: string }> = ({ course, label = 'Overview' }) => {
     const bullets = getBullets(course);
+    const [isHovered, setIsHovered] = useState(false);
+
     return (
       <div style={{ position: 'relative' }}>
         <button
-          onMouseEnter={() => setHoveredCourseId(course.id)}
-          onMouseLeave={() => setHoveredCourseId(null)}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
           // remove click behavior: make non-clickable but preserve hover
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
           tabIndex={-1}
@@ -370,16 +372,19 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
             background: '#2563eb',
             border: 'none',
             color: 'white',
-            padding: '8px 12px',
+            padding: '10px 14px',
             borderRadius: 8,
-            fontWeight: 600,
-            cursor: 'default',
-            pointerEvents: 'auto'
+            fontWeight: 700,
+            cursor: 'pointer',
+            pointerEvents: 'auto',
+            width: '100%',
+            textAlign: 'center',
+            boxShadow: '0 4px 12px rgba(37,99,235,0.12)'
           }}
         >
-          Overview
+          {label}
         </button>
-        {hoveredCourseId === course.id && (
+        {isHovered && (
           <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', width: 320, background: '#fff', border: '1px solid #e6edf3', padding: 12, borderRadius: 8, boxShadow: '0 8px 24px rgba(2,6,23,0.08)', pointerEvents: 'none', zIndex: 60 }}>
             {course.description ? (
               <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.4 }}>{course.description}</div>
@@ -401,9 +406,16 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
 
   // Merge static and DB courses for display
   const filteredCourses = useMemo(() => {
-    const defaultImage = 'https://images.unsplash.com/photo-1527689368864-3a821dbccc34?w=400&h=300&fit=crop';
+    const defaultImages = [
+      'https://images.unsplash.com/photo-1527689368864-3a821dbccc34?w=400&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=400&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=400&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=400&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=400&h=300&fit=crop'
+    ];
+    // Using different default images for non-image modules so cards show varied thumbnails
     // Map DB courses to include static-like fields for display
-    const dbCourses: Course[] = courses.map((c: any) => ({
+    const dbCourses: Course[] = courses.map((c: any, idx: number) => ({
       ...c,
       // If the module is an image URL, show it; otherwise use a document icon for common file types
       image: (() => {
@@ -412,11 +424,11 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
         if (typeof m === 'string' && (m.startsWith('http://') || m.startsWith('https://'))) {
           const low = m.toLowerCase();
           if (low.endsWith('.jpg') || low.endsWith('.jpeg') || low.endsWith('.png') || low.endsWith('.webp') || low.endsWith('.gif')) return m;
-          // For non-image file types (pdf/doc/ppt/etc) fall back to a consistent default image
-          return defaultImage;
+          // For non-image file types (pdf/doc/ppt/etc) fall back to a per-card default image
+          return defaultImages[idx % defaultImages.length];
         }
-        // No module URL present — use the default thumbnail so every card has a visual
-        return defaultImage;
+        // No module URL present — use a per-card default image
+        return defaultImages[idx % defaultImages.length];
       })(),
       rating: undefined,
       learners: undefined,
@@ -470,10 +482,54 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
         if (aMatches === bMatches) return 0;
         return aMatches ? -1 : 1; // matching items first
       });
-      return sorted;
+      // Group rows so multiple files for same module show as one card in the UI.
+      const groupKey = (c: any) => c.parent_course_id ? `p:${c.parent_course_id}` : `t:${(c.title || '').toString().trim().toLowerCase()}`;
+      const grouped = new Map<string, any>();
+      for (const course of sorted) {
+        const k = groupKey(course);
+        if (!grouped.has(k)) {
+          grouped.set(k, { ...course, __total_file_size: Number((course as any).file_size) || 0, __files_count: 1 });
+        } else {
+          const prev = grouped.get(k);
+          prev.__total_file_size = (prev.__total_file_size || 0) + (Number((course as any).file_size) || 0);
+          prev.__files_count = (prev.__files_count || 1) + 1;
+          // prefer a representative that has an image
+          if (!prev.image && course.image) prev.image = course.image;
+        }
+      }
+      const formatLabel = (bytes: number) => {
+        const hours = bytes / 60000; // approximate bytes per hour
+        if (!hours || hours < 0.5) return '<1 hour';
+        const rounded = Math.round(hours * 2) / 2;
+        if (rounded === 1) return '1 hour';
+        // show .5 increments as '1.5 hours'
+        return `${rounded} hours`;
+      };
+      return Array.from(grouped.values()).map((g: any) => ({ ...g, estHoursLabel: formatLabel(g.__total_file_size || 0) }));
     }
 
-    return searched;
+    // Group rows so multiple files for same module show as one card in the UI.
+    const groupKey = (c: any) => c.parent_course_id ? `p:${c.parent_course_id}` : `t:${(c.title || '').toString().trim().toLowerCase()}`;
+    const grouped = new Map<string, any>();
+    for (const course of searched) {
+      const k = groupKey(course);
+      if (!grouped.has(k)) {
+        grouped.set(k, { ...course, __total_file_size: Number((course as any).file_size) || 0, __files_count: 1 });
+      } else {
+        const prev = grouped.get(k);
+        prev.__total_file_size = (prev.__total_file_size || 0) + (Number((course as any).file_size) || 0);
+        prev.__files_count = (prev.__files_count || 1) + 1;
+        if (!prev.image && course.image) prev.image = course.image;
+      }
+    }
+    const formatLabel = (bytes: number) => {
+      const hours = bytes / 60000;
+      if (!hours || hours < 0.5) return '<1 hour';
+      const rounded = Math.round(hours * 2) / 2;
+      if (rounded === 1) return '1 hour';
+      return `${rounded} hours`;
+    };
+    return Array.from(grouped.values()).map((g: any) => ({ ...g, estHoursLabel: formatLabel(g.__total_file_size || 0) }));
   }, [searchQuery, courses, categories]);
 
   
@@ -487,12 +543,6 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
               Browse Courses
             </h1>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-              <select value={filterCategory} onChange={e => callSetFilterCategory(e.target.value)} style={{ padding: 8, borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 14, minWidth: 160 }}>
-                <option value="">All Categories</option>
-                {categories.map(c => (
-                  <option key={c.category_id} value={c.category_id}>{c.name}</option>
-                ))}
-              </select>
               {isAdmin && (
                 <>
                   <button
@@ -599,39 +649,48 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
               onChange={handleFilesChange}
             />
           )}
-          <div style={{ position: 'relative', marginBottom: 24, maxWidth: 1400 }}>
-            <Search style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', width: 20, height: 20, color: '#9ca3af' }} />
-            <input
-              type="text"
-              placeholder="Search courses, folders or topics..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{
-                width: '100%',
-                paddingLeft: 48,
-                paddingRight: 16,
-                paddingTop: 12,
-                paddingBottom: 12,
-                fontSize: 16,
-                border: '2px solid #e5e7eb',
-                borderRadius: 12,
-                outline: 'none',
-                transition: 'all 0.3s ease',
-                backgroundColor: '#ffffff',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)'
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = '#3b82f6';
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(59, 130, 246, 0.12)';
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = '#e5e7eb';
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.04)';
-              }}
-            />
+          <div style={{ position: 'relative', marginBottom: 24, maxWidth: 1400, display: 'flex', gap: 12, alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: '1 0 auto', maxWidth: 'calc(100% - 220px)' }}>
+              <Search style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', width: 20, height: 20, color: '#9ca3af' }} />
+              <input
+                type="text"
+                placeholder="Search courses, folders or topics..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  width: '100%',
+                  paddingLeft: 48,
+                  paddingRight: 16,
+                  paddingTop: 12,
+                  paddingBottom: 12,
+                  fontSize: 16,
+                  border: '2px solid #e5e7eb',
+                  borderRadius: 12,
+                  outline: 'none',
+                  transition: 'all 0.3s ease',
+                  backgroundColor: '#ffffff',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)'
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = '#3b82f6';
+                  e.currentTarget.style.boxShadow = '0 6px 20px rgba(59, 130, 246, 0.12)';
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = '#e5e7eb';
+                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.04)';
+                }}
+              />
+            </div>
+
+            <select value={filterCategory} onChange={e => callSetFilterCategory(e.target.value)} style={{ padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 14, minWidth: 200 }}>
+              <option value="">All Categories</option>
+              {categories.map(c => (
+                <option key={c.category_id} value={c.category_id}>{c.name}</option>
+              ))}
+            </select>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 1400 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, maxWidth: 1400 }}>
             {filteredCourses.map(course => (
               <div
                 key={course.id}
@@ -640,41 +699,33 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
                   borderRadius: 12,
                   padding: 16,
                   display: 'flex',
-                  alignItems: 'center',
-                  gap: 16,
+                  flexDirection: 'column',
+                  gap: 12,
                   boxShadow: '0 6px 18px rgba(15, 23, 42, 0.06)',
                   position: 'relative'
                 }}
               >
                 {course.image && (
-                  <img src={course.image} alt={course.title} style={{ width: 160, height: 96, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
+                  <img src={course.image} alt={course.title} style={{ width: '100%', height: 160, objectFit: 'cover', borderRadius: 8 }} />
                 )}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <h3 style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', margin: '0 0 6px 0', lineHeight: 1.2 }}>{course.title}</h3>
-                  <p style={{ fontSize: 14, color: '#475569', margin: '0 0 8px 0', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{course.description}</p>
-                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 13, color: '#6b7280' }}>
-                    {course.rating && <span>★ {course.rating}</span>}
-                    {course.learners && <span>{(course.learners / 1000).toFixed(1)}K learners</span>}
-                    {course.duration && <span>⏱ {course.duration}</span>}
-                    <span style={{ fontSize: 12, backgroundColor: '#f8fafc', color: '#475569', padding: '4px 8px', borderRadius: 6 }}>{course.category || 'Uncategorized'}</span>
-                  </div>
+
+                <div>
+                  <h3 style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', margin: '8px 0 6px 0', lineHeight: 1.2 }}>{course.title}</h3>
+                  <p style={{ fontSize: 14, color: '#475569', margin: '0 0 10px 0', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>{course.description}</p>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
-                  <OverviewHover course={course} />
-                  { /* Show Files button for parent groups so admin can inspect uploaded files */ }
-                  {isAdmin && (
-                    <button
-                      onClick={() => {
-                        const key = String((course as any).course_id ?? (course as any).id ?? '');
-                        setFilesModalParent(key || null);
-                      }}
-                      style={{ background: 'transparent', border: '1px solid #e5e7eb', padding: '6px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}
-                    >
-                      Files
-                    </button>
-                  )}
-                  {/* Admin delete removed from UI; deletions should be done directly in Supabase */}
-                </div>
+
+                      <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 12, backgroundColor: '#f8fafc', color: '#475569', padding: '6px 10px', borderRadius: 6, alignSelf: 'flex-start' }}>{course.category || 'Uncategorized'}</span>
+                          <span style={{ fontSize: 12, color: '#475569', padding: '6px 10px', borderRadius: 6, alignSelf: 'flex-end', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <Clock size={14} color="#6b7280" />
+                            {(course as any).estHoursLabel || ''}
+                          </span>
+                        </div>
+                        <div style={{ width: '100%' }}>
+                          <OverviewHover course={course} label="View Overview" />
+                        </div>
+                      </div>
               </div>
             ))}
           </div>
