@@ -194,6 +194,42 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
 
   const handleUpload = async () => {
     if (!file) return
+
+    // Basic validation: require title and description (and file already present)
+    const missing: string[] = []
+    if (!title.trim()) missing.push('title')
+    if (!description.trim()) missing.push('description')
+    if (missing.length > 0) {
+      const msg = 'Fill all the details first'
+      setError(msg)
+      // send a non-blocking log about the validation failure so we capture admin attempts
+      try {
+        const ua = typeof navigator !== 'undefined' ? navigator.userAgent : null
+        const platform = typeof navigator !== 'undefined' ? (navigator as any).platform || null : null
+        const payload = JSON.stringify({
+          email_id: (typeof window !== 'undefined' && window.localStorage) ? localStorage.getItem('__CURRENT_USER_EMAIL__') : null,
+          error: msg,
+          error_type: 'ValidationError',
+          action: 'AdminModuleUpload',
+          page_url: typeof window !== 'undefined' ? window.location.href : null,
+          browser: ua,
+          os: platform,
+          device: platform,
+          stack_trace: new Error().stack || null,
+          meta: { missingFields: missing }
+        })
+        if (typeof navigator !== 'undefined' && (navigator as any).sendBeacon) {
+          const blob = new Blob([payload], { type: 'application/json' })
+          try { (navigator as any).sendBeacon('/api/logs', blob) } catch (e) { /* swallow */ }
+        } else {
+          fetch('/api/logs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true }).catch(() => {})
+        }
+      } catch (e) {
+        // ignore logging errors
+      }
+      return
+    }
+
     setUploading(true)
     setError("")
     setUploadProgress(0)
@@ -436,18 +472,17 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
         {file && (
           <div className="mt-4 space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="moduleTitle">Module Title</Label>
+              <Label htmlFor="moduleTitle">Module Title <span className="text-red-500">*</span></Label>
               <Input
                 id="moduleTitle"
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g., Company Culture Basics"
-                required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="moduleDescription">Description (Optional)</Label>
+              <Label htmlFor="moduleDescription">Description <span className="text-red-500">*</span></Label>
               <Textarea
                 id="moduleDescription"
                 value={description}
@@ -456,7 +491,7 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
                 rows={3}
               />
             </div>
-            <Button onClick={handleUpload} className="w-full" disabled={uploading || !file || !title.trim()}>
+            <Button onClick={handleUpload} className="w-full" disabled={uploading || !file}>
               {uploading ? `Uploading (${uploadProgress}%)` : "Upload Module"}
             </Button>
           </div>

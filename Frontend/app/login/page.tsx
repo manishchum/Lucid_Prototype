@@ -130,6 +130,25 @@ export default function LoginPage() {
       router.push('/employee/welcome')
     } catch (error: any) {
       setError(error.message)
+      try {
+        // send a log entry for login failure
+        await fetch('/api/logs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email_id: email || null,
+            error: error?.message || 'Login failed',
+            error_type: 'AuthError',
+            browser: navigator.userAgent,
+            os: navigator.platform,
+            device: navigator.platform,
+            action: 'email-password-login',
+            page_url: location.href
+          })
+        })
+      } catch (e) {
+        // swallow logging errors
+      }
     } finally {
       setLoading(false)
     }
@@ -158,6 +177,24 @@ export default function LoginPage() {
         setError("Access denied. Your Google account email is not in the allowed users list.")
       } else {
         setError(error.message)
+      }
+      try {
+        await fetch('/api/logs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email_id: (result && (result as any).user && (result as any).user.email) || null,
+            error: error?.message || 'Google sign-in failed',
+            error_type: 'AuthError',
+            browser: navigator.userAgent,
+            os: navigator.platform,
+            device: navigator.platform,
+            action: 'google-signin',
+            page_url: location.href
+          })
+        })
+      } catch (e) {
+        // swallow logging errors
       }
     } finally {
       setLoading(false)

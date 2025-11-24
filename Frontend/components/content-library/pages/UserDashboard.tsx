@@ -56,6 +56,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
   const [uploadMeta, setUploadMeta] = useState<{ category_id: number; moduleName: string; moduleDescription: string; } | null>(null);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [duplicateError, setDuplicateError] = useState('');
+  const [uploadError, setUploadError] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('');
 
   const triggerUpload = () => { 
@@ -635,8 +636,43 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
                           <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Upload Module</div>
                           <div style={{ fontSize: 14, color: '#6b7280', marginBottom: 16 }}>Upload a local folder (Chrome/Edge only).</div>
                           <button
-                            onClick={triggerUpload}
-                            disabled={!(selectedCategory !== '' && moduleName && moduleDescription)}
+                            onClick={() => {
+                              // client-side validation with visible error + logging
+                              const missing: string[] = []
+                              if (!selectedCategory) missing.push('category')
+                              if (!moduleName || !moduleName.trim()) missing.push('moduleName')
+                              if (!moduleDescription || !moduleDescription.trim()) missing.push('moduleDescription')
+                              if (missing.length > 0) {
+                                const msg = 'Please fill all the details before uploading'
+                                setUploadError(msg)
+                                // send non-blocking log
+                                try {
+                                  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : null
+                                  const platform = typeof navigator !== 'undefined' ? (navigator as any).platform || null : null
+                                  const payload = JSON.stringify({
+                                      email_id: typeof window !== 'undefined' ? localStorage.getItem('__CURRENT_USER_EMAIL__') : null,
+                                      error: msg,
+                                      error_type: 'ValidationError',
+                                      action: 'UploadModalAttempt',
+                                      page_url: typeof window !== 'undefined' ? window.location.href : null,
+                                      browser: ua,
+                                      os: platform,
+                                      device: platform,
+                                      stack_trace: new Error().stack || null,
+                                      meta: { missingFields: missing }
+                                    })
+                                  if (typeof navigator !== 'undefined' && (navigator as any).sendBeacon) {
+                                    const blob = new Blob([payload], { type: 'application/json' })
+                                    try { (navigator as any).sendBeacon('/api/logs', blob) } catch (e) { }
+                                  } else {
+                                    fetch('/api/logs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true }).catch(() => {})
+                                  }
+                                } catch (e) {}
+                                return
+                              }
+                              setUploadError('')
+                              triggerUpload()
+                            }}
                             style={{
                               background: selectedCategory !== '' && moduleName && moduleDescription ? '#10b981' : '#ffffff',
                               color: selectedCategory !== '' && moduleName && moduleDescription ? '#fff' : '#374151',
@@ -651,6 +687,9 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
                           >
                             Upload Module
                           </button>
+                          {uploadError && (
+                            <div style={{ color: '#dc2626', fontSize: 13, marginTop: 8 }}>{uploadError}</div>
+                          )}
                         </div>
                       </div>
                     </div>

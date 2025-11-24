@@ -38,35 +38,29 @@ export default function SignupPage() {
   }
 
   const validateForm = () => {
-    if (!formData.companyName.trim()) {
-      setError("Company name is required")
-      return false
-    }
-    if (!formData.name.trim()) {
-      setError("Name is required")
-      return false
-    }
-    if (!formData.email.trim()) {
-      setError("Email is required")
-      return false
-    }
-    if (!formData.password) {
-      setError("Password is required")
-      return false
-    }
-    if (formData.password.length < 8) {
-      setError("Password must be at least 8 characters long")
-      return false
+    const missing: string[] = []
+    let message = ""
+
+    if (!formData.companyName.trim()) missing.push("companyName")
+    if (!formData.name.trim()) missing.push("name")
+    if (!formData.email.trim()) missing.push("email")
+    if (!formData.password) missing.push("password")
+    if (formData.password && formData.password.length < 8) {
+      missing.push("password_length")
+      message = "Password must be at least 8 characters long"
     }
     if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match")
-      return false
+      missing.push("confirmPassword")
+      message = "Passwords do not match"
     }
-    if (!formData.phoneNumber.trim()) {
-      setError("Phone number is required")
-      return false
+    if (!formData.phoneNumber.trim()) missing.push("phoneNumber")
+
+    if (!message && missing.length > 0) {
+      // default human message for missing fields
+      message = `${missing.length} required field(s) are missing: ${missing.join(", ")}`
     }
-    return true
+
+    return { valid: missing.length === 0 && !message, missingFields: missing, message }
   }
 
   const handleSignup = async (e: React.FormEvent) => {
@@ -75,7 +69,46 @@ export default function SignupPage() {
     setError("")
     setSuccess("")
 
-    if (!validateForm()) {
+    const { valid, missingFields, message: validationMessage } = validateForm()
+    if (!valid) {
+      const msg = validationMessage || "Please fill the required fields"
+      setError(msg)
+
+      // send a non-blocking log about the validation failure so we capture attempts
+      try {
+        const ua = typeof navigator !== 'undefined' ? navigator.userAgent : null
+        const platform = typeof navigator !== 'undefined' ? (navigator as any).platform || null : null
+        const payload = JSON.stringify({
+          email_id: (typeof window !== 'undefined' && window.localStorage) ? localStorage.getItem('__CURRENT_USER_EMAIL__') : null,
+          error: msg,
+          error_type: 'ValidationError',
+          action: 'SignupAttempt',
+          page_url: typeof window !== 'undefined' ? window.location.href : null,
+          browser: ua,
+          os: platform,
+          device: platform,
+          stack_trace: new Error().stack || null,
+          meta: { missingFields, // do not send full form values to avoid PII
+            formPresent: {
+              companyName: Boolean(formData.companyName),
+              name: Boolean(formData.name),
+              email: Boolean(formData.email),
+              phoneNumber: Boolean(formData.phoneNumber),
+            }
+          }
+        })
+
+        if (typeof navigator !== 'undefined' && (navigator as any).sendBeacon) {
+          const blob = new Blob([payload], { type: 'application/json' })
+          try { (navigator as any).sendBeacon('/api/logs', blob) } catch (e) { /* swallow */ }
+        } else {
+          // best-effort, keepalive so it can be sent when page unloads
+          fetch('/api/logs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true }).catch(() => {})
+        }
+      } catch (e) {
+        // ignore logging errors
+      }
+
       setLoading(false)
       return
     }

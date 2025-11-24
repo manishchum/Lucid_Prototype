@@ -5,6 +5,7 @@ import "./globals.css"
 import { AuthProvider } from "@/contexts/auth-context"
 import { Toaster } from "react-hot-toast" // Import Toaster
 import { Toaster as ShadcnToaster } from "@/components/ui/toaster"
+import ErrorReporterInit from '@/components/ErrorReporterInit'
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -22,7 +23,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <ErrorReporterInit />
+          {children}
+        </AuthProvider>
         <Toaster /> {/* Add Toaster component here */}
         <ShadcnToaster />
       </body>
