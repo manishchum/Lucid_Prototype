@@ -119,10 +119,34 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No files were uploaded successfully' }, { status: 500 });
     }
 
-    const { data: insertedChildren, error: insertError } = await supabaseService.from('courses').insert(childPayloads).select();
-    if (insertError) {
-      console.error('Server insert error', insertError);
-      return NextResponse.json({ error: insertError.message || 'DB insert failed' }, { status: 500 });
+    // Try inserting including file_size if possible. If the DB schema doesn't have that column,
+    // retry the insert without it (some deployments may not have migrated the column).
+    let insertedChildren = null;
+    try {
+      const resp = await supabaseService.from('courses').insert(childPayloads).select();
+      insertedChildren = resp.data;
+      if (resp.error) throw resp.error;
+    } catch (insertError: any) {
+      console.error('Server insert error (initial)', insertError?.message || insertError);
+      const msg = String(insertError?.message || insertError || '');
+      // Detect Postgres / Supabase error about unknown column and retry without file_size
+      if (msg.toLowerCase().includes("file_size") && (msg.toLowerCase().includes('column') || msg.toLowerCase().includes('does not exist') || msg.toLowerCase().includes('schema cache'))) {
+        try {
+          const fallback = childPayloads.map(p => {
+            const copy = { ...p };
+            delete copy.file_size;
+            return copy;
+          });
+          const resp2 = await supabaseService.from('courses').insert(fallback).select();
+          insertedChildren = resp2.data;
+          if (resp2.error) throw resp2.error;
+        } catch (finalErr: any) {
+          console.error('Server insert error (fallback without file_size)', finalErr?.message || finalErr);
+          return NextResponse.json({ error: finalErr?.message || 'DB insert failed (fallback)' }, { status: 500 });
+        }
+      } else {
+        return NextResponse.json({ error: insertError?.message || 'DB insert failed' }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ parent_course_id: parentCourseId, inserted: insertedChildren });
