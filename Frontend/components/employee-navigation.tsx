@@ -266,7 +266,7 @@ const EmployeeNavigation = ({
           <nav className="flex flex-col gap-1 px-2 py-6 flex-1">
             {[
               { href: '/employee/welcome', icon: <Home className="w-5 h-5" /> , label: 'Home'},
-              { href: '/employee/courses', icon: <BookOpen className="w-5 h-5" /> , label: 'Learning Plan'},
+              { href: '/employee/training-plan', icon: <BookOpen className="w-5 h-5" /> , label: 'Learning Plan'},
               { href: '/admin/dashboard', icon: <Shield className="w-5 h-5" /> , label: 'Admin Panel', admin: true},
               { href: '/employee/score-history', icon: <FileText className="w-5 h-5" /> , label: 'Reports'},
               {  href: '/content-library', 
@@ -279,7 +279,7 @@ const EmployeeNavigation = ({
               if (m.admin && !hasAdminAccess()) return null;
 
               // Special rendering for Courses to allow a nested submenu
-              if (m.href === '/employee/courses') {
+              if (m.href === '/employee/training-plan') {
                 return (
                   <div key={m.href} className="flex flex-col">
                     <div className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${isActiveRoute(m.href) ? 'text-violet-600 bg-violet-50' : 'text-gray-700 hover:bg-gray-100'}`}>
