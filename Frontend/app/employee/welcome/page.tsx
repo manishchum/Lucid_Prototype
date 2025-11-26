@@ -263,7 +263,7 @@ export default function EmployeeWelcome() {
           // Unwrap common shapes
           const mods = planObj?.modules || planObj?.learning_plan?.modules || planObj?.plan?.modules
           if (Array.isArray(mods) && mods.length > 0) {
-            const processedIds = Array.from(new Set(mods.map((m: any) => m?.id).filter(Boolean))).map(String)
+            const processedIds = Array.from(new Set(mods.map((m: any) => m?.processed_module_id).filter(Boolean))).map(String)
             const originalIds = Array.from(new Set(mods.map((m: any) => m?.original_module_id).filter(Boolean))).map(String)
             let completedCount = 0
             const required = mods.length

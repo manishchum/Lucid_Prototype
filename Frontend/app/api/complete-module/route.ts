@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
           quiz_score: quizScore || null,
           quiz_feedback: quizFeedback || null
         })
-        .eq('module_progress_id', existingProgress.id)
+        .eq('module_progress_id', existingProgress.module_progress_id)
         .select()
         .single()
 

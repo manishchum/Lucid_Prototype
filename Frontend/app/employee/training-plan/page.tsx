@@ -190,14 +190,14 @@ export default function TrainingPlanPage() {
   };
 
   const router = useRouter();
-  // Helper: resolve a usable processed_modules.id for navigation
+  // Helper: resolve a usable processed_modules.processed_module_id for navigation
   const resolveModuleId = async (mod: any): Promise<string | null> => {
     try {
       console.log('[resolveModuleId] Input module:', mod);
       // 1) Prefer an explicit processed module id if present and valid
       const candidates: string[] = [];
       if (mod?.processed_module_id) candidates.push(String(mod.processed_module_id));
-      if (mod?.id) candidates.push(String(mod.id));
+      if (mod?.processed_module_id) candidates.push(String(mod.processed_module_id));
 
       for (const cand of candidates) {
         if (!cand || cand === 'undefined' || cand === 'null') continue;
@@ -212,7 +212,7 @@ export default function TrainingPlanPage() {
         }
       }
 
-      // 2) Try mapping from original_module_id to processed_modules.id
+      // 2) Try mapping from original_module_id to processed_modules.processed_module_id
       if (mod?.original_module_id && mod.original_module_id !== 'undefined' && mod.original_module_id !== 'null') {
         const { data: pmByOriginal } = await supabase
           .from('processed_modules')

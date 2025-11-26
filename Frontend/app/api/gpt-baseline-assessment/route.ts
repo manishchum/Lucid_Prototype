@@ -54,9 +54,9 @@ export async function POST(request: NextRequest) {
       .insert({ type: 'baseline', questions: JSON.stringify(questions), company_id })
       .select('assessment_id')
       .single();
-    assessmentId = newAssessment?.id || null;
+    assessmentId = newAssessment?.assessment_id || null;
   } else {
-    assessmentId = existingAssessment.id;
+    assessmentId = existingAssessment.assessment_id;
   }
 
   // 3. If answers are provided, evaluate (simulate scoring)
