@@ -434,7 +434,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
       rating: undefined,
       learners: undefined,
       duration: undefined,
-      category: (categories.find(cat => ((cat.category_id ?? (cat as any).id) === (c.category_id ?? (c as any).id))) as any)?.name || '',
+      category: (categories.find(cat => ((cat.category_id ?? (cat as any).category_id) === (c.category_id ?? (c as any).category_id))) as any)?.name || '',
     }));
     // Keep all DB courses (they represent uploaded/DB-backed modules).
     // Only include staticCourses when there's no DB course with the same title.
@@ -452,9 +452,9 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
     const parentIds = new Set((courses || []).map((c: any) => c.parent_course_id).filter(Boolean));
 
     const dedupedForDisplay = deduped.filter((course: any) => {
-      const cid = (course.course_id ?? course.id ?? '').toString();
+      const cid = (course.course_id ?? course.category_id ?? '').toString();
       // If this course is a parent (its id appears as a parent_course_id on other rows), show it
-      if (parentIds.has(cid) || parentIds.has(course.course_id) || parentIds.has(course.id)) return true;
+      if (parentIds.has(cid) || parentIds.has(course.course_id) || parentIds.has(course.category_id)) return true;
       // Otherwise, if this row is not a child (no parent_course_id), show it (legacy single-file row)
       if (!course.parent_course_id) return true;
       // It's a child row and its parent exists — skip showing the child individually
@@ -478,8 +478,8 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
       const isNum = !Number.isNaN(num);
       const sorted = [...searched];
       sorted.sort((a, b) => {
-        const aMatches = isNum ? ((a.category_id ?? (a as any).id) === num) : ((a.category || '').toLowerCase() === filterCategory.toLowerCase());
-        const bMatches = isNum ? ((b.category_id ?? (b as any).id) === num) : ((b.category || '').toLowerCase() === filterCategory.toLowerCase());
+        const aMatches = isNum ? ((a.category_id ?? (a as any).category_id) === num) : ((a.category || '').toLowerCase() === filterCategory.toLowerCase());
+        const bMatches = isNum ? ((b.category_id ?? (b as any).category_id) === num) : ((b.category || '').toLowerCase() === filterCategory.toLowerCase());
         if (aMatches === bMatches) return 0;
         return aMatches ? -1 : 1; // matching items first
       });
@@ -753,7 +753,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, maxWidth: 1400 }}>
             {filteredCourses.map(course => (
               <div
-                key={course.id}
+                key={course.category_id}
                 style={{
                   backgroundColor: '#ffffff',
                   borderRadius: 12,

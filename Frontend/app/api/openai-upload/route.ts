@@ -308,7 +308,7 @@ Additional instructions to maximize quality:
         ai_objectives: ai_objectives,
         processing_status: "completed",
       })
-      .eq("id", moduleId)
+      .eq("module_id", moduleId)
       .select();
 
     if (error) {
@@ -576,7 +576,7 @@ ${text}
         ai_objectives: ai_objectives,
         processing_status: "completed",
       })
-      .eq("id", moduleId)
+      .eq("module_id", moduleId)
       .select();
 
     if (error) {

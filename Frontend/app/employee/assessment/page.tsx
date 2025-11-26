@@ -153,7 +153,7 @@ const AssessmentPage = () => {
           .insert({ type: 'baseline', company_id: companyId, questions: JSON.stringify(questionsForModule) })
           .select()
           .single();
-        assessmentId = newDef?.id || null;
+        assessmentId = newDef?.assessment_id || null;
       }
 
       // Log score in terminal

@@ -83,6 +83,7 @@ export default function EmployeeWelcome() {
   const [loading, setLoading] = useState(true)
   const [scoreHistory, setScoreHistory] = useState<any[]>([])
   const [moduleProgress, setModuleProgress] = useState<any[]>([])
+  const [assignedModules, setAssignedModules] = useState<any[]>([])
   const [learningStyle, setLearningStyle] = useState<string | null>(null)
   const [baselineScore, setBaselineScore] = useState<number | null>(null)
   const [baselineMaxScore, setBaselineMaxScore] = useState<number | null>(null)
@@ -226,14 +227,14 @@ export default function EmployeeWelcome() {
       try {
         const { data: planRows } = await supabase
           .from('learning_plan')
-          .select('learning_plan_id, status, plan_json, baseline_assessment') // Fetch baseline_assessment column
+          .select('learning_plan_id, module_id, status, plan_json, baseline_assessment') // Fetch baseline_assessment column
           .eq('user_id', employeeData.user_id)
           .order('learning_plan_id', { ascending: false })
 
         // Check if any learning plan requires baseline assessment
         let requiresBaseline = false
         if (planRows && planRows.length > 0) {
-          requiresBaseline = planRows.some(plan => plan.baseline_assessment === 1)
+          requiresBaseline = planRows.some((plan: any) => plan.baseline_assessment === 1)
         }
         setBaselineRequired(requiresBaseline) // Set baselineRequired state
 
@@ -252,7 +253,7 @@ export default function EmployeeWelcome() {
         }
 
         // Check completion status for assigned plans
-        const assignedPlan = planRows?.find(plan => plan.status === 'ASSIGNED')
+        const assignedPlan = planRows?.find((plan: any) => plan.status === 'ASSIGNED')
         let completed = false
         if (assignedPlan?.plan_json) {
           let planObj: any = assignedPlan.plan_json
@@ -262,7 +263,7 @@ export default function EmployeeWelcome() {
           // Unwrap common shapes
           const mods = planObj?.modules || planObj?.learning_plan?.modules || planObj?.plan?.modules
           if (Array.isArray(mods) && mods.length > 0) {
-            const processedIds = Array.from(new Set(mods.map((m: any) => m?.id).filter(Boolean))).map(String)
+            const processedIds = Array.from(new Set(mods.map((m: any) => m?.processed_module_id).filter(Boolean))).map(String)
             const originalIds = Array.from(new Set(mods.map((m: any) => m?.original_module_id).filter(Boolean))).map(String)
             let completedCount = 0
             const required = mods.length
@@ -289,6 +290,42 @@ export default function EmployeeWelcome() {
           }
         }
         setAllAssignedCompleted(completed)
+
+        // Extract assigned modules for display on welcome page
+        try {
+          const modulesList: { id: string; title: string | null }[] = []
+          if (planRows && planRows.length > 0) {
+            const explicitModuleIds = Array.from(new Set(planRows.map((p: any) => p.module_id).filter(Boolean))).map(String)
+            if (explicitModuleIds.length > 0) {
+              try {
+                const { data: tmRows } = await supabase.from('training_modules').select('module_id, title').in('module_id', explicitModuleIds as any[])
+                if (tmRows && tmRows.length > 0) {
+                  for (const r of tmRows) {
+                    if (r?.module_id) modulesList.push({ id: String(r.module_id), title: r.title || null })
+                  }
+                } else {
+                  // fallback: add raw ids
+                  explicitModuleIds.forEach((mid: string) => modulesList.push({ id: mid, title: null }))
+                }
+              } catch (err) {
+                // If training_modules lookup fails, still include module ids
+                explicitModuleIds.forEach((mid: string) => modulesList.push({ id: mid, title: null }))
+              }
+            }
+          }
+
+          // dedupe by id (prefer first title found)
+          const dedupMap = new Map<string, { id: string; title: string | null }>()
+          for (const m of modulesList) {
+            if (!dedupMap.has(m.id)) dedupMap.set(m.id, m)
+            else if (!dedupMap.get(m.id)?.title && m.title) dedupMap.set(m.id, m)
+          }
+          const dedup = Array.from(dedupMap.values())
+          setAssignedModules(dedup)
+        } catch (e) {
+          console.warn('[EmployeeWelcome] extracting assigned modules failed:', e)
+          setAssignedModules([])
+        }
       } catch (e) {
         console.warn('[EmployeeWelcome] assigned modules completion check failed:', e)
         setAllAssignedCompleted(false)
@@ -411,6 +448,30 @@ export default function EmployeeWelcome() {
         {/* Page content */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">        
         <div className="grid gap-8">{/* Welcome Card */}
+          {/* Assigned Modules Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Assigned Modules</CardTitle>
+              <CardDescription>Modules assigned to you from your learning plan</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {assignedModules.length === 0 ? (
+                  <div className="text-gray-500">You have no modules assigned yet.</div>
+                ) : (
+                  assignedModules.map((m) => (
+                    <div key={m.id} className="flex items-center justify-between p-3 rounded-lg border bg-white">
+                      <div className="font-medium text-gray-800">{m.title || `Module ${m.id}`}</div>
+                      <div className="flex gap-2">
+                        <Button onClick={() => router.push('/employee/assessment')}>Baseline Assessment</Button>
+                        <Button onClick={() => router.push('/employee/training-plan')}>Learning Plan</Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
           {/*
           <Card className="bg-gradient-to-r from-green-500 to-blue-600 text-white">
             <CardHeader>

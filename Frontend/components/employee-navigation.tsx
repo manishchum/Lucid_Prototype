@@ -248,13 +248,17 @@ const EmployeeNavigation = ({
           <nav className="flex flex-col gap-1 px-2 py-6 flex-1">
             {[
               { href: '/employee/welcome', icon: <Home className="w-5 h-5" /> , label: 'Home'},
-              { href: '/employee/courses', icon: <BookOpen className="w-5 h-5" /> , label: 'Learning Plan'},
+              { href: '/employee/training-plan', icon: <BookOpen className="w-5 h-5" /> , label: 'Learning Plan'},
+              { href: '/admin/dashboard', icon: <Shield className="w-5 h-5" /> , label: 'Admin Panel', admin: true},
               { href: '/employee/score-history', icon: <FileText className="w-5 h-5" /> , label: 'Reports'},
               {  href: '/content-library', 
                 icon: <Folder className="w-5 h-5" />, 
                 label: 'Content Library' },
             ].map((m) => {
-              if (m.href === '/employee/courses') {
+              if (m.admin && !hasAdminAccess()) return null;
+
+              // Special rendering for Courses to allow a nested submenu
+              if (m.href === '/employee/training-plan') {
                 return (
                   <div key={m.href} className="flex flex-col">
                     <div className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${isActiveRoute(m.href) ? 'text-violet-600 bg-violet-50' : 'text-gray-700 hover:bg-gray-100'}`}>
@@ -277,22 +281,22 @@ const EmployeeNavigation = ({
                         <ul className="flex flex-col gap-2">
                           <li className="flex items-center justify-between">
                             <div className="relative flex items-center">
-                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/courses/active') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
-                              <Link href="/employee/courses/active" onClick={closeMobileSidebar} className="text-sm text-gray-700">Active Modules</Link>
+                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/welcome') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
+                              <Link href="/employee/welcome" onClick={closeMobileSidebar} className="text-sm text-gray-700">Active Modules</Link>
                             </div>
                           </li>
 
                           <li className="flex items-center justify-between text-sm text-gray-700">
                             <div className="relative flex items-center">
-                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/courses/completed') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
-                              <Link href="/employee/courses/completed" onClick={closeMobileSidebar}>Completed</Link>
+                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/welcome') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
+                              <Link href="/employee/welcome" onClick={closeMobileSidebar}>Completed</Link>
                             </div>
                           </li>
 
                           <li className="flex items-center justify-between text-sm text-gray-700">
                             <div className="relative flex items-center">
-                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/courses/all') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
-                              <Link href="/employee/courses/all" onClick={closeMobileSidebar}>All Modules</Link>
+                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/content-library') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
+                              <Link href="/content-library" onClick={closeMobileSidebar}>All Modules</Link>
                             </div>
                           </li>
                         </ul>

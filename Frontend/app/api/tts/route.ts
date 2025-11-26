@@ -54,7 +54,7 @@ async function ensureBucketExists() {
     const { error: createErr } = await admin.storage.createBucket(BUCKET, {
       public: true,
       fileSizeLimit: '50MB',
-      allowedMimeTypes: ['audio/mpeg'],
+      allowedMimeTypes: ['audio/mpeg', 'audio/wav'],
     });
     if (createErr) return { ok: false, error: `Bucket create failed: ${createErr.message}` } as const;
     return { ok: true } as const;
@@ -77,29 +77,82 @@ async function synthesizeAndStore(processedModuleId: string) {
   const { data: module, error: moduleError } = await admin
     .from('processed_modules')
     .select('processed_module_id, title, content')
-    .eq('module_id', processedModuleId)
+    .eq('processed_module_id', processedModuleId)
     .maybeSingle();
   if (moduleError || !module) {
     return { error: moduleError?.message || 'Module not found', status: 404 } as const;
   }
 
-  // Truncate very long content to reduce cost and meet TTS limits
-  const maxChars = 4500; // Google TTS limit is ~5000 for plain text
-  const text = cleanTextForTTS((module.content || '').slice(0, maxChars));
-  if (!text) return { error: 'Empty content', status: 400 } as const;
+  // Prepare full cleaned text
+  const fullText = cleanTextForTTS(module.content || '');
+  if (!fullText) return { error: 'Empty content', status: 400 } as const;
 
-  // Prepare Google TTS request
-  const requestTTS = {
-    input: { text },
-    voice: { languageCode: 'en-IN',voiceName: 'en-IN-Chirp3-HD-Algenib', ssmlGender: 'MALE' as const },
-    audioConfig: { audioEncoding: 'MP3' as const },
-  };
-  // Synthesize speech
-  const [response] = await client.synthesizeSpeech(requestTTS as any);
-  const audioContent = response.audioContent as Uint8Array | undefined;
-  if (!audioContent) {
-    return { error: 'TTS failed', status: 500 } as const;
+  // Google TTS has limits per request (~5000 chars). Split into chunks and synthesize as LINEAR16 PCM,
+  // then concatenate PCM and wrap into a WAV container so the final audio contains the entire module.
+  const maxChars = 4300;
+
+  function splitTextIntoChunks(text: string, maxLen: number) {
+    const chunks: string[] = [];
+    let start = 0;
+    while (start < text.length) {
+      let end = Math.min(start + maxLen, text.length);
+      if (end < text.length) {
+        const slice = text.slice(start, end);
+        const lastPunct = Math.max(slice.lastIndexOf('.'), slice.lastIndexOf('!'), slice.lastIndexOf('?'));
+        const lastSpace = slice.lastIndexOf(' ');
+        if (lastPunct > Math.floor(maxLen * 0.6)) {
+          end = start + lastPunct + 1;
+        } else if (lastSpace > Math.floor(maxLen * 0.6)) {
+          end = start + lastSpace;
+        }
+      }
+      const chunk = text.slice(start, end).trim();
+      if (chunk) chunks.push(chunk);
+      start = end;
+    }
+    return chunks;
   }
+
+  function createWavBuffer(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1, bytesPerSample = 2) {
+    const blockAlign = numChannels * bytesPerSample;
+    const byteRate = sampleRate * blockAlign;
+    const header = Buffer.alloc(44);
+    header.write('RIFF', 0);
+    header.writeUInt32LE(36 + pcmBuffer.length, 4);
+    header.write('WAVE', 8);
+    header.write('fmt ', 12);
+    header.writeUInt32LE(16, 16); // Subchunk1Size
+    header.writeUInt16LE(1, 20); // PCM format
+    header.writeUInt16LE(numChannels, 22);
+    header.writeUInt32LE(sampleRate, 24);
+    header.writeUInt32LE(byteRate, 28);
+    header.writeUInt16LE(blockAlign, 32);
+    header.writeUInt16LE(bytesPerSample * 8, 34);
+    header.write('data', 36);
+    header.writeUInt32LE(pcmBuffer.length, 40);
+    return Buffer.concat([header, pcmBuffer]);
+  }
+
+  const chunks = splitTextIntoChunks(fullText, maxChars);
+  const pcmBuffers: Buffer[] = [];
+  for (const chunk of chunks) {
+    const requestTTS = {
+      input: { text: chunk },
+      voice: { languageCode: 'en-IN', voiceName: 'en-IN-Chirp3-HD-Algenib', ssmlGender: 'MALE' as const },
+      audioConfig: { audioEncoding: 'LINEAR16' as const, sampleRateHertz: 24000 },
+    };
+    const [response] = await client.synthesizeSpeech(requestTTS as any);
+    const audioContent = response.audioContent as Uint8Array | string | undefined;
+    if (!audioContent) {
+      return { error: 'TTS failed for a chunk', status: 500 } as const;
+    }
+    // response.audioContent may be Uint8Array or base64 string depending on client; normalize to Buffer
+    const buf = Buffer.isBuffer(audioContent) ? audioContent : Buffer.from(audioContent as any, 'base64');
+    pcmBuffers.push(buf);
+  }
+
+  const pcm = Buffer.concat(pcmBuffers);
+  const wavBuffer = createWavBuffer(pcm, 24000, 1, 2);
 
   // Ensure storage bucket exists
   const ensured = await ensureBucketExists();
@@ -107,12 +160,12 @@ async function synthesizeAndStore(processedModuleId: string) {
     return { error: `Bucket not found and could not be created: ${ensured.error}. Ensure SUPABASE_SERVICE_ROLE_KEY is set or create the bucket manually.`, status: 500 } as const;
   }
 
-  // Upload to Supabase Storage (module_audio bucket)
-  const fileName = `module-audio/${processedModuleId}/${uuidv4()}.mp3`;
+  // Upload to Supabase Storage (module_audio bucket) as WAV
+  const fileName = `module-audio/${processedModuleId}/${uuidv4()}.wav`;
   const { error: uploadError } = await admin.storage
     .from(BUCKET)
-    .upload(fileName, Buffer.from(audioContent as any), {
-      contentType: 'audio/mpeg',
+    .upload(fileName, wavBuffer, {
+      contentType: 'audio/wav',
       upsert: true,
     });
   if (uploadError) {

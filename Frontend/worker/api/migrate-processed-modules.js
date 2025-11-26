@@ -42,7 +42,7 @@ async function migrateProcessedModules({ moduleId = null, forceRemigrate = false
         const key = `${i}|${style}`;
         if (existingSet.has(key) && !forceRemigrate) { skipped++; continue; }
         const { error: insertError } = await supabase.from('processed_modules').insert({
-          original_module_id: mod.id,
+          original_module_id: mod.module_id,
           title: title || `Module ${i + 1}`,
           content: content || '',
           section_type: section_type || null,
