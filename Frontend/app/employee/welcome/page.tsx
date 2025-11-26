@@ -462,8 +462,9 @@ export default function EmployeeWelcome() {
                   assignedModules.map((m) => (
                     <div key={m.id} className="flex items-center justify-between p-3 rounded-lg border bg-white">
                       <div className="font-medium text-gray-800">{m.title || `Module ${m.id}`}</div>
-                      <div>
-                        <Button onClick={() => router.push(`/employee/module/${m.id}`)}>Start my Journey</Button>
+                      <div className="flex gap-2">
+                        <Button onClick={() => router.push('/employee/assessment')}>Baseline Assessment</Button>
+                        <Button onClick={() => router.push('/employee/training-plan')}>Learning Plan</Button>
                       </div>
                     </div>
                   ))
