@@ -77,7 +77,7 @@ async function synthesizeAndStore(processedModuleId: string) {
   const { data: module, error: moduleError } = await admin
     .from('processed_modules')
     .select('processed_module_id, title, content')
-    .eq('module_id', processedModuleId)
+    .eq('processed_module_id', processedModuleId)
     .maybeSingle();
   if (moduleError || !module) {
     return { error: moduleError?.message || 'Module not found', status: 404 } as const;
