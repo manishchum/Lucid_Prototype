@@ -11,27 +11,24 @@ import LucidAssistant from '@/components/LucidAssistant'
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "AI-Powered Employee Onboarding",
-  description: "Streamline your training process with intelligent content management",
-    generator: 'v0.dev'
-}
+  title: "Lucid Learning Platform",
+  description: "AI-powered learning and development platform",
+};
 
 export default function RootLayout({
   children,
-}: {
-  children: React.ReactNode
-}) {
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body className="antialiased">
         <AuthProvider>
           <ErrorReporterInit />
           <LucidAssistant />
           {children}
         </AuthProvider>
-        <Toaster /> {/* Add Toaster component here */}
-        <ShadcnToaster />
       </body>
     </html>
-  )
+  );
 }

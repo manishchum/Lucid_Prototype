@@ -59,7 +59,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       // Fetch module info, supporting both processed_modules.processed_module_id and original_module_id and style fallbacks
       const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style";
       const tryFetch = async () => {
-        // 1) Try by processed_modules.id with style
+        // 1) Try by processed_modules.processed_module_id with style
         if (style) {
           const { data } = await supabase
             .from('processed_modules')

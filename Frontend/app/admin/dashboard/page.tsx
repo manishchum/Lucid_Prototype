@@ -703,7 +703,8 @@ function EmployeeBulkAdd({ companyId, adminId, onSuccess, onError }: { companyId
             if (error.code === '23505') { // Unique violation
               results.skipped++;
             } else {
-              results.errors.push(`${email}: ${error.message}`);
+              results.errors.push(`${email}: 
+                ${error.message}`);
             }
           } else {
             results.added++;
@@ -1107,7 +1108,7 @@ import { Label } from "@/components/ui/label";
 
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import { Building2, Users, Plus, Trash2, LogOut, Edit } from "lucide-react";
+import { Building2, Users, Plus, Trash2, LogOut, Edit, BarChart3, Badge, BookOpen, CheckCircle, TrendingUp, User, AlertCircle } from "lucide-react";
 import { ContentUpload } from "./content-upload";
 import { UploadedFilesList } from "./uploaded-files-list";
 import { Toaster } from "react-hot-toast";
@@ -2197,6 +2198,8 @@ export default function AdminDashboard() {
         {/* Page content */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="grid gap-8">
+            
+
             {/* KPI Definitions Upload Section */}
             <Card>
               <CardHeader className="sm:flex sm:items-start sm:justify-between">
@@ -2304,6 +2307,1388 @@ export default function AdminDashboard() {
 
             {/* Uploaded Files List */}
             <UploadedFilesList modules={trainingModules} onModuleDeleted={() => loadTrainingModules(admin!.company_id)} />
+          
+          {/* Progress Analytics Section */}
+          <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <BarChart3 className="w-5 h-5 mr-2" />
+                  Learning Progress Analytics
+                </CardTitle>
+                <CardDescription>Track employee progress across all training modules with detailed insights and performance metrics</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ProgressAnalytics companyId={admin?.company_id || ''} />
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// --- AssignModules UI Component ---
+// function AssignModules({ employees, modules, admin, onAssigned }: { employees: Employee[]; modules: TrainingModule[]; admin: Admin | null; onAssigned?: () => void }) {
+//   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
+//   const [selectedModules, setSelectedModules] = useState<Record<string, boolean>>({});
+//   const [loading, setLoading] = useState(false);
+//   const [error, setError] = useState("");
+
+//   useEffect(() => {
+//     // Reset selections when employees/modules change
+//     setSelectedEmployee(employees[0]?.user_id || null);
+//     const init: Record<string, boolean> = {};
+//     modules.forEach((m) => { init[m.module_id] = false; });
+//     setSelectedModules(init);
+//   }, [employees, modules]);
+
+//   const toggleModule = (id: string) => {
+//     setSelectedModules((s) => ({ ...s, [id]: !s[id] }));
+//   };
+
+//   const handleAssign = async () => {
+//     setError("");
+//     if (!selectedEmployee) return setError("Select an employee");
+//     const moduleIds = Object.keys(selectedModules).filter((k) => selectedModules[k]);
+//     if (moduleIds.length === 0) return setError("Select at least one module");
+
+//     setLoading(true);
+//     console.log(selectedEmployee)
+//     console.log(moduleIds)
+//     console.log(admin?.user_id)
+
+//     try {
+//       const res = await fetch('/api/admin/assign-modules', {
+//         method: 'POST',
+//         headers: {
+//           "Content-Type": "application/json",
+//           ...(admin?.user_id ? { 'x-admin-id': admin.user_id } : {})
+//         },
+//         body: JSON.stringify({ user_id: selectedEmployee, moduleIds })
+//       });
+//       const json = await res.json();
+//       if (!res.ok) {
+//         setError(json.error || 'Failed to assign modules');
+//       } else {
+//         if (onAssigned) onAssigned();
+//       }
+//     } catch (err: any) {
+//       console.log("Error here | Debug 1")
+//       setError(String(err));
+//     } finally {
+//       setLoading(false);
+//     }
+//   };
+
+//   return (
+//     <div className="space-y-3">
+//       <div>
+//         <Label htmlFor="employeeSelect">Employee</Label>
+//         <select id="employeeSelect" className="w-full p-2 border rounded" value={selectedEmployee || ''} onChange={(e) => setSelectedEmployee(e.target.value)}>
+//           {employees.map((emp) => <option key={emp.user_id} value={emp.user_id}>{emp.email}</option>)}
+//         </select>
+//       </div>
+//       <div>
+//         <Label>Modules</Label>
+//         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-auto border rounded p-2">
+//           {modules.map((m) => (
+//             <label key={m.module_id} className="flex items-center gap-2">
+//               <input type="checkbox" checked={!!selectedModules[m.module_id]} onChange={() => toggleModule(m.module_id)} />
+//               <span className="text-sm">{m.title}</span>
+//             </label>
+//           ))}
+//         </div>
+//       </div>
+//       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+//       <div className="flex gap-2">
+//         <Button onClick={handleAssign} disabled={loading}>{loading ? 'Assigning...' : 'Assign Modules'}</Button>
+//       </div>
+//     </div>
+//   );
+// }
+
+// // --- Duplicate Assignment Error Modal ---
+// function DuplicateAssignmentModal({ 
+//   isOpen, 
+//   onClose, 
+//   duplicateAssignments 
+// }: { 
+//   isOpen: boolean;
+//   onClose: () => void;
+//   duplicateAssignments: any[];
+// }) {
+//   if (!isOpen) return null;
+
+//   return (
+//     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+//       <div className="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+//         <div className="p-6">
+//           <div className="flex items-center justify-between mb-4">
+//             <div className="flex items-center">
+//               <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center mr-3">
+//                 <span className="text-orange-600 text-xl">⚠️</span>
+//               </div>
+//               <h2 className="text-xl font-semibold text-gray-900">Duplicate Assignments Found</h2>
+//             </div>
+//             <Button
+//               type="button"
+//               variant="outline"
+//               size="sm"
+//               onClick={onClose}
+//               className="text-gray-400 hover:text-gray-600"
+//             >
+//               ✕
+//             </Button>
+//           </div>
+
+//           <div className="mb-6">
+//             <p className="text-gray-600 mb-4">
+//               The following employees are already assigned to these modules. Please remove them from your selection to proceed with new assignments only.
+//             </p>
+
+//             <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 max-h-64 overflow-y-auto">
+//               <h3 className="font-medium text-orange-900 mb-3">Existing Assignments:</h3>
+//               <div className="space-y-3">
+//                 {duplicateAssignments.map((assignment, index) => {
+//                   const user = assignment.users as any;
+//                   const module = assignment.training_modules as any;
+//                   return (
+//                     <div key={index} className="flex items-center p-3 bg-white border border-orange-200 rounded-md">
+//                       <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center mr-3">
+//                         <span className="text-orange-600 text-sm font-medium">
+//                           {(user.name || user.email).charAt(0).toUpperCase()}
+//                         </span>
+//                       </div>
+//                       <div className="flex-1">
+//                         <p className="font-medium text-gray-900">
+//                           {user.name || user.email}
+//                         </p>
+//                         <p className="text-sm text-gray-600">
+//                           📚 {module.title}
+//                         </p>
+//                       </div>
+//                       <div className="text-orange-600">
+//                         <span className="text-xs bg-orange-100 px-2 py-1 rounded-full">
+//                           Already Assigned
+//                         </span>
+//                       </div>
+//                     </div>
+//                   );
+//                 })}
+//               </div>
+//             </div>
+//           </div>
+
+//           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+//             <h4 className="font-medium text-blue-900 mb-2">💡 What to do next:</h4>
+//             <ul className="text-sm text-blue-800 space-y-1">
+//               <li>• Uncheck the employees or modules that are already assigned</li>
+//               <li>• Or select different employees/modules for assignment</li>
+//               <li>• You can still proceed with the remaining selections</li>
+//             </ul>
+//           </div>
+
+//           <div className="flex justify-end">
+//             <Button
+//               onClick={onClose}
+//               className="bg-blue-600 hover:bg-blue-700"
+//             >
+//               Got it, let me adjust my selection
+//             </Button>
+//           </div>
+//         </div>
+//       </div>
+//     </div>
+//   );
+// }
+
+// // --- Module Assignment Modal Component ---
+// function ModuleAssignmentModal({ 
+//   isOpen, 
+//   onClose, 
+//   selectedEmployees, 
+//   employees, 
+//   companyId, 
+//   adminUserId,
+//   onSuccess 
+// }: { 
+//   isOpen: boolean;
+//   onClose: () => void;
+//   selectedEmployees: string[];
+//   employees: Employee[];
+//   companyId: string;
+//   adminUserId: string;
+//   onSuccess: () => void;
+// }) {
+//   const [modules, setModules] = useState<TrainingModule[]>([]);
+//   const [selectedModules, setSelectedModules] = useState<string[]>([]);
+//   const [loading, setLoading] = useState(false);
+//   const [loadingModules, setLoadingModules] = useState(true);
+//   const [error, setError] = useState('');
+//   const [baselineAssessment, setBaselineAssessment] = useState(true);
+//   const [dueDate, setDueDate] = useState('');
+//   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+//   const [duplicateAssignments, setDuplicateAssignments] = useState<any[]>([]);
+
+//   // Load available modules
+//   useEffect(() => {
+//     if (isOpen && companyId) {
+//       loadModules();
+//     }
+//   }, [isOpen, companyId]);
+
+//   const loadModules = async () => {
+//     setLoadingModules(true);
+//     setError('');
+    
+//     try {
+//       console.log("Company ID:")
+//       console.log(companyId)
+//       const { data, error: modulesError } = await supabase
+//         .from('training_modules')
+//         .select('*')
+//         .eq('company_id', companyId)
+//         .eq('processing_status', 'completed')
+//         .order('title');
+//         console.log("Training Modules Data:")
+//         console.log(data)
+//       if (modulesError) throw modulesError;
+//       setModules(data || []);
+//     } catch (error: any) {
+//       setError('Failed to load modules: ' + error.message);
+//     } finally {
+//       setLoadingModules(false);
+//     }
+//   };
+
+//   const handleModuleToggle = (moduleId: string) => {
+//     setSelectedModules(prev =>
+//       prev.includes(moduleId)
+//         ? prev.filter(id => id !== moduleId)
+//         : [...prev, moduleId]
+//     );
+//   };
+
+//   const selectAllModules = () => {
+//     setSelectedModules(modules.map(module => module.module_id));
+//   };
+
+//   const clearAllModules = () => {
+//     setSelectedModules([]);
+//   };
+
+//   const handleAssign = async () => {
+//     if (selectedModules.length === 0) {
+//       setError('Please select at least one module');
+//       return;
+//     }
+
+//     if (selectedEmployees.length === 0) {
+//       setError('No employees selected');
+//       return;
+//     }
+
+//     setLoading(true);
+//     setError('');
+
+//     try {
+//       // First, check for existing assignments to prevent duplicates
+//       const { data: existingAssignments, error: checkError } = await supabase
+//         .from('learning_plan')
+//         .select('user_id, module_id, users!inner(name, email), training_modules!inner(title)')
+//         .in('user_id', selectedEmployees)
+//         .in('module_id', selectedModules);
+
+//       if (checkError) {
+//         console.error('Error checking existing assignments:', checkError);
+//         setError('Failed to check existing assignments. Please try again.');
+//         setLoading(false);
+//         return;
+//       }
+
+//       // If there are existing assignments, show the duplicate modal
+//       if (existingAssignments && existingAssignments.length > 0) {
+//         setDuplicateAssignments(existingAssignments);
+//         setShowDuplicateModal(true);
+//         setLoading(false);
+//         return;
+//       }
+
+//       // Create learning plan entries for each employee-module combination
+//       const learningPlans = [];
+      
+//       for (const employeeId of selectedEmployees) {
+//         for (const moduleId of selectedModules) {
+//           learningPlans.push({
+//             user_id: employeeId,
+//             module_id: moduleId,
+//             assigned_on: new Date().toISOString(),
+//             due_date: dueDate || null,
+//             baseline_assessment: baselineAssessment ? 1 : 0,
+//             status: 'ASSIGNED'
+//           });
+//         }
+//       }
+
+//       // Insert learning plans into database
+//       const { error: insertError } = await supabase
+//         .from('learning_plan')
+//         .insert(learningPlans);
+
+//       if (insertError) {
+//         // Handle potential race condition duplicates
+//         if (insertError.code === '23505') {
+//           setError('Some assignments were created by another admin while you were selecting. Please refresh and try again.');
+//         } else {
+//           throw insertError;
+//         }
+//         return;
+//       }
+
+//       onSuccess();
+      
+//     } catch (error: any) {
+//       console.error('Failed to assign modules:', error);
+//       setError('Failed to assign modules. Please try again.');
+//     } finally {
+//       setLoading(false);
+//     }
+//   };
+
+//   // Get selected employee details for display
+//   const selectedEmployeeDetails = employees.filter(emp => 
+//     selectedEmployees.includes(emp.user_id)
+//   );
+
+//   if (!isOpen) return null;
+
+//   return (
+//     <>
+//       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+//         <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+//           <div className="p-6">
+//             <div className="flex justify-between items-center mb-6">
+//               <h2 className="text-xl font-semibold text-gray-900">Assign Modules</h2>
+//               <Button
+//                 type="button"
+//                 variant="outline"
+//                 size="sm"
+//                 onClick={onClose}
+//                 className="text-gray-400 hover:text-gray-600"
+//               >
+//                 ✕
+//               </Button>
+//             </div>
+
+//             {/* Selected Employees Summary */}
+//             <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+//               <h3 className="font-medium text-blue-900 mb-2">
+//                 Selected Employees ({selectedEmployees.length})
+//               </h3>
+//               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-32 overflow-y-auto">
+//                 {selectedEmployeeDetails.map(employee => (
+//                   <div key={employee.user_id} className="text-sm text-blue-800 bg-blue-100 px-2 py-1 rounded">
+//                     {employee.name || employee.email}
+//                   </div>
+//                 ))}
+//               </div>
+//             </div>
+
+//             {/* Assignment Configuration */}
+//             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+//               <div>
+//                 <Label htmlFor="baselineAssessment">Baseline Assessment Required</Label>
+//                 <div className="flex items-center space-x-3 mt-2">
+//                   <label className="flex items-center space-x-2 cursor-pointer">
+//                     <div className="relative">
+//                       <input
+//                         type="checkbox"
+//                         id="baselineAssessment"
+//                         checked={baselineAssessment}
+//                         onChange={(e) => setBaselineAssessment(e.target.checked)}
+//                         className="sr-only"
+//                       />
+//                       <div className={`w-11 h-6 rounded-full transition-colors ${
+//                         baselineAssessment ? 'bg-blue-600' : 'bg-gray-300'
+//                       }`}>
+//                         <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${
+//                           baselineAssessment ? 'translate-x-5' : 'translate-x-0.5'
+//                         } mt-0.5`}></div>
+//                       </div>
+//                     </div>
+//                     <span className="text-sm text-gray-700">
+//                       {baselineAssessment ? 'Yes' : 'No'}
+//                     </span>
+//                   </label>
+//                 </div>
+//                 <p className="text-xs text-gray-500 mt-1">
+//                   Employees will need to complete a baseline assessment before starting the training modules
+//                 </p>
+//               </div>
+              
+//               <div>
+//                 <Label htmlFor="dueDate">Due Date (Optional)</Label>
+//                 <Input
+//                   id="dueDate"
+//                   type="date"
+//                   value={dueDate}
+//                   onChange={(e) => setDueDate(e.target.value)}
+//                   min={new Date().toISOString().split('T')[0]}
+//                 />
+//               </div>
+//             </div>
+
+//             {/* Module Selection */}
+//             <div className="mb-6">
+//               <div className="flex items-center justify-between mb-3">
+//                 <Label>Select Training Modules</Label>
+//                 <div className="flex gap-2">
+//                   <Button
+//                     type="button"
+//                     variant="outline"
+//                     size="sm"
+//                     onClick={selectAllModules}
+//                     disabled={selectedModules.length === modules.length || loadingModules}
+//                   >
+//                     Select All
+//                   </Button>
+//                   <Button
+//                     type="button"
+//                     variant="outline"
+//                     size="sm"
+//                     onClick={clearAllModules}
+//                     disabled={selectedModules.length === 0}
+//                   >
+//                     Clear All
+//                   </Button>
+//                 </div>
+//               </div>
+
+//               {loadingModules ? (
+//                 <div className="flex items-center justify-center py-8">
+//                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+//                   <span className="ml-2 text-gray-600">Loading modules...</span>
+//                 </div>
+//               ) : modules.length === 0 ? (
+//                 <div className="text-center py-8 text-gray-500 border border-gray-200 rounded-lg">
+//                   <p>No training modules available</p>
+//                   <p className="text-sm">Upload training content first to create modules</p>
+//                 </div>
+//               ) : (
+//                 <div className="border border-gray-300 rounded-md max-h-64 overflow-y-auto">
+//                   <div className="p-3 space-y-3">
+//                     {modules.map(module => (
+//                       <label
+//                         key={module.module_id}
+//                         className="flex items-start space-x-3 p-3 hover:bg-gray-50 rounded cursor-pointer border border-gray-100"
+//                       >
+//                         <input
+//                           type="checkbox"
+//                           checked={selectedModules.includes(module.module_id)}
+//                           onChange={() => handleModuleToggle(module.module_id)}
+//                           className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+//                         />
+//                         <div className="flex-1 min-w-0">
+//                           <div className="font-medium text-gray-900">{module.title}</div>
+//                           {module.description && (
+//                             <p className="text-sm text-gray-600 mt-1">{module.description}</p>
+//                           )}
+//                           <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+//                             <span className="bg-gray-100 px-2 py-1 rounded">
+//                               {module.content_type.toUpperCase()}
+//                             </span>
+//                             <span>
+//                               Created: {new Date(module.created_at).toLocaleDateString()}
+//                             </span>
+//                           </div>
+//                         </div>
+//                       </label>
+//                     ))}
+//                   </div>
+//                 </div>
+//               )}
+
+//               <div className="mt-2 text-xs text-gray-500">
+//                 Selected: {selectedModules.length} module{selectedModules.length === 1 ? '' : 's'}
+//               </div>
+
+//               {/* Selected Modules Preview */}
+//               {selectedModules.length > 0 && (
+//                 <div className="mt-3">
+//                   <span className="text-xs text-gray-600 block mb-2">Selected Modules:</span>
+//                   <div className="flex flex-wrap gap-2">
+//                     {selectedModules.map(moduleId => {
+//                       const module = modules.find(m => m.module_id === moduleId);
+//                       return module ? (
+//                         <span key={moduleId} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
+//                           {module.title}
+//                         </span>
+//                       ) : null;
+//                     })}
+//                   </div>
+//                 </div>
+//               )}
+//             </div>
+
+//             {/* Assignment Summary */}
+//             {selectedModules.length > 0 && (
+//               <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+//                 <h3 className="font-medium text-gray-900 mb-2">Assignment Summary</h3>
+//                 <p className="text-sm text-gray-600">
+//                   You are about to assign <strong>{selectedModules.length}</strong> module{selectedModules.length === 1 ? '' : 's'} 
+//                   to <strong>{selectedEmployees.length}</strong> employee{selectedEmployees.length === 1 ? '' : 's'}.
+//                 </p>
+//                 <p className="text-sm text-gray-600 mt-1">
+//                   This will create <strong>{selectedModules.length * selectedEmployees.length}</strong> learning plan assignments.
+//                 </p>
+//                 <p className="text-sm text-gray-600 mt-1">
+//                   <strong>Baseline Assessment:</strong> {baselineAssessment ? 'Required' : 'Not Required'}
+//                 </p>
+//               </div>
+//             )}
+
+//             {error && (
+//               <Alert variant="destructive" className="mb-6">
+//                 <AlertDescription>{error}</AlertDescription>
+//               </Alert>
+//             )}
+
+//             {/* Form Actions */}
+//             <div className="flex gap-3 pt-4 border-t">
+//               <Button
+//                 type="button"
+//                 variant="outline"
+//                 onClick={onClose}
+//                 disabled={loading}
+//               >
+//                 Cancel
+//               </Button>
+//               <Button
+//                 onClick={handleAssign}
+//                 disabled={loading || selectedModules.length === 0 || loadingModules}
+//                 className="bg-green-600 hover:bg-green-700"
+//               >
+//                 {loading ? (
+//                   <>
+//                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+//                     Assigning...
+//                   </>
+//                 ) : (
+//                   `Assign ${selectedModules.length} Module${selectedModules.length === 1 ? '' : 's'}`
+//                 )}
+//               </Button>
+//             </div>
+//           </div>
+//         </div>
+//       </div>
+
+//       {/* Duplicate Assignment Modal */}
+//       <DuplicateAssignmentModal
+//         isOpen={showDuplicateModal}
+//         onClose={() => setShowDuplicateModal(false)}
+//         duplicateAssignments={duplicateAssignments}
+//       />
+//     </>
+//   );
+// }
+
+// --- Progress Analytics Component ---
+function ProgressAnalytics({ companyId }: { companyId: string }) {
+  const [progressData, setProgressData] = useState<any[]>([]);
+  const [moduleStats, setModuleStats] = useState<any[]>([]);
+  const [overallStats, setOverallStats] = useState({
+    totalAssignments: 0,
+    completedAssignments: 0,
+    inProgressAssignments: 0,
+    notStartedAssignments: 0,
+    averageScore: 0,
+    totalUsers: 0,
+    activeUsers: 0
+  });
+  const [loading, setLoading] = useState(true);
+  const [selectedModule, setSelectedModule] = useState<string>('all');
+  const [selectedTimeRange, setSelectedTimeRange] = useState<string>('30');
+  const [modules, setModules] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (companyId) {
+      loadProgressData();
+    }
+  }, [companyId, selectedModule, selectedTimeRange]);
+
+  const loadProgressData = async () => {
+    setLoading(true);
+    try {
+      // Load modules for filtering
+      const { data: moduleData } = await supabase
+        .from('training_modules')
+        .select('module_id, title')
+        .eq('company_id', companyId)
+        .order('title');
+      
+      setModules(moduleData || []);
+
+      // Build the main query for progress data
+      let query = supabase
+        .from('learning_plan')
+        .select(`
+          learning_plan_id,
+          status,
+          assigned_on,
+          started_at,
+          completed_at,
+          baseline_assessment,
+          due_date,
+          users!inner(user_id, name, email, department_id),
+          training_modules!inner(title, module_id),
+          module_progress(
+            started_at,
+            completed_at,
+            quiz_score,
+            audio_listen_duration
+          ),
+          employee_assessments(
+            score,
+            max_score,
+            completed_at
+          )
+        `)
+        .eq('users.company_id', companyId);
+
+      // Apply module filter
+      if (selectedModule !== 'all') {
+        query = query.eq('module_id', selectedModule);
+      }
+
+      // Apply time range filter
+      if (selectedTimeRange !== 'all') {
+        const daysAgo = new Date();
+        daysAgo.setDate(daysAgo.getDate() - parseInt(selectedTimeRange));
+        query = query.gte('assigned_on', daysAgo.toISOString());
+      }
+
+      const { data: progressResults, error } = await query.order('assigned_on', { ascending: false });
+
+      if (error) throw error;
+
+      setProgressData(progressResults || []);
+
+      // Calculate statistics
+      calculateStatistics(progressResults || []);
+      calculateModuleStatistics(progressResults || []);
+
+    } catch (error) {
+      console.error('Failed to load progress data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const calculateStatistics = (data: any[]) => {
+    const totalAssignments = data.length;
+    const completedAssignments = data.filter(item => item.status === 'COMPLETED').length;
+    const inProgressAssignments = data.filter(item => item.status === 'IN_PROGRESS').length;
+    const notStartedAssignments = data.filter(item => item.status === 'ASSIGNED').length;
+
+    // Calculate average assessment scores
+    const assessmentScores = data
+      .filter(item => item.employee_assessments && item.employee_assessments.length > 0)
+      .map(item => {
+        const assessment = item.employee_assessments[0];
+        return assessment.max_score > 0 ? (assessment.score / assessment.max_score) * 100 : 0;
+      });
+
+    const averageScore = assessmentScores.length > 0 
+      ? assessmentScores.reduce((sum, score) => sum + score, 0) / assessmentScores.length 
+      : 0;
+
+    const uniqueUsers = new Set(data.map(item => item.users.user_id));
+    const totalUsers = uniqueUsers.size;
+    
+    const activeUsers = new Set(
+      data.filter(item => item.status === 'IN_PROGRESS' || item.status === 'COMPLETED')
+        .map(item => item.users.user_id)
+    ).size;
+
+    setOverallStats({
+      totalAssignments,
+      completedAssignments,
+      inProgressAssignments,
+      notStartedAssignments,
+      averageScore: Math.round(averageScore),
+      totalUsers,
+      activeUsers
+    });
+  };
+
+  const calculateModuleStatistics = (data: any[]) => {
+    const moduleMap = new Map();
+
+    data.forEach(item => {
+      const moduleId = item.training_modules.module_id;
+      const moduleTitle = item.training_modules.title;
+
+      if (!moduleMap.has(moduleId)) {
+        moduleMap.set(moduleId, {
+          moduleId,
+          title: moduleTitle,
+          totalAssigned: 0,
+          completed: 0,
+          inProgress: 0,
+          notStarted: 0,
+          averageScore: 0,
+          totalScores: [],
+          averageCompletionTime: 0,
+          completionTimes: []
+        });
+      }
+
+      const moduleStats = moduleMap.get(moduleId);
+      moduleStats.totalAssigned++;
+
+      switch (item.status) {
+        case 'COMPLETED':
+          moduleStats.completed++;
+          if (item.assigned_on && item.completed_at) {
+            const completionTime = new Date(item.completed_at).getTime() - new Date(item.assigned_on).getTime();
+            moduleStats.completionTimes.push(completionTime / (1000 * 60 * 60 * 24)); // Convert to days
+          }
+          break;
+        case 'IN_PROGRESS':
+          moduleStats.inProgress++;
+          break;
+        case 'ASSIGNED':
+          moduleStats.notStarted++;
+          break;
+      }
+
+      // Add assessment scores
+      if (item.employee_assessments && item.employee_assessments.length > 0) {
+        const assessment = item.employee_assessments[0];
+        if (assessment.max_score > 0) {
+          const scorePercent = (assessment.score / assessment.max_score) * 100;
+          moduleStats.totalScores.push(scorePercent);
+        }
+      }
+    });
+
+    // Calculate averages
+    const moduleStatsArray = Array.from(moduleMap.values()).map(stats => ({
+      ...stats,
+      completionRate: stats.totalAssigned > 0 ? Math.round((stats.completed / stats.totalAssigned) * 100) : 0,
+      averageScore: stats.totalScores.length > 0 
+        ? Math.round(stats.totalScores.reduce((sum, score) => sum + score, 0) / stats.totalScores.length)
+        : 0,
+      averageCompletionTime: stats.completionTimes.length > 0
+        ? Math.round(stats.completionTimes.reduce((sum, time) => sum + time, 0) / stats.completionTimes.length)
+        : 0
+    }));
+
+    setModuleStats(moduleStatsArray);
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'COMPLETED':
+        return <Badge className="bg-green-100 text-green-800">Completed</Badge>;
+      case 'IN_PROGRESS':
+        return <Badge className="bg-blue-100 text-blue-800">In Progress</Badge>;
+      case 'ASSIGNED':
+        return <Badge className="bg-yellow-100 text-yellow-800">Not Started</Badge>;
+      default:
+        return <Badge variant="secondary">{status}</Badge>;
+    }
+  };
+
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString();
+  };
+
+  const getDaysOverdue = (dueDate: string | null, status: string) => {
+    if (!dueDate || status === 'COMPLETED') return null;
+    const today = new Date();
+    const due = new Date(dueDate);
+    const diffTime = today.getTime() - due.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays > 0 ? diffDays : null;
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <span className="ml-2 text-gray-600">Loading progress data...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Filters */}
+      <div className="flex flex-wrap gap-4 p-4 bg-gray-50 rounded-lg">
+        <div className="flex-1 min-w-48">
+          <Label htmlFor="moduleFilter">Filter by Module</Label>
+          <select
+            id="moduleFilter"
+            value={selectedModule}
+            onChange={(e) => setSelectedModule(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="all">All Modules</option>
+            {modules.map(module => (
+              <option key={module.module_id} value={module.module_id}>
+                {module.title}
+              </option>
+            ))}
+          </select>
+        </div>
+        
+        <div className="flex-1 min-w-48">
+          <Label htmlFor="timeFilter">Time Range</Label>
+          <select
+            id="timeFilter"
+            value={selectedTimeRange}
+            onChange={(e) => setSelectedTimeRange(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="365">Last year</option>
+            <option value="all">All time</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Overall Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Total Assignments</p>
+                <p className="text-2xl font-bold text-gray-900">{overallStats.totalAssignments}</p>
+              </div>
+              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                <BookOpen className="w-6 h-6 text-blue-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Completion Rate</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {overallStats.totalAssignments > 0 
+                    ? Math.round((overallStats.completedAssignments / overallStats.totalAssignments) * 100)
+                    : 0}%
+                </p>
+              </div>
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                <CheckCircle className="w-6 h-6 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Average Score</p>
+                <p className="text-2xl font-bold text-purple-600">{overallStats.averageScore}%</p>
+              </div>
+              <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+                <TrendingUp className="w-6 h-6 text-purple-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Active Users</p>
+                <p className="text-2xl font-bold text-orange-600">{overallStats.activeUsers}/{overallStats.totalUsers}</p>
+              </div>
+              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
+                <User className="w-6 h-6 text-orange-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Module Statistics Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <BarChart3 className="w-5 h-5 mr-2" />
+            Module Performance Overview
+          </CardTitle>
+          <CardDescription>Statistics for each training module</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="text-left p-3 font-medium text-gray-700">Module</th>
+                  <th className="text-center p-3 font-medium text-gray-700">Total Assigned</th>
+                  <th className="text-center p-3 font-medium text-gray-700">Completed</th>
+                  <th className="text-center p-3 font-medium text-gray-700">In Progress</th>
+                  <th className="text-center p-3 font-medium text-gray-700">Not Started</th>
+                  <th className="text-center p-3 font-medium text-gray-700">Completion Rate</th>
+                  <th className="text-center p-3 font-medium text-gray-700">Avg Score</th>
+                  <th className="text-center p-3 font-medium text-gray-700">Avg Completion Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {moduleStats.map((module, index) => (
+                  <tr key={module.moduleId} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    <td className="p-3">
+                      <div className="font-medium text-gray-900">{module.title}</div>
+                    </td>
+                    <td className="text-center p-3">{module.totalAssigned}</td>
+                    <td className="text-center p-3">
+                      <span className="text-green-600 font-medium">{module.completed}</span>
+                    </td>
+                    <td className="text-center p-3">
+                      <span className="text-blue-600 font-medium">{module.inProgress}</span>
+                    </td>
+                    <td className="text-center p-3">
+                      <span className="text-yellow-600 font-medium">{module.notStarted}</span>
+                    </td>
+                    <td className="text-center p-3">
+                      <div className="flex items-center justify-center">
+                        <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
+                          <div 
+                            className="bg-green-600 h-2 rounded-full" 
+                            style={{ width: `${module.completionRate}%` }}
+                          ></div>
+                        </div>
+                        <span className="text-sm font-medium">{module.completionRate}%</span>
+                      </div>
+                    </td>
+                    <td className="text-center p-3">
+                      <span className="font-medium">{module.averageScore}%</span>
+                    </td>
+                    <td className="text-center p-3">
+                      {module.averageCompletionTime > 0 ? `${module.averageCompletionTime} days` : 'N/A'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Detailed Progress Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <Users className="w-5 h-5 mr-2" />
+            Detailed User Progress
+          </CardTitle>
+          <CardDescription>Individual progress tracking for all assignments</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="text-left p-3 font-medium text-gray-700">Employee</th>
+                  <th className="text-left p-3 font-medium text-gray-700">Module</th>
+                  <th className="text-center p-3 font-medium text-gray-700">Status</th>
+                  <th className="text-center p-3 font-medium text-gray-700">Assigned</th>
+                  <th className="text-center p-3 font-medium text-gray-700">Started</th>
+                  <th className="text-center p-3 font-medium text-gray-700">Completed</th>
+                  <th className="text-center p-3 font-medium text-gray-700">Due Date</th>
+                  <th className="text-center p-3 font-medium text-gray-700">Score</th>
+                  <th className="text-center p-3 font-medium text-gray-700">Baseline</th>
+                </tr>
+              </thead>
+              <tbody>
+                {progressData.map((item, index) => {
+                  const daysOverdue = getDaysOverdue(item.due_date, item.status);
+                  const assessment = item.employee_assessments?.[0];
+                  const scorePercent = assessment && assessment.max_score > 0 
+                    ? Math.round((assessment.score / assessment.max_score) * 100)
+                    : null;
+
+                  return (
+                    <tr key={item.learning_plan_id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                      <td className="p-3">
+                        <div>
+                          <div className="font-medium text-gray-900">{item.users.name}</div>
+                          <div className="text-sm text-gray-500">{item.users.email}</div>
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <div className="font-medium text-gray-700">{item.training_modules.title}</div>
+                      </td>
+                      <td className="text-center p-3">
+                        <div className="flex flex-col items-center gap-1">
+                          {getStatusBadge(item.status)}
+                          {daysOverdue && (
+                            <span className="text-xs text-red-600 flex items-center">
+                              <AlertCircle className="w-3 h-3 mr-1" />
+                              {daysOverdue} days overdue
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="text-center p-3 text-sm">{formatDate(item.assigned_on)}</td>
+                      <td className="text-center p-3 text-sm">{formatDate(item.started_at)}</td>
+                      <td className="text-center p-3 text-sm">{formatDate(item.completed_at)}</td>
+                      <td className="text-center p-3 text-sm">
+                        {item.due_date ? (
+                          <span className={daysOverdue ? 'text-red-600 font-medium' : ''}>
+                            {formatDate(item.due_date)}
+                          </span>
+                        ) : 'No due date'}
+                      </td>
+                      <td className="text-center p-3">
+                        {scorePercent !== null ? (
+                          <span className={`font-medium ${
+                            scorePercent >= 80 ? 'text-green-600' : 
+                            scorePercent >= 60 ? 'text-yellow-600' : 'text-red-600'
+                          }`}>
+                            {scorePercent}%
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">N/A</span>
+                        )}
+                      </td>
+                      <td className="text-center p-3">
+                        {item.baseline_assessment === 1 ? (
+                          <Badge variant="outline" className="text-blue-600 border-blue-600">Required</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-gray-600 border-gray-600">Not Required</Badge>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          
+          {progressData.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              <BarChart3 className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>No progress data found</p>
+              <p className="text-sm">Assign modules to employees to see progress tracking</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+export  function AdminDashboard2() {
+  const { user, loading: authLoading, logout } = useAuth()
+  const [admin, setAdmin] = useState<Admin | null>(null)
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [trainingModules, setTrainingModules] = useState<TrainingModule[]>([])
+  const [newEmployeeEmail, setNewEmployeeEmail] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [addingEmployee, setAddingEmployee] = useState(false)
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!authLoading) {
+      if (!user) {
+        router.push("login")
+      } else {
+        checkAdminAccess()
+      }
+    }
+  }, [user, authLoading, router])
+
+  const checkAdminAccess = async () => {
+    if (!user?.email) return
+
+    try {
+      // Get user data from users table
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("user_id, email, name, company_id,department_id")
+        .eq("email", user.email)
+        .eq("is_active", true)
+        .single()
+
+      if (userError || !userData) {
+        console.error("User not found or inactive:", userError)
+        router.push("/login")
+        return
+      }
+
+      // Check if user has admin role through user_role_assignments
+      const { data: roleData, error: roleError } = await supabase
+        .from("user_role_assignments")
+        .select(`
+          role_id,
+          roles!inner(name)
+        `)
+        .eq("user_id", userData.user_id)
+        .eq("is_active", true)
+        .eq("scope_type", "COMPANY")
+        .eq("scope_id", userData.department_id)
+
+      if (roleError || !roleData || roleData.length === 0) {
+        console.error("No active roles found for user:", roleError)
+        router.push("/login")
+        return
+      }
+
+      // Check if user has Admin role
+      const hasAdminRole = roleData.some((assignment: any) => 
+        assignment.roles?.name?.toLowerCase() === 'admin'
+      )
+
+      if (!hasAdminRole) {
+        console.error("User does not have admin role")
+        router.push("/login")
+        return
+      }
+
+      // Set admin data using user data
+      const adminData: Admin = {
+        user_id: userData.user_id,
+        email: userData.email,
+        name: userData.name,
+        company_id: userData.company_id
+      }
+
+      setAdmin(adminData)
+      await loadEmployees(adminData.company_id)
+      await loadTrainingModules(adminData.company_id)
+    } catch (error) {
+      console.error("Admin access check failed:", error)
+      router.push("/login")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadEmployees = async (companyId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("company_id", companyId)
+        .order("hire_date", { ascending: false })
+
+      if (error) throw error
+      setEmployees(data || [])
+    } catch (error: any) {
+      setError("Failed to load employees: " + error.message)
+    }
+  }
+
+  const loadTrainingModules = useCallback(async (companyId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("training_modules")
+        .select("*")
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: false })
+
+      if (error) throw error
+      setTrainingModules(data || [])
+    } catch (error: any) {
+      setError("Failed to load training modules: " + error.message)
+    }
+  }, [])
+
+
+  
+
+  const handleLogout = async () => {
+    await logout()
+    router.push("/")
+  }
+
+  if (authLoading || loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Toaster />
+      
+      {/* Add Employee Navigation */}
+      <EmployeeNavigation showBack={false} showForward={false} />
+      
+      {/* Main content area that adapts to sidebar */}
+      <div 
+        className="transition-all duration-300 ease-in-out"
+        style={{ 
+          marginLeft: 'var(--sidebar-width, 0px)',
+        }}
+      >
+        {/* Header */}
+        <div className="bg-white shadow-sm border-b">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center py-4">
+              <div className="flex items-center">
+                <Building2 className="w-8 h-8 text-blue-600 mr-3" />
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+                  <p className="text-sm text-gray-600">Welcome back, {admin?.name || user?.email}</p>
+                </div>
+              </div>
+              <Button onClick={handleLogout} variant="outline">
+                <LogOut className="w-4 h-4 mr-2" />
+                Logout
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Page content */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="grid gap-8">
+            
+
+            {/* KPI Definitions Upload Section */}
+            <Card>
+              <CardHeader className="sm:flex sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="flex items-center">KPI Definitions Upload</CardTitle>
+                  <CardDescription>Upload a CSV or XLSX file with KPI definitions (KPI, Description, Benchmark, Datatype)</CardDescription>
+                </div>
+                <div className="mt-4 sm:mt-0">
+                  <Button asChild variant="outline" size="sm">
+                    <a
+                      href="https://manugdmjylsvdjemwzcq.supabase.co/storage/v1/object/public/file_format/KPI_Description.xlsx"
+                      download
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Download Sample File
+                    </a>
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <KPIDefinitionsUpload companyId={admin?.company_id} />
+              </CardContent>
+            </Card>
+            {/* KPI Scores Upload Section */}
+            <Card>
+              <CardHeader className="sm:flex sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="flex items-center">KPI Scores Upload</CardTitle>
+                  <CardDescription>Upload a CSV or XLSX file with KPI scores (Company_user_id, Email, KPI, Score)</CardDescription>
+                </div>
+                <div className="mt-4 sm:mt-0">
+                  <Button asChild variant="outline" size="sm">
+                    <a
+                      href="https://manugdmjylsvdjemwzcq.supabase.co/storage/v1/object/public/file_format/Sample_Emplyee.xlsx"
+                      download
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Download Sample File
+                    </a>
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <KPIScoresUpload companyId={admin?.company_id} admin={admin} />
+              </CardContent>
+            </Card>
+            {/* Add Employee Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Users className="w-5 h-5 mr-2" />
+                  Manage Employees
+                </CardTitle>
+                <CardDescription>Add employees individually with complete details or in bulk using email lists or file uploads</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <EmployeeBulkAdd 
+                  companyId={admin?.company_id} 
+                  adminId={admin?.user_id}
+                  onSuccess={() => { 
+                    loadEmployees(admin?.company_id || ""); 
+                    setSuccess("Employee added successfully!"); 
+                  }} 
+                  onError={setError} 
+                />
+
+                {error && ( 
+                  <Alert variant="destructive" className="mt-4">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+
+                {success && (
+                  <Alert className="mt-4">
+                    <AlertDescription>{success}</AlertDescription>
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Department Filter Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Users className="w-5 h-5 mr-2" />
+                  Filter Employees by Department
+                </CardTitle>
+                <CardDescription>View and manage employees by department and subdepartment</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DepartmentFilter 
+                  employees={employees} 
+                  admin={admin} 
+                  onEmployeeChange={() => loadEmployees(admin?.company_id || "")} 
+                />
+              </CardContent>
+            </Card>
+
+            {/* Content Upload Section */}
+            {admin?.company_id && (
+              <ContentUpload companyId={admin.company_id} onUploadSuccess={() => loadTrainingModules(admin.company_id)} />
+            )}
+
+            {/* Uploaded Files List */}
+            <UploadedFilesList modules={trainingModules} onModuleDeleted={() => loadTrainingModules(admin!.company_id)} />
+            {/* Progress Analytics Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <BarChart3 className="w-5 h-5 mr-2" />
+                  Learning Progress Analytics
+                </CardTitle>
+                <CardDescription>Track employee progress across all training modules with detailed insights and performance metrics</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ProgressAnalytics companyId={admin?.company_id || ''} />
+              </CardContent>
+            </Card>
           </div>
         </div>
       </div>

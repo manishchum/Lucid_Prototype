@@ -301,14 +301,14 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
         console.log("🔍 DEBUG: Starting content extraction...");
         console.log("🔍 DEBUG: fileUrl:", fileUrl);
         console.log("🔍 DEBUG: fileType:", fileType);
-        console.log("🔍 DEBUG: moduleId:", moduleData.id);
+        console.log("🔍 DEBUG: moduleId:", moduleData.module_id);
         
         try {
           console.log("🔍 DEBUG: Making API call to /api/extract-and-analyze...");
           console.log("🔍 DEBUG: Request body:", {
             fileUrl: fileUrl,
             fileType: fileType || 'application/octet-stream',
-            moduleId: moduleData.id,
+            moduleId: moduleData.module_id,
           });
           
           let res;
@@ -321,7 +321,7 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
               body: JSON.stringify({
                 fileUrl: fileUrl,
                 fileType: fileType || 'application/octet-stream',
-                moduleId: moduleData.id,
+                moduleId: moduleData.module_id,
               }),
             });
           } catch (fetchError) {
@@ -355,7 +355,7 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
           // Send email notifications to allowed employees
           try {
             console.log("📧 DEBUG: Starting email notification process...");
-            await sendEmailNotifications(moduleData.id, title.trim() || file.name, companyId);
+            await sendEmailNotifications(moduleData.module_id, title.trim() || file.name, companyId);
             toast.success("Email notifications sent to employees!");
           } catch (emailError) {
             console.error("📧 DEBUG: Email notification error:", emailError);
@@ -372,11 +372,11 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
             // For video/audio files, send the transcribed text to openai-upload
             if (isVideoOrAudioFile(file.type)) {
               console.log("🎵 DEBUG: Processing video/audio transcription with OpenAI...");
-              result = await uploadTextToOpenAI(extractedText, moduleData.id);
+              result = await uploadTextToOpenAI(extractedText, moduleData.module_id);
             } else {
               // For other file types (PDF, DOCX, etc.), upload the file directly
               console.log("📄 DEBUG: Uploading non-media file to OpenAI Assistants...");
-              result = await uploadToOpenAIAssistant(file, moduleData.id);
+              result = await uploadToOpenAIAssistant(file, moduleData.module_id);
             }
             
             setOpenaiResult(result);

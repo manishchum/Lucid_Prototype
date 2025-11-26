@@ -47,7 +47,7 @@ async function main() {
       if (listErr) throw new Error(listErr.message);
       const exists = !!buckets?.find(b => b.name === BUCKET);
       if (exists) return;
-      const { error: createErr } = await admin.storage.createBucket(BUCKET, { public: true, fileSizeLimit: '50MB', allowedMimeTypes: ['audio/mpeg'] });
+      const { error: createErr } = await admin.storage.createBucket(BUCKET, { public: true, fileSizeLimit: '50MB', allowedMimeTypes: ['audio/mpeg', 'audio/wav'] });
       if (createErr) throw new Error(createErr.message);
     } catch (e) {
       throw new Error('Failed to ensure bucket: ' + e.message);
@@ -73,25 +73,76 @@ async function main() {
       throw new Error(moduleError?.message || 'Module not found: ' + processedModuleId);
     }
 
-    const maxChars = 4500;
-    const text = cleanTextForTTS((module.content || '').slice(0, maxChars));
-    if (!text) throw new Error('Empty content for ' + processedModuleId);
+    // Prepare full cleaned text and chunk it if necessary
+    const fullText = cleanTextForTTS(module.content || '');
+    if (!fullText) throw new Error('Empty content for ' + processedModuleId);
 
-    const requestTTS = {
-      input: { text },
-      voice: { languageCode: 'en-IN', voiceName: 'en-IN-Chirp3-HD-Algenib', ssmlGender: 'MALE' },
-      audioConfig: { audioEncoding: 'MP3' },
-    };
+    const maxChars = 4300;
+    function splitTextIntoChunks(text, maxLen) {
+      const chunks = [];
+      let start = 0;
+      while (start < text.length) {
+        let end = Math.min(start + maxLen, text.length);
+        if (end < text.length) {
+          const slice = text.slice(start, end);
+          const lastPunct = Math.max(slice.lastIndexOf('.'), slice.lastIndexOf('!'), slice.lastIndexOf('?'));
+          const lastSpace = slice.lastIndexOf(' ');
+          if (lastPunct > Math.floor(maxLen * 0.6)) {
+            end = start + lastPunct + 1;
+          } else if (lastSpace > Math.floor(maxLen * 0.6)) {
+            end = start + lastSpace;
+          }
+        }
+        const chunk = text.slice(start, end).trim();
+        if (chunk) chunks.push(chunk);
+        start = end;
+      }
+      return chunks;
+    }
 
-    const [response] = await client.synthesizeSpeech(requestTTS);
-    const audioContent = response.audioContent;
-    if (!audioContent) throw new Error('TTS returned no audio for ' + processedModuleId);
+    function createWavBuffer(pcmBuffer, sampleRate = 24000, numChannels = 1, bytesPerSample = 2) {
+      const blockAlign = numChannels * bytesPerSample;
+      const byteRate = sampleRate * blockAlign;
+      const header = Buffer.alloc(44);
+      header.write('RIFF', 0);
+      header.writeUInt32LE(36 + pcmBuffer.length, 4);
+      header.write('WAVE', 8);
+      header.write('fmt ', 12);
+      header.writeUInt32LE(16, 16);
+      header.writeUInt16LE(1, 20);
+      header.writeUInt16LE(numChannels, 22);
+      header.writeUInt32LE(sampleRate, 24);
+      header.writeUInt32LE(byteRate, 28);
+      header.writeUInt16LE(blockAlign, 32);
+      header.writeUInt16LE(bytesPerSample * 8, 34);
+      header.write('data', 36);
+      header.writeUInt32LE(pcmBuffer.length, 40);
+      return Buffer.concat([header, pcmBuffer]);
+    }
+
+    const chunks = splitTextIntoChunks(fullText, maxChars);
+    const pcmParts = [];
+    for (const chunk of chunks) {
+      const requestTTS = {
+        input: { text: chunk },
+        voice: { languageCode: 'en-IN', voiceName: 'en-IN-Chirp3-HD-Algenib', ssmlGender: 'MALE' },
+        audioConfig: { audioEncoding: 'LINEAR16', sampleRateHertz: 24000 },
+      };
+      const [response] = await client.synthesizeSpeech(requestTTS);
+      const audioContent = response.audioContent;
+      if (!audioContent) throw new Error('TTS returned no audio for ' + processedModuleId);
+      const buf = Buffer.isBuffer(audioContent) ? audioContent : Buffer.from(audioContent, 'base64');
+      pcmParts.push(buf);
+    }
 
     await ensureBucketExists();
 
-    const fileName = `module-audio/${processedModuleId}/${uuidv4()}.mp3`;
-    const { error: uploadError } = await admin.storage.from(BUCKET).upload(fileName, Buffer.from(audioContent), {
-      contentType: 'audio/mpeg',
+    const pcm = Buffer.concat(pcmParts);
+    const wav = createWavBuffer(pcm, 24000, 1, 2);
+
+    const fileName = `module-audio/${processedModuleId}/${uuidv4()}.wav`;
+    const { error: uploadError } = await admin.storage.from(BUCKET).upload(fileName, wav, {
+      contentType: 'audio/wav',
       upsert: true,
     });
     if (uploadError) throw new Error('Upload failed: ' + uploadError.message);

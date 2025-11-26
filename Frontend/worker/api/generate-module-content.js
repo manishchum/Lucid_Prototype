@@ -86,7 +86,7 @@ Instructions:
 7. If relevant, include section headings, subheadings, and formatting for readability.
 
 Goal: The output should be a comprehensive, ready-to-use training module that fully addresses the topics and objectives, tailored to the specified learning style, and suitable for direct delivery to learners.`;
-      console.log(`Calling OpenAI for module: ${mod.title} (${mod.id}) with learning style: ${style}`);
+      console.log(`Calling OpenAI for module: ${mod.title} (${mod.module_id}) with learning style: ${style}`);
       const completion = await openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [
@@ -98,22 +98,22 @@ Goal: The output should be a comprehensive, ready-to-use training module that fu
       });
       const aiContent = completion.choices[0]?.message?.content?.trim() || '';
       if (!aiContent) {
-        console.warn(`No content generated for module: ${mod.id} style: ${style}`);
+        console.warn(`No content generated for module: ${mod.module_id} style: ${style}`);
         continue;
       }
       // Update the processed_modules row for this module and learning style
       const { error: updateError } = await supabase
         .from('processed_modules')
         .update({ content: aiContent })
-        .eq('module_id', mod.id);
+        .eq('module_id', mod.module_id);
       if (updateError) {
-        console.error(`Failed to update content for module ${mod.id} style ${style}:`, updateError);
+        console.error(`Failed to update content for module ${mod.module_id} style ${style}:`, updateError);
       } else {
         updated++;
-        console.log(`Updated module ${mod.id} with AI content for style ${style}.`);
+        console.log(`Updated module ${mod.module_id} with AI content for style ${style}.`);
       }
     } catch (err) {
-      console.error(`Error processing module ${mod.id}:`, err);
+      console.error(`Error processing module ${mod.module_id}:`, err);
     }
   }
 

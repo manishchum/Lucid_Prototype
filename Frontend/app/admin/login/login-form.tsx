@@ -101,7 +101,7 @@ export default function AdminLoginForm() {
       // const { error: adminError } = await supabase.from("admins").insert({
       //   email,
       //   name: adminName,
-      //   company_id: companyData.id,
+      //   company_id: companyData.company_id,
       // })
 
       // if (adminError) throw adminError
