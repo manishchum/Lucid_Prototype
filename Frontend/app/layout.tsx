@@ -6,6 +6,7 @@ import { AuthProvider } from "@/contexts/auth-context"
 import { Toaster } from "react-hot-toast" // Import Toaster
 import { Toaster as ShadcnToaster } from "@/components/ui/toaster"
 import ErrorReporterInit from '@/components/ErrorReporterInit'
+import LucidAssistant from '@/components/LucidAssistant'
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -25,6 +26,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <AuthProvider>
           <ErrorReporterInit />
+          <LucidAssistant />
           {children}
         </AuthProvider>
         <Toaster /> {/* Add Toaster component here */}
