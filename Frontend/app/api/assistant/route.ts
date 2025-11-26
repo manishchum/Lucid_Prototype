@@ -200,21 +200,22 @@ export async function POST(request: NextRequest) {
     const truncate = (s: string, max = 1500) => (s && s.length > max ? s.slice(0, max) + '\n...[truncated]' : s)
     let sourceParts = ''
     if (sections && sections.length > 0) {
-      sourceParts = sections.map((s, i) => {
+      // Use only the cleaned section text for grounding; do not include source headings or titles
+      sourceParts = sections.map((s) => {
         const cleanText = removeCitationArtifacts(s.text)
-        return `Source ${i + 1} Title: ${s.title || 'Untitled'}\n${cleanText}`
+        return `${cleanText}`
       }).join('\n\n---\n\n')
     } else {
       const contextParts = matches.map((m: any) => {
         const cleanText = removeCitationArtifacts(truncate(m.content || ''))
-        return `Title: ${m.title}\nContent:\n${cleanText}`
+        return `${cleanText}`
       })
       sourceParts = contextParts.join('\n---\n')
     }
 
     // Synthesis prompt: ask model to paraphrase and synthesize (no citations)
     const synthSystem = `You are a helpful, conversational assistant. Use the provided content as grounding but DO NOT copy lines verbatim unless explicitly asked for quotes. Synthesize a single polished, human-sounding answer that is clear, intuitive, and step-by-step when helpful. You may use general knowledge to fill small gaps but avoid inventing specific factual claims. Do not include source IDs or citations. Output plain text only.`
-    const synthUser = `User question: ${query}\n\nSources (for context only):\n${sourceParts}\n\nInstructions: Provide a polished, paraphrased answer that resonates with the provided content. Use '- ' for bullets and ensure each bullet is on its own line. Do not output citations or raw database fields.`
+    const synthUser = `User question: ${query}\n\nContext (for grounding only):\n${sourceParts}\n\nInstructions: Provide a polished, paraphrased answer that resonates with the provided content. Use '- ' for bullets and ensure each bullet is on its own line. Do not output citations or raw database fields.`
 
     // helper to detect long verbatim overlaps between sources and output
     const hasLongOverlap = (src: string, out: string, windowWords = 8) => {
