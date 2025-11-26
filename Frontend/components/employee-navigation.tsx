@@ -249,13 +249,10 @@ const EmployeeNavigation = ({
             {[
               { href: '/employee/welcome', icon: <Home className="w-5 h-5" /> , label: 'Home'},
               { href: '/employee/training-plan', icon: <BookOpen className="w-5 h-5" /> , label: 'Learning Plan'},
-              { href: '/admin/dashboard', icon: <Shield className="w-5 h-5" /> , label: 'Admin Panel', admin: true},
               { href: '/employee/score-history', icon: <FileText className="w-5 h-5" /> , label: 'Reports'},
-              {  href: '/content-library', 
-                icon: <Folder className="w-5 h-5" />, 
-                label: 'Content Library' },
+              
             ].map((m) => {
-              if (m.admin && !hasAdminAccess()) return null;
+              if (m.admin && !isAdmin) return null;
 
               // Special rendering for Courses to allow a nested submenu
               if (m.href === '/employee/training-plan') {
