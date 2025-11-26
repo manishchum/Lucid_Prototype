@@ -303,24 +303,24 @@ const EmployeeNavigation = ({
                         <ul className="flex flex-col gap-2">
                           <li className="flex items-center justify-between">
                             <div className="relative flex items-center">
-                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/courses/active') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
-                              <Link href="/employee/courses/active" onClick={closeMobileSidebar} className="text-sm text-gray-700">Active Modules</Link>
+                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/welcome') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
+                              <Link href="/employee/welcome" onClick={closeMobileSidebar} className="text-sm text-gray-700">Active Modules</Link>
                             </div>
                             {/* <span className="ml-2 text-xs bg-violet-50 text-violet-600 px-2 py-0.5 rounded">2</span> */}
                           </li>
 
                           <li className="flex items-center justify-between text-sm text-gray-700">
                             <div className="relative flex items-center">
-                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/courses/completed') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
-                              <Link href="/employee/courses/completed" onClick={closeMobileSidebar}>Completed</Link>
+                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/welcome') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
+                              <Link href="/employee/welcome" onClick={closeMobileSidebar}>Completed</Link>
                             </div>
                             {/* <span className="ml-2 text-xs text-gray-500">4</span> */}
                           </li>
 
                           <li className="flex items-center justify-between text-sm text-gray-700">
                             <div className="relative flex items-center">
-                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/courses/all') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
-                              <Link href="/employee/courses/all" onClick={closeMobileSidebar}>All Modules</Link>
+                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/content-library') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
+                              <Link href="/content-library" onClick={closeMobileSidebar}>All Modules</Link>
                             </div>
                             {/* <span className="ml-2 text-xs text-gray-500">56</span> */}
                           </li>
