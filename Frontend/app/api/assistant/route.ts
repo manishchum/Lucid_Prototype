@@ -3,9 +3,57 @@ import { supabase } from '../../../lib/supabase'
 
 export async function POST(request: NextRequest) {
   try {
-    const { query } = await request.json()
-    if (!query || typeof query !== 'string') {
-      return NextResponse.json({ error: 'Query text is required' }, { status: 400 })
+    const body = await request.json()
+    const query = (body?.query || '').toString().trim()
+    const mode = body?.mode || null
+    const userId = body?.user_id || null
+
+    // helper: append a simple {question,answer} object into ask_doubt jsonb array
+    const saveAskDoubt = async (uid: string | null, question: string, answer: string) => {
+      if (!uid) return
+      try {
+        // Prefer calling an atomic RPC if available
+        const { error } = await supabase.rpc('append_ask_doubt_qna', { p_user: uid, p_question: question, p_answer: answer })
+        if (error) {
+          // Fallback: read current array and upsert with appended element
+          const { data: existing } = await supabase.from('chatbot_user_interactions').select('ask_doubt').eq('user_id', uid).single()
+          let arr: any[] = []
+          if (existing && Array.isArray(existing.ask_doubt)) arr = existing.ask_doubt
+          arr.push({ question, answer })
+          await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, ask_doubt: arr, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
+        }
+      } catch (e) {
+        console.warn('[assistant] saveAskDoubt failed', e)
+      }
+    }
+
+    // If caller sent a start action (e.g., user selected Ask Doubt), ensure a row exists
+    if (body?.action === 'start' && userId) {
+      try {
+        await supabase.from('chatbot_user_interactions').upsert([{ user_id: userId, ask_doubt: [] }], { onConflict: 'user_id' })
+      } catch (e) {
+        console.warn('[assistant] failed to create initial user interaction row', e)
+      }
+      return NextResponse.json({ answer: 'Started doubt session.' })
+    }
+
+    // If caller is asking for a menu flow (non-doubt), handle without requiring a query
+    if (mode && mode !== 'doubt' && !query) {
+      // simple canned responses for menu flows
+      if (mode === 'explore') {
+        return NextResponse.json({ answer: 'What type of content would you like to explore? Options: Modules / Notes / Guides / Your generated content.' })
+      }
+      if (mode === 'report') {
+        return NextResponse.json({ answer: 'Sure — please describe the issue you are experiencing (include page, steps, and expected behavior).' })
+      }
+      if (mode === 'navigate') {
+        return NextResponse.json({ answer: 'Navigation help: How to access modules / Generate content / View saved content / Manage account. Which would you like?' })
+      }
+      if (mode === 'something_else') {
+        return NextResponse.json({ answer: 'I can help with a variety of tasks — please tell me what you need.' })
+      }
+      // fallback
+      return NextResponse.json({ answer: 'How can I help? Please type your question or pick a menu option.' })
     }
 
     // Tokenize the query to improve matching (remove short/common words)
@@ -84,7 +132,9 @@ export async function POST(request: NextRequest) {
         results.push(`${label}: ${mins}m ${secs}s`)
       }
       if (results.length > 0) {
-        return NextResponse.json({ answer: `Duration: ${results.join('; ')}`, sources: matches.map((m: any) => ({ id: m.id, title: m.title })) })
+        const answer = `Duration: ${results.join('; ')}`
+        if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, answer)
+        return NextResponse.json({ answer, sources: matches.map((m: any) => ({ id: m.id, title: m.title })) })
       }
       // else fall through to LLM if no structured durations available
     }
@@ -276,7 +326,9 @@ export async function POST(request: NextRequest) {
                 const paraData = await paraResp.json()
                 const paraText = paraData.choices?.[0]?.message?.content || ''
                 if (paraText && typeof paraText === 'string' && paraText.trim().length > 0) {
-                  return NextResponse.json({ answer: cleanFormatting(paraText) })
+                  const finalAnswer = cleanFormatting(paraText)
+                  if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, finalAnswer)
+                  return NextResponse.json({ answer: finalAnswer })
                 }
               }
             } catch (e) {
@@ -285,7 +337,9 @@ export async function POST(request: NextRequest) {
           }
 
           // otherwise return cleaned synthesized text
-          return NextResponse.json({ answer: cleanFormatting(synthText) })
+          const finalAnswer = cleanFormatting(synthText)
+          if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, finalAnswer)
+          return NextResponse.json({ answer: finalAnswer })
         }
       } else {
         const errTxt = await synthResp.text().catch(() => '')
@@ -296,7 +350,9 @@ export async function POST(request: NextRequest) {
     }
 
     // last-resort fallback: return cleaned sourceParts so the user still gets useful content
-    return NextResponse.json({ answer: cleanFormatting(sourceParts) })
+    const fallbackAnswer = cleanFormatting(sourceParts)
+    if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
+    return NextResponse.json({ answer: fallbackAnswer })
 
     // --- end retrieval+synthesis pipeline ---
 

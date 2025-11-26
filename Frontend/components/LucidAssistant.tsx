@@ -1,15 +1,20 @@
 "use client"
 
 import React, { useState, useRef, useEffect } from "react";
+import { useRouter } from 'next/navigation'
 import { MessageSquare, X, Send } from "lucide-react";
 
 export default function LucidAssistant() {
+  const router = useRouter()
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
+  const [mode, setMode] = useState<string | null>(null) // 'doubt' when user selects Ask a doubt
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<Array<{ from: "user" | "bot"; text: string }>>([]);
+  const [assistantUserId, setAssistantUserId] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const STORAGE_KEY = 'lucid_assistant_messages_v1'
 
   useEffect(() => {
@@ -42,6 +47,17 @@ export default function LucidAssistant() {
     } catch (e) {
       // ignore parse errors
     }
+    try {
+      const existingId = localStorage.getItem('lucid_assistant_user_id')
+      if (existingId) setAssistantUserId(existingId)
+      else {
+        const id = typeof crypto !== 'undefined' && (crypto as any).randomUUID ? (crypto as any).randomUUID() : `anon-${Date.now()}`
+        localStorage.setItem('lucid_assistant_user_id', id)
+        setAssistantUserId(id)
+      }
+    } catch (e) {
+      // ignore
+    }
   }, [])
 
   // Persist messages to localStorage whenever they change
@@ -64,7 +80,7 @@ export default function LucidAssistant() {
       const res = await fetch('/api/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: txt }),
+        body: JSON.stringify({ query: txt, mode, user_id: assistantUserId }),
       });
 
       if (!res.ok) {
@@ -83,6 +99,64 @@ export default function LucidAssistant() {
       setLoading(false);
     }
   };
+
+  const goBackToMenu = () => {
+    // Clear mode and messages so the main menu reappears immediately
+    setMode(null)
+    setMessages([])
+  }
+
+
+  const handleMenuChoice = async (choice: number) => {
+    // Map choice to mode and optionally prefill prompt
+    if (choice === 1) {
+      // Navigate to the All Modules / Content Library page and close assistant
+      try {
+        setOpen(false)
+        router.push('/content-library')
+      } catch (e) {
+        console.error('navigation error', e)
+      }
+      return
+    }
+
+    if (choice === 4) {
+      // ensure server row exists for this user
+      try {
+        setLoading(true)
+        await fetch('/api/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'doubt', action: 'start', user_id: assistantUserId }) })
+      } catch (e) {
+        console.error('failed to start doubt session', e)
+      } finally {
+        setLoading(false)
+      }
+
+      setMode('doubt')
+      setMessages(m => [...m, { from: 'bot', text: 'You selected: Ask doubt related to content. Please type your question and I will search your content.' }])
+      return
+    }
+
+    // For other choices, call server for simple canned responses
+    const mapping: Record<number, string> = {
+      1: 'explore',
+      2: 'report',
+      3: 'navigate',
+      5: 'something_else'
+    }
+    const modeStr = mapping[choice]
+    setMode(modeStr)
+    setMessages(m => [...m, { from: 'user', text: `Selected option ${choice}` }])
+    try {
+      setLoading(true)
+      const res = await fetch('/api/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: modeStr }) })
+      const data = await res.json()
+      setMessages(m => [...m, { from: 'bot', text: data?.answer || 'No response' }])
+    } catch (e) {
+      setMessages(m => [...m, { from: 'bot', text: 'An error occurred while contacting the assistant.' }])
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <div>
@@ -148,9 +222,20 @@ export default function LucidAssistant() {
           <div style={{ padding: '12px 14px', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ color: '#6b7280', fontSize: 13 }}>Hi — How can I help you today?</div>
 
+              {/* Vertical menu tabs shown when no mode selected and no messages yet */}
+              {messages.length === 0 && !mode && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8, alignItems: 'flex-start' }}>
+                  <button onClick={() => handleMenuChoice(1)} style={{ padding: '8px 12px', borderRadius: 999, fontSize: 14, minWidth: 160, textAlign: 'left', background: '#f3f4f6', border: '1px solid #e6edf3' }}>1. Explore content</button>
+                    <button onClick={() => handleMenuChoice(2)} style={{ padding: '8px 12px', borderRadius: 999, fontSize: 14, minWidth: 160, textAlign: 'left', background: '#f3f4f6', border: '1px solid #e6edf3' }}>2. Report issue</button>
+                    <button onClick={() => handleMenuChoice(3)} style={{ padding: '8px 12px', borderRadius: 999, fontSize: 14, minWidth: 160, textAlign: 'left', background: '#f3f4f6', border: '1px solid #e6edf3' }}>3. Navigation help</button>
+                    <button onClick={() => handleMenuChoice(4)} style={{ padding: '8px 12px', borderRadius: 999, fontSize: 14, minWidth: 160, textAlign: 'left', background: '#2563eb', color: 'white', border: 'none' }}>4. Ask doubt related to content</button>
+                    <button onClick={() => handleMenuChoice(5)} style={{ padding: '8px 12px', borderRadius: 999, fontSize: 14, minWidth: 160, textAlign: 'left', background: '#f3f4f6', border: '1px solid #e6edf3' }}>5. Something else</button>
+                </div>
+              )}
+
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 6, paddingTop: 6 }}>
               {messages.length === 0 && (
-                <div style={{ color: '#9ca3af', fontSize: 13 }}>Try: "ask your question related to modules"</div>
+                <div style={{ color: '#9ca3af', fontSize: 13 }}>Try: "ask anything"</div>
               )}
               {messages.map((m, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: m.from === 'user' ? 'flex-end' : 'flex-start' }}>
@@ -168,6 +253,7 @@ export default function LucidAssistant() {
             <div style={{ position: 'relative', paddingTop: 6 }}>
               <input
                 value={input}
+                ref={inputRef}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); send(); } }}
                 placeholder="Ask about a module..."
@@ -177,6 +263,12 @@ export default function LucidAssistant() {
                 <Send size={16} />
               </button>
             </div>
+            {/* Mode controls: Back to menu or Continue */}
+            {mode && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button onClick={goBackToMenu} style={{ padding: '6px 10px', borderRadius: 8, background: '#f3f4f6', border: '1px solid #e6edf3' }}>Back to menu</button>
+              </div>
+            )}
           </div>
         </div>
       )}
