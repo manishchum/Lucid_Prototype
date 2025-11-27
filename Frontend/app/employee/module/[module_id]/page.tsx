@@ -309,7 +309,12 @@ function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string,
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/video-generation?processed_module_id=${moduleId}`);
+      // Use the new GPT-based video generation route. Previously we called `/api/video-generation` which
+      // generated images/screenshots directly inside this page's flow. That approach is now deprecated here —
+      // keep the old call commented below for reference.
+      // const res = await fetch(`/api/video-generation?processed_module_id=${moduleId}`);
+
+      const res = await fetch(`/api/gpt-video-generation?processed_module_id=${moduleId}`);
       const data = await res.json();
       if (res.ok && data.videoUrl) {
         onVideoGenerated(data.videoUrl);
