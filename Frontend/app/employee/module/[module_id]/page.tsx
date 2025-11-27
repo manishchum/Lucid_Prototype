@@ -164,18 +164,38 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             ) : (
               <div className="text-gray-500">No content available for this module.</div>
             )}
-            {/* Audio section */}
+            {/* Audio / Video section */}
             <div className="mt-8">
-              {module.audio_url ? (
-                <AudioPlayer
-                  employeeId={employee?.user_id}
-                  processedModuleId={module.processed_module_id}
-                  moduleId={module.original_module_id}
-                  audioUrl={module.audio_url}
-                />
-              ) : (
-                <GenerateAudioButton moduleId={module.processed_module_id} onAudioGenerated={url => setModule((m: any) => ({ ...m, audio_url: url }))} />
-              )}
+              <div className="flex flex-col items-center">
+                {module.audio_url ? (
+                  <AudioPlayer
+                    employeeId={employee?.user_id}
+                    processedModuleId={module.processed_module_id}
+                    moduleId={module.original_module_id}
+                    audioUrl={module.audio_url}
+                  />
+                ) : (
+                  <GenerateAudioButton moduleId={module.processed_module_id} onAudioGenerated={url => setModule((m: any) => ({ ...m, audio_url: url }))} />
+                )}
+
+                <div className="mt-4">
+                  <GenerateVideoButton moduleId={module.processed_module_id} onVideoGenerated={url => setModule((m: any) => ({ ...m, video_url: url }))} />
+                </div>
+
+                {module.video_url && (
+                  <div className="mt-4 w-full flex flex-col items-center">
+                    <div className="w-full max-w-3xl">
+                      <video controls className="w-full rounded shadow">
+                        <source src={module.video_url} type="video/mp4" />
+                        Your browser does not support the video tag.
+                      </video>
+                      <div className="text-sm text-gray-600 mt-2 break-all">
+                        <a className="underline" href={module.video_url} target="_blank" rel="noreferrer">Open video in new tab</a>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -274,6 +294,42 @@ function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string,
         disabled={loading}
       >
         {loading ? 'Generating Audio...' : 'Generate Audio'}
+      </button>
+      {error && <div className="text-red-600 mt-2">{error}</div>}
+    </div>
+  );
+}
+
+// Add GenerateVideoButton component
+function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string, onVideoGenerated: (url: string) => void }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/video-generation?processed_module_id=${moduleId}`);
+      const data = await res.json();
+      if (res.ok && data.videoUrl) {
+        onVideoGenerated(data.videoUrl);
+      } else {
+        setError(data.error || 'Failed to generate video');
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Error generating video');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="flex flex-col items-center">
+      <button
+        className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 disabled:opacity-50"
+        onClick={handleGenerate}
+        disabled={loading}
+      >
+        {loading ? 'Generating Video...' : 'Generate Video'}
       </button>
       {error && <div className="text-red-600 mt-2">{error}</div>}
     </div>
