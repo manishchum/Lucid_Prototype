@@ -89,6 +89,9 @@ Instructions:
 5. Write in a professional, engaging, and instructional tone suitable for new hires in a corporate setting.
 6. Output only the full module content, ready for direct use in training. Do not include meta commentary or instructions—just the content itself.
 7. If relevant, include section headings, subheadings, and formatting for readability.
+8. Do NOT use Markdown formatting (no # headings, no fenced code blocks, no inline code markers). If you need a visible divider between sections, use this plain-text divider on its own line:
+  ────────────────────────────────────────
+  Output plain text only.
 
 Goal: The output should be a comprehensive, ready-to-use training module that fully addresses the topics and objectives, tailored to the specified learning style, and suitable for direct delivery to learners.`;
       console.log(`Calling OpenAI for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
@@ -106,10 +109,40 @@ Goal: The output should be a comprehensive, ready-to-use training module that fu
         console.warn(`No content generated for module: ${mod.processed_module_id} style: ${style}`);
         continue;
       }
+
+      // Sanitize AI output to remove common Markdown artifacts that are distracting
+      const sanitize = (text: string) => {
+        if (!text) return text;
+        let s = text;
+        // Remove fenced code blocks
+        s = s.replace(/```[\s\S]*?```/g, "");
+        // Remove ATX headings (e.g. # Heading)
+        s = s.replace(/^#{1,6}\s*/gm, "");
+        // Remove setext-style underlined headings (==== or ----)
+        s = s.replace(/^[=-]{2,}\s*$/gm, "");
+        // Replace Markdown horizontal rule lines (---, ___, ***) with a plain-text divider
+        s = s.replace(/^(-{3,}|_{3,}|\*{3,})\s*$/gm, "\n────────────────────────────────\n");
+        // Remove inline code backticks
+        s = s.replace(/`([^`]+)`/g, "$1");
+        // Remove bold/italic markers (simple cases)
+        s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
+        s = s.replace(/\*([^*]+)\*/g, "$1");
+        s = s.replace(/__([^_]+)__/g, "$1");
+        s = s.replace(/_([^_]+)_/g, "$1");
+        // Collapse excessive blank lines
+        s = s.replace(/\n{3,}/g, "\n\n");
+        return s.trim();
+      };
+
+      const cleanedContent = sanitize(aiContent);
+      if (!cleanedContent) {
+        console.warn(`Sanitized content empty for module: ${mod.processed_module_id} style: ${style}`);
+        continue;
+      }
       // Update the processed_modules row for this module and learning style
       const { error: updateError } = await supabase
         .from("processed_modules")
-        .update({ content: aiContent })
+        .update({ content: cleanedContent })
         .eq("processed_module_id", mod.processed_module_id);
       if (updateError) {
         console.error(`Failed to update content for module ${mod.processed_module_id} style ${style}:`, updateError);
