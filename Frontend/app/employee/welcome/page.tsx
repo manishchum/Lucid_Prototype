@@ -817,7 +817,7 @@ export default function EmployeeWelcome() {
                               )
                             })()}
 
-                            <Button onClick={() => router.push('/employee/assessment')}>Baseline Assessment</Button>
+                            <Button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)}>Baseline Assessment</Button>
                             <Button onClick={() => router.push('/employee/training-plan')}>Learning Plan</Button>
                           </div>
                         </div>
@@ -1016,7 +1016,7 @@ export default function EmployeeWelcome() {
                       <div>Score: <b>{baselineScore}</b>{baselineMaxScore ? <span> / {baselineMaxScore}</span> : null}</div>
                     </div>
                     {allAssignedCompleted ? (
-                      <Button className="w-44" onClick={() => router.push('/employee/assessment')} title="You can retake the baseline after completing assigned modules">
+                      <Button className="w-44" onClick={() => router.push('/employee/assessment?moduleId=baseline')} title="You can retake the baseline after completing assigned modules">
                         Retake Baseline
                       </Button>
                     ) : (

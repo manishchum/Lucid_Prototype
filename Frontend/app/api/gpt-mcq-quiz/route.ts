@@ -120,10 +120,16 @@ export async function POST(request: NextRequest) {
       console.warn('[gpt-mcq-quiz] Error fetching learning style:', e);
     }
   }
-  // Per-module quiz branch: only run this when a single moduleId is provided
-  // and no moduleIds array is present (avoid accidental branch when both are sent).
-  if (body.moduleId && !body.moduleIds) {
-    const moduleId = String(body.moduleId);
+  // Per-module quiz branch: run when a single moduleId is provided. Also
+  // treat `moduleIds` arrays of length 1 as a per-module request so the UI
+  // button "Baseline Assessment" (which may send moduleIds) generates a
+  // baseline only for that module instead of combining modules.
+  const explicitModuleId = body.moduleId || null;
+  const singleFromArray = Array.isArray(body.moduleIds) && body.moduleIds.length === 1 ? String(body.moduleIds[0]) : null;
+  const moduleId = explicitModuleId ? String(explicitModuleId) : singleFromArray;
+  if (moduleId) {
+    // If a moduleId was provided explicitly or via single-element moduleIds
+    // array, treat as a per-module quiz request.
     if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
       return NextResponse.json({ error: 'Invalid moduleId' }, { status: 400 });
     }
@@ -192,10 +198,10 @@ export async function POST(request: NextRequest) {
       // Always return existing quiz, regardless of questions content
       try {
         const quiz = Array.isArray(existing.questions) ? existing.questions : JSON.parse(existing.questions);
-        return NextResponse.json({ quiz });
+        return NextResponse.json({ quiz, assessmentId: existing.assessment_id });
       } catch (e) {
         // If parse fails, return raw questions
-        return NextResponse.json({ quiz: existing.questions });
+        return NextResponse.json({ quiz: existing.questions, assessmentId: existing.assessment_id });
       }
     }
   // Compose prompt for per-module MCQ quiz (no mixed question types)
@@ -313,7 +319,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
       return NextResponse.json({ error: 'Failed to save assessment' }, { status: 500 });
     }
     console.log('[gpt-mcq-quiz][DEBUG] Insert result:', insertResult);
-    return NextResponse.json({ quiz });
+    return NextResponse.json({ quiz, assessmentId: stableId });
   }
 
   // Baseline (multi-module) quiz generation with modules_snapshot logic
