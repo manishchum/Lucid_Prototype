@@ -706,27 +706,125 @@ export default function EmployeeWelcome() {
           {/* Assigned Modules Card */}
           <Card>
             <CardHeader>
-              <CardTitle>Assigned Modules</CardTitle>
-              <CardDescription>Modules assigned to you from your learning plan</CardDescription>
+              <CardTitle>Learning Preference</CardTitle>
+              <CardDescription>Tell us how you learn best so we can personalize your plan</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {assignedModules.length === 0 ? (
-                  <div className="text-gray-500">You have no modules assigned yet.</div>
-                ) : (
-                  assignedModules.map((m) => (
-                    <div key={m.id} className="flex items-center justify-between p-3 rounded-lg border bg-white">
-                      <div className="font-medium text-gray-800">{m.title || `Module ${m.id}`}</div>
-                      <div className="flex gap-2">
-                        <Button onClick={() => router.push('/employee/assessment')}>Baseline Assessment</Button>
-                        <Button onClick={() => router.push('/employee/training-plan')}>Learning Plan</Button>
-                      </div>
+              {learningStyle ? (
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Badge className="text-sm px-2 py-1">{learningStyle}</Badge>
+                      <span className="text-gray-600">Saved to your profile</span>
                     </div>
-                  ))
-                )}
-              </div>
+                    <LearningStyleBlurb styleCode={learningStyle} />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => router.push('/employee/learning-style')}>Update Preference</Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium mb-1">Not set yet</div>
+                    <div className="text-sm text-gray-600">Take a short 5-minute survey to personalize your learning experience.</div>
+                  </div>
+                  <Button onClick={() => router.push('/employee/learning-style')}>Set Learning Preference</Button>
+                </div>
+              )}
             </CardContent>
           </Card>
+
+          {/* If learning preference not completed, block rest of dashboard */}
+          {!learningStyle ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Complete Your Learning Preference</CardTitle>
+                <CardDescription>We need this before showing your assigned modules and learning plan</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="text-gray-700 mb-4">Please complete the Learning Preference survey to unlock your Baseline Assessment, Assigned Modules, and Learning Plan.</div>
+                <div className="flex gap-2">
+                  <Button onClick={() => router.push('/employee/learning-style')}>Take Survey</Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* Assigned Modules Card */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Assigned Modules</CardTitle>
+                  <CardDescription>Modules assigned to you from your learning plan</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {assignedModules.length === 0 ? (
+                      <div className="text-gray-500">You have no modules assigned yet.</div>
+                    ) : (
+                      assignedModules.map((m) => (
+                        <div key={m.id} className="flex items-center justify-between p-3 rounded-lg border bg-white">
+                          <div className="font-medium text-gray-800">{m.title || `Module ${m.id}`}</div>
+                          <div className="flex gap-2">
+                            <Button onClick={() => router.push('/employee/assessment')}>Baseline Assessment</Button>
+                            <Button onClick={() => router.push('/employee/training-plan')}>Learning Plan</Button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {false && (
+              <Card className="bg-gradient-to-r from-gray-50 to-blue-50 border border-blue-100">
+                <CardHeader>
+                  <CardTitle className="text-gray-900">Follow these steps to maximize your learning experience</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between py-10 px-2 gap-2">
+                    <StepCircle
+                      step={1}
+                      label="Learning Preference"
+                      subtitle="Your brain has a style—let’s discover it"
+                      completed={!!learningStyle}
+                      active={!learningStyle}
+                      onClick={() => !learningStyle && router.push("/employee/learning-style")}
+                    />
+                    {baselineRequired && (
+                      <StepCircle
+                        step={2}
+                        label="Baseline Assessment"
+                        subtitle="Evaluate your current skill level"
+                        completed={!!baselineScore}
+                        active={!!learningStyle && baselineScore === null}
+                        onClick={() => learningStyle && baselineScore === null && router.push("/employee/assessment")}
+                      />
+                    )}
+                    <StepCircle
+                      step={baselineRequired ? 3 : 2}
+                      label="Learning Plan"
+                      subtitle="Get your personalized learning roadmap"
+                      completed={allAssignedCompleted}
+                      active={
+                        baselineRequired
+                          ? !!learningStyle && baselineScore !== null && !allAssignedCompleted
+                          : !!learningStyle && !allAssignedCompleted
+                      }
+                      onClick={() => {
+                        if (baselineRequired) {
+                          if (learningStyle && baselineScore !== null && !allAssignedCompleted) router.push("/employee/training-plan");
+                        } else {
+                          if (learningStyle && !allAssignedCompleted) router.push("/employee/training-plan");
+                        }
+                      }}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+              )}
+            </>
+          )}
           {/*
           <Card className="bg-gradient-to-r from-green-500 to-blue-600 text-white">
             <CardHeader>
@@ -744,8 +842,7 @@ export default function EmployeeWelcome() {
           </Card>
           */}
 
-          {/* Getting Started Flow Guide */}
-          {/* Arrow-based horizontal flow for onboarding steps */}
+          {false && (
           <Card className="bg-gradient-to-r from-gray-50 to-blue-50 border border-blue-100">
             <CardHeader>
               <CardTitle className="text-gray-900">Follow these steps to maximize your learning experience</CardTitle>
@@ -795,10 +892,11 @@ export default function EmployeeWelcome() {
                     }
                   }}
                 />
-               
+              
               </div>
             </CardContent>
           </Card>
+          )}
 
           {/* Learning Style Card with sequential logic */}
           {/* 

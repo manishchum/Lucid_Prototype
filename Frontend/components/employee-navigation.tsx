@@ -33,7 +33,7 @@ const EmployeeNavigation = ({
   const pathname = usePathname();
   const { user: authUser, logout } = useAuth();
   const [employee, setEmployee] = useState<any>(null);
-  const [isCollapsed, setIsCollapsed] = useState(true);
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [coursesOpen, setCoursesOpen] = useState(false);
   const [adminDropdownOpen, setAdminDropdownOpen] = useState(false);
@@ -278,22 +278,22 @@ const EmployeeNavigation = ({
                         <ul className="flex flex-col gap-2">
                           <li className="flex items-center justify-between">
                             <div className="relative flex items-center">
-                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/welcome') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
-                              <Link href="/employee/welcome" onClick={closeMobileSidebar} className="text-sm text-gray-700">Active Modules</Link>
+                              <span className={`absolute left-3 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/welcome') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
+                              <Link href="/employee/welcome" onClick={closeMobileSidebar} className="ml-8 text-sm text-gray-700">Active Modules</Link>
                             </div>
                           </li>
 
                           <li className="flex items-center justify-between text-sm text-gray-700">
                             <div className="relative flex items-center">
-                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/welcome') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
-                              <Link href="/employee/welcome" onClick={closeMobileSidebar}>Completed</Link>
+                              <span className={`absolute left-3 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/welcome') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
+                              <Link href="/employee/welcome" onClick={closeMobileSidebar} className="ml-8">Completed</Link>
                             </div>
                           </li>
 
                           <li className="flex items-center justify-between text-sm text-gray-700">
                             <div className="relative flex items-center">
-                              <span className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${isActiveRoute('/content-library') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
-                              <Link href="/content-library" onClick={closeMobileSidebar}>All Modules</Link>
+                              <span className={`absolute left-3 top-2 w-2 h-2 rounded-full ${isActiveRoute('/content-library') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
+                              <Link href="/content-library" onClick={closeMobileSidebar} className="ml-8">All Modules</Link>
                             </div>
                           </li>
                         </ul>

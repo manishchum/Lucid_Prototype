@@ -16,6 +16,10 @@ export default function TrainingPlanPage() {
   const { user, loading: authLoading } = useAuth();
   const [plan, setPlan] = useState<any>(null);
   const [reasoning, setReasoning] = useState<any>(null);
+  const [baselineRequired, setBaselineRequired] = useState(false);
+  const [baselineMessage, setBaselineMessage] = useState<string | null>(null);
+  const [baselineExists, setBaselineExists] = useState(false);
+  const [baselineCompleted, setBaselineCompleted] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Fetch completed modules from Supabase (same logic as employee/welcome)
@@ -132,7 +136,7 @@ export default function TrainingPlanPage() {
       }
       const { data: employeeData, error: employeeError } = await supabase
         .from("users")
-        .select("user_id")
+        .select("user_id, company_id")
         .eq("email", user.email)
         .single();
       if (employeeError || !employeeData?.user_id) {
@@ -140,6 +144,37 @@ export default function TrainingPlanPage() {
         setLoading(false);
         return;
       }
+      // Pre-check: detect if company has baseline definitions and whether user completed one
+      try {
+        setBaselineExists(false);
+        setBaselineCompleted(false);
+        if (employeeData?.company_id && employeeData?.user_id) {
+          const { data: baselineDefs } = await supabase
+            .from('assessments')
+            .select('assessment_id')
+            .eq('type', 'baseline')
+            .eq('company_id', employeeData.company_id);
+          if (baselineDefs && baselineDefs.length > 0) {
+            setBaselineExists(true);
+            const baselineIds = baselineDefs.map((b: any) => b.assessment_id).filter(Boolean);
+            if (baselineIds.length > 0) {
+              const { data: userBaselines } = await supabase
+                .from('employee_assessments')
+                .select('assessment_id')
+                .in('assessment_id', baselineIds)
+                .eq('user_id', employeeData.user_id);
+              if (userBaselines && userBaselines.length > 0) {
+                setBaselineCompleted(true);
+              } else {
+                setBaselineCompleted(false);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[training-plan] baseline pre-check failed', e);
+      }
+
       // Call training-plan API
       const res = await fetch("/api/training-plan", {
         method: "POST",
@@ -147,6 +182,18 @@ export default function TrainingPlanPage() {
         body: JSON.stringify({ user_id: employeeData.user_id }),
       });
       const result = await res.json();
+      // If API indicates baseline is required, show a clear prompt
+      if (result?.error === 'BASELINE_REQUIRED') {
+        setBaselineRequired(true);
+        setBaselineMessage(result?.message || 'Please complete the baseline assessment first.');
+        setPlan(null);
+        setReasoning(null);
+        setLoading(false);
+        return;
+      } else {
+        setBaselineRequired(false);
+        setBaselineMessage(null);
+      }
       // If error, show raw JSON for debugging
       if (result.error) {
         setPlan({ error: result.error, raw: result.raw });
@@ -278,6 +325,27 @@ export default function TrainingPlanPage() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading training plan...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If baseline is required, show a clear CTA to take the baseline assessment
+  if (baselineRequired) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+        <EmployeeNavigation showForward={false} />
+        <div className="transition-all duration-300 ease-in-out px-4 py-8" style={{ marginLeft: 'var(--sidebar-width, 0px)' }}>
+          <div className="max-w-3xl mx-auto">
+            <div className="bg-white rounded-xl shadow-lg p-8 border">
+              <h2 className="text-2xl font-semibold mb-2">Baseline Assessment Required</h2>
+              <p className="text-gray-700 mb-6">{baselineMessage || 'Please complete the baseline assessment before accessing your personalized learning plan.'}</p>
+              <div className="flex gap-4">
+                <Button onClick={() => { window.location.href = '/employee/assessment'; }} className="bg-blue-600 text-white">Take Baseline Assessment</Button>
+                <Button variant="outline" onClick={() => { setBaselineRequired(false); fetchPlan(); }}>Retry</Button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -520,7 +588,8 @@ export default function TrainingPlanPage() {
                             alert('Could not find module content. Please contact support.');
                           }
                         }}
-                        className="w-full py-3 text-base font-semibold border-2 hover:bg-blue-50 transition-all duration-200"
+                        disabled={mod._isCompleted || (baselineExists && !baselineCompleted)}
+                        className={`w-full py-3 text-base font-semibold border-2 transition-all duration-200 ${mod._isCompleted || (baselineExists && !baselineCompleted) ? "bg-gray-100 text-gray-500 cursor-not-allowed" : "hover:bg-blue-50"}`}
                       >View Content</Button>
                       <Button
                         variant={mod._isCompleted ? "outline" : "default"}
@@ -535,8 +604,8 @@ export default function TrainingPlanPage() {
                             alert('Could not find module quiz. Please contact support.');
                           }
                         }}
-                        disabled={mod._isCompleted}
-                        className={`w-full py-3 text-base font-semibold transition-all duration-200 ${mod._isCompleted ? "bg-gray-100 text-gray-500 cursor-not-allowed border-2" : "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"}`}
+                        disabled={mod._isCompleted || (baselineExists && !baselineCompleted)}
+                        className={`w-full py-3 text-base font-semibold transition-all duration-200 ${mod._isCompleted || (baselineExists && !baselineCompleted) ? "bg-gray-100 text-gray-500 cursor-not-allowed border-2" : "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"}`}
                       >{mod._isCompleted ? "Quiz Completed" : "Show What You Got"}</Button>
                     </div>
                   </TabsContent>

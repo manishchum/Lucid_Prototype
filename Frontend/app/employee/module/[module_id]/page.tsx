@@ -143,45 +143,67 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
       <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} />
-      
-      {/* Main content area that adapts to sidebar */}
-      <div 
-        className="transition-all duration-300 ease-in-out px-4 py-8"
-        style={{ 
-          marginLeft: 'var(--sidebar-width, 0px)',
-        }}
-      >
-        <div className="max-w-3xl mx-auto">
-        
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>{module.title}</CardTitle>
-            <CardDescription>Module Content</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {module.content ? (
-              <div className="max-w-none text-gray-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: formatContent(module.content) }} />
-            ) : (
-              <div className="text-gray-500">No content available for this module.</div>
-            )}
-            {/* Audio section */}
-            <div className="mt-8">
-              {module.audio_url ? (
-                <AudioPlayer
-                  employeeId={employee?.user_id}
-                  processedModuleId={module.processed_module_id}
-                  moduleId={module.original_module_id}
-                  audioUrl={module.audio_url}
-                />
-              ) : (
-                <GenerateAudioButton moduleId={module.processed_module_id} onAudioGenerated={url => setModule((m: any) => ({ ...m, audio_url: url }))} />
-              )}
-            </div>
-          </CardContent>
-        </Card>
-        <Button className="mt-4" variant="outline" onClick={() => router.back()}>
-                  Back to Training Plan
-        </Button>
+
+      <div className="transition-all duration-300 ease-in-out px-12 py-8" style={{ marginLeft: 'var(--sidebar-width, 0px)' }}>
+        <div className="w-full mx-auto">
+          <div>
+            <main className="w-full">
+              <div className="bg-white rounded-lg shadow-sm border p-12 w-full min-h-screen">
+                {/* Title and audio area */}
+                <div>
+                  <h2 className="text-xl font-semibold">{module.title}</h2>
+                  <div className="text-sm text-gray-500">Module Content</div>
+
+                  <div className="mt-4 w-full">
+                    {module.audio_url ? (
+                      <div>
+                        <AudioPlayer
+                          employeeId={employee?.user_id}
+                          processedModuleId={module.processed_module_id}
+                          moduleId={module.original_module_id}
+                          audioUrl={module.audio_url}
+                        />
+                        <div className="mt-1 h-1 bg-gray-200 rounded-full" />
+                      </div>
+                    ) : (
+                      <GenerateAudioButton moduleId={module.processed_module_id} onAudioGenerated={url => setModule((m: any) => ({ ...m, audio_url: url }))} />
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-6 grid grid-cols-1 gap-6">
+                  {/* Question / prompt area */}
+                  <div className="border rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                    </div>
+
+                    <div>
+                      <div className="text-xs text-gray-500 mb-2">Video</div>
+                      {module.video_url ? (
+                        <div>
+                          <video controls className="w-full rounded shadow">
+                            <source src={module.video_url} type="video/mp4" />
+                            Your browser does not support the video tag.
+                          </video>
+                          <div className="text-sm text-gray-600 mt-2 break-all">
+                          </div>
+                        </div>
+                      ) : (
+                        <GenerateVideoButton moduleId={module.processed_module_id} onVideoGenerated={url => setModule((m: any) => ({ ...m, video_url: url }))} />
+                      )}
+                    </div>
+
+                    <div className="mt-4 text-gray-700 leading-relaxed max-w-none" dangerouslySetInnerHTML={{ __html: formatContent(module.content || '') }} />
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex justify-end">
+                    <button className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg shadow hover:bg-violet-700">Ask AI</button>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
         </div>
       </div>
     </div>
@@ -274,6 +296,47 @@ function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string,
         disabled={loading}
       >
         {loading ? 'Generating Audio...' : 'Generate Audio'}
+      </button>
+      {error && <div className="text-red-600 mt-2">{error}</div>}
+    </div>
+  );
+}
+
+// Add GenerateVideoButton component
+function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string, onVideoGenerated: (url: string) => void }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Use the new GPT-based video generation route. Previously we called `/api/video-generation` which
+      // generated images/screenshots directly inside this page's flow. That approach is now deprecated here —
+      // keep the old call commented below for reference.
+      // const res = await fetch(`/api/video-generation?processed_module_id=${moduleId}`);
+
+      const res = await fetch(`/api/gpt-video-generation?processed_module_id=${moduleId}`);
+      const data = await res.json();
+      if (res.ok && data.videoUrl) {
+        onVideoGenerated(data.videoUrl);
+      } else {
+        setError(data.error || 'Failed to generate video');
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Error generating video');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="flex flex-col items-center">
+      <button
+        className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 disabled:opacity-50"
+        onClick={handleGenerate}
+        disabled={loading}
+      >
+        {loading ? 'Generating Video...' : 'Generate Video'}
       </button>
       {error && <div className="text-red-600 mt-2">{error}</div>}
     </div>
