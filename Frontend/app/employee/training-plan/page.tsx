@@ -2,17 +2,24 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import EmployeeNavigation from "@/components/employee-navigation";
+import { Users } from "lucide-react";
 
 export default function TrainingPlanPage() {
   // Track completed modules for the user
   const [completedModules, setCompletedModules] = useState<string[]>([]);
-  
+
   const { user, loading: authLoading } = useAuth();
   const [plan, setPlan] = useState<any>(null);
   const [reasoning, setReasoning] = useState<any>(null);
@@ -33,17 +40,19 @@ export default function TrainingPlanPage() {
         .eq("email", user.email)
         .single();
       if (!employeeData?.user_id) return;
-      
+
       // Get completed modules for employee (match employee/welcome logic)
       const { data: progressData } = await supabase
         .from("module_progress")
         .select("processed_module_id, completed_at")
         .eq("user_id", employeeData.user_id)
         .not("completed_at", "is", null);
-        
+
       if (progressData) {
         // Store completed processed_module_ids
-        setCompletedModules(progressData.map((row: any) => String(row.processed_module_id)));
+        setCompletedModules(
+          progressData.map((row: any) => String(row.processed_module_id))
+        );
       }
     }
     fetchCompletedModules();
@@ -57,25 +66,45 @@ export default function TrainingPlanPage() {
     // If it's an array, render each object
     if (Array.isArray(reasoning)) {
       return reasoning.map((item, idx) => (
-        <div key={idx} className="mb-4">{renderReasoning(item)}</div>
+        <div key={idx} className="mb-4">
+          {renderReasoning(item)}
+        </div>
       ));
     }
     // If it's an object, render each key/value
     return (
       <div>
         {Object.entries(reasoning).map(([key, value], idx) => {
-          const sectionTitle = key.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+          const sectionTitle = key
+            .replace(/_/g, " ")
+            .replace(/\b\w/g, (l) => l.toUpperCase());
           // Custom rendering for module_selection array
-          if (key === "module_selection" && Array.isArray(value) && value.length > 0 && typeof value[0] === 'object') {
+          if (
+            key === "module_selection" &&
+            Array.isArray(value) &&
+            value.length > 0 &&
+            typeof value[0] === "object"
+          ) {
             return (
               <div key={idx} className="mb-4">
-                <div className="font-semibold text-blue-900 mb-1">Module Selection</div>
+                <div className="font-semibold text-blue-900 mb-1">
+                  Module Selection
+                </div>
                 <ul className="list-disc pl-6 text-gray-700">
                   {value.map((mod: any, i: number) => (
                     <li key={mod.module_name || i} className="mb-2">
-                      <div><span className="font-semibold">Module Name:</span> {mod.module_name}</div>
-                      <div><span className="font-semibold">Justification:</span> {mod.justification}</div>
-                      <div><span className="font-semibold">Recommended Time:</span> {mod.recommended_time} hours</div>
+                      <div>
+                        <span className="font-semibold">Module Name:</span>{" "}
+                        {mod.module_name}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Justification:</span>{" "}
+                        {mod.justification}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Recommended Time:</span>{" "}
+                        {mod.recommended_time} hours
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -83,10 +112,12 @@ export default function TrainingPlanPage() {
             );
           }
           // If value is array of strings, render as bullet points
-          if (Array.isArray(value) && typeof value[0] === 'string') {
+          if (Array.isArray(value) && typeof value[0] === "string") {
             return (
               <div key={idx} className="mb-4">
-                <div className="font-semibold text-blue-900 mb-1">{sectionTitle}</div>
+                <div className="font-semibold text-blue-900 mb-1">
+                  {sectionTitle}
+                </div>
                 <ul className="list-disc pl-6 text-gray-700">
                   {value.map((v, i) => (
                     <li key={i}>{v}</li>
@@ -98,19 +129,29 @@ export default function TrainingPlanPage() {
           // Fallback: default rendering
           return (
             <div key={idx} className="mb-2">
-              <div className="font-semibold text-blue-900 mb-1">{sectionTitle}</div>
+              <div className="font-semibold text-blue-900 mb-1">
+                {sectionTitle}
+              </div>
               {Array.isArray(value) ? (
                 <ul className="list-disc pl-6 text-gray-700">
                   {value.map((v, i) => (
                     <li key={i}>
-                      {typeof v === 'object' && v !== null ? JSON.stringify(v) : v}
+                      {typeof v === "object" && v !== null
+                        ? JSON.stringify(v)
+                        : v}
                     </li>
                   ))}
                 </ul>
               ) : typeof value === "object" ? (
                 renderReasoning(value)
               ) : (
-                <div className="text-gray-800">{typeof value === "string" ? value : value !== undefined ? JSON.stringify(value) : ""}</div>
+                <div className="text-gray-800">
+                  {typeof value === "string"
+                    ? value
+                    : value !== undefined
+                    ? JSON.stringify(value)
+                    : ""}
+                </div>
               )}
             </div>
           );
@@ -118,7 +159,7 @@ export default function TrainingPlanPage() {
       </div>
     );
   }
-  
+
   useEffect(() => {
     if (!authLoading && user?.email) {
       fetchPlan();
@@ -150,19 +191,21 @@ export default function TrainingPlanPage() {
         setBaselineCompleted(false);
         if (employeeData?.company_id && employeeData?.user_id) {
           const { data: baselineDefs } = await supabase
-            .from('assessments')
-            .select('assessment_id')
-            .eq('type', 'baseline')
-            .eq('company_id', employeeData.company_id);
+            .from("assessments")
+            .select("assessment_id")
+            .eq("type", "baseline")
+            .eq("company_id", employeeData.company_id);
           if (baselineDefs && baselineDefs.length > 0) {
             setBaselineExists(true);
-            const baselineIds = baselineDefs.map((b: any) => b.assessment_id).filter(Boolean);
+            const baselineIds = baselineDefs
+              .map((b: any) => b.assessment_id)
+              .filter(Boolean);
             if (baselineIds.length > 0) {
               const { data: userBaselines } = await supabase
-                .from('employee_assessments')
-                .select('assessment_id')
-                .in('assessment_id', baselineIds)
-                .eq('user_id', employeeData.user_id);
+                .from("employee_assessments")
+                .select("assessment_id")
+                .in("assessment_id", baselineIds)
+                .eq("user_id", employeeData.user_id);
               if (userBaselines && userBaselines.length > 0) {
                 setBaselineCompleted(true);
               } else {
@@ -172,7 +215,7 @@ export default function TrainingPlanPage() {
           }
         }
       } catch (e) {
-        console.error('[training-plan] baseline pre-check failed', e);
+        console.error("[training-plan] baseline pre-check failed", e);
       }
 
       // Call training-plan API
@@ -183,9 +226,11 @@ export default function TrainingPlanPage() {
       });
       const result = await res.json();
       // If API indicates baseline is required, show a clear prompt
-      if (result?.error === 'BASELINE_REQUIRED') {
+      if (result?.error === "BASELINE_REQUIRED") {
         setBaselineRequired(true);
-        setBaselineMessage(result?.message || 'Please complete the baseline assessment first.');
+        setBaselineMessage(
+          result?.message || "Please complete the baseline assessment first."
+        );
         setPlan(null);
         setReasoning(null);
         setLoading(false);
@@ -240,34 +285,46 @@ export default function TrainingPlanPage() {
   // Helper: resolve a usable processed_modules.processed_module_id for navigation
   const resolveModuleId = async (mod: any): Promise<string | null> => {
     try {
-      console.log('[resolveModuleId] Input module:', mod);
+      console.log("[resolveModuleId] Input module:", mod);
       // 1) Prefer an explicit processed module id if present and valid
       const candidates: string[] = [];
-      if (mod?.processed_module_id) candidates.push(String(mod.processed_module_id));
-      if (mod?.processed_module_id) candidates.push(String(mod.processed_module_id));
+      if (mod?.processed_module_id)
+        candidates.push(String(mod.processed_module_id));
+      if (mod?.processed_module_id)
+        candidates.push(String(mod.processed_module_id));
 
       for (const cand of candidates) {
-        if (!cand || cand === 'undefined' || cand === 'null') continue;
+        if (!cand || cand === "undefined" || cand === "null") continue;
         const { data: pmById } = await supabase
-          .from('processed_modules')
-          .select('processed_module_id')
-          .eq('processed_module_id', cand)
+          .from("processed_modules")
+          .select("processed_module_id")
+          .eq("processed_module_id", cand)
           .maybeSingle();
         if (pmById?.processed_module_id) {
-          console.log('[resolveModuleId] Found by processed_module_id:', pmById.processed_module_id);
+          console.log(
+            "[resolveModuleId] Found by processed_module_id:",
+            pmById.processed_module_id
+          );
           return pmById.processed_module_id;
         }
       }
 
       // 2) Try mapping from original_module_id to processed_modules.processed_module_id
-      if (mod?.original_module_id && mod.original_module_id !== 'undefined' && mod.original_module_id !== 'null') {
+      if (
+        mod?.original_module_id &&
+        mod.original_module_id !== "undefined" &&
+        mod.original_module_id !== "null"
+      ) {
         const { data: pmByOriginal } = await supabase
-          .from('processed_modules')
-          .select('processed_module_id')
-          .eq('original_module_id', mod.original_module_id)
+          .from("processed_modules")
+          .select("processed_module_id")
+          .eq("original_module_id", mod.original_module_id)
           .maybeSingle();
         if (pmByOriginal?.processed_module_id) {
-          console.log('[resolveModuleId] Found by original_module_id:', pmByOriginal.processed_module_id);
+          console.log(
+            "[resolveModuleId] Found by original_module_id:",
+            pmByOriginal.processed_module_id
+          );
           return pmByOriginal.processed_module_id;
         }
       }
@@ -275,29 +332,35 @@ export default function TrainingPlanPage() {
       // 3) Fallback: resolve by title or name (best-effort)
       const moduleName = mod?.title || mod?.name;
       if (moduleName) {
-        console.log('[resolveModuleId] Searching by title/name:', moduleName);
+        console.log("[resolveModuleId] Searching by title/name:", moduleName);
         // Use a wildcard ILIKE search to match partial titles and ignore case
         const titlePattern = `%${moduleName}%`;
         const { data: pmByTitle } = await supabase
-          .from('processed_modules')
-          .select('processed_module_id')
-          .ilike('title', titlePattern)
+          .from("processed_modules")
+          .select("processed_module_id")
+          .ilike("title", titlePattern)
           .limit(1)
           .maybeSingle();
         if (pmByTitle?.processed_module_id) {
-          console.log('[resolveModuleId] Found by title/name:', pmByTitle.processed_module_id);
+          console.log(
+            "[resolveModuleId] Found by title/name:",
+            pmByTitle.processed_module_id
+          );
           return pmByTitle.processed_module_id;
         }
         // Also try a looser search on gpt_summary or ai_modules if present
         try {
           const { data: pmBySummary } = await supabase
-            .from('processed_modules')
-            .select('processed_module_id')
-            .ilike('gpt_summary', titlePattern)
+            .from("processed_modules")
+            .select("processed_module_id")
+            .ilike("gpt_summary", titlePattern)
             .limit(1)
             .maybeSingle();
           if (pmBySummary?.processed_module_id) {
-            console.log('[resolveModuleId] Found by gpt_summary:', pmBySummary.processed_module_id);
+            console.log(
+              "[resolveModuleId] Found by gpt_summary:",
+              pmBySummary.processed_module_id
+            );
             return pmBySummary.processed_module_id;
           }
         } catch (e) {
@@ -308,13 +371,16 @@ export default function TrainingPlanPage() {
       // Final fallback: if the module object contains an original_module_id (training id),
       // return it so the module page can try to resolve by `original_module_id`.
       if (mod?.original_module_id) {
-        console.log('[resolveModuleId] Falling back to original_module_id:', mod.original_module_id);
+        console.log(
+          "[resolveModuleId] Falling back to original_module_id:",
+          mod.original_module_id
+        );
         return String(mod.original_module_id);
       }
-      
-      console.error('[resolveModuleId] Could not resolve module id for:', mod);
+
+      console.error("[resolveModuleId] Could not resolve module id for:", mod);
     } catch (e) {
-      console.error('[resolveModuleId] Error:', e);
+      console.error("[resolveModuleId] Error:", e);
     }
     return null;
   };
@@ -335,14 +401,37 @@ export default function TrainingPlanPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
         <EmployeeNavigation showForward={false} />
-        <div className="transition-all duration-300 ease-in-out px-4 py-8" style={{ marginLeft: 'var(--sidebar-width, 0px)' }}>
+        <div
+          className="transition-all duration-300 ease-in-out px-4 py-8"
+          style={{ marginLeft: "var(--sidebar-width, 0px)" }}
+        >
           <div className="max-w-3xl mx-auto">
             <div className="bg-white rounded-xl shadow-lg p-8 border">
-              <h2 className="text-2xl font-semibold mb-2">Baseline Assessment Required</h2>
-              <p className="text-gray-700 mb-6">{baselineMessage || 'Please complete the baseline assessment before accessing your personalized learning plan.'}</p>
+              <h2 className="text-2xl font-semibold mb-2">
+                Baseline Assessment Required
+              </h2>
+              <p className="text-gray-700 mb-6">
+                {baselineMessage ||
+                  "Please complete the baseline assessment before accessing your personalized learning plan."}
+              </p>
               <div className="flex gap-4">
-                <Button onClick={() => { window.location.href = '/employee/assessment'; }} className="bg-blue-600 text-white">Take Baseline Assessment</Button>
-                <Button variant="outline" onClick={() => { setBaselineRequired(false); fetchPlan(); }}>Retry</Button>
+                <Button
+                  onClick={() => {
+                    window.location.href = "/employee/assessment";
+                  }}
+                  className="bg-blue-600 text-white"
+                >
+                  Take Baseline Assessment
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setBaselineRequired(false);
+                    fetchPlan();
+                  }}
+                >
+                  Retry
+                </Button>
               </div>
             </div>
           </div>
@@ -354,15 +443,30 @@ export default function TrainingPlanPage() {
   // Defensive: Support both plan.modules and plan.learning_plan.modules
   let parsedPlan = plan;
   // Unwrap common shapes: { modules }, { learning_plan: { modules } }, { plan: { modules } }
-  let modules = parsedPlan?.modules || parsedPlan?.learning_plan?.modules || parsedPlan?.plan?.modules;
-  let overallRecommendations = parsedPlan?.overall_recommendations || parsedPlan?.learning_plan?.overall_recommendations || parsedPlan?.plan?.overall_recommendations;
+  let modules =
+    parsedPlan?.modules ||
+    parsedPlan?.learning_plan?.modules ||
+    parsedPlan?.plan?.modules;
+  let overallRecommendations =
+    parsedPlan?.overall_recommendations ||
+    parsedPlan?.learning_plan?.overall_recommendations ||
+    parsedPlan?.plan?.overall_recommendations;
 
   // Always try to parse plan.raw if present
   if (parsedPlan?.raw) {
     try {
-      const parsedRaw = typeof parsedPlan.raw === 'string' ? JSON.parse(parsedPlan.raw) : parsedPlan.raw;
-      modules = parsedRaw?.modules || parsedRaw?.learning_plan?.modules || parsedRaw?.plan?.modules;
-      overallRecommendations = parsedRaw?.overall_recommendations || parsedRaw?.learning_plan?.overall_recommendations || parsedRaw?.plan?.overall_recommendations;
+      const parsedRaw =
+        typeof parsedPlan.raw === "string"
+          ? JSON.parse(parsedPlan.raw)
+          : parsedPlan.raw;
+      modules =
+        parsedRaw?.modules ||
+        parsedRaw?.learning_plan?.modules ||
+        parsedRaw?.plan?.modules;
+      overallRecommendations =
+        parsedRaw?.overall_recommendations ||
+        parsedRaw?.learning_plan?.overall_recommendations ||
+        parsedRaw?.plan?.overall_recommendations;
       if (modules && Array.isArray(modules)) {
         parsedPlan = parsedRaw;
       }
@@ -377,18 +481,28 @@ export default function TrainingPlanPage() {
           <Card className="mb-8">
             <CardHeader>
               <CardTitle>Personalized Training Plan</CardTitle>
-              <CardDescription>Your AI-generated learning roadmap</CardDescription>
+              <CardDescription>
+                Your AI-generated learning roadmap
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {parsedPlan && parsedPlan.error ? (
-                <div className="text-red-600 mb-2">Error: {parsedPlan.error}</div>
+                <div className="text-red-600 mb-2">
+                  Error: {parsedPlan.error}
+                </div>
               ) : (
                 <div className="text-gray-500">No plan generated yet.</div>
               )}
               {parsedPlan && parsedPlan.raw && (
                 <>
-                  <div className="text-gray-700 font-semibold mb-2">Raw JSON Response:</div>
-                  <pre className="bg-gray-100 p-2 mt-4 rounded text-xs overflow-x-auto max-h-96">{typeof parsedPlan.raw === 'string' ? parsedPlan.raw : JSON.stringify(parsedPlan.raw, null, 2)}</pre>
+                  <div className="text-gray-700 font-semibold mb-2">
+                    Raw JSON Response:
+                  </div>
+                  <pre className="bg-gray-100 p-2 mt-4 rounded text-xs overflow-x-auto max-h-96">
+                    {typeof parsedPlan.raw === "string"
+                      ? parsedPlan.raw
+                      : JSON.stringify(parsedPlan.raw, null, 2)}
+                  </pre>
                 </>
               )}
             </CardContent>
@@ -405,249 +519,404 @@ export default function TrainingPlanPage() {
       ...mod,
       title: mod.title || mod.name || `Module ${idx + 1}`,
     };
-    
-    const fallback = `${idx}-${normalizedMod.title || 'module'}`;
-    const tabValue = String(normalizedMod?.id ?? normalizedMod?.original_module_id ?? fallback);
-    
+
+    const fallback = `${idx}-${normalizedMod.title || "module"}`;
+    const tabValue = String(
+      normalizedMod?.id ?? normalizedMod?.original_module_id ?? fallback
+    );
+
     // Check completion using processed_module_id to match employee/welcome logic
     let isCompleted = false;
-    const processedModuleId = String(normalizedMod?.processed_module_id ?? normalizedMod?.id ?? normalizedMod?.original_module_id);
-    if (processedModuleId && processedModuleId !== 'undefined' && processedModuleId !== 'null') {
+    const processedModuleId = String(
+      normalizedMod?.processed_module_id ??
+        normalizedMod?.id ??
+        normalizedMod?.original_module_id
+    );
+    if (
+      processedModuleId &&
+      processedModuleId !== "undefined" &&
+      processedModuleId !== "null"
+    ) {
       isCompleted = completedModules.includes(processedModuleId);
     }
-    
+
     return { ...normalizedMod, _tabValue: tabValue, _isCompleted: isCompleted };
   });
-
 
   // console.log("Color Green");
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
-      <EmployeeNavigation showForward={false} />
-      
+      <EmployeeNavigation showBack={false} showForward={false} />
       {/* Main content area that adapts to sidebar */}
-      <div 
+      <div
+        className="transition-all duration-300 ease-in-out"
+        style={{
+          marginLeft: "var(--sidebar-width, 0px)",
+        }}
+      >
+        {/* Header */}
+        <div
+          className="bg-white shadow-sm border-b"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="max-w-10xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center py-4">
+              <div className="flex items-center">
+                <Users className="w-8 h-8 text-green-600 mr-3" />
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">
+                    Learner's Learning Plan
+                  </h1>
+                </div>
+              </div>
+              <div className="relative" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main content area that adapts to sidebar */}
+      <div
         className="transition-all duration-300 ease-in-out px-4 py-8"
-        style={{ 
-          marginLeft: 'var(--sidebar-width, 0px)',
+        style={{
+          marginLeft: "var(--sidebar-width, 0px)",
         }}
       >
         <div className="max-w-7xl mx-auto">
-        
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>Your Roadmap to Mastery</CardTitle>
-            <CardDescription>Learning Plan which works for you</CardDescription>
-            {/* Progress Summary */}
-            <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-green-50 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">Progress Overview</span>
-                <span className="text-sm font-bold text-green-600">
-                  {completedModules.length} / {normalizedModules.length} Modules Completed
-                </span>
+          <Card className="mb-8">
+            <CardHeader>
+              <CardTitle>Your Roadmap to Mastery</CardTitle>
+              <CardDescription>
+                Learning Plan which works for you
+              </CardDescription>
+              {/* Progress Summary */}
+              <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-green-50 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">
+                    Progress Overview
+                  </span>
+                  <span className="text-sm font-bold text-green-600">
+                    {completedModules.length} / {normalizedModules.length}{" "}
+                    Modules Completed
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-gradient-to-r from-green-400 to-green-600 h-2 rounded-full transition-all duration-500"
+                    style={{
+                      width: `${
+                        (completedModules.length /
+                          Math.max(normalizedModules.length, 1)) *
+                        100
+                      }%`,
+                    }}
+                  ></div>
+                </div>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-gradient-to-r from-green-400 to-green-600 h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${(completedModules.length / Math.max(normalizedModules.length, 1)) * 100}%` }}
-                ></div>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {/* Reworked layout: Tabs root spans full width, sidebar fixed, content stretches */}
-            <Tabs defaultValue={normalizedModules[0]?._tabValue || ""} className="flex flex-col lg:flex-row gap-8 w-full">
-              {/* Sidebar */}
-              <div className="w-full lg:w-80 shrink-0">
-                <TabsList className="w-full flex flex-col bg-white rounded-xl shadow-lg p-3 sticky top-4 h-fit border">
+            </CardHeader>
+            <CardContent>
+              {/* Reworked layout: Tabs root spans full width, sidebar fixed, content stretches */}
+              <Tabs
+                defaultValue={normalizedModules[0]?._tabValue || ""}
+                className="flex flex-col lg:flex-row gap-8 w-full"
+              >
+                {/* Sidebar */}
+                <div className="w-full lg:w-80 shrink-0">
+                  <TabsList className="w-full flex flex-col bg-white rounded-xl shadow-lg p-3 sticky top-4 h-fit border">
+                    {normalizedModules.map((mod: any) => (
+                      <TabsTrigger
+                        key={mod._tabValue}
+                        value={mod._tabValue}
+                        className={`text-left py-0 px-5 rounded-xl mb-3 border whitespace-normal relative transition-all duration-200 flex w-full h-28 ${
+                          mod._isCompleted
+                            ? "bg-green-100 text-green-800 border-green-300 shadow-md"
+                            : "bg-white text-gray-900 hover:bg-blue-50 hover:shadow-md border-gray-200"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between w-full h-full">
+                          <div className="flex-1 flex flex-col justify-between h-full py-4">
+                            <div className="font-semibold text-base lg:text-base flex items-center gap-2 leading-tight break-words">
+                              {mod._isCompleted && (
+                                <span className="text-green-600 text-lg">
+                                  ✓
+                                </span>
+                              )}
+                              {mod.title}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {mod.objectives?.length || 0} objectives • {mod.recommended_time} hours
+                            </div>
+                          </div>
+                          {mod._isCompleted && (
+                            <div className="absolute top-3 right-3">
+                              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                            </div>
+                          )}
+                        </div>
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
+                {/* Content Area */}
+                <div className="flex-1 min-w-0">
                   {normalizedModules.map((mod: any) => (
-                    <TabsTrigger
+                    <TabsContent
                       key={mod._tabValue}
                       value={mod._tabValue}
-                      className={`text-left py-4 px-5 rounded-xl mb-3 border whitespace-normal relative transition-all duration-200 ${mod._isCompleted ? "bg-green-100 text-green-800 border-green-300 shadow-md" : "bg-white text-gray-900 hover:bg-blue-50 hover:shadow-md border-gray-200"}`}
+                      className="bg-white rounded-xl shadow-lg p-8 border w-full"
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="font-semibold text-base lg:text-lg flex items-center gap-2">
-                            {mod._isCompleted && <span className="text-green-600 text-lg">✓</span>}
-                            {mod.title}
-                          </div>
-                          <div className="text-xs text-gray-500 mt-1">
-                            {mod.objectives?.length || 0} objectives • {mod.recommended_time} hours
-                          </div>
-                        </div>
+                      {/* Header */}
+                      <div className="flex items-center justify-between mb-5">
+                        <h2 className="text-2xl font-semibold text-gray-900 leading-snug pr-4 break-words">
+                          {mod.title}
+                        </h2>
                         {mod._isCompleted && (
-                          <div className="absolute top-3 right-3">
-                            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                          <div className="px-4 py-2 bg-green-100 text-green-800 text-sm font-semibold rounded-full border border-green-200 shadow-sm">
+                            ✓ Completed
                           </div>
                         )}
                       </div>
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </div>
-              {/* Content Area */}
-              <div className="flex-1 min-w-0">
-                {normalizedModules.map((mod: any) => (
-                  <TabsContent key={mod._tabValue} value={mod._tabValue} className="bg-white rounded-xl shadow-lg p-8 border w-full">
-                    {/* Header */}
-                    <div className="flex items-center justify-between mb-5">
-                      <h2 className="text-2xl font-semibold text-gray-900 leading-snug pr-4 break-words">{mod.title}</h2>
-                      {mod._isCompleted && (
-                        <div className="px-4 py-2 bg-green-100 text-green-800 text-sm font-semibold rounded-full border border-green-200 shadow-sm">
-                          ✓ Completed
-                        </div>
-                      )}
-                    </div>
-                    {/* Summary Metrics */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
-                      <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                        <div className="text-sm font-semibold text-blue-800 mb-1">Recommended Time</div>
-                        <div className="text-2xl font-bold text-blue-900">{mod.recommended_time} hours</div>
-                      </div>
-                      <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
-                        <div className="text-sm font-semibold text-purple-800 mb-1">Learning Objectives</div>
-                        <div className="text-2xl font-bold text-purple-900">{mod.objectives?.length || 0} objectives</div>
-                      </div>
-                    </div>
-                    {/* Tips */}
-                    <div className="bg-amber-50 rounded-lg p-5 border border-amber-200 mb-6">
-                      <div className="font-semibold text-amber-800 mb-4 flex items-center gap-2">
-                        {/* <span className="text-xl">💡</span> */}
-                        Tips for Success
-                      </div>
-                      {Array.isArray(mod.tips) ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {mod.tips.map((t: any, i: number) => (
-                            <div key={`${mod._tabValue}-tip-${i}`} className="flex items-start gap-2">
-                              <div className="w-2 h-2 bg-amber-400 rounded-full mt-2 shrink-0"></div>
-                              <div className="text-amber-700 flex-1">{t}</div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-amber-700">{mod.tips}</div>
-                      )}
-                    </div>
-                    {/* Objectives */}
-                    <div className="mb-8">
-                      <div className="font-semibold text-lg mb-4 text-gray-900 flex items-center gap-2">
-                        {/* <span className="text-2xl">🎯</span> */}
-                        Learning Objectives
-                      </div>
-                      <div className="bg-gray-50 rounded-lg p-5 border">
-                        {Array.isArray(mod.objectives) ? (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {mod.objectives.map((obj: any, idx: number) => (
-                              typeof obj === 'string' || typeof obj === 'number' ? (
-                                <div key={`${mod._tabValue}-obj-${idx}`} className="flex items-start gap-3 p-3 bg-white rounded-lg border">
-                                  <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">{idx + 1}</div>
-                                  <div className="text-gray-700 flex-1">{obj}</div>
-                                </div>
-                              ) : typeof obj === 'object' && obj !== null ? (
-                                <div key={`${mod._tabValue}-obj-${idx}`} className="flex items-start gap-3 p-3 bg-white rounded-lg border">
-                                  <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">{idx + 1}</div>
-                                  <div className="flex-1">
-                                    {Object.entries(obj).map(([k, v], i) => (
-                                      <div key={i} className="text-gray-700"><span className="font-semibold">{k}:</span> {typeof v === 'string' || typeof v === 'number' ? v : JSON.stringify(v)}</div>
-                                    ))}
-                                  </div>
-                                </div>
-                              ) : null
-                            ))}
+                      {/* Summary Metrics */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+                        <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                          <div className="text-sm font-semibold text-blue-800 mb-1">
+                            Recommended Time
                           </div>
-                        ) : mod.objectives && typeof mod.objectives === 'object' ? (
+                          <div className="text-2xl font-bold text-blue-900">
+                            {mod.recommended_time} hours
+                          </div>
+                        </div>
+                        <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+                          <div className="text-sm font-semibold text-purple-800 mb-1">
+                            Learning Objectives
+                          </div>
+                          <div className="text-2xl font-bold text-purple-900">
+                            {mod.objectives?.length || 0} objectives
+                          </div>
+                        </div>
+                      </div>
+                      {/* Tips */}
+                      <div className="bg-amber-50 rounded-lg p-5 border border-amber-200 mb-6">
+                        <div className="font-semibold text-amber-800 mb-4 flex items-center gap-2">
+                          {/* <span className="text-xl">💡</span> */}
+                          Tips for Success
+                        </div>
+                        {Array.isArray(mod.tips) ? (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {Object.entries(mod.objectives).map(([k, v], i) => (
-                              <div key={`${mod._tabValue}-obj-single-${i}`} className="flex items-start gap-3 p-3 bg-white rounded-lg border">
-                                <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">{i + 1}</div>
-                                <div className="text-gray-700 flex-1"><span className="font-semibold">{k}:</span> {typeof v === 'string' || typeof v === 'number' ? v : JSON.stringify(v)}</div>
+                            {mod.tips.map((t: any, i: number) => (
+                              <div
+                                key={`${mod._tabValue}-tip-${i}`}
+                                className="flex items-start gap-2"
+                              >
+                                <div className="w-2 h-2 bg-amber-400 rounded-full mt-2 shrink-0"></div>
+                                <div className="text-amber-700 flex-1">{t}</div>
                               </div>
                             ))}
                           </div>
-                        ) : mod.objectives ? (
-                          <div className="text-gray-700 p-3 bg-white rounded-lg border">{mod.objectives}</div>
                         ) : (
-                          <div className="text-gray-400 italic p-3 bg-white rounded-lg border">No objectives listed.</div>
+                          <div className="text-amber-700">{mod.tips}</div>
                         )}
                       </div>
-                    </div>
-                    {/* Actions */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                      <Button
-                        variant="outline"
-                        size="lg"
-                        onClick={async () => {
-                          console.log('[training-plan] View Content clicked for module:', mod);
-                          const navId = await resolveModuleId(mod);
-                          console.log('[training-plan] Resolved module id:', navId);
-                          if (navId) {
-                            router.push(`/employee/module/${navId}`);
-                          } else {
-                            alert('Could not find module content. Please contact support.');
-                          }
-                        }}
-                        disabled={mod._isCompleted || (baselineExists && !baselineCompleted)}
-                        className={`w-full py-3 text-base font-semibold border-2 transition-all duration-200 ${mod._isCompleted || (baselineExists && !baselineCompleted) ? "bg-gray-100 text-gray-500 cursor-not-allowed" : "hover:bg-blue-50"}`}
-                      >View Content</Button>
-                      <Button
-                        variant={mod._isCompleted ? "outline" : "default"}
-                        size="lg"
-                        onClick={async () => {
-                          console.log('[training-plan] Quiz clicked for module:', mod);
-                          const navId = await resolveModuleId(mod);
-                          console.log('[training-plan] Resolved module id:', navId);
-                          if (navId) {
-                            router.push(`/employee/quiz/${navId}`);
-                          } else {
-                            alert('Could not find module quiz. Please contact support.');
-                          }
-                        }}
-                        disabled={mod._isCompleted || (baselineExists && !baselineCompleted)}
-                        className={`w-full py-3 text-base font-semibold transition-all duration-200 ${mod._isCompleted || (baselineExists && !baselineCompleted) ? "bg-gray-100 text-gray-500 cursor-not-allowed border-2" : "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"}`}
-                      >{mod._isCompleted ? "Quiz Completed" : "Show What You Got"}</Button>
-                    </div>
-                  </TabsContent>
-                ))}
-              </div>
-            </Tabs>
-            {overallRecommendations && (
-              <div className="mt-8 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 shadow-lg">
-                <div className="font-bold text-xl mb-4 text-blue-900 flex items-center gap-2">
-                  {/* <span className="text-2xl">🌟</span> */}
-                  Overall Recommendations
-                </div>
-                {Array.isArray(overallRecommendations) ? (
-                  <ul className="space-y-3">
-                    {overallRecommendations.map((r: any, i: number) => (
-                      <li key={`rec-${i}`} className="flex items-start gap-3">
-                        <div className="w-6 h-6 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold mt-0.5">
-                          {i + 1}
+                      {/* Objectives */}
+                      <div className="mb-8">
+                        <div className="font-semibold text-lg mb-4 text-gray-900 flex items-center gap-2">
+                          {/* <span className="text-2xl">🎯</span> */}
+                          Learning Objectives
                         </div>
-                        <div className="text-blue-800 flex-1">{r}</div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="text-blue-800 text-lg">{overallRecommendations}</div>
-                )}
-              </div>
-            )}
-            {/* Reasoning Section */}
-            {reasoning && (
-              <div className="mt-8 p-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl border border-yellow-200 shadow-lg">
-                <div className="font-bold text-xl mb-4 text-yellow-900 flex items-center gap-2">
-                  {/* <span className="text-2xl">🧠</span> */}
-                  Understand How Your Mastery Roadmap Is Crafted
+                        <div className="bg-gray-50 rounded-lg p-5 border">
+                          {Array.isArray(mod.objectives) ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {mod.objectives.map((obj: any, idx: number) =>
+                                typeof obj === "string" ||
+                                typeof obj === "number" ? (
+                                  <div
+                                    key={`${mod._tabValue}-obj-${idx}`}
+                                    className="flex items-start gap-3 p-3 bg-white rounded-lg border"
+                                  >
+                                    <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">
+                                      {idx + 1}
+                                    </div>
+                                    <div className="text-gray-700 flex-1">
+                                      {obj}
+                                    </div>
+                                  </div>
+                                ) : typeof obj === "object" && obj !== null ? (
+                                  <div
+                                    key={`${mod._tabValue}-obj-${idx}`}
+                                    className="flex items-start gap-3 p-3 bg-white rounded-lg border"
+                                  >
+                                    <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">
+                                      {idx + 1}
+                                    </div>
+                                    <div className="flex-1">
+                                      {Object.entries(obj).map(([k, v], i) => (
+                                        <div key={i} className="text-gray-700">
+                                          <span className="font-semibold">
+                                            {k}:
+                                          </span>{" "}
+                                          {typeof v === "string" ||
+                                          typeof v === "number"
+                                            ? v
+                                            : JSON.stringify(v)}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : null
+                              )}
+                            </div>
+                          ) : mod.objectives &&
+                            typeof mod.objectives === "object" ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {Object.entries(mod.objectives).map(
+                                ([k, v], i) => (
+                                  <div
+                                    key={`${mod._tabValue}-obj-single-${i}`}
+                                    className="flex items-start gap-3 p-3 bg-white rounded-lg border"
+                                  >
+                                    <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">
+                                      {i + 1}
+                                    </div>
+                                    <div className="text-gray-700 flex-1">
+                                      <span className="font-semibold">
+                                        {k}:
+                                      </span>{" "}
+                                      {typeof v === "string" ||
+                                      typeof v === "number"
+                                        ? v
+                                        : JSON.stringify(v)}
+                                    </div>
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          ) : mod.objectives ? (
+                            <div className="text-gray-700 p-3 bg-white rounded-lg border">
+                              {mod.objectives}
+                            </div>
+                          ) : (
+                            <div className="text-gray-400 italic p-3 bg-white rounded-lg border">
+                              No objectives listed.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {/* Actions */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <Button
+                          variant="outline"
+                          size="lg"
+                          onClick={async () => {
+                            console.log(
+                              "[training-plan] View Content clicked for module:",
+                              mod
+                            );
+                            const navId = await resolveModuleId(mod);
+                            console.log(
+                              "[training-plan] Resolved module id:",
+                              navId
+                            );
+                            if (navId) {
+                              router.push(`/employee/module/${navId}`);
+                            } else {
+                              alert(
+                                "Could not find module content. Please contact support."
+                              );
+                            }
+                          }}
+                          disabled={
+                            mod._isCompleted ||
+                            (baselineExists && !baselineCompleted)
+                          }
+                          className={`w-full py-3 text-base font-semibold border-2 transition-all duration-200 ${
+                            mod._isCompleted ||
+                            (baselineExists && !baselineCompleted)
+                              ? "bg-gray-100 text-gray-500 cursor-not-allowed"
+                              : "hover:bg-blue-50"
+                          }`}
+                        >
+                          View Content
+                        </Button>
+                        <Button
+                          variant={mod._isCompleted ? "outline" : "default"}
+                          size="lg"
+                          onClick={async () => {
+                            console.log(
+                              "[training-plan] Quiz clicked for module:",
+                              mod
+                            );
+                            const navId = await resolveModuleId(mod);
+                            console.log(
+                              "[training-plan] Resolved module id:",
+                              navId
+                            );
+                            if (navId) {
+                              router.push(`/employee/quiz/${navId}`);
+                            } else {
+                              alert(
+                                "Could not find module quiz. Please contact support."
+                              );
+                            }
+                          }}
+                          disabled={
+                            mod._isCompleted ||
+                            (baselineExists && !baselineCompleted)
+                          }
+                          className={`w-full py-3 text-base font-semibold transition-all duration-200 ${
+                            mod._isCompleted ||
+                            (baselineExists && !baselineCompleted)
+                              ? "bg-gray-100 text-gray-500 cursor-not-allowed border-2"
+                              : "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
+                          }`}
+                        >
+                          {mod._isCompleted
+                            ? "Quiz Completed"
+                            : "Show What You Got"}
+                        </Button>
+                      </div>
+                    </TabsContent>
+                  ))}
                 </div>
-                <div className="text-yellow-800">
-                  {renderReasoning(reasoning)}
+              </Tabs>
+              {overallRecommendations && (
+                <div className="mt-8 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 shadow-lg">
+                  <div className="font-bold text-xl mb-4 text-blue-900 flex items-center gap-2">
+                    {/* <span className="text-2xl">🌟</span> */}
+                    Overall Recommendations
+                  </div>
+                  {Array.isArray(overallRecommendations) ? (
+                    <ul className="space-y-3">
+                      {overallRecommendations.map((r: any, i: number) => (
+                        <li key={`rec-${i}`} className="flex items-start gap-3">
+                          <div className="w-6 h-6 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold mt-0.5">
+                            {i + 1}
+                          </div>
+                          <div className="text-blue-800 flex-1">{r}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="text-blue-800 text-lg">
+                      {overallRecommendations}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              )}
+              {/* Reasoning Section */}
+              {reasoning && (
+                <div className="mt-8 p-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl border border-yellow-200 shadow-lg">
+                  <div className="font-bold text-xl mb-4 text-yellow-900 flex items-center gap-2">
+                    {/* <span className="text-2xl">🧠</span> */}
+                    Understand How Your Mastery Roadmap Is Crafted
+                  </div>
+                  <div className="text-yellow-800">
+                    {renderReasoning(reasoning)}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

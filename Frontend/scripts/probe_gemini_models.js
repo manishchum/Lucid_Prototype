@@ -40,7 +40,7 @@ async function probe() {
   // Try listing available models for this key (may return 403/404 if not permitted)
   try {
     console.log('\n--- listing available models (may require permission) ---');
-    const listUrl = `https://generativelanguage.googleapis.com/v1beta2/models?key=${key}`;
+    const listUrl = `https://generativelanguage.googleapis.com/v1/models?key=${key}`;
     const listResp = await fetch(listUrl, { method: 'GET' });
     const listText = await listResp.text();
     console.log('models list status', listResp.status);
@@ -49,27 +49,15 @@ async function probe() {
     console.warn('models list error', e && e.message ? e.message : e);
   }
 
+  // Probe only the preferred model to reduce noise and speed up checks
   const models = [
-    'chat-bison-001',
-    'text-bison-001',
-    'chat-bison-002',
-    // additional candidate names to probe for higher-tier Gemini variants
-    'gemini-1',
-    'gemini-1.0',
-    'gemini-1.1',
-    'gemini-1.2',
-    'gemini-1.5',
-    'gemini-pro',
-    'gemini-pro-1',
-    'gemini-pro-1.0',
-    'gemini-ultra',
-    'gemini-flash',
-    'gemini-alpha',
     'gemini-2.5-flash-lite'
   ];
 
+  // Hardcode the probe URL to the preferred model
+  const probeModel = 'gemini-2.5-flash-lite'
   for (const model of models) {
-    const url = `https://generativelanguage.googleapis.com/v1beta2/models/${model}:generate?key=${key}`;
+    const url = `https://generativelanguage.googleapis.com/v1/models/${probeModel}:generateContent?key=${key}`;
     const body = {
       prompt: { text: 'Please reply with a short friendly sentence: Hello from Gemini model ' + model },
       temperature: 0.2,

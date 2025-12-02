@@ -712,15 +712,21 @@ export default function EmployeeWelcome() {
             <CardContent>
               {learningStyle ? (
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge className="text-sm px-2 py-1">{learningStyle}</Badge>
-                      <span className="text-gray-600">Saved to your profile</span>
+                  <div className="flex items-start gap-4">
+                    <div className="flex-shrink-0">
+                      <div className="w-20 h-20 rounded-full bg-green-600 text-white flex items-center justify-center text-2xl font-semibold">{learningStyle}</div>
                     </div>
-                    <LearningStyleBlurb styleCode={learningStyle} />
+                    <div className="min-w-0">
+                      <LearningStyleBlurb styleCode={learningStyle} />
+                      <div className="mt-4 md:mt-2">
+                        <Button variant="outline" onClick={() => router.push('/employee/score-history')}>
+                          Get your full report
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => router.push('/employee/learning-style')}>Update Preference</Button>
+                  <div>
+                    {/* kept for layout parity */}
                   </div>
                 </div>
               ) : (
@@ -765,8 +771,53 @@ export default function EmployeeWelcome() {
                       assignedModules.map((m) => (
                         <div key={m.id} className="flex items-center justify-between p-3 rounded-lg border bg-white">
                           <div className="font-medium text-gray-800">{m.title || `Module ${m.id}`}</div>
-                          <div className="flex gap-2">
-                            <Button onClick={() => router.push('/employee/assessment')}>Baseline Assessment</Button>
+
+                          <div className="flex items-center gap-3">
+                            {(() => {
+                              let percent = 0
+                              const matches = (moduleProgress || []).filter((mp: any) => {
+                                try {
+                                  if (mp?.processed_module_id && String(mp.processed_module_id) === String(m.id)) return true
+                                  if (mp?.module_id && String(mp.module_id) === String(m.id)) return true
+                                  if (
+                                    mp?.processed_modules?.title &&
+                                    m?.title &&
+                                    String(mp.processed_modules.title).toLowerCase().includes(String(m.title).toLowerCase())
+                                  ) return true
+                                } catch (e) {}
+                                return false
+                              })
+                              if (matches.length > 0) {
+                                for (const mp of matches) {
+                                  if (mp.completed_at) {
+                                    percent = 100
+                                    break
+                                  }
+                                  let indicators = 0
+                                  if (mp.viewed_at) indicators++
+                                  if (mp.audio_listen_duration && mp.audio_listen_duration > 0) indicators++
+                                  if (mp.quiz_score !== null && mp.quiz_score !== undefined) indicators++
+                                  const p = indicators > 0 ? Math.round((indicators / 3) * 90) : 0
+                                  if (p > percent) percent = p
+                                }
+                              }
+
+                              return (
+                                <div className="w-48 sm:w-64 lg:w-72">
+                                  <div className="w-full bg-gray-200 rounded-full h-2">
+                                    <div
+                                      className={`h-2 rounded-full transition-all duration-500 ${percent >= 100 ? 'bg-green-500' : 'bg-gradient-to-r from-blue-500 to-green-400'}`}
+                                      style={{ width: `${percent}%` }}
+                                      aria-valuenow={percent}
+                                      aria-valuemin={0}
+                                      aria-valuemax={100}
+                                    />
+                                  </div>
+                                </div>
+                              )
+                            })()}
+
+                            <Button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)}>Baseline Assessment</Button>
                             <Button onClick={() => router.push('/employee/training-plan')}>Learning Plan</Button>
                           </div>
                         </div>
@@ -965,7 +1016,7 @@ export default function EmployeeWelcome() {
                       <div>Score: <b>{baselineScore}</b>{baselineMaxScore ? <span> / {baselineMaxScore}</span> : null}</div>
                     </div>
                     {allAssignedCompleted ? (
-                      <Button className="w-44" onClick={() => router.push('/employee/assessment')} title="You can retake the baseline after completing assigned modules">
+                      <Button className="w-44" onClick={() => router.push('/employee/assessment?moduleId=baseline')} title="You can retake the baseline after completing assigned modules">
                         Retake Baseline
                       </Button>
                     ) : (
