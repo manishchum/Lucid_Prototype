@@ -105,6 +105,8 @@ export default function EmployeesPage() {
   const [trainingModules, setTrainingModules] = useState<TrainingModule[]>([]);
   const [learningPlans, setLearningPlans] = useState<any[]>([]);
   const [showAssignmentsView, setShowAssignmentsView] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState<User | null>(null);
   
   // Filter states
   const [searchTerm, setSearchTerm] = useState('');
@@ -212,7 +214,7 @@ export default function EmployeesPage() {
 
       // Load role assignments for each user
       const usersWithRoles = await Promise.all(
-        (data || []).map(async (user) => {
+        (data || []).map(async (user:any) => {
           const { data: roleAssignments } = await supabase
             .from('user_role_assignments')
             .select(`
@@ -418,6 +420,11 @@ export default function EmployeesPage() {
     setSelectedRole('all');
     setSelectedDepartments([]);
     setSelectedSubDepartments([]);
+  };
+
+  const handleEditUser = (user: User) => {
+    setSelectedEmployee(user);
+    setShowUpdateModal(true);
   };
 
   // Close dropdown handlers when clicking outside
@@ -953,18 +960,18 @@ export default function EmployeesPage() {
                               {user.position || 'Not specified'}
                             </span>
                           </td>
-                          <td className="text-center p-3 text-sm">
-                            {user.hire_date ? new Date(user.hire_date).toLocaleDateString() : 'N/A'}
-                          </td>
                           <td className="text-center p-3">
                             <div className="flex justify-center gap-2">
-                              <Button variant="outline" size="sm" className="text-green-600">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-green-600"
+                                onClick={() => handleEditUser(user)}
+                              >
                                 <Edit className="w-4 h-4 mr-1" />
-                                
                               </Button>
                               <Button variant="outline" size="sm" className="text-red-600">
                                 <Trash2 className="w-4 h-4 mr-1" />
-                                
                               </Button>
                             </div>
                           </td>
@@ -1004,6 +1011,21 @@ export default function EmployeesPage() {
           setShowAddModal(false);
         }}
       />
+
+      {/* Update Employee Modal */}
+      {selectedEmployee && (
+        <UpdateEmployeeModal
+          isOpen={showUpdateModal}
+          onClose={() => setShowUpdateModal(false)}
+          employee={selectedEmployee}
+          currentRole={selectedEmployee.role ? [selectedEmployee.role.name] : []}
+          onSuccess={() => {
+            loadUsers(admin.company_id);
+            setSuccess("Employee updated successfully!");
+            setShowUpdateModal(false);
+          }}
+        />
+      )}
 
       {/* Bulk Module Assignment Modal */}
       <BulkModuleAssignmentModal
@@ -1350,7 +1372,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
   return (
     <div className="space-y-4">
       {/* Mode Toggle */}
-      <div className="flex gap-2">
+      {/* <div className="flex gap-2">
         <Button
           type="button"
           variant={mode === 'detailed' ? 'default' : 'outline'}
@@ -1376,7 +1398,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
         >
           File Upload
         </Button>
-      </div>
+      </div> */}
 
       {mode === 'detailed' ? (
         <div className="text-center py-8">
@@ -1515,7 +1537,7 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
       ...prev,
       selected_roles: prev.selected_roles.includes(roleId)
         ? prev.selected_roles.filter(id => id !== roleId)
-        : [...prev, roleId]
+        : [...prev.selected_roles, roleId]
     }));
   };
 
@@ -2030,7 +2052,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
   const [loading, setLoading] = useState(false);
   const [loadingModules, setLoadingModules] = useState(true);
   const [error, setError] = useState('');
-  const [baselineAssessment, setBaselineAssessment] = useState(true);
+  const [moduleBaselineSettings, setModuleBaselineSettings] = useState<{[moduleId: string]: boolean}>({});
   const [dueDate, setDueDate] = useState('');
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicateAssignments, setDuplicateAssignments] = useState<any[]>([]);
@@ -2056,6 +2078,13 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         
       if (modulesError) throw modulesError;
       setModules(data || []);
+      
+      // Initialize baseline settings for all modules (default to true)
+      const initialSettings: {[moduleId: string]: boolean} = {};
+      (data || []).forEach(module => {
+        initialSettings[module.module_id] = true;
+      });
+      setModuleBaselineSettings(initialSettings);
     } catch (error: any) {
       setError('Failed to load modules: ' + error.message);
     } finally {
@@ -2071,12 +2100,36 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
     );
   };
 
+  const handleBaselineToggle = (moduleId: string) => {
+    setModuleBaselineSettings(prev => ({
+      ...prev,
+      [moduleId]: !prev[moduleId]
+    }));
+  };
+
   const selectAllModules = () => {
     setSelectedModules(modules.map(module => module.module_id));
   };
 
   const clearAllModules = () => {
     setSelectedModules([]);
+  };
+
+  // Add functions to toggle baseline for all modules
+  const enableAllBaselines = () => {
+    const newSettings: {[moduleId: string]: boolean} = {};
+    modules.forEach(module => {
+      newSettings[module.module_id] = true;
+    });
+    setModuleBaselineSettings(newSettings);
+  };
+
+  const disableAllBaselines = () => {
+    const newSettings: {[moduleId: string]: boolean} = {};
+    modules.forEach(module => {
+      newSettings[module.module_id] = false;
+    });
+    setModuleBaselineSettings(newSettings);
   };
 
   const handleAssign = async () => {
@@ -2094,7 +2147,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
     setError('');
 
     try {
-      // First, check for existing assignments to prevent duplicates (from old admin logic)
+      // First, check for existing assignments to prevent duplicates
       const { data: existingAssignments, error: checkError } = await supabase
         .from('learning_plan')
         .select('user_id, module_id, users!inner(name, email), training_modules!inner(title)')
@@ -2116,7 +2169,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         return;
       }
 
-      // Create learning plan entries for each user-module combination (old admin logic)
+      // Create learning plan entries for each user-module combination
       const learningPlans = [];
       
       for (const userId of selectedUsers) {
@@ -2126,7 +2179,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
             module_id: moduleId,
             assigned_on: new Date().toISOString(),
             due_date: dueDate || null,
-            baseline_assessment: baselineAssessment ? 1 : 0,
+            baseline_assessment: moduleBaselineSettings[moduleId] ? 1 : 0,
             status: 'ASSIGNED'
           });
         }
@@ -2197,37 +2250,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
             </div>
 
             {/* Assignment Configuration */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              <div>
-                <Label htmlFor="baselineAssessment">Baseline Assessment Required</Label>
-                <div className="flex items-center space-x-3 mt-2">
-                  <label className="flex items-center space-x-2 cursor-pointer">
-                    <div className="relative">
-                      <input
-                        type="checkbox"
-                        id="baselineAssessment"
-                        checked={baselineAssessment}
-                        onChange={(e) => setBaselineAssessment(e.target.checked)}
-                        className="sr-only"
-                      />
-                      <div className={`w-11 h-6 rounded-full transition-colors ${
-                        baselineAssessment ? 'bg-blue-600' : 'bg-gray-300'
-                      }`}>
-                        <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${
-                          baselineAssessment ? 'translate-x-5' : 'translate-x-0.5'
-                        } mt-0.5`}></div>
-                      </div>
-                    </div>
-                    <span className="text-sm text-gray-700">
-                      {baselineAssessment ? 'Yes' : 'No'}
-                    </span>
-                  </label>
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Users will need to complete a baseline assessment before starting the training modules
-                </p>
-              </div>
-              
+            <div className="grid grid-cols-1 gap-4 mb-6">
               <div>
                 <Label htmlFor="dueDate">Due Date (Optional)</Label>
                 <Input
@@ -2264,6 +2287,29 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                     Clear All
                   </Button>
                 </div>
+              </div>
+
+              {/* Baseline Assessment Bulk Actions */}
+              <div className="flex items-center gap-4 mb-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                <Label className="text-sm font-medium">Baseline Assessment Bulk Actions:</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={enableAllBaselines}
+                  disabled={loadingModules}
+                >
+                  Enable All
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={disableAllBaselines}
+                  disabled={loadingModules}
+                >
+                  Disable All
+                </Button>
               </div>
 
               {loadingModules ? (
@@ -2304,6 +2350,35 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                             </span>
                           </div>
                         </div>
+                        {/* Individual Baseline Assessment Toggle */}
+                        <div className="flex flex-col items-center gap-2 ml-4">
+                          <Label className="text-xs font-medium text-gray-600">Baseline Assessment</Label>
+                          <div className="flex items-center space-x-2">
+                            <label className="flex items-center cursor-pointer">
+                              <div className="relative">
+                                <input
+                                  type="checkbox"
+                                  checked={moduleBaselineSettings[module.module_id] || false}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    handleBaselineToggle(module.module_id);
+                                  }}
+                                  className="sr-only"
+                                />
+                                <div className={`w-9 h-5 rounded-full transition-colors ${
+                                  moduleBaselineSettings[module.module_id] ? 'bg-blue-600' : 'bg-gray-300'
+                                }`}>
+                                  <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${
+                                    moduleBaselineSettings[module.module_id] ? 'translate-x-4' : 'translate-x-0.5'
+                                  } mt-0.5`}></div>
+                                </div>
+                              </div>
+                            </label>
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            {moduleBaselineSettings[module.module_id] ? 'Required' : 'Optional'}
+                          </span>
+                        </div>
                       </label>
                     ))}
                   </div>
@@ -2322,11 +2397,17 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                     {selectedModules.map(moduleId => {
                       const module = modules.find(m => m.module_id === moduleId);
                       return module ? (
-                        <span key={moduleId} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
+                        <span key={moduleId} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs flex items-center gap-1">
                           {module.title}
+                          {moduleBaselineSettings[moduleId] && (
+                            <span className="bg-blue-500 text-white px-1 py-0.5 rounded-full text-xs">B</span>
+                          )}
                         </span>
                       ) : null;
                     })}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    B = Baseline Assessment Required
                   </div>
                 </div>
               )}
@@ -2343,9 +2424,24 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                 <p className="text-sm text-gray-600 mt-1">
                   This will create <strong>{selectedModules.length * selectedUsers.length}</strong> learning plan assignments.
                 </p>
-                <p className="text-sm text-gray-600 mt-1">
-                  <strong>Baseline Assessment:</strong> {baselineAssessment ? 'Required' : 'Not Required'}
-                </p>
+                <div className="mt-2">
+                  <p className="text-sm text-gray-600">
+                    <strong>Modules with Baseline Assessment:</strong>
+                  </p>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {selectedModules.filter(moduleId => moduleBaselineSettings[moduleId]).map(moduleId => {
+                      const module = modules.find(m => m.module_id === moduleId);
+                      return module ? (
+                        <span key={moduleId} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
+                          {module.title}
+                        </span>
+                      ) : null;
+                    })}
+                  </div>
+                  {selectedModules.filter(moduleId => moduleBaselineSettings[moduleId]).length === 0 && (
+                    <span className="text-xs text-gray-500">None</span>
+                  )}
+                </div>
               </div>
             )}
 
@@ -2483,6 +2579,575 @@ function DuplicateAssignmentModal({
               Got it, let me adjust my selection
             </Button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Update Employee Modal Component ---
+function UpdateEmployeeModal({ 
+  isOpen, 
+  onClose, 
+  employee, 
+  currentRole, 
+  onSuccess 
+}: { 
+  isOpen: boolean;
+  onClose: () => void;
+  employee: User;
+  currentRole: string[];
+  onSuccess: () => void;
+}) {
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    company_name: '',
+    department_id: '',
+    role_id: '',
+    role_unique_id: '',
+    employment_status: 'ACTIVE',
+    phone: '',
+    position: '',
+    selected_roles: [] as string[]
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<{[key: string]: string}>({});
+  const [subDepartments, setSubDepartments] = useState<any[]>([]);
+  const [roles, setRoles] = useState<any[]>([]);
+  const [companies, setCompanies] = useState<any[]>([]);
+
+  // Initialize form data when employee prop changes
+  useEffect(() => {
+    if (employee && isOpen) {
+      setFormData({
+        name: employee.name || '',
+        email: employee.email || '',
+        company_name: '',
+        department_id: employee.department_id || '',
+        role_id: '',
+        role_unique_id: '',
+        employment_status: employee.employment_status || 'ACTIVE',
+        phone: employee.phone || '',
+        position: employee.position || '',
+        selected_roles: []
+      });
+      loadDropdownData();
+    }
+  }, [employee, isOpen]);
+
+  // Load user's current roles
+  useEffect(() => {
+    if (employee && isOpen) {
+      loadUserRoles();
+    }
+  }, [employee, isOpen]);
+
+  const loadUserRoles = async () => {
+    try {
+      const { data: roleAssignments, error } = await supabase
+        .from('user_role_assignments')
+        .select(`
+          role_id,
+          roles!inner(role_id, name)
+        `)
+        .eq('user_id', employee.user_id)
+        .eq('is_active', true);
+
+      if (error) throw error;
+
+      const currentRoleIds = roleAssignments?.map((assignment: any) => assignment.role_id) || [];
+      setFormData(prev => ({
+        ...prev,
+        selected_roles: currentRoleIds
+      }));
+    } catch (error) {
+      console.error('Failed to load user roles:', error);
+    }
+  };
+
+  const loadDropdownData = async () => {
+    try {
+      // Load subdepartments
+      const { data: subDeptData, error: subDeptError } = await supabase
+        .from('sub_department')
+        .select('*')
+        .order('department_name')
+        .order('sub_department_name');
+
+      if (subDeptError) throw subDeptError;
+      setSubDepartments(subDeptData || []);
+
+      // Load roles
+      const { data: rolesData, error: rolesError } = await supabase
+        .from('roles')
+        .select('*')
+        .order('name');
+        
+      if (rolesError) throw rolesError;
+      setRoles(rolesData || []);
+
+      // Load companies
+      const { data: companiesData, error: companiesError } = await supabase
+        .from('companies')
+        .select('company_id, name')
+        .order('name');
+      
+      if (companiesError) throw companiesError;
+      setCompanies(companiesData || []);
+
+    } catch (error) {
+      console.error('Failed to load dropdown data:', error);
+      setError('Failed to load form data');
+    }
+  };
+
+  const handleRoleToggle = (roleId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      selected_roles: prev.selected_roles.includes(roleId)
+        ? prev.selected_roles.filter(id => id !== roleId)
+        : [...prev, roleId]
+    }));
+  };
+
+  const selectAllRoles = () => {
+    setFormData(prev => ({
+      ...prev,
+      selected_roles: roles.map((role: any) => role.role_id)
+    }));
+  };
+
+  const clearAllRoles = () => {
+    setFormData(prev => ({
+      ...prev,
+      selected_roles: []
+    }));
+  };
+
+  const handleInputChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+
+    // Clear previous field error
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
+
+    // Real-time validation
+    if (name === 'email' && value && value !== employee.email) {
+      if (!validateEmail(value)) {
+        setFieldErrors(prev => ({
+          ...prev,
+          email: 'Please enter a valid email address'
+        }));
+      } else {
+        // Check if email already exists (but not for current user)
+        const emailExists = await checkEmailExists(value, employee.user_id);
+        if (emailExists) {
+          setFieldErrors(prev => ({
+            ...prev,
+            email: 'An employee with this email already exists'
+          }));
+        }
+      }
+    }
+
+    if (name === 'phone' && value) {
+      if (!validatePhone(value)) {
+        setFieldErrors(prev => ({
+          ...prev,
+          phone: 'Please enter a valid phone number (10-15 digits)'
+        }));
+      }
+    }
+  };
+
+  // Email validation function
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  // Phone validation function  
+  const validatePhone = (phone: string): boolean => {
+    if (!phone) return true; // Phone is optional
+    const phoneRegex = /^[\+]?[\d\s\(\)\-\.]{10,15}$/;
+    const digitsOnly = phone.replace(/\D/g, '');
+    return phoneRegex.test(phone) && digitsOnly.length >= 10 && digitsOnly.length <= 15;
+  };
+
+  // Check if email already exists in database (excluding current user)
+  const checkEmailExists = async (email: string, currentUserId: string): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('user_id')
+        .eq('email', email.toLowerCase())
+        .neq('user_id', currentUserId)
+        .maybeSingle();
+      
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error checking email:', error);
+        return false;
+      }
+      
+      return !!data;
+    } catch (error) {
+      console.error('Error checking email:', error);
+      return false;
+    }
+  };
+
+  const validateForm = async (): Promise<boolean> => {
+    const errors: {[key: string]: string} = {};
+
+    // Name validation
+    if (!formData.name.trim()) {
+      errors.name = 'Name is required';
+    }
+
+    // Email validation
+    if (!formData.email.trim()) {
+      errors.email = 'Email is required';
+    } else if (!validateEmail(formData.email)) {
+      errors.email = 'Please enter a valid email address';
+    } else if (formData.email !== employee.email) {
+      // Check if email already exists (but not for current user)
+      const emailExists = await checkEmailExists(formData.email, employee.user_id);
+      if (emailExists) {
+        errors.email = 'An employee with this email already exists';
+      }
+    }
+
+    // Phone validation (optional field)
+    if (formData.phone && !validatePhone(formData.phone)) {
+      errors.phone = 'Please enter a valid phone number (10-15 digits)';
+    }
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setFieldErrors({});
+
+    // Validate form
+    const isValid = await validateForm();
+    if (!isValid) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      // Update user in users table
+      const { error: userError } = await supabase
+        .from('users')
+        .update({
+          name: formData.name,
+          email: formData.email.toLowerCase(),
+          department_id: formData.department_id || null,
+          position: formData.position || null,
+          phone: formData.phone || null,
+          employment_status: formData.employment_status || 'ACTIVE'
+        })
+        .eq('user_id', employee.user_id);
+
+      if (userError) throw userError;
+
+      // Update role assignments
+      // First, deactivate all existing role assignments
+      const { error: deactivateError } = await supabase
+        .from('user_role_assignments')
+        .update({ is_active: false })
+        .eq('user_id', employee.user_id);
+
+      if (deactivateError) {
+        console.error('Failed to deactivate old roles:', deactivateError);
+      }
+
+      // Then create new role assignments for selected roles
+      if (formData.selected_roles.length > 0) {
+        const roleAssignments = formData.selected_roles.map(roleId => ({
+          user_id: employee.user_id,
+          role_id: roleId,
+          scope_type: 'COMPANY',
+          scope_id: employee.company_id,
+          assigned_by: employee.user_id, // In a real app, this would be the admin's ID
+          is_active: true
+        }));
+
+        const { error: roleError } = await supabase
+          .from('user_role_assignments')
+          .insert(roleAssignments);
+
+        if (roleError) {
+          console.error('Role assignment failed:', roleError);
+          // Don't fail the entire operation if role assignment fails
+        }
+      }
+
+      onSuccess();
+      onClose();
+
+    } catch (error: any) {
+      console.error('Failed to update user:', error);
+      if (error.code === '23505' && error.message.includes('email')) {
+        setFieldErrors(prev => ({
+          ...prev,
+          email: 'An employee with this email already exists'
+        }));
+      } else {
+        setError('Failed to update employee: ' + error.message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get available subdepartments based on current selection
+  const availableSubDepartments = subDepartments;
+
+  if (!isOpen) return null;
+  
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold text-gray-900">Update Employee</h2>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Name and Email */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="name">Name *</Label>
+                <Input
+                  id="name"
+                  name="name"
+                  type="text"
+                  value={formData.name}
+                  onChange={handleInputChange}
+                  required
+                  placeholder="Enter full name"
+                  className={fieldErrors.name ? 'border-red-500' : ''}
+                />
+                {fieldErrors.name && (
+                  <p className="text-red-500 text-sm mt-1">{fieldErrors.name}</p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="email">Email *</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  required
+                  placeholder="employee@company.com"
+                  className={fieldErrors.email ? 'border-red-500' : ''}
+                />
+                {fieldErrors.email && (
+                  <p className="text-red-500 text-sm mt-1">{fieldErrors.email}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Department and Employment Status */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="department_id">Department</Label>
+                <select
+                  id="department_id"
+                  name="department_id"
+                  value={formData.department_id}
+                  onChange={handleInputChange}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">Select Department</option>
+                  {availableSubDepartments.map((subDept: any) => (
+                    <option key={subDept.department_id} value={subDept.department_id}>
+                      {subDept.department_name} - {subDept.sub_department_name}
+                    </option>
+                  ))}
+                </select>
+                <div className="text-xs text-gray-500 mt-1">
+                  This will assign both department and subdepartment
+                </div>
+              </div>
+              
+              <div>
+                <Label htmlFor="employment_status">Employment Status</Label>
+                <select
+                  id="employment_status"
+                  name="employment_status"
+                  value={formData.employment_status || 'ACTIVE'}
+                  onChange={handleInputChange}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
+                  <option value="TERMINATED">Terminated</option>
+                  <option value="ON_LEAVE">On Leave</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Multiple Role Selection */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>Roles (Select Multiple)</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={selectAllRoles}
+                    disabled={formData.selected_roles.length === roles.length}
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={clearAllRoles}
+                    disabled={formData.selected_roles.length === 0}
+                  >
+                    Clear All
+                  </Button>
+                </div>
+              </div>
+
+              <div className="border border-gray-300 rounded-md max-h-40 overflow-y-auto">
+                {roles.length === 0 ? (
+                  <div className="p-3 text-gray-500 text-center">No roles available</div>
+                ) : (
+                  <div className="p-2 space-y-2">
+                    {roles.map((role: any) => (
+                      <label
+                        key={role.role_id}
+                        className="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={formData.selected_roles.includes(role.role_id)}
+                          onChange={() => handleRoleToggle(role.role_id)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium text-gray-900">{role.name}</div>
+                          {role.description && (
+                            <div className="text-sm text-gray-500">{role.description}</div>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="text-xs text-gray-500 mt-1">
+                Selected: {formData.selected_roles.length} role{formData.selected_roles.length === 1 ? '' : 's'}
+              </div>
+
+              {/* Selected Roles Preview */}
+              {formData.selected_roles.length > 0 && (
+                <div className="mt-2">
+                  <span className="text-xs text-gray-600 block mb-1">Selected Roles:</span>
+                  <div className="flex flex-wrap gap-1">
+                    {formData.selected_roles.map(roleId => {
+                      const role = roles.find((r: any) => r.role_id === roleId);
+                      return role ? (
+                        <span key={roleId} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
+                          {role.name}
+                        </span>
+                      ) : null;
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Position and Phone */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="position">Position/Job Title</Label>
+                <Input
+                  id="position"
+                  name="position"
+                  type="text"
+                  value={formData.position}
+                  onChange={handleInputChange}
+                  placeholder="e.g., Software Engineer, Manager"
+                />
+              </div>
+              <div>
+                <Label htmlFor="phone">Phone Number</Label>
+                <Input
+                  id="phone"
+                  name="phone"
+                  type="tel"
+                  value={formData.phone}
+                  onChange={handleInputChange}
+                  placeholder="+1 (555) 123-4567"
+                  className={fieldErrors.phone ? 'border-red-500' : ''}
+                />
+                {fieldErrors.phone && (
+                  <p className="text-red-500 text-sm mt-1">{fieldErrors.phone}</p>
+                )}
+                <div className="text-xs text-gray-500 mt-1">
+                  Formats: +1234567890, (123) 456-7890, 123-456-7890
+                </div>
+              </div>
+            </div>
+
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Form Actions */}
+            <div className="flex gap-3 pt-4 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onClose}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={loading || !formData.name || !formData.email || !!fieldErrors.email || !!fieldErrors.phone || !!fieldErrors.name}
+              >
+                {loading ? 'Updating...' : 'Update Employee'}
+              </Button>
+            </div>
+          </form>
         </div>
       </div>
     </div>
