@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '../../../lib/supabase'
+import { callGemini as libCallGemini } from '../../../lib/gemini-helper'
 
 export async function POST(request: NextRequest) {
   try {
@@ -116,9 +117,11 @@ export async function POST(request: NextRequest) {
       console.error('[assistant] supabase search unexpected error', e)
     }
 
-    // If still nothing, return a friendly message
+    // If still nothing, allow the synthesis path to run without grounding so
+    // the LLM can answer directly from the user's query (do NOT return here).
     if (!matches || matches.length === 0) {
-      return NextResponse.json({ answer: `I couldn't find matching module content for "${query}".` })
+      // keep `matches` as an empty array and proceed to the synthesis stage
+      matches = []
     }
 
     // If user asked about duration/length, try to answer from structured `audio_duration` first
@@ -264,6 +267,16 @@ export async function POST(request: NextRequest) {
 
     const truncate = (s: string, max = 1500) => (s && s.length > max ? s.slice(0, max) + '\n...[truncated]' : s)
     let sourceParts = ''
+    // Allow callers to force ungrounded generation from Gemini (ignore matched content)
+    const forceUngrounded = Boolean(body?.ungrounded || body?.force_gemini || body?.generate_only)
+
+    // If the client specifically requested ungrounded generation but the
+    // GEMINI_API_KEY is not available to the running server, return a clear
+    // explanatory message so the frontend doesn't show the vague 'No response'.
+    if (forceUngrounded && !process.env.GEMINI_API_KEY) {
+      console.warn('[assistant] ungrounded requested but GEMINI_API_KEY missing')
+      return NextResponse.json({ answer: 'Assistant unavailable: GEMINI_API_KEY is not set in the server environment. Restart the Next dev server in the shell where you set the key, then try again.' })
+    }
     if (sections && sections.length > 0) {
       // Use only the cleaned section text for grounding; do not include source headings or titles
       sourceParts = sections.map((s) => {
@@ -278,9 +291,15 @@ export async function POST(request: NextRequest) {
       sourceParts = contextParts.join('\n---\n')
     }
 
-    // Synthesis prompt: ask model to paraphrase and synthesize (no citations)
-    const synthSystem = `You are a helpful, conversational assistant. Use the provided content as grounding but DO NOT copy lines verbatim unless explicitly asked for quotes. Synthesize a single polished, human-sounding answer that is clear, intuitive, and step-by-step when helpful. You may use general knowledge to fill small gaps but avoid inventing specific factual claims. Do not include source IDs or citations. Output plain text only.`
-    const synthUser = `User question: ${query}\n\nContext (for grounding only):\n${sourceParts}\n\nInstructions: Provide a polished, paraphrased answer that resonates with the provided content. Use '- ' for bullets and ensure each bullet is on its own line. Do not output citations or raw database fields.`
+    // Synthesis prompt: ask model to paraphrase and synthesize (no citations).
+    // If `forceUngrounded` is true, instruct the model to answer directly without using grounding context.
+    const synthSystem = forceUngrounded
+      ? `You are a helpful, conversational assistant. Answer the user's question directly and concisely. Do not rely on external context or try to search a corpus; instead, use general knowledge and reasoning to produce a clear, step-by-step response when helpful. Do not include citations. Output plain text only.`
+      : `You are a helpful, conversational assistant. Use the provided content as grounding but DO NOT copy lines verbatim unless explicitly asked for quotes. Synthesize a single polished, human-sounding answer that is clear, intuitive, and step-by-step when helpful. You may use general knowledge to fill small gaps but avoid inventing specific factual claims. Do not include source IDs or citations. Output plain text only.`
+
+    const synthUser = forceUngrounded
+      ? `User question: ${query}\n\nInstructions: Provide a polished, direct answer to the question. Use '- ' for bullets and ensure each bullet is on its own line. Do not output citations or raw database fields.`
+      : `User question: ${query}\n\nContext (for grounding only):\n${sourceParts}\n\nInstructions: Provide a polished, paraphrased answer that resonates with the provided content. Use '- ' for bullets and ensure each bullet is on its own line. Do not output citations or raw database fields.`
 
     // helper to detect long verbatim overlaps between sources and output
     const hasLongOverlap = (src: string, out: string, windowWords = 8) => {
@@ -294,81 +313,50 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      // helper to call OpenAI with a chosen model and return parsed JSON (or null)
-      const callOpenAI = async (model: string, messages: any[], max_tokens: number) => {
-        try {
-          const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ model, messages, temperature: 0.45, max_tokens }),
-          })
-          if (!resp.ok) {
-            const text = await resp.text().catch(() => '')
-            const errMsg = `status=${resp.status} ${text}`
-            console.warn(`[assistant] openai ${model} call failed:`, resp.status, text)
-            return { data: null, error: errMsg }
-          }
-          const data = await resp.json()
-          return { data, error: null }
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err)
-          console.error(`[assistant] openai ${model} network error`, err)
-          return { data: null, error: errMsg }
-        }
-      }
+      // OpenAI integration removed: assistant uses Gemini exclusively.
 
-      // helper to call Google Gemini (Generative Language) when GEMINI_API_KEY is present
+      // Adapter: delegate to shared gemini helper and normalize result to
+      // the older local shape expected by this route.
       const callGemini = async (modelName: string, promptText: string, max_tokens = 512) => {
-        const key = process.env.GEMINI_API_KEY
-        if (!key) return { data: null, error: 'no_gemini_key' }
         try {
-          const url = `https://generativelanguage.googleapis.com/v1beta2/models/${modelName}:generate?key=${key}`
-          const body = {
-            prompt: { text: promptText },
-            temperature: 0.45,
-            maxOutputTokens: max_tokens,
-            candidateCount: 1
+          const res = await libCallGemini(promptText, { candidateModels: [modelName], maxOutputTokens: max_tokens, temperature: 0.45 })
+          if (res && res.ok) {
+            return { data: res.data, error: null }
           }
-          const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-          if (!resp.ok) {
-            const text = await resp.text().catch(() => '')
-            const errMsg = `status=${resp.status} ${text}`
-            console.warn('[assistant] gemini call failed:', resp.status, text)
-            return { data: null, error: errMsg }
-          }
-          const data = await resp.json()
-          return { data, error: null }
+          return { data: null, error: res && res.text ? res.text : 'gemini_error' }
         } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err)
-          console.error('[assistant] gemini network error', err)
-          return { data: null, error: errMsg }
+          return { data: null, error: err instanceof Error ? err.message : String(err) }
         }
       }
 
-      // Prefer Gemini (if configured), otherwise fallback to OpenAI models
-      // Prefer cheaper / more accessible model first to avoid quota failures
-      const preferredOpenAI = ['gpt-3.5-turbo', 'gpt-4', 'gpt-4o']
+      // Use Gemini exclusively for synthesis; no OpenAI fallback configured.
       const messagesForSynth = [
         { role: 'system', content: synthSystem },
         { role: 'user', content: synthUser },
       ]
 
       // Use Gemini exclusively for the assistant when configured.
-      const geminiModel = process.env.GEMINI_MODEL || 'text-bison-001'
+      const geminiModel = 'gemini-2.5-flash-lite'
       if (process.env.GEMINI_API_KEY) {
-        const gResp = await callGemini(geminiModel, synthUser, 1100)
+        const gResp = await callGemini(geminiModel, synthUser, 1500)
+        try { console.log('[assistant] gemini raw response', { model: geminiModel, gRespPreview: JSON.stringify(gResp).slice(0,2000) }) } catch(e) {}
         if (gResp && gResp.data && !gResp.error) {
-          // Normalize Gemini output to the same shape as OpenAI responses
-          const cand = gResp.data.candidates?.[0]?.content || gResp.data.candidates?.[0]?.output || gResp.data.output?.[0]?.content || ''
+          // Prefer helper-normalized `.text` when present, else fall back to candidate shapes
+          const cand = gResp.data.text || gResp.data.candidates?.[0]?.content || gResp.data.candidates?.[0]?.output || gResp.data.output?.[0]?.content || ''
           synthData = { choices: [{ message: { content: cand } }] }
           usedModel = `gemini:${geminiModel}`
+          try {
+            console.log('[assistant] gemini synth success', { model: usedModel, preview: (cand || '').slice(0, 400) })
+          } catch (e) {
+            // ignore logging errors
+          }
         } else {
-          const errText = (gResp && gResp.error) || 'unknown_gemini_error'
+          const errText = (gResp && (gResp.error || gResp.text)) || 'unknown_gemini_error'
           modelErrors.push({ model: `gemini:${geminiModel}`, error: errText })
-          console.error('[assistant] gemini failed for synth pass', errText)
+          console.error('[assistant] gemini failed for synth pass', errText, { gResp })
+          try {
+            console.log('[assistant] returning grounded fallback (gemini failed)', { fallbackPreview: cleanFormatting(sourceParts).slice(0, 400) })
+          } catch (e) {}
           // Return grounded fallback so the user still receives content rather than attempting OpenAI
           const fallbackAnswer = cleanFormatting(sourceParts)
           if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
@@ -398,28 +386,23 @@ export async function POST(request: NextRequest) {
                   if (pResp && pResp.data && !pResp.error) {
                     const cand = pResp.data.candidates?.[0]?.content || pResp.data.candidates?.[0]?.output || pResp.data.output?.[0]?.content || ''
                     paraRespData = { choices: [{ message: { content: cand } }] }
-                    if (!usedModel) usedModel = `gemini:${geminiModel}`
+                    if (!usedModel) usedModel = `${geminiModel}`
                   } else {
-                    modelErrors.push({ model: `gemini:${geminiModel}`, error: (pResp && pResp.error) || 'unknown_gemini_error' })
+                    modelErrors.push({ model: `${geminiModel}`, error: (pResp && pResp.error) || 'unknown_gemini_error' })
                   }
                 } catch (err) {
-                  modelErrors.push({ model: `gemini:${geminiModel}`, error: err instanceof Error ? err.message : String(err) })
+                  modelErrors.push({ model: ` ${geminiModel}`, error: err instanceof Error ? err.message : String(err) })
                 }
               } else {
-                for (const pm of preferredOpenAI) {
-                  const resp = await callOpenAI(pm, [{ role: 'system', content: paraSystem }, { role: 'user', content: paraUser }], 1000)
-                  if (resp && resp.data) {
-                    paraRespData = resp.data
-                    if (!usedModel) usedModel = pm
-                    break
-                  }
-                  if (resp && resp.error) modelErrors.push({ model: pm, error: resp.error })
-                }
+                // No OpenAI fallback: paraphrase attempt will not call OpenAI.
               }
               if (paraRespData) {
                 const paraText = paraRespData.choices?.[0]?.message?.content || ''
                 if (paraText && typeof paraText === 'string' && paraText.trim().length > 0) {
                   const finalAnswer = cleanFormatting(paraText)
+                  try {
+                    console.log('[assistant] returning paraphrased answer from gemini', { preview: finalAnswer.slice(0,400), usedModel: usedModel })
+                  } catch (e) {}
                   if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, finalAnswer)
                   return NextResponse.json({ answer: finalAnswer, llm_model_used: usedModel, llm_error: modelErrors.length ? modelErrors : null })
                 }
@@ -430,6 +413,9 @@ export async function POST(request: NextRequest) {
           }
 
           const finalAnswer = cleanFormatting(synthText)
+          try {
+            console.log('[assistant] returning synth answer from gemini', { preview: finalAnswer.slice(0,400), usedModel: usedModel })
+          } catch (e) {}
           if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, finalAnswer)
           return NextResponse.json({ answer: finalAnswer, llm_model_used: usedModel, llm_error: modelErrors.length ? modelErrors : null })
         }
@@ -441,7 +427,17 @@ export async function POST(request: NextRequest) {
     }
 
     // last-resort fallback: return cleaned sourceParts so the user still gets useful content
-    const fallbackAnswer = cleanFormatting(sourceParts)
+    let fallbackAnswer = cleanFormatting(sourceParts)
+    // Avoid returning an empty-string answer which the frontend displays as
+    // the unhelpful literal 'No response'. Provide a helpful hint instead.
+    if (!fallbackAnswer || fallbackAnswer.trim().length === 0) {
+      fallbackAnswer = forceUngrounded
+        ? 'No assistant response: ungrounded generation was requested but the assistant could not produce an answer. Ensure the GEMINI_API_KEY is set and restart the server.'
+        : 'No matching content found for your query. Try rephrasing the question or enable ungrounded generation to get a direct answer.'
+    }
+    try {
+      console.log('[assistant] returning final fallback from sourceParts', { preview: fallbackAnswer.slice(0,400), modelErrors: modelErrors })
+    } catch (e) {}
     if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
     return NextResponse.json({ answer: fallbackAnswer, llm_model_used: null, llm_error: modelErrors.length ? modelErrors : null })
 
@@ -451,6 +447,12 @@ export async function POST(request: NextRequest) {
 
   } catch (err) {
     console.error('[assistant] unexpected error', err)
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 500 })
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    const stack = err instanceof Error && err.stack ? err.stack : null
+    // In development, return the stack to aid debugging; in production, hide details
+    if (process.env.NODE_ENV !== 'production') {
+      return NextResponse.json({ error: message, stack }, { status: 500 })
+    }
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
