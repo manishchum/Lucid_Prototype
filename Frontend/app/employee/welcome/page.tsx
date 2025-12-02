@@ -510,7 +510,52 @@ export default function EmployeeWelcome() {
                       assignedModules.map((m) => (
                         <div key={m.id} className="flex items-center justify-between p-3 rounded-lg border bg-white">
                           <div className="font-medium text-gray-800">{m.title || `Module ${m.id}`}</div>
-                          <div className="flex gap-2">
+
+                          <div className="flex items-center gap-3">
+                            {(() => {
+                              let percent = 0
+                              const matches = (moduleProgress || []).filter((mp: any) => {
+                                try {
+                                  if (mp?.processed_module_id && String(mp.processed_module_id) === String(m.id)) return true
+                                  if (mp?.module_id && String(mp.module_id) === String(m.id)) return true
+                                  if (
+                                    mp?.processed_modules?.title &&
+                                    m?.title &&
+                                    String(mp.processed_modules.title).toLowerCase().includes(String(m.title).toLowerCase())
+                                  ) return true
+                                } catch (e) {}
+                                return false
+                              })
+                              if (matches.length > 0) {
+                                for (const mp of matches) {
+                                  if (mp.completed_at) {
+                                    percent = 100
+                                    break
+                                  }
+                                  let indicators = 0
+                                  if (mp.viewed_at) indicators++
+                                  if (mp.audio_listen_duration && mp.audio_listen_duration > 0) indicators++
+                                  if (mp.quiz_score !== null && mp.quiz_score !== undefined) indicators++
+                                  const p = indicators > 0 ? Math.round((indicators / 3) * 90) : 0
+                                  if (p > percent) percent = p
+                                }
+                              }
+
+                              return (
+                                <div className="w-48 sm:w-64 lg:w-72">
+                                  <div className="w-full bg-gray-200 rounded-full h-2">
+                                    <div
+                                      className={`h-2 rounded-full transition-all duration-500 ${percent >= 100 ? 'bg-green-500' : 'bg-gradient-to-r from-blue-500 to-green-400'}`}
+                                      style={{ width: `${percent}%` }}
+                                      aria-valuenow={percent}
+                                      aria-valuemin={0}
+                                      aria-valuemax={100}
+                                    />
+                                  </div>
+                                </div>
+                              )
+                            })()}
+
                             <Button onClick={() => router.push('/employee/assessment')}>Baseline Assessment</Button>
                             <Button onClick={() => router.push('/employee/training-plan')}>Learning Plan</Button>
                           </div>
