@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useSearchParams } from 'next/navigation'
 import { supabase } from "@/lib/supabase";
 import MCQQuiz from "./mcq-quiz";
 import ScoreFeedbackCard from "./score-feedback";
@@ -17,6 +18,7 @@ interface TrainingModule {
 const AssessmentPage = () => {
   const { user } = useAuth();
   const [modules, setModules] = useState<TrainingModule[]>([]);
+  const searchParams = useSearchParams();
   const [mcqQuestionsByModule, setMcqQuestionsByModule] = useState<Array<{ moduleId: string; title?: string; questions: any[] }>>([]);
   const [currentModuleIndex, setCurrentModuleIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -80,23 +82,40 @@ const AssessmentPage = () => {
           employeeId = empData?.user_id || null;
         }
         if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
-        // Request a baseline quiz for all assigned modules (multi-module baseline)
-        const res = await fetch('/api/gpt-mcq-quiz', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            moduleIds: modules.map(m => m.module_id), 
-            companyId 
-          }),
-        });
+        // If a moduleId query param is present, request a per-module quiz.
+        const urlModuleId = searchParams.get('moduleId');
+        let res;
+        if (urlModuleId) {
+          res = await fetch('/api/gpt-mcq-quiz', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ moduleId: urlModuleId, user_id: employeeId }),
+          });
+        } else {
+          // Request a baseline quiz for all assigned modules (multi-module baseline)
+          res = await fetch('/api/gpt-mcq-quiz', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              moduleIds: modules.map(m => m.module_id), 
+              companyId 
+            }),
+          });
+        }
         const d = await res.json();
         console.log('[Assessment] Baseline quiz result:', d);
         
-        // For now, assign all questions to a single "baseline" entry
-        // (The baseline quiz covers all modules together)
-        const quizzes = d.quiz && d.quiz.length > 0 
-          ? [{ moduleId: 'baseline', title: 'Baseline Assessment', questions: d.quiz }]
-          : [];
+        // For per-module requests, the server returns an assessmentId we'll
+        // attach so submissions can reference the created assessment. For
+        // multi-module baselines we keep the existing 'baseline' behavior.
+        let quizzes = [] as Array<{ moduleId: string; title?: string; questions: any[]; assessmentId?: string }>;
+        if (d && d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
+          if (d.assessmentId && urlModuleId) {
+            quizzes = [{ moduleId: String(urlModuleId), title: modules.find(m => String(m.module_id) === String(urlModuleId))?.title || 'Module', questions: d.quiz, assessmentId: d.assessmentId }];
+          } else {
+            quizzes = [{ moduleId: 'baseline', title: 'Baseline Assessment', questions: d.quiz }];
+          }
+        }
         setMcqQuestionsByModule(quizzes);
       } catch (err: any) {
         setError("Failed to get quiz: " + err.message);
@@ -133,27 +152,33 @@ const AssessmentPage = () => {
         return;
       }
 
-      // 2. Find or create a baseline assessment for this company
+      // 2. Determine assessmentId to attach to the employee_assessments row.
+      // Prefer the assessmentId returned by the quiz endpoint for per-module
+      // requests; otherwise fallback to a company baseline row (existing behavior).
       let assessmentId: string | null = null;
-      // Look up the baseline assessment for this company
-      const { data: assessmentDef } = await supabase
-        .from('assessments')
-        .select('assessment_id')
-        .eq('type', 'baseline')
-        .eq('company_id', companyId)
-        .limit(1)
-        .maybeSingle();
-      if (assessmentDef?.assessment_id) {
-        assessmentId = assessmentDef.assessment_id;
+      const quizEntry = mcqQuestionsByModule[0];
+      if (quizEntry && (quizEntry as any).assessmentId) {
+        assessmentId = (quizEntry as any).assessmentId;
       } else {
-        // Find questions for the baseline from the fetched quizzes
-        const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === 'baseline')?.questions || [];
-        const { data: newDef } = await supabase
+        // Look up (or create) the baseline assessment for this company
+        const { data: assessmentDef } = await supabase
           .from('assessments')
-          .insert({ type: 'baseline', company_id: companyId, questions: JSON.stringify(questionsForModule) })
-          .select()
-          .single();
-        assessmentId = newDef?.assessment_id || null;
+          .select('assessment_id')
+          .eq('type', 'baseline')
+          .eq('company_id', companyId)
+          .limit(1)
+          .maybeSingle();
+        if (assessmentDef?.assessment_id) {
+          assessmentId = assessmentDef.assessment_id;
+        } else {
+          const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === 'baseline')?.questions || [];
+          const { data: newDef } = await supabase
+            .from('assessments')
+            .insert({ type: 'baseline', company_id: companyId, questions: JSON.stringify(questionsForModule) })
+            .select()
+            .single();
+          assessmentId = newDef?.assessment_id || null;
+        }
       }
 
       // Log score in terminal
@@ -197,9 +222,8 @@ const AssessmentPage = () => {
           marginLeft: 'var(--sidebar-width, 0px)',
         }}
       >
-        <div className="max-w-2xl mx-auto px-4">
-          <h1 className="text-3xl font-bold mb-4">Starting Baseline
-</h1>
+        <div className="max-w-2-xl mx-auto px-4">
+          <h1 className="text-3xl font-bold mb-4">Starting Baseline</h1>
           <p className="mb-6 text-gray-700">
             Every learner is different. This short assessment helps us tailor the program to your strengths and needs, so you can learn smarter, apply faster and move closer to your career ambitions.
           </p>

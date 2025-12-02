@@ -120,10 +120,16 @@ export async function POST(request: NextRequest) {
       console.warn('[gpt-mcq-quiz] Error fetching learning style:', e);
     }
   }
-  // Per-module quiz branch: only run this when a single moduleId is provided
-  // and no moduleIds array is present (avoid accidental branch when both are sent).
-  if (body.moduleId && !body.moduleIds) {
-    const moduleId = String(body.moduleId);
+  // Per-module quiz branch: run when a single moduleId is provided. Also
+  // treat `moduleIds` arrays of length 1 as a per-module request so the UI
+  // button "Baseline Assessment" (which may send moduleIds) generates a
+  // baseline only for that module instead of combining modules.
+  const explicitModuleId = body.moduleId || null;
+  const singleFromArray = Array.isArray(body.moduleIds) && body.moduleIds.length === 1 ? String(body.moduleIds[0]) : null;
+  const moduleId = explicitModuleId ? String(explicitModuleId) : singleFromArray;
+  if (moduleId) {
+    // If a moduleId was provided explicitly or via single-element moduleIds
+    // array, treat as a per-module quiz request.
     if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
       return NextResponse.json({ error: 'Invalid moduleId' }, { status: 400 });
     }
@@ -192,10 +198,10 @@ export async function POST(request: NextRequest) {
       // Always return existing quiz, regardless of questions content
       try {
         const quiz = Array.isArray(existing.questions) ? existing.questions : JSON.parse(existing.questions);
-        return NextResponse.json({ quiz });
+        return NextResponse.json({ quiz, assessmentId: existing.assessment_id });
       } catch (e) {
         // If parse fails, return raw questions
-        return NextResponse.json({ quiz: existing.questions });
+        return NextResponse.json({ quiz: existing.questions, assessmentId: existing.assessment_id });
       }
     }
   // Compose prompt for per-module MCQ quiz (no mixed question types)
@@ -313,7 +319,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
       return NextResponse.json({ error: 'Failed to save assessment' }, { status: 500 });
     }
     console.log('[gpt-mcq-quiz][DEBUG] Insert result:', insertResult);
-    return NextResponse.json({ quiz });
+    return NextResponse.json({ quiz, assessmentId: stableId });
   }
 
   // Baseline (multi-module) quiz generation with modules_snapshot logic
@@ -364,14 +370,48 @@ Objectives: ${JSON.stringify([moduleContent])}`;
         learning_style: userLearningStyle || null
       };
     });
-    const { data: insData, error: insErr } = await supabase
+    // Try upsert first (idempotent intent). If the DB lacks a unique constraint
+    // on `original_module_id` Postgres returns 42P10. In that case, fall back to
+    // a safer insert+requery flow so we don't return 500 to the caller.
+    let insData: any = null;
+    let insErr: any = null;
+    const upsertRes = await supabase
       .from('processed_modules')
-      .insert(inserts)
+      .upsert(inserts, { onConflict: 'original_module_id' })
       .select('processed_module_id, original_module_id');
+    insData = upsertRes.data; insErr = upsertRes.error;
+
     if (insErr) {
-      console.error('[gpt-mcq-quiz] Failed to insert processed_modules:', insErr);
-      return NextResponse.json({ error: 'Failed to ensure processed_modules entries' }, { status: 500 });
+      // If the error indicates no matching unique constraint for ON CONFLICT,
+      // fall back to a plain insert and then re-query existing rows.
+      if (insErr.code === '42P10') {
+        console.warn('[gpt-mcq-quiz] upsert failed (no unique constraint). Falling back to insert + re-query.', insErr.message);
+        const insertRes = await supabase
+          .from('processed_modules')
+          .insert(inserts)
+          .select('processed_module_id, original_module_id');
+        if (!insertRes.error && Array.isArray(insertRes.data)) {
+          insData = insertRes.data;
+        } else {
+          // If insert also failed (likely due to concurrent inserts), re-query the
+          // processed_modules rows for our missingModuleIds to obtain ids.
+          console.warn('[gpt-mcq-quiz] insert fallback failed; re-querying processed_modules for missing module ids.', insertRes.error);
+          const { data: requeryRows, error: requeryErr } = await supabase
+            .from('processed_modules')
+            .select('processed_module_id, original_module_id')
+            .in('original_module_id', missingModuleIds);
+          if (!requeryErr) insData = requeryRows;
+          else {
+            console.error('[gpt-mcq-quiz] Re-query after failed insert also failed:', requeryErr);
+            return NextResponse.json({ error: 'Failed to ensure processed_modules entries' }, { status: 500 });
+          }
+        }
+      } else {
+        console.error('[gpt-mcq-quiz] Failed to upsert processed_modules:', insErr);
+        return NextResponse.json({ error: 'Failed to ensure processed_modules entries' }, { status: 500 });
+      }
     }
+
     if (Array.isArray(insData)) {
       for (const p of insData) {
         if (p && p.original_module_id && p.processed_module_id) processedMap.set(String(p.original_module_id), String(p.processed_module_id));

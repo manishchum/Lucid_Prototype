@@ -97,16 +97,48 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
         learning_style: m.learning_style || userLearningStyle || null,
       };
 
-      const { data: insData, error: insErr } = await supabase
+      // Use upsert to avoid race conditions and reduce duplicates when a unique
+      // constraint exists on the conflict target. If the DB lacks the required
+      // unique constraint (Postgres 42P10), fall back to insert + re-query.
+      const conflictTarget = original_module_id ? 'original_module_id' : 'title';
+      let newId: string | null = null;
+      const upsertRes = await supabase
         .from("processed_modules")
-        .insert(insertPayload)
+        .upsert(insertPayload, { onConflict: conflictTarget })
         .select("processed_module_id")
         .limit(1);
-      if (insErr) {
-        console.error("[processedModulesHelper] Error inserting processed_module", insErr, insertPayload);
+      if (!upsertRes.error && Array.isArray(upsertRes.data) && upsertRes.data[0] && upsertRes.data[0].processed_module_id) {
+        newId = upsertRes.data[0].processed_module_id;
+      } else if (upsertRes.error && upsertRes.error.code === '42P10') {
+        console.warn('[processedModulesHelper] upsert failed (no unique constraint). Falling back to insert:', upsertRes.error.message);
+        const insertRes = await supabase
+          .from('processed_modules')
+          .insert(insertPayload)
+          .select('processed_module_id')
+          .limit(1);
+        if (!insertRes.error && Array.isArray(insertRes.data) && insertRes.data[0] && insertRes.data[0].processed_module_id) {
+          newId = insertRes.data[0].processed_module_id;
+        } else {
+          // If insert failed (likely due to concurrent insert), re-query for the
+          // existing processed_module by original_module_id or title.
+          console.warn('[processedModulesHelper] insert fallback failed; re-querying for existing processed_module', insertRes.error);
+          let requery: any;
+          if (original_module_id) {
+            requery = await supabase.from('processed_modules').select('processed_module_id').eq('original_module_id', original_module_id).limit(1);
+          } else {
+            requery = await supabase.from('processed_modules').select('processed_module_id').ilike('title', title).limit(1);
+          }
+          if (!requery.error && Array.isArray(requery.data) && requery.data[0] && requery.data[0].processed_module_id) {
+            newId = requery.data[0].processed_module_id;
+          } else {
+            console.error('[processedModulesHelper] Failed to create or find processed_module', requery.error || insertRes.error);
+            continue;
+          }
+        }
+      } else if (upsertRes.error) {
+        console.error('[processedModulesHelper] Error inserting processed_module', upsertRes.error, insertPayload);
         continue;
       }
-      const newId = insData && insData[0] && insData[0].processed_module_id ? insData[0].processed_module_id : null;
       if (newId) created.push(newId);
 
       // Fire off content generation for this processed_module (best-effort, don't block on response)
