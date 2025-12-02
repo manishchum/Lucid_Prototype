@@ -355,6 +355,8 @@ Objectives: ${JSON.stringify([moduleContent])}`;
   if (missingModuleIds.length > 0) {
     const inserts = missingModuleIds.map((mId: any) => {
       const tm = tmMap.get(String(mId)) || {};
+      console.log('[gpt-mcq-quiz] Training module missing processed_module:', mId, tm);
+      console.log('[gpt-mcq-quiz] Inserting missing processed_module for module_id:', mId);
       return {
         original_module_id: String(mId),
         title: tm.title || null,
@@ -410,7 +412,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
     // Fetch full assessment rows to get questions and original_module_id if present
     const { data: assessmentsRows, error: assessmentsErr } = await supabase
       .from('assessments')
-      .select('assessment_id, questions, processed_module_id, original_module_id')
+      .select('assessment_id, questions, processed_module_id')
       .in('assessment_id', templateIds);
     if (assessmentsErr) console.warn('[gpt-mcq-quiz] fetch assessments for existing templates warning:', assessmentsErr);
 

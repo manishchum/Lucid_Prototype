@@ -1,6 +1,14 @@
-import type { Metadata } from "next";
-import "./globals.css";
-import { AuthProvider } from "@/contexts/auth-context";
+import type React from "react"
+import type { Metadata } from "next"
+import { Inter } from "next/font/google"
+import "./globals.css"
+import { AuthProvider } from "@/contexts/auth-context"
+import { Toaster } from "react-hot-toast" // Import Toaster
+import { Toaster as ShadcnToaster } from "@/components/ui/toaster"
+import ErrorReporterInit from '@/components/ErrorReporterInit'
+import LucidAssistant from '@/components/LucidAssistant'
+
+const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: "Lucid Learning Platform",
@@ -16,6 +24,8 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         <AuthProvider>
+          <ErrorReporterInit />
+          <LucidAssistant />
           {children}
         </AuthProvider>
       </body>

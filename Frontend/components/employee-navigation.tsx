@@ -76,7 +76,7 @@ const EmployeeNavigation = ({
               .eq("is_active", true);
 
             if (!roleError && roleData) {
-              const roles = roleData.map(assignment => assignment.roles?.name).filter(Boolean);
+              const roles = roleData.map((assignment: { roles: { name: any; }; }) => assignment.roles?.name).filter(Boolean);
               setUserRoles(roles);
               setIsAdmin(roles.includes('ADMIN') || roles.includes('SUPER_ADMIN') || roles.includes('Admin'));
             }
@@ -252,7 +252,7 @@ const EmployeeNavigation = ({
               { href: '/employee/score-history', icon: <FileText className="w-5 h-5" /> , label: 'Reports'},
               
             ].map((m) => {
-              if (m.admin && !isAdmin) return null;
+              // if (!isAdmin) return null;
 
               // Special rendering for Courses to allow a nested submenu
               if (m.href === '/employee/training-plan') {
