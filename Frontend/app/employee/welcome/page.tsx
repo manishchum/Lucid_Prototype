@@ -66,7 +66,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
-import { Users, LogOut, BookOpen, Clock, User, ChevronDown } from "lucide-react"
+import { Users, LogOut, BookOpen, Clock, User, ChevronDown, Trophy, Target, TrendingUp, Zap } from "lucide-react"
 import EmployeeNavigation from "@/components/employee-navigation"
 import { SidebarProvider, useSidebar } from "@/contexts/sidebar-context"
 
@@ -75,6 +75,7 @@ interface Employee {
   email: string
   name: string | null
   joined_at: string
+  company_id?: string
 }
 
 export default function EmployeeWelcome() {
@@ -90,7 +91,26 @@ export default function EmployeeWelcome() {
   const [allAssignedCompleted, setAllAssignedCompleted] = useState<boolean>(false)
   const [showProfileDropdown, setShowProfileDropdown] = useState(false)
   const [baselineRequired, setBaselineRequired] = useState<boolean>(true) // New state for baseline requirement
+  const [companyStats, setCompanyStats] = useState<{
+    totalEmployees: number
+    completedEmployees: number
+    userRank: number | null
+    topPercentile: number | null
+  }>({ totalEmployees: 0, completedEmployees: 0, userRank: null, topPercentile: null })
+  const [nudgeMessage, setNudgeMessage] = useState<string>("")
+  const [progressPercentage, setProgressPercentage] = useState<number>(0)
   const router = useRouter()
+  
+  // Add debugging for nudge component
+  useEffect(() => {
+    console.log('[DEBUG] Nudge state changed:', {
+      nudgeMessage,
+      progressPercentage,
+      companyStats,
+      assignedModules: assignedModules.length
+    });
+  }, [nudgeMessage, progressPercentage, companyStats, assignedModules]);
+
   // LOG: Initial state
   console.log("[EmployeeWelcome] Initial user:", user)
   console.log("[EmployeeWelcome] Initial moduleProgress:", moduleProgress)
@@ -227,7 +247,7 @@ export default function EmployeeWelcome() {
       try {
         const { data: planRows } = await supabase
           .from('learning_plan')
-          .select('learning_plan_id, module_id, status, plan_json, baseline_assessment') // Fetch baseline_assessment column
+          .select('learning_plan_id, module_id, status, plan_json, baseline_assessment,user_id') // Fetch baseline_assessment column
           .eq('user_id', employeeData.user_id)
           .order('learning_plan_id', { ascending: false })
 
@@ -251,45 +271,94 @@ export default function EmployeeWelcome() {
             setBaselineMaxScore(100);
           }
         }
-
+        console.log("Plan Rows",planRows);
         // Check completion status for assigned plans
-        const assignedPlan = planRows?.find((plan: any) => plan.status === 'ASSIGNED')
+        const assignedPlans = planRows?.filter((plan: any) => plan.status === 'ASSIGNED') || []
         let completed = false
-        if (assignedPlan?.plan_json) {
-          let planObj: any = assignedPlan.plan_json
-          if (typeof planObj === 'string') {
-            try { planObj = JSON.parse(planObj) } catch {}
-          }
-          // Unwrap common shapes
-          const mods = planObj?.modules || planObj?.learning_plan?.modules || planObj?.plan?.modules
-          if (Array.isArray(mods) && mods.length > 0) {
-            const processedIds = Array.from(new Set(mods.map((m: any) => m?.processed_module_id).filter(Boolean))).map(String)
-            const originalIds = Array.from(new Set(mods.map((m: any) => m?.original_module_id).filter(Boolean))).map(String)
-            let completedCount = 0
-            const required = mods.length
-            if (processedIds.length > 0) {
-              const { data: progP } = await supabase
+        let completedModules = 0
+        let totalModules = 0
+        console.log("Assigned Plans",assignedPlans);
+        
+        if (assignedPlans.length > 0) {
+          // Count total modules across all assigned plans
+          totalModules = assignedPlans.length
+          
+          // Get all module IDs from assigned plans
+          const moduleIds = assignedPlans.map((plan: any) => plan.module_id).filter(Boolean)
+          
+          if (moduleIds.length > 0) {
+            console.log("Module IDs to check:", moduleIds);
+            
+            // First, get the processed_module_ids that correspond to our learning plan module_ids
+            // We need to join through training_modules -> processed_modules -> module_progress
+            const { data: processedModules } = await supabase
+              .from('processed_modules')
+              .select('processed_module_id, original_module_id')
+              // .in('training_module_id', moduleIds)
+            
+            console.log("Processed modules data:", processedModules);
+            
+            if (processedModules && processedModules.length > 0) {
+              const processedModuleIds = processedModules.map(pm => pm.processed_module_id).filter(Boolean)
+              
+              // Now check completion status using processed_module_ids
+              const { data: moduleProgress } = await supabase
                 .from('module_progress')
                 .select('processed_module_id, completed_at')
                 .eq('user_id', employeeData.user_id)
-                .in('processed_module_id', processedIds)
-                const completedSet = new Set((progP || []).filter((r: any) => r.completed_at).map((r: any) => String(r.processed_module_id)))
-              completedCount += completedSet.size
+                .in('processed_module_id', processedModuleIds)
+              
+              console.log("Module progress data:", moduleProgress);
+              
+              // Count completed modules
+              const completedSet = new Set(
+                (moduleProgress || [])
+                  .filter((progress: any) => progress.completed_at)
+                  .map((progress: any) => String(progress.processed_module_id))
+              )
+              
+              // Map back to count how many of our original modules are completed
+              // by checking which training_module_ids have completed processed_modules
+              const completedTrainingModules = new Set()
+              processedModules.forEach(pm => {
+                if (completedSet.has(String(pm.processed_module_id))) {
+                  completedTrainingModules.add(String(pm.training_module_id))
+                }
+              })
+              
+              completedModules = completedTrainingModules.size
+              completed = completedModules >= totalModules
+              
+              console.log("Completion status:", { 
+                totalModules, 
+                completedModules, 
+                completed, 
+                processedModuleIds,
+                completedProcessedModuleIds: Array.from(completedSet),
+                completedTrainingModuleIds: Array.from(completedTrainingModules)
+              });
+            } else {
+              console.log("No processed modules found for the assigned module IDs");
+              // If no processed modules exist yet, no completion is possible
+              completedModules = 0
+              completed = false
             }
-            if (originalIds.length > 0) {
-              const { data: progO } = await supabase
-                .from('module_progress')
-                .select('module_id, completed_at')
-                .eq('user_id', employeeData.user_id)
-                .in('module_id', originalIds)
-                const completedSet = new Set((progO || []).filter((r: any) => r.completed_at).map((r: any) => String(r.module_id)))
-              // Merge: assume overlap minimal; union approximate
-              completedCount = Math.max(completedCount, completedSet.size)
-            }
-            completed = completedCount >= required
           }
         }
+
         setAllAssignedCompleted(completed)
+        console.log("None of the progress check failed:", completed, completedModules, totalModules)
+        // Calculate progress percentage
+        const progress = totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0
+        setProgressPercentage(progress)
+
+        // Fetch company statistics for nudges
+        if (employeeData.company_id) {
+          console.log('[DEBUG] Employee has company_id, calling fetchCompanyStats:', employeeData.company_id);
+          await fetchCompanyStats(employeeData.company_id, employeeData.user_id, progress)
+        } else {
+          console.log('[DEBUG] No company_id found for employee, nudges disabled:', employeeData);
+        }
 
         // Extract assigned modules for display on welcome page
         try {
@@ -349,6 +418,141 @@ export default function EmployeeWelcome() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const fetchCompanyStats = async (companyId: string, userId: string, userProgress: number) => {
+    console.log('[DEBUG] fetchCompanyStats called with:', { companyId, userId, userProgress });
+    
+    try {
+      // Get all employees in the company
+      const { data: companyEmployees, error: employeesError } = await supabase
+        .from('users')
+        .select('user_id')
+        .eq('company_id', companyId)
+
+      console.log('[DEBUG] Company employees query result:', { companyEmployees, employeesError });
+
+      if (employeesError || !companyEmployees) {
+        console.log('[DEBUG] Early return due to employees error or no data');
+        return;
+      }
+
+      const totalEmployees = companyEmployees.length
+      console.log('[DEBUG] Total employees in company:', totalEmployees);
+
+      // Get learning plan completion for all company employees
+      const employeeIds = companyEmployees.map((emp: any) => emp.user_id)
+      const { data: allPlans } = await supabase
+        .from('learning_plan')
+        .select('user_id, plan_json, status')
+        .in('user_id', employeeIds)
+        .eq('status', 'ASSIGNED')
+
+      console.log('[DEBUG] All plans for company:', allPlans);
+
+      let completedEmployees = 0
+      let userRank = null
+      const employeeProgressMap = new Map<string, number>()
+
+      // Calculate completion for each employee
+      for (const plan of allPlans || []) {
+        let empProgress = 0
+        if (plan.plan_json) {
+          let planObj = plan.plan_json
+          if (typeof planObj === 'string') {
+            try { planObj = JSON.parse(planObj) } catch {}
+          }
+          const mods = planObj?.modules || planObj?.learning_plan?.modules || planObj?.plan?.modules
+          if (Array.isArray(mods) && mods.length > 0) {
+            const totalMods = mods.length
+            const processedIds = Array.from(new Set(mods.map((m: any) => m?.processed_module_id).filter(Boolean))).map(String)
+            const originalIds = Array.from(new Set(mods.map((m: any) => m?.original_module_id).filter(Boolean))).map(String)
+            
+            let completedCount = 0
+            if (processedIds.length > 0) {
+              const { data: progP } = await supabase
+                .from('module_progress')
+                .select('processed_module_id, completed_at')
+                .eq('user_id', plan.user_id)
+                .in('processed_module_id', processedIds)
+              const completedSet = new Set((progP || []).filter((r: any) => r.completed_at).map((r: any) => String(r.processed_module_id)))
+              completedCount += completedSet.size
+            }
+            if (originalIds.length > 0) {
+              const { data: progO } = await supabase
+                .from('module_progress')
+                .select('module_id, completed_at')
+                .eq('user_id', plan.user_id)
+                .in('module_id', originalIds)
+              const completedSet = new Set((progO || []).filter((r: any) => r.completed_at).map((r: any) => String(r.module_id)))
+              // Merge: assume overlap minimal; union approximate
+              console.log('[EmployeeWelcome] originalIds completed set size:', completedSet);
+              completedCount = Math.max(completedCount, completedSet.size)
+            }
+            empProgress = totalMods > 0 ? Math.round((completedCount / totalMods) * 100) : 0
+            if (empProgress === 100) completedEmployees++
+          }
+        }
+        employeeProgressMap.set(plan.user_id, empProgress)
+      }
+
+      console.log('[DEBUG] Employee progress map:', employeeProgressMap);
+      console.log('[DEBUG] Completed employees count:', completedEmployees);
+
+      // Calculate user rank
+      const progressValues = Array.from(employeeProgressMap.values()).sort((a, b) => b - a)
+      const userProgressIndex = progressValues.findIndex(p => p <= userProgress)
+      if (userProgressIndex !== -1) {
+        userRank = userProgressIndex + 1
+      }
+
+      const topPercentile = totalEmployees > 0 ? Math.round(((totalEmployees - (userRank || totalEmployees)) / totalEmployees) * 100) : 0
+
+      console.log('[DEBUG] Calculated stats:', { userRank, topPercentile });
+
+      setCompanyStats({
+        totalEmployees,
+        completedEmployees,
+        userRank,
+        topPercentile
+      })
+
+      // Generate nudge message
+      console.log('[DEBUG] Calling generateNudgeMessage with:', { userProgress, userRank, totalEmployees, topPercentile, completedEmployees });
+      generateNudgeMessage(userProgress, userRank, totalEmployees, topPercentile, completedEmployees)
+
+    } catch (error) {
+      console.warn('Failed to fetch company stats:', error)
+    }
+  }
+
+  const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
+    console.log('[DEBUG] generateNudgeMessage called with:', { progress, rank, total, percentile, completed });
+    
+    if (progress === 100) {
+      const message = "🎉 Congratulations! You've completed your learning plan and earned the SME (Subject Matter Expert) tag!";
+      console.log('[DEBUG] Setting nudge message (100% complete):', message);
+      setNudgeMessage(message);
+      return;
+    }
+
+    let message = "";
+    if (percentile >= 80) {
+      message = `🏆 Amazing! You're in the top ${100 - percentile}% of learners in your company. Complete your training to maintain your lead!`;
+    } else if (percentile >= 60) {
+      message = `🎯 You're in the top ${100 - percentile}% of your company. Complete this training to join the top 20% and earn SME status!`;
+    } else if (percentile >= 40) {
+      message = `⚡ Push forward! Complete your training to surpass ${Math.max(0, total - (rank || total) - Math.round(total * 0.2))} colleagues and reach the top 20%!`;
+    } else if (progress >= 50) {
+      message = `🚀 You're halfway there! Complete your training to join ${completed} successful colleagues and earn your SME tag!`;
+    } else if (progress > 0) {
+      message = `💪 Great start! Complete this training and you'll be ahead of ${Math.max(0, total - completed)} colleagues in your company!`;
+    } else {
+      message = `🎯 Start your learning journey! Join ${completed} colleagues who have already completed their training and earned SME status!`;
+    }
+    
+    console.log('[DEBUG] Setting nudge message:', message);
+    setNudgeMessage(message);
   }
 
   const handleLogout = async () => {
@@ -448,30 +652,179 @@ export default function EmployeeWelcome() {
         {/* Page content */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">        
         <div className="grid gap-8">{/* Welcome Card */}
+          {/* Progress Nudge Card */}
+          {nudgeMessage && (
+            <Card className="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-4">
+                  <div className="flex-shrink-0">
+                    {progressPercentage === 100 ? (
+                      <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center">
+                        <Trophy className="w-6 h-6 text-white" />
+                      </div>
+                    ) : progressPercentage >= 50 ? (
+                      <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center">
+                        <TrendingUp className="w-6 h-6 text-white" />
+                      </div>
+                    ) : (
+                      <div className="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center">
+                        <Zap className="w-6 h-6 text-white" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-lg font-semibold text-gray-900">Your Progress</h3>
+                      <div className="flex items-center gap-2">
+                        <div className="text-2xl font-bold text-blue-600">{progressPercentage}%</div>
+                        {companyStats.userRank && (
+                          <Badge variant="outline" className="bg-white">
+                            Rank #{companyStats.userRank} of {companyStats.totalEmployees}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-gray-700 mb-3">{nudgeMessage}</p>
+                    <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
+                      <div 
+                        className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-500 ease-out"
+                        style={{ width: `${progressPercentage}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-sm text-gray-600">
+                      <span>{companyStats.completedEmployees} colleagues completed</span>
+                      {companyStats.topPercentile !== null && (
+                        <span>Top {companyStats.topPercentile}% in company</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Assigned Modules Card */}
           <Card>
             <CardHeader>
-              <CardTitle>Assigned Modules</CardTitle>
-              <CardDescription>Modules assigned to you from your learning plan</CardDescription>
+              <CardTitle>Learning Preference</CardTitle>
+              <CardDescription>Tell us how you learn best so we can personalize your plan</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {assignedModules.length === 0 ? (
-                  <div className="text-gray-500">You have no modules assigned yet.</div>
-                ) : (
-                  assignedModules.map((m) => (
-                    <div key={m.id} className="flex items-center justify-between p-3 rounded-lg border bg-white">
-                      <div className="font-medium text-gray-800">{m.title || `Module ${m.id}`}</div>
-                      <div className="flex gap-2">
-                        <Button onClick={() => router.push('/employee/assessment')}>Baseline Assessment</Button>
-                        <Button onClick={() => router.push('/employee/training-plan')}>Learning Plan</Button>
-                      </div>
+              {learningStyle ? (
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Badge className="text-sm px-2 py-1">{learningStyle}</Badge>
+                      <span className="text-gray-600">Saved to your profile</span>
                     </div>
-                  ))
-                )}
-              </div>
+                    <LearningStyleBlurb styleCode={learningStyle} />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => router.push('/employee/learning-style')}>Update Preference</Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium mb-1">Not set yet</div>
+                    <div className="text-sm text-gray-600">Take a short 5-minute survey to personalize your learning experience.</div>
+                  </div>
+                  <Button onClick={() => router.push('/employee/learning-style')}>Set Learning Preference</Button>
+                </div>
+              )}
             </CardContent>
           </Card>
+
+          {/* If learning preference not completed, block rest of dashboard */}
+          {!learningStyle ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Complete Your Learning Preference</CardTitle>
+                <CardDescription>We need this before showing your assigned modules and learning plan</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="text-gray-700 mb-4">Please complete the Learning Preference survey to unlock your Baseline Assessment, Assigned Modules, and Learning Plan.</div>
+                <div className="flex gap-2">
+                  <Button onClick={() => router.push('/employee/learning-style')}>Take Survey</Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* Assigned Modules Card */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Assigned Modules</CardTitle>
+                  <CardDescription>Modules assigned to you from your learning plan</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {assignedModules.length === 0 ? (
+                      <div className="text-gray-500">You have no modules assigned yet.</div>
+                    ) : (
+                      assignedModules.map((m) => (
+                        <div key={m.id} className="flex items-center justify-between p-3 rounded-lg border bg-white">
+                          <div className="font-medium text-gray-800">{m.title || `Module ${m.id}`}</div>
+                          <div className="flex gap-2">
+                            <Button onClick={() => router.push('/employee/assessment')}>Baseline Assessment</Button>
+                            <Button onClick={() => router.push('/employee/training-plan')}>Learning Plan</Button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {false && (
+              <Card className="bg-gradient-to-r from-gray-50 to-blue-50 border border-blue-100">
+                <CardHeader>
+                  <CardTitle className="text-gray-900">Follow these steps to maximize your learning experience</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between py-10 px-2 gap-2">
+                    <StepCircle
+                      step={1}
+                      label="Learning Preference"
+                      subtitle="Your brain has a style—let’s discover it"
+                      completed={!!learningStyle}
+                      active={!learningStyle}
+                      onClick={() => !learningStyle && router.push("/employee/learning-style")}
+                    />
+                    {baselineRequired && (
+                      <StepCircle
+                        step={2}
+                        label="Baseline Assessment"
+                        subtitle="Evaluate your current skill level"
+                        completed={!!baselineScore}
+                        active={!!learningStyle && baselineScore === null}
+                        onClick={() => learningStyle && baselineScore === null && router.push("/employee/assessment")}
+                      />
+                    )}
+                    <StepCircle
+                      step={baselineRequired ? 3 : 2}
+                      label="Learning Plan"
+                      subtitle="Get your personalized learning roadmap"
+                      completed={allAssignedCompleted}
+                      active={
+                        baselineRequired
+                          ? !!learningStyle && baselineScore !== null && !allAssignedCompleted
+                          : !!learningStyle && !allAssignedCompleted
+                      }
+                      onClick={() => {
+                        if (baselineRequired) {
+                          if (learningStyle && baselineScore !== null && !allAssignedCompleted) router.push("/employee/training-plan");
+                        } else {
+                          if (learningStyle && !allAssignedCompleted) router.push("/employee/training-plan");
+                        }
+                      }}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+              )}
+            </>
+          )}
           {/*
           <Card className="bg-gradient-to-r from-green-500 to-blue-600 text-white">
             <CardHeader>
@@ -489,8 +842,7 @@ export default function EmployeeWelcome() {
           </Card>
           */}
 
-          {/* Getting Started Flow Guide */}
-          {/* Arrow-based horizontal flow for onboarding steps */}
+          {false && (
           <Card className="bg-gradient-to-r from-gray-50 to-blue-50 border border-blue-100">
             <CardHeader>
               <CardTitle className="text-gray-900">Follow these steps to maximize your learning experience</CardTitle>
@@ -540,10 +892,11 @@ export default function EmployeeWelcome() {
                     }
                   }}
                 />
-               
+              
               </div>
             </CardContent>
           </Card>
+          )}
 
           {/* Learning Style Card with sequential logic */}
           {/* 
