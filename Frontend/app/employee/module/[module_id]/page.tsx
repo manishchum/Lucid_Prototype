@@ -143,65 +143,67 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
       <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} />
-      
-      {/* Main content area that adapts to sidebar */}
-      <div 
-        className="transition-all duration-300 ease-in-out px-4 py-8"
-        style={{ 
-          marginLeft: 'var(--sidebar-width, 0px)',
-        }}
-      >
-        <div className="max-w-3xl mx-auto">
-        
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>{module.title}</CardTitle>
-            <CardDescription>Module Content</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {module.content ? (
-              <div className="max-w-none text-gray-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: formatContent(module.content) }} />
-            ) : (
-              <div className="text-gray-500">No content available for this module.</div>
-            )}
-            {/* Audio / Video section */}
-            <div className="mt-8">
-              <div className="flex flex-col items-center">
-                {module.audio_url ? (
-                  <AudioPlayer
-                    employeeId={employee?.user_id}
-                    processedModuleId={module.processed_module_id}
-                    moduleId={module.original_module_id}
-                    audioUrl={module.audio_url}
-                  />
-                ) : (
-                  <GenerateAudioButton moduleId={module.processed_module_id} onAudioGenerated={url => setModule((m: any) => ({ ...m, audio_url: url }))} />
-                )}
 
-                <div className="mt-4">
-                  <GenerateVideoButton moduleId={module.processed_module_id} onVideoGenerated={url => setModule((m: any) => ({ ...m, video_url: url }))} />
+      <div className="transition-all duration-300 ease-in-out px-12 py-8" style={{ marginLeft: 'var(--sidebar-width, 0px)' }}>
+        <div className="w-full mx-auto">
+          <div>
+            <main className="w-full">
+              <div className="bg-white rounded-lg shadow-sm border p-12 w-full min-h-screen">
+                {/* Title and audio area */}
+                <div>
+                  <h2 className="text-xl font-semibold">{module.title}</h2>
+                  <div className="text-sm text-gray-500">Module Content</div>
+
+                  <div className="mt-4 w-full">
+                    {module.audio_url ? (
+                      <div>
+                        <AudioPlayer
+                          employeeId={employee?.user_id}
+                          processedModuleId={module.processed_module_id}
+                          moduleId={module.original_module_id}
+                          audioUrl={module.audio_url}
+                        />
+                        <div className="mt-1 h-1 bg-gray-200 rounded-full" />
+                      </div>
+                    ) : (
+                      <GenerateAudioButton moduleId={module.processed_module_id} onAudioGenerated={url => setModule((m: any) => ({ ...m, audio_url: url }))} />
+                    )}
+                  </div>
                 </div>
 
-                {module.video_url && (
-                  <div className="mt-4 w-full flex flex-col items-center">
-                    <div className="w-full max-w-3xl">
-                      <video controls className="w-full rounded shadow">
-                        <source src={module.video_url} type="video/mp4" />
-                        Your browser does not support the video tag.
-                      </video>
-                      <div className="text-sm text-gray-600 mt-2 break-all">
-                        <a className="underline" href={module.video_url} target="_blank" rel="noreferrer">Open video in new tab</a>
-                      </div>
+                <div className="mt-6 grid grid-cols-1 gap-6">
+                  {/* Question / prompt area */}
+                  <div className="border rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
                     </div>
+
+                    <div>
+                      <div className="text-xs text-gray-500 mb-2">Video</div>
+                      {module.video_url ? (
+                        <div>
+                          <video controls className="w-full rounded shadow">
+                            <source src={module.video_url} type="video/mp4" />
+                            Your browser does not support the video tag.
+                          </video>
+                          <div className="text-sm text-gray-600 mt-2 break-all">
+                          </div>
+                        </div>
+                      ) : (
+                        <GenerateVideoButton moduleId={module.processed_module_id} onVideoGenerated={url => setModule((m: any) => ({ ...m, video_url: url }))} />
+                      )}
+                    </div>
+
+                    <div className="mt-4 text-gray-700 leading-relaxed max-w-none" dangerouslySetInnerHTML={{ __html: formatContent(module.content || '') }} />
                   </div>
-                )}
+
+                  {/* Actions */}
+                  <div className="flex justify-end">
+                    <button className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg shadow hover:bg-violet-700">Ask AI</button>
+                  </div>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Button className="mt-4" variant="outline" onClick={() => router.back()}>
-                  Back to Training Plan
-        </Button>
+            </main>
+          </div>
         </div>
       </div>
     </div>
