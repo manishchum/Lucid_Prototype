@@ -457,15 +457,21 @@ export default function EmployeeWelcome() {
             <CardContent>
               {learningStyle ? (
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge className="text-sm px-2 py-1">{learningStyle}</Badge>
-                      <span className="text-gray-600">Saved to your profile</span>
+                  <div className="flex items-start gap-4">
+                    <div className="flex-shrink-0">
+                      <div className="w-20 h-20 rounded-full bg-green-600 text-white flex items-center justify-center text-2xl font-semibold">{learningStyle}</div>
                     </div>
-                    <LearningStyleBlurb styleCode={learningStyle} />
+                    <div className="min-w-0">
+                      <LearningStyleBlurb styleCode={learningStyle} />
+                      <div className="mt-4 md:mt-2">
+                        <Button variant="outline" onClick={() => router.push('/employee/score-history')}>
+                          Get your full report
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => router.push('/employee/learning-style')}>Update Preference</Button>
+                  <div>
+                    {/* kept for layout parity */}
                   </div>
                 </div>
               ) : (
