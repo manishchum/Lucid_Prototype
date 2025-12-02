@@ -112,19 +112,19 @@ export type Database = {
     Tables: {
       companies: {
         Row: {
-          id: string
+          company_id: string
           name: string
           domain: string
           created_at: string
         }
         Insert: {
-          id?: string
+          company_id?: string
           name: string
           domain: string
           created_at?: string
         }
         Update: {
-          id?: string
+          company_id?: string
           name?: string
           domain?: string
           created_at?: string
@@ -132,21 +132,21 @@ export type Database = {
       }
       admins: {
         Row: {
-          id: string
+          admin_id: string
           email: string
           name: string | null
           company_id: string
           created_at: string
         }
         Insert: {
-          id?: string
+          admin_id?: string
           email: string
           name?: string | null
           company_id: string
           created_at?: string
         }
         Update: {
-          id?: string
+          admin_id?: string
           email?: string
           name?: string | null
           company_id?: string
@@ -155,21 +155,21 @@ export type Database = {
       }
       employees: {
         Row: {
-          id: string
+          employee_id: string
           email: string
           name: string | null
           company_id: string
           joined_at: string
         }
         Insert: {
-          id?: string
+          employee_id?: string
           email: string
           name?: string | null
           company_id: string
           joined_at?: string
         }
         Update: {
-          id?: string
+          employee_id?: string
           email?: string
           name?: string | null
           company_id?: string
@@ -178,7 +178,7 @@ export type Database = {
       }
       training_modules: {
         Row: {
-          id: string
+          module_id: string
           company_id: string
           title: string
           description: string | null
@@ -193,7 +193,7 @@ export type Database = {
           created_at: string
         }
         Insert: {
-          id?: string
+          module_id?: string
           company_id: string
           title: string
           description?: string | null
@@ -208,7 +208,7 @@ export type Database = {
           created_at?: string
         }
         Update: {
-          id?: string
+          module_id?: string
           company_id?: string
           title?: string
           description?: string | null
@@ -225,19 +225,19 @@ export type Database = {
       },
       assessments: {
         Row: {
-          id: string;
+          assessment_id: string;
           type: string; // e.g., 'baseline', 'module', etc.
           questions: string; // JSON stringified array of questions
           created_at: string;
         };
         Insert: {
-          id?: string;
+          assessment_id?: string;
           type: string;
           questions: string;
           created_at?: string;
         };
         Update: {
-          id?: string;
+          assessment_id?: string;
           type?: string;
           questions?: string;
           created_at?: string;
@@ -245,7 +245,7 @@ export type Database = {
       },
       employee_assessments: {
         Row: {
-          id: string;
+          employee_assessment_id: string;
           user_id: string;
           assessment_id: string;
           score: number;
@@ -255,7 +255,7 @@ export type Database = {
           question_feedback: any; // jsonb, new: question-wise feedback
         };
         Insert: {
-          id?: string;
+          employee_assessment_id?: string;
           user_id: string;
           assessment_id: string;
           score: number;
@@ -265,7 +265,7 @@ export type Database = {
           question_feedback: any;
         };
         Update: {
-          id?: string;
+          employee_assessment_id?: string;
           user_id?: string;
           assessment_id?: string;
           score?: number;
@@ -277,7 +277,7 @@ export type Database = {
       },
       processed_modules: {
         Row: {
-          id: string;
+          processed_module_id: string;
           original_module_id: string | null;
           title: string;
           content: string;
@@ -289,7 +289,7 @@ export type Database = {
           audio_generated_at: string | null;
         };
         Insert: {
-          id?: string;
+          processed_module_id?: string;
           original_module_id?: string | null;
           title: string;
           content: string;
@@ -301,7 +301,7 @@ export type Database = {
           audio_generated_at?: string | null;
         };
         Update: {
-          id?: string;
+          processed_module_id?: string;
           original_module_id?: string | null;
           title?: string;
           content?: string;
@@ -315,7 +315,7 @@ export type Database = {
       },
       module_progress: {
         Row: {
-          id: string;
+          module_progress_id: string;
           user_id: string | null;
           module_id: string | null; // original training_modules id (for grouping)
           processed_module_id?: string | null; // optional if added later
@@ -327,7 +327,7 @@ export type Database = {
           quiz_feedback: string | null;
         };
         Insert: {
-          id?: string;
+          module_progress_id?: string;
           user_id?: string | null;
           module_id?: string | null;
           processed_module_id?: string | null;
@@ -339,7 +339,7 @@ export type Database = {
           quiz_feedback?: string | null;
         };
         Update: {
-          id?: string;
+          module_progress_id?: string;
           user_id?: string | null;
           module_id?: string | null;
           processed_module_id?: string | null;

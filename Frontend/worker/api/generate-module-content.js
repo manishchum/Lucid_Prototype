@@ -13,7 +13,7 @@ async function generateModuleContent() {
   // Fetch all processed_modules with empty or placeholder content
   const { data: modules, error } = await supabase
     .from('processed_modules')
-    .select('module_id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives)')
+    .select('processed_module_id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives)')
     .or('content.is.null,content.eq.\'\',content.eq.""');
 
   if (error) {
@@ -86,7 +86,7 @@ Instructions:
 7. If relevant, include section headings, subheadings, and formatting for readability.
 
 Goal: The output should be a comprehensive, ready-to-use training module that fully addresses the topics and objectives, tailored to the specified learning style, and suitable for direct delivery to learners.`;
-      console.log(`Calling OpenAI for module: ${mod.title} (${mod.module_id}) with learning style: ${style}`);
+      console.log(`Calling OpenAI for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
       const completion = await openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [
@@ -101,16 +101,16 @@ Goal: The output should be a comprehensive, ready-to-use training module that fu
         console.warn(`No content generated for module: ${mod.module_id} style: ${style}`);
         continue;
       }
-      // Update the processed_modules row for this module and learning style
-      const { error: updateError } = await supabase
+      // Upsert the content using processed_module_id as the conflict key.
+      const { data: upserted, error: updateError } = await supabase
         .from('processed_modules')
-        .update({ content: aiContent })
-        .eq('module_id', mod.module_id);
+        .upsert({ processed_module_id: mod.processed_module_id, content: aiContent }, { onConflict: 'processed_module_id' })
+        .select('processed_module_id');
       if (updateError) {
-        console.error(`Failed to update content for module ${mod.module_id} style ${style}:`, updateError);
+        console.error(`Failed to upsert content for processed_module ${mod.processed_module_id} style ${style}:`, updateError);
       } else {
         updated++;
-        console.log(`Updated module ${mod.module_id} with AI content for style ${style}.`);
+        console.log(`Upserted content for processed_module ${mod.processed_module_id} with AI content for style ${style}.`);
       }
     } catch (err) {
       console.error(`Error processing module ${mod.module_id}:`, err);

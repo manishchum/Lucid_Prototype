@@ -197,9 +197,8 @@ const AssessmentPage = () => {
           marginLeft: 'var(--sidebar-width, 0px)',
         }}
       >
-        <div className="max-w-2xl mx-auto px-4">
-          <h1 className="text-3xl font-bold mb-4">Starting Baseline
-</h1>
+        <div className="max-w-2-xl mx-auto px-4">
+          <h1 className="text-3xl font-bold mb-4">Starting Baseline</h1>
           <p className="mb-6 text-gray-700">
             Every learner is different. This short assessment helps us tailor the program to your strengths and needs, so you can learn smarter, apply faster and move closer to your career ambitions.
           </p>
