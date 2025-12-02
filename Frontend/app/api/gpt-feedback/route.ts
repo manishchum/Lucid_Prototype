@@ -1,25 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Helper to call GPT for feedback
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+
+// Helper to call Gemini for feedback
 async function generateFeedback({ score, maxScore, answers, feedback, modules }: any): Promise<string> {
-  const prompt = `You are an experienced HR learning coach. Your task is to generate a personalized feedback report for an employee based on their performance in the baseline assessment.\n\nInput:\nEmployee’s assessment results.\nTotal questions attempted and overall percentage score.\n\nOverview:\n- Start with a warm, encouraging introduction (e.g., “Great effort on your baseline assessment! This gives us a clear starting point for your learning journey.”).\n- Summarize total performance (overall percentage, number correct).\n- Highlight strengths at a glance: List topics for which answers were correct, and pick 3–5 content areas with strong performance.\n  Example: “Your strongest areas were: Excellent recall of Variables & Data Types (85% correct), Strong comprehension of Loops & Control Flow (75% correct)”\n\nUse the following example feedback styles as templates. For each Bloom’s category, highlight areas as strengths where answers are correct and highlight areas as developmental where answers are wrong.\n\nRemember (Recall facts/definitions)\nExample: “You did very well on remembering factual details (85% correct). For example, you quickly identified definitions and key terms. This shows strong memory recall. To stay sharp, try quick 5-minute flashcard practice weekly.”\n\nUnderstand (Comprehension/Interpretation)\nExample: “Your comprehension is strong (75%). For instance, you were able to summarize main ideas but sometimes missed nuances in interpretation. Practicing by explaining concepts in your own words or teaching a colleague can strengthen this skill.”\n\nApply (Practical usage of concepts)\nExample: “Application questions were moderately accurate (60%). For example, you could apply formulas to straightforward problems but found multi-step scenarios harder. Practicing with real-world exercises or simulations will help bridge this gap.”\n\nAnalyze (Breaking down/Examining relationships)\nExample: “Analysis is still developing (55%). You spotted simple differences between concepts but struggled with cause-effect reasoning. Case study breakdowns or comparing two processes side by side will help sharpen this skill.”\n\nEvaluate (Judgment/Decision-making)\nExample: “Evaluation questions were challenging (45%). For instance, when asked to justify the best option, you often selected plausible but less supported choices. To improve, try role-play scenarios where you must defend your reasoning with evidence.”\n\nCreate (Innovation/Designing new solutions)\nExample: “Creative thinking is an area for growth (35%). For example, when asked to propose new solutions, responses leaned toward safe, familiar answers. To improve, practice brainstorming alternative approaches or designing small projects that test new ideas.”\n\nShape:\n- Use a friendly, supportive, growth-oriented tone.\n- Replace “weak” with “developing area” or “next opportunity.”\n- Celebrate effort and progress: “This is a solid foundation…”\n\nAssessment Data:\nScore: ${score} / ${maxScore}\nModule Info: ${JSON.stringify(modules)}\nAnswers: ${JSON.stringify(answers)}\nFeedback per question: ${JSON.stringify(feedback)}\n`;
+  const prompt = `You are an experienced HR learning coach. Your task is to generate a personalized feedback report for an employee based on their performance in the baseline assessment.\n\nInput:\nEmployee's assessment results.\nTotal questions attempted and overall percentage score.\n\nOverview:\n- Start with a warm, encouraging introduction (e.g., "Great effort on your baseline assessment! This gives us a clear starting point for your learning journey.").\n- Summarize total performance (overall percentage, number correct).\n- Highlight strengths at a glance: List topics for which answers were correct, and pick 3–5 content areas with strong performance.\n  Example: "Your strongest areas were: Excellent recall of Variables & Data Types (85% correct), Strong comprehension of Loops & Control Flow (75% correct)"\n\nUse the following example feedback styles as templates. For each Bloom's category, highlight areas as strengths where answers are correct and highlight areas as developmental where answers are wrong.\n\nRemember (Recall facts/definitions)\nExample: "You did very well on remembering factual details (85% correct). For example, you quickly identified definitions and key terms. This shows strong memory recall. To stay sharp, try quick 5-minute flashcard practice weekly."\n\nUnderstand (Comprehension/Interpretation)\nExample: "Your comprehension is strong (75%). For instance, you were able to summarize main ideas but sometimes missed nuances in interpretation. Practicing by explaining concepts in your own words or teaching a colleague can strengthen this skill."\n\nApply (Practical usage of concepts)\nExample: "Application questions were moderately accurate (60%). For example, you could apply formulas to straightforward problems but found multi-step scenarios harder. Practicing with real-world exercises or simulations will help bridge this gap."\n\nAnalyze (Breaking down/Examining relationships)\nExample: "Analysis is still developing (55%). You spotted simple differences between concepts but struggled with cause-effect reasoning. Case study breakdowns or comparing two processes side by side will help sharpen this skill."\n\nEvaluate (Judgment/Decision-making)\nExample: "Evaluation questions were challenging (45%). For instance, when asked to justify the best option, you often selected plausible but less supported choices. To improve, try role-play scenarios where you must defend your reasoning with evidence."\n\nCreate (Innovation/Designing new solutions)\nExample: "Creative thinking is an area for growth (35%). For example, when asked to propose new solutions, responses leaned toward safe, familiar answers. To improve, practice brainstorming alternative approaches or designing small projects that test new ideas."\n\nShape:\n- Use a friendly, supportive, growth-oriented tone.\n- Replace "weak" with "developing area" or "next opportunity."\n- Celebrate effort and progress: "This is a solid foundation…"\n\nAssessment Data:\nScore: ${score} / ${maxScore}\nModule Info: ${JSON.stringify(modules)}\nAnswers: ${JSON.stringify(answers)}\nFeedback per question: ${JSON.stringify(feedback)}\n`;
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4',
-      messages: [{ role: 'system', content: prompt }],
-      temperature: 0.3,
-      max_tokens: 600,
-    }),
-  });
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || '';
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return response.text();
+  } catch (error) {
+    console.error('Error calling Gemini API:', error);
+    throw error;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -37,33 +34,20 @@ export async function POST(request: NextRequest) {
   if (body.quiz && body.userAnswers && (!body.user_id || !body.assessment_id)) {
     try {
       console.log('[API] Lightweight feedback mode');
-  const questions = (body.quiz as any[]).map((q: any, i: number) => ({
+      const questions = (body.quiz as any[]).map((q: any, i: number) => ({
         question: q.question,
         options: q.options,
         correctIndex: q.correctIndex,
         userAnswer: body.userAnswers[i],
       }));  
+      
       const prompt = `You are an expert learning coach. For the following quiz, compare the user's answers to the correct answers. For each wrong answer, explain why it is wrong and give a brief tip for improvement. Be concise and supportive.\n\n${JSON.stringify(questions, null, 2)}`;
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4',
-          messages: [{ role: 'system', content: prompt }],
-          temperature: 0.3,
-          max_tokens: 800,
-        }),
-      });
-      const data = await response.json();
-      let feedback = '';
-      try {
-        feedback = data.choices[0].message.content;
-      } catch {
-        feedback = 'No feedback available.';
-      }
+      
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const feedback = response.text();
+      
       console.log('[API] Lightweight feedback generated');
       return NextResponse.json({ feedback });
     } catch (err) {
@@ -86,7 +70,7 @@ export async function POST(request: NextRequest) {
   console.log('[API] Assessment ID:', assessment_id);
   console.log('[API] Modules:', JSON.stringify(modules));
 
-  // If module quiz did not provide score, compute with GPT using quiz + userAnswers
+  // If module quiz did not provide score, compute with Gemini using quiz + userAnswers
   if ((score === undefined || score === null) && Array.isArray(quiz) && Array.isArray(userAnswers)) {
     try {
       const rubricPrompt = `You are an assessment grader. Given the following quiz questions and the user's submitted answers, grade each question as correct or incorrect and return a JSON object with:
@@ -103,23 +87,14 @@ Rules:
 - Only return JSON. No extra text.
 Questions: ${JSON.stringify(quiz)}
 UserAnswers: ${JSON.stringify(userAnswers)}`;
-      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4',
-          messages: [{ role: 'system', content: rubricPrompt }],
-          temperature: 0.0,
-          max_tokens: 800,
-        }),
-      });
-      const grading = await resp.json();
+
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+      const result = await model.generateContent(rubricPrompt);
+      const response = await result.response;
+      
       let graded: any = null;
       try {
-        graded = JSON.parse(grading.choices?.[0]?.message?.content || '{}');
+        graded = JSON.parse(response.text());
       } catch {}
       if (graded && typeof graded.score === 'number' && typeof graded.maxScore === 'number') {
         score = graded.score;
@@ -137,7 +112,7 @@ UserAnswers: ${JSON.stringify(userAnswers)}`;
       // Fallback: basic scoring disabled; leave score undefined
     }
   }
-  // Log resolved score after potential GPT grading
+  // Log resolved score after potential Gemini grading
   console.log('[API] Resolved Score (post-grading):', score, '/', maxScore);
   console.log('[API] Answers:', JSON.stringify(answers));
 

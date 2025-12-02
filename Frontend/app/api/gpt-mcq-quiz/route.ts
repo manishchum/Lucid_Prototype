@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import crypto from 'crypto';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 // Deep comparison helpers for modules
 function normalizeModules(modules: any[]) {
@@ -20,19 +23,19 @@ function areModulesEqual(modulesA: any[], modulesB: any[]) {
   return JSON.stringify(normalizeModules(modulesA)) === JSON.stringify(normalizeModules(modulesB));
 }
 
-// Helper to call OpenAI for MCQ quiz generation
+// Helper to call Gemini for MCQ quiz generation
 async function generateMCQQuiz(summary: string, modules: any[], objectives: any[]): Promise<any[]> {
-  const prompt = `You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom’s Taxonomy.
+  const prompt = `You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom's Taxonomy.
 
 Input: A learning asset (text, notes, or structured content).
 
-Output: A set of 30 MCQs (Multiple Choice Questions) distributed across difficulty levels based on Bloom’s Taxonomy.
+Output: A set of 30 MCQs (Multiple Choice Questions) distributed across difficulty levels based on Bloom's Taxonomy.
 
 Easy → Remember & Understand (default: 20%)
 Average → Apply & Analyze (default: 50%)
 Difficult → Evaluate & Create (default: 30%)
 
-Bloom’s Level Mapping:
+Bloom's Level Mapping:
 Remember: Define, List, Identify, Recall, Name, Label, Recognize, State, Match, Repeat, Select
 Understand: Explain, Summarize, Describe, Interpret, Restate, Paraphrase, Classify, Discuss, Illustrate, Compare (basic), Report
 Apply: Solve, Demonstrate, Use, Implement, Apply, Execute, Practice, Show, Operate, Employ, Perform
@@ -41,15 +44,15 @@ Evaluate: Judge, Critique, Justify, Recommend, Assess, Evaluate, Defend, Support
 Create: Design, Generate, Propose, Develop, Formulate, Construct, Invent, Plan, Compose, Produce, Hypothesize, Integrate, Originate
 
 Exhaustive Question-Type Bank (Stems/Patterns):
-Remember: “What is…?”, “Which of the following defines…?”, “Identify…”, “Who discovered…?”, “When/Where did…?”, “Match the term with…”
-Understand: “Which best explains…?”, “Summarize…”, “What does this mean…?”, “Which example illustrates…?”, “Why does…happen?”
-Apply: “Which principle would you use if…?”, “What is the correct method to…?”, “How would you solve…?”, “Which tool/technique applies to…?”, “Which step comes next…?”
-Analyze: “Which factor contributes most to…?”, “What pattern best explains…?”, “Which cause-effect relationship is correct…?”, “What evidence supports…?”, “Which statement best differentiates between…?”
-Evaluate: “Which option provides the best justification…?”, “Which solution is most effective and why?”, “Which argument is strongest?”, “Which evidence best supports…?”, “What decision is most appropriate…?”
-Create: “What new approach could be developed…?”, “Which design achieves…?”, “How would you improve…?”, “Which combination of ideas solves…?”, “What hypothesis could you form…?”
+Remember: "What is…?", "Which of the following defines…?", "Identify…", "Who discovered…?", "When/Where did…?", "Match the term with…"
+Understand: "Which best explains…?", "Summarize…", "What does this mean…?", "Which example illustrates…?", "Why does…happen?"
+Apply: "Which principle would you use if…?", "What is the correct method to…?", "How would you solve…?", "Which tool/technique applies to…?", "Which step comes next…?"
+Analyze: "Which factor contributes most to…?", "What pattern best explains…?", "Which cause-effect relationship is correct…?", "What evidence supports…?", "Which statement best differentiates between…?"
+Evaluate: "Which option provides the best justification…?", "Which solution is most effective and why?", "Which argument is strongest?", "Which evidence best supports…?", "What decision is most appropriate…?"
+Create: "What new approach could be developed…?", "Which design achieves…?", "How would you improve…?", "Which combination of ideas solves…?", "What hypothesis could you form…?"
 
 Question Design Rules:
-- Each question must explicitly map to its Bloom’s level.
+- Each question must explicitly map to its Bloom's level.
 - Provide 4 answer choices (A–D).
 - Clearly mark the correct answer.
 - Avoid ambiguity; test one concept per question. Ensure every concept is tested.
@@ -68,35 +71,55 @@ Summary: ${summary}
 Modules: ${JSON.stringify(modules)}
 Objectives: ${JSON.stringify(objectives)}
 `;
-  console.log("[gpt-mcq-quiz] Calling OpenAI with prompt:", prompt.slice(0, 500));
+  console.log("[gpt-mcq-quiz] Calling Gemini with prompt:", prompt.slice(0, 500));
 
-  // Call OpenAI API (replace with your actual API call)
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4.1',
-      messages: [{ role: 'system', content: prompt }],
-      temperature: 0.7,
-      max_tokens: 8000,
-    }),
-  });
-  const data = await response.json();
-  console.log('[gpt-mcq-quiz][DEBUG] Raw OpenAI response:', JSON.stringify(data, null, 2));
-  let quiz;
   try {
-    quiz = JSON.parse(data.choices[0].message.content);
-    if (!Array.isArray(quiz) || quiz.length === 0) {
-      console.warn('[gpt-mcq-quiz][WARN] Parsed quiz is empty or not an array:', quiz);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const content = response.text();
+    
+    console.log('[gpt-mcq-quiz][DEBUG] Raw Gemini response:', JSON.stringify(content, null, 2));
+    
+    let quiz;
+    try {
+      // Clean the response to remove markdown code blocks and extra formatting
+      let cleanedContent = content.trim();
+      
+      // Remove markdown code blocks if present
+      cleanedContent = cleanedContent.replace(/^```json\s*/i, '');
+      cleanedContent = cleanedContent.replace(/^```\s*/i, '');
+      cleanedContent = cleanedContent.replace(/\s*```$/i, '');
+      
+      // Remove any leading/trailing whitespace again
+      cleanedContent = cleanedContent.trim();
+      
+      // Try to find JSON array bounds if there's extra text
+      const jsonStart = cleanedContent.indexOf('[');
+      const jsonEnd = cleanedContent.lastIndexOf(']');
+      
+      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+        cleanedContent = cleanedContent.substring(jsonStart, jsonEnd + 1);
+      }
+      
+      console.log('[gpt-mcq-quiz][DEBUG] Cleaned content for parsing:', cleanedContent.slice(0, 200) + '...');
+      
+      quiz = JSON.parse(cleanedContent);
+      
+      if (!Array.isArray(quiz) || quiz.length === 0) {
+        console.warn('[gpt-mcq-quiz][WARN] Parsed quiz is empty or not an array:', quiz);
+        quiz = [];
+      }
+    } catch (err) {
+      console.error('[gpt-mcq-quiz][ERROR] Failed to parse Gemini response:', err);
+      console.error('[gpt-mcq-quiz][ERROR] Content that failed to parse:', content);
+      quiz = [];
     }
-  } catch (err) {
-    console.error('[gpt-mcq-quiz][ERROR] Failed to parse GPT response:', err, data.choices?.[0]?.message?.content);
-    quiz = [];
+    return quiz;
+  } catch (error) {
+    console.error('Error calling Gemini API:', error);
+    throw error;
   }
-  return quiz;
 }
 
 
@@ -205,17 +228,17 @@ export async function POST(request: NextRequest) {
       }
     }
   // Compose prompt for per-module MCQ quiz (no mixed question types)
-  const prompt = `You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom’s Taxonomy.
+  const prompt = `You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom's Taxonomy.
 
 Input: A learning asset (text, notes, or structured content).
 
-Output: A set of 10-13 MCQs (Multiple Choice Questions) distributed across difficulty levels based on Bloom’s Taxonomy.
+Output: A set of 10-13 MCQs (Multiple Choice Questions) distributed across difficulty levels based on Bloom's Taxonomy.
 
 Easy → Remember & Understand (default: 20%)
 Average → Apply & Analyze (default: 50%)
 Difficult → Evaluate & Create (default: 30%)
 
-Bloom’s Level Mapping:
+Bloom's Level Mapping:
 Remember: Define, List, Identify, Recall, Name, Label, Recognize, State, Match, Repeat, Select
 Understand: Explain, Summarize, Describe, Interpret, Restate, Paraphrase, Classify, Discuss, Illustrate, Compare (basic), Report
 Apply: Solve, Demonstrate, Use, Implement, Apply, Execute, Practice, Show, Operate, Employ, Perform
@@ -224,15 +247,15 @@ Evaluate: Judge, Critique, Justify, Recommend, Assess, Evaluate, Defend, Support
 Create: Design, Generate, Propose, Develop, Formulate, Construct, Invent, Plan, Compose, Produce, Hypothesize, Integrate, Originate
 
 Exhaustive Question-Type Bank (Stems/Patterns):
-Remember: “What is…?”, “Which of the following defines…?”, “Identify…”, “Who discovered…?”, “When/Where did…?”, “Match the term with…”
-Understand: “Which best explains…?”, “Summarize…”, “What does this mean…?”, “Which example illustrates…?”, “Why does…happen?”
-Apply: “Which principle would you use if…?”, “What is the correct method to…?”, “How would you solve…?”, “Which tool/technique applies to…?”, “Which step comes next…?”
-Analyze: “Which factor contributes most to…?”, “What pattern best explains…?”, “Which cause-effect relationship is correct…?”, “What evidence supports…?”, “Which statement best differentiates between…?”
-Evaluate: “Which option provides the best justification…?”, “Which solution is most effective and why?”, “Which argument is strongest?”, “Which evidence best supports…?”, “What decision is most appropriate…?”
-Create: “What new approach could be developed…?”, “Which design achieves…?”, “How would you improve…?”, “Which combination of ideas solves…?”, “What hypothesis could you form…?”
+Remember: "What is…?", "Which of the following defines…?", "Identify…", "Who discovered…?", "When/Where did…?", "Match the term with…"
+Understand: "Which best explains…?", "Summarize…", "What does this mean…?", "Which example illustrates…?", "Why does…happen?"
+Apply: "Which principle would you use if…?", "What is the correct method to…?", "How would you solve…?", "Which tool/technique applies to…?", "Which step comes next…?"
+Analyze: "Which factor contributes most to…?", "What pattern best explains…?", "Which cause-effect relationship is correct…?", "What evidence supports…?", "Which statement best differentiates between…?"
+Evaluate: "Which option provides the best justification…?", "Which solution is most effective and why?", "Which argument is strongest?", "Which evidence best supports…?", "What decision is most appropriate…?"
+Create: "What new approach could be developed…?", "Which design achieves…?", "How would you improve…?", "Which combination of ideas solves…?", "What hypothesis could you form…?"
 
 Question Design Rules:
-- Each question must explicitly map to its Bloom’s level.
+- Each question must explicitly map to its Bloom's level.
 - Provide 4 answer choices (A–D).
 - Clearly mark the correct answer.
 - Avoid ambiguity; test one concept per question. Ensure every concept is tested.
@@ -250,76 +273,72 @@ Learning Content:
 Summary: ${moduleTitle}
 Modules: ${JSON.stringify([moduleTitle])}
 Objectives: ${JSON.stringify([moduleContent])}`;
-    console.log(`[gpt-mcq-quiz] Calling OpenAI for moduleId: ${moduleId} with learning style: ${learningStyle}`);
-    // Call OpenAI API
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4.1',
-        messages: [{ role: 'system', content: prompt }],
-        temperature: 0.7,
-        max_tokens: 20000,
-      }),
-    });
-    const data = await response.json();
-    console.log('[gpt-mcq-quiz][DEBUG] Raw GPT response:', JSON.stringify(data, null, 2));
-    let quiz = [];
-    if (data.choices && Array.isArray(data.choices) && data.choices.length > 0 && data.choices[0].message && data.choices[0].message.content) {
+    console.log(`[gpt-mcq-quiz] Calling Gemini for moduleId: ${moduleId} with learning style: ${learningStyle}`);
+    
+    try {
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const content = response.text();
+      
+      console.log('[gpt-mcq-quiz][DEBUG] Raw Gemini response:', JSON.stringify(content, null, 2));
+      
+      let quiz = [];
       try {
-        quiz = JSON.parse(data.choices[0].message.content);
+        quiz = JSON.parse(content);
       } catch (e) {
-        console.log('[gpt-mcq-quiz][DEBUG] Failed to parse GPT response:', e, data.choices[0].message.content);
+        console.log('[gpt-mcq-quiz][DEBUG] Failed to parse Gemini response:', e, content);
         quiz = [];
       }
-    } else {
-      console.log('[gpt-mcq-quiz][DEBUG] GPT response missing choices or content:', data);
-    }
-    console.log('[gpt-mcq-quiz][DEBUG] Generated quiz:', quiz);
-    // Save quiz for this learning style, using a deterministic UUID to avoid race-condition duplicates
-    const stableIdSeed = `module:${processedModuleId}|style:${learningStyle}`;
-    const hash = crypto.createHash('sha1').update(stableIdSeed).digest('hex');
-    const stableId = `${hash.substring(0,8)}-${hash.substring(8,12)}-${hash.substring(12,16)}-${hash.substring(16,20)}-${hash.substring(20,32)}`;
-    const { data: insertResult, error: insertError } = await supabase
-      .from('assessments')
-      .insert({
-        assessment_id: stableId,
-        type: 'module',
-        processed_module_id: processedModuleId,
-        questions: JSON.stringify(quiz),
-        learning_style: learningStyle
-      });
-    if (insertError) {
-      // If another concurrent request inserted the same row, return that one
-      if ((insertError as any).code === '23505' || (insertError as any).code === '409') {
-        const { data: existingListAfter } = await supabase
-          .from('assessments')
-          .select('assessment_id, questions')
-          .eq('type', 'module')
-          .eq('processed_module_id', processedModuleId)
-          .eq('learning_style', learningStyle)
-          .order('assessment_id', { ascending: false })
-          .limit(1);
-        const existingAfter = Array.isArray(existingListAfter) ? existingListAfter[0] : null;
-        if (existingAfter) {
-          try {
-            const quizExisting = Array.isArray(existingAfter.questions) ? existingAfter.questions : JSON.parse(existingAfter.questions);
-            return NextResponse.json({ quiz: quizExisting });
-          } catch {
-            return NextResponse.json({ quiz: existingAfter.questions });
+      
+      console.log('[gpt-mcq-quiz][DEBUG] Generated quiz:', quiz);
+      
+      // Save quiz for this learning style, using a deterministic UUID to avoid race-condition duplicates
+      const stableIdSeed = `module:${processedModuleId}|style:${learningStyle}`;
+      const hash = crypto.createHash('sha1').update(stableIdSeed).digest('hex');
+      const stableId = `${hash.substring(0,8)}-${hash.substring(8,12)}-${hash.substring(12,16)}-${hash.substring(16,20)}-${hash.substring(20,32)}`;
+      const { data: insertResult, error: insertError } = await supabase
+        .from('assessments')
+        .insert({
+          assessment_id: stableId,
+          type: 'module',
+          processed_module_id: processedModuleId,
+          questions: JSON.stringify(quiz),
+          learning_style: learningStyle
+        });
+      if (insertError) {
+        // If another concurrent request inserted the same row, return that one
+        if ((insertError as any).code === '23505' || (insertError as any).code === '409') {
+          const { data: existingListAfter } = await supabase
+            .from('assessments')
+            .select('assessment_id, questions')
+            .eq('type', 'module')
+            .eq('processed_module_id', processedModuleId)
+            .eq('learning_style', learningStyle)
+            .order('assessment_id', { ascending: false })
+            .limit(1);
+          const existingAfter = Array.isArray(existingListAfter) ? existingListAfter[0] : null;
+          if (existingAfter) {
+            try {
+              const quizExisting = Array.isArray(existingAfter.questions) ? existingAfter.questions : JSON.parse(existingAfter.questions);
+              return NextResponse.json({ quiz: quizExisting });
+            } catch {
+              return NextResponse.json({ quiz: existingAfter.questions });
+            }
           }
+          // Fallback: still return the generated quiz
+          return NextResponse.json({ quiz });
         }
-        // Fallback: still return the generated quiz
-        return NextResponse.json({ quiz });
+        console.log('[gpt-mcq-quiz][DEBUG] Insert error (non-duplicate):', insertError);
+        return NextResponse.json({ error: 'Failed to save assessment' }, { status: 500 });
       }
-      console.log('[gpt-mcq-quiz][DEBUG] Insert error (non-duplicate):', insertError);
-      return NextResponse.json({ error: 'Failed to save assessment' }, { status: 500 });
+      console.log('[gpt-mcq-quiz][DEBUG] Insert result:', insertResult);
+      return NextResponse.json({ quiz });
+    } catch (error) {
+      console.error('Error generating quiz with Gemini:', error);
+      return NextResponse.json({ error: 'Failed to generate quiz' }, { status: 500 });
     }
-    console.log('[gpt-mcq-quiz][DEBUG] Insert result:', insertResult);
-    return NextResponse.json({ quiz, assessmentId: stableId });
+    
   }
 
   // Baseline (multi-module) quiz generation with modules_snapshot logic

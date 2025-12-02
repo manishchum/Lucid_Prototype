@@ -11,68 +11,158 @@ export function parseFeedbackSections(feedback: string, employeeName?: string) {
   // Replace placeholders
   let processedFeedback = feedback
     .replace('[Your Name]', 'Lucid')
-    .replace('Dear Employee', `Dear ${employeeName || 'Employee'}`);
+    .replace('Hi [Employee Name]', `Dear ${employeeName || 'Employee'}`)
+    .replace('Subject: Your Baseline Assessment: A Foundation for Growth!','')
+    .replace('[Your Name/HR Learning Coach]', 'Lucid Learning Team');
   
   const sections: { title: string; content: string; color: string; type: 'summary' | 'detail' }[] = [];
   const lines = processedFeedback.split('\n').filter(line => line.trim());
   
   let currentSection = { title: '', content: '', color: 'blue', type: 'summary' as 'summary' | 'detail' };
-  let isSummarySection = true;
   
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const trimmed = line.trim();
     
-    // Check for section headers
-    if (trimmed.match(/^\d+\.\s*(.+):|^[•·-]\s*(.+):|^Your strongest areas were:/i)) {
+    // Skip empty lines
+    if (!trimmed) continue;
+    
+    // Check for markdown headers (## or ###) or section patterns
+    if (trimmed.match(/^#{1,3}\s+(.+)/) || 
+        trimmed.match(/^\*\*(.+)\*\*:?$/) ||
+        trimmed.match(/^### (.+)/) ||
+        trimmed.match(/^## (.+)/) ||
+        trimmed.toLowerCase().includes('strengths at a glance') ||
+        trimmed.toLowerCase().includes('next steps') ||
+        (trimmed.toLowerCase().includes('remember') && trimmed.includes('(')) ||
+        (trimmed.toLowerCase().includes('understand') && trimmed.includes('(')) ||
+        (trimmed.toLowerCase().includes('apply') && trimmed.includes('(')) ||
+        (trimmed.toLowerCase().includes('analyze') && trimmed.includes('(')) ||
+        (trimmed.toLowerCase().includes('evaluate') && trimmed.includes('(')) ||
+        (trimmed.toLowerCase().includes('create') && trimmed.includes('('))) {
+      
       // Save previous section if it has content
-      if (currentSection.title && currentSection.content) {
+      if (currentSection.title && currentSection.content.trim()) {
         sections.push({ ...currentSection });
       }
       
-      let title = '';
-      if (trimmed.toLowerCase().includes('your strongest areas were:')) {
-        title = 'Your Strongest Areas';
-      } else {
-        title = trimmed.replace(/^\d+\.\s*/, '').replace(/^[•·-]\s*/, '').replace(':', '');
-      }
+      // Extract title
+      let title = trimmed
+        .replace(/^#{1,3}\s+/, '')
+        .replace(/^\*\*/, '')
+        .replace(/\*\*:?$/, '')
+        .replace(/^### /, '')
+        .replace(/^## /, '')
+        .trim();
       
+      // Determine color and type based on content
       let color = 'blue';
       let type: 'summary' | 'detail' = 'detail';
       
-      // Determine color and type based on content
-      if (title.toLowerCase().includes('strength') || title.toLowerCase().includes('areas were') || title.toLowerCase().includes('strongest areas')) {
-        color = 'purple'; type = 'summary';
-      } else if (title.toLowerCase().includes('tip') || title.toLowerCase().includes('improve') || title.toLowerCase().includes('recommend')) {
-        color = 'orange'; type = 'detail';
-      } else if (title.toLowerCase().includes('overview') || title.toLowerCase().includes('performance') || title.toLowerCase().includes('effort')) {
-        color = 'green'; type = 'summary';
-      } else if (title.toLowerCase().includes('analysis') || title.toLowerCase().includes('detailed') || title.toLowerCase().includes('evaluating') || title.toLowerCase().includes('judging')) {
-        color = 'indigo'; type = 'detail';
-      } else if (title.toLowerCase().includes('assessment') || title.toLowerCase().includes('feedback')) {
+      if (title.toLowerCase().includes('personalized feedback') || 
+          title.toLowerCase().includes('baseline assessment') ||
+          title.toLowerCase().includes('overall') ||
+          trimmed.toLowerCase().includes('great effort')) {
         color = 'blue'; type = 'summary';
+      } else if (title.toLowerCase().includes('strength') || 
+                 title.toLowerCase().includes('at a glance') ||
+                 title.toLowerCase().includes('you demonstrated')) {
+        color = 'purple'; type = 'summary';
+      } else if (title.toLowerCase().includes('remember') && title.includes('(')) {
+        color = 'green'; type = 'detail';
+      } else if (title.toLowerCase().includes('understand') && title.includes('(')) {
+        color = 'blue'; type = 'detail';
+      } else if (title.toLowerCase().includes('apply') && title.includes('(')) {
+        color = 'orange'; type = 'detail';
+      } else if (title.toLowerCase().includes('analyze') && title.includes('(')) {
+        color = 'indigo'; type = 'detail';
+      } else if (title.toLowerCase().includes('evaluate') && title.includes('(')) {
+        color = 'red'; type = 'detail';
+      } else if (title.toLowerCase().includes('create') && title.includes('(')) {
+        color = 'purple'; type = 'detail';
+      } else if (title.toLowerCase().includes('next steps') || 
+                 title.toLowerCase().includes('recommendations')) {
+        color = 'green'; type = 'summary';
       }
       
       currentSection = { title, content: '', color, type };
-      isSummarySection = type === 'summary';
-    } else if (trimmed && currentSection.title) {
-      // Add content with better spacing
-      currentSection.content += (currentSection.content ? '\n\n' : '') + trimmed;
-    } else if (trimmed && !currentSection.title) {
-      // Handle opening content (usually greeting)
+      
+      // Look ahead to collect content for this section
+      let j = i + 1;
+      while (j < lines.length) {
+        const nextLine = lines[j].trim();
+        
+        // Check if this is the start of a new section
+        if (nextLine.match(/^#{1,3}\s+(.+)/) || 
+            nextLine.match(/^\*\*(.+)\*\*:?$/) ||
+            nextLine.match(/^### (.+)/) ||
+            nextLine.match(/^## (.+)/) ||
+            nextLine.toLowerCase().includes('strengths at a glance') ||
+            nextLine.toLowerCase().includes('next steps') ||
+            (nextLine.toLowerCase().includes('remember') && nextLine.includes('(')) ||
+            (nextLine.toLowerCase().includes('understand') && nextLine.includes('(')) ||
+            (nextLine.toLowerCase().includes('apply') && nextLine.includes('(')) ||
+            (nextLine.toLowerCase().includes('analyze') && nextLine.includes('(')) ||
+            (nextLine.toLowerCase().includes('evaluate') && nextLine.includes('(')) ||
+            (nextLine.toLowerCase().includes('create') && nextLine.includes('('))) {
+          break;
+        }
+        
+        // Add content to current section
+        if (nextLine) {
+          currentSection.content += (currentSection.content ? '\n\n' : '') + nextLine;
+        }
+        j++;
+      }
+      
+      i = j - 1; // Skip the lines we've already processed
+    } else if (!currentSection.title) {
+      // Handle opening content (usually greeting) - first few lines without a section header
       if (!sections.length) {
         currentSection = { 
-          title: 'Assessment Feedback', 
+          title: 'Assessment Overview', 
           content: trimmed, 
           color: 'blue',
           type: 'summary'
         };
+        
+        // Collect the initial content until we hit a section header
+        let j = i + 1;
+        while (j < lines.length) {
+          const nextLine = lines[j].trim();
+          
+          // Check if this is the start of a section
+          if (nextLine.match(/^#{1,3}\s+(.+)/) || 
+              nextLine.match(/^\*\*(.+)\*\*:?$/) ||
+              nextLine.toLowerCase().includes('strengths at a glance') ||
+              (nextLine.toLowerCase().includes('remember') && nextLine.includes('('))) {
+            break;
+          }
+          
+          if (nextLine) {
+            currentSection.content += '\n\n' + nextLine;
+          }
+          j++;
+        }
+        
+        i = j - 1;
       }
     }
   }
   
   // Add the last section
-  if (currentSection.title && currentSection.content) {
+  if (currentSection.title && currentSection.content.trim()) {
     sections.push({ ...currentSection });
+  }
+  
+  // If no sections were found, create a single section from all content
+  if (sections.length === 0 && processedFeedback.trim()) {
+    sections.push({
+      title: 'Assessment Feedback',
+      content: processedFeedback.trim(),
+      color: 'blue',
+      type: 'summary'
+    });
   }
   
   return sections;

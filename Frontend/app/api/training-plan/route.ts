@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import OpenAI from "openai";
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import crypto from "crypto";
 import ensureProcessedModulesForPlan from "@/lib/processedModulesHelper";
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Request received");
@@ -12,10 +14,10 @@ export async function POST(req: NextRequest) {
     console.error("[Training Plan API] Missing user_id");
     return NextResponse.json({ error: "Missing user_id" }, { status: 400 });
   }
-  // Validate OpenAI API key early to avoid opaque 500s later
-  if (!process.env.OPENAI_API_KEY) {
-    console.error("[Training Plan API] OPENAI_API_KEY is not set");
-    return NextResponse.json({ error: "Server misconfiguration: OPENAI_API_KEY is missing." }, { status: 500 });
+  // Validate Gemini API key early to avoid opaque 500s later
+  if (!process.env.GEMINI_API_KEY) {
+    console.error("[Training Plan API] GEMINI_API_KEY is not set");
+    return NextResponse.json({ error: "Server misconfiguration: GEMINI_API_KEY is missing." }, { status: 500 });
   }
   // Fetch company_id for this employee
   let company_id = null;
@@ -135,12 +137,12 @@ export async function POST(req: NextRequest) {
 
   const { data: lsData, error: lsError } = await supabase
     .from("employee_learning_style")
-    .select("learning_style, gpt_analysis")
+    .select("learning_style, gemini_analysis")
     .eq("user_id", user_id)
     .single();
-  let gptText = "";
+  let geminiText = "";
   if (lsData) {
-    gptText = `Learning Style: ${lsData.learning_style}\nAnalysis: ${lsData.gpt_analysis}`;
+    geminiText = `Learning Style: ${lsData.learning_style}\nAnalysis: ${lsData.gemini_analysis}`;
   }
 
   // Step 1.5: Check if a learning plan already exists and matches the current assessment state (avoid unnecessary GPT calls)
@@ -185,10 +187,10 @@ export async function POST(req: NextRequest) {
       }).join("\n");
   }
 
-  // Compose prompt for GPT
+  // Compose prompt for Gemini
   const prompt =
     "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan. If KPI scores (description, score, benchmark, and datatype) are available, use them; otherwise, rely only on baseline assessments.\n\n" +
-    gptText + "\n\n" +
+    geminiText + "\n\n" +
     (kpiText ? kpiText + "\n\n" : "") +
     "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n" +
     "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
@@ -214,32 +216,40 @@ export async function POST(req: NextRequest) {
     "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
     "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"kpi_influence\": string,\n  \"overall_strategy\": string\n}\n" +
     "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
-  console.log("[Training Plan API] Prompt for GPT:", prompt);
+  console.log("[Training Plan API] Prompt for Gemini:", prompt);
 
-  // Call OpenAI with a widely supported model and safe token limits
-  console.log("[Training Plan API] Calling OpenAI (gpt-4o-mini)...");
+  // Call Gemini with gemini-2.5-flash-lite model
+  console.log("[Training Plan API] Calling Gemini (gemini-2.5-flash-lite)...");
   let planJsonRaw = "";
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "You are an expert corporate trainer and instructional designer." },
-        { role: "user", content: prompt },
-      ],
-      // Keep output size reasonable to reduce errors; adjust if needed
-      max_tokens: 3000,
-      temperature: 0.7,
-    });
-    planJsonRaw = completion.choices[0]?.message?.content?.trim() || "";
-    console.log("[Training Plan API] GPT raw response:", planJsonRaw);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    planJsonRaw = response.text()?.trim() || "";
+    console.log("[Training Plan API] Gemini raw response:", planJsonRaw);
   } catch (err: any) {
-    console.error("[Training Plan API] OpenAI call failed:", err?.response?.data || err?.message || err);
-    return NextResponse.json({ error: "OpenAI call failed", details: err?.message || String(err) }, { status: 500 });
+    console.error("[Training Plan API] Gemini call failed:", err?.message || err);
+    return NextResponse.json({ error: "Gemini call failed", details: err?.message || String(err) }, { status: 500 });
   }
 
-  // Remove Markdown code block markers if present
-  planJsonRaw = planJsonRaw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+  // Clean the response to remove markdown code blocks and extra formatting
+  let cleanedContent = planJsonRaw.trim();
+  
+  // Remove markdown code blocks if present
+  cleanedContent = cleanedContent.replace(/^```json\s*/i, '');
+  cleanedContent = cleanedContent.replace(/^```\s*/i, '');
+  cleanedContent = cleanedContent.replace(/\s*```$/i, '');
+  
+  // Remove any leading/trailing whitespace again
+  cleanedContent = cleanedContent.trim();
+  
+  // Try to find JSON object bounds if there's extra text
+  const jsonStart = cleanedContent.indexOf('{');
+  const jsonEnd = cleanedContent.lastIndexOf('}');
+  
+  if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+    cleanedContent = cleanedContent.substring(jsonStart, jsonEnd + 1);
+  }
 
   // Hardened parsing with sanitation and fallbacks
   let plan: any = null;
@@ -248,7 +258,7 @@ export async function POST(req: NextRequest) {
   const sanitizeJson = (s: string): string => {
     let out = s.trim();
     // Normalize smart quotes and apostrophes
-    out = out.replace(/[“”]/g, '"').replace(/[’]/g, "'");
+    out = out.replace(/[""]/g, '"').replace(/[']/g, "'");
     // Merge keys like "Key1" and "Key2": into a single valid JSON key
     out = out.replace(/"([^"\n]+)"\s+and\s+"([^"\n]+)"\s*:/g, '"$1 and $2":');
     // Remove trailing commas before } or ]
@@ -275,14 +285,14 @@ export async function POST(req: NextRequest) {
   };
 
   // Attempt 1: strict parse
-  let parsed = tryParse(planJsonRaw);
+  let parsed = tryParse(cleanedContent);
   if (!parsed) {
     // Attempt 2: sanitize and parse
-    const cleaned = sanitizeJson(planJsonRaw);
+    const cleaned = sanitizeJson(cleanedContent);
     parsed = tryParse(cleaned);
     if (!parsed) {
       // Attempt 3: extract plan and reasoning blocks separately
-      const cleaned2 = sanitizeJson(planJsonRaw);
+      const cleaned2 = sanitizeJson(cleanedContent);
       let planBlock: any = null;
       let reasoningBlock: any = null;
       const planMatch = cleaned2.match(/"plan"\s*:\s*({[\s\S]*?})\s*(,|})/);
@@ -296,8 +306,8 @@ export async function POST(req: NextRequest) {
   }
 
   if (!parsed) {
-    console.error("[Training Plan API] Could not parse GPT response as JSON after sanitation. Raw response:", planJsonRaw);
-    return NextResponse.json({ error: "Could not parse GPT response as JSON.", raw: planJsonRaw }, { status: 500 });
+    console.error("[Training Plan API] Could not parse Gemini response as JSON after sanitation. Raw response:", planJsonRaw);
+    return NextResponse.json({ error: "Could not parse Gemini response as JSON.", raw: planJsonRaw }, { status: 500 });
   }
   plan = parsed.plan ?? null;
   reasoning = parsed.reasoning ?? null;

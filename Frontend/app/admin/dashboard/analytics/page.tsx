@@ -189,7 +189,7 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
       .select(`
         user_id,
         learning_style,
-        gpt_analysis,
+        gemini_analysis,
         created_at,
         updated_at,
         users!inner(name, email, company_id, department_id)

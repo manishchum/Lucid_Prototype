@@ -69,7 +69,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     const payload = {
       quiz,
       userAnswers,
-      // Let the API score module quizzes using GPT
+      // Let the API score module quizzes using Gemini
       user_id: employeeId,
       employee_name: employeeName,
       assessment_id: assessmentId,
@@ -111,7 +111,6 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       setIsSubmitting(false);
     }
   };
-// ...existing code...
 
   const moduleId = params.module_id;
   const [quiz, setQuiz] = useState<any[] | null>(null);
@@ -503,7 +502,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                 Quiz Complete! 🎉
               </CardTitle>
               <CardDescription className="text-lg text-gray-600">
-                Here are your results
+                Here are your results powered by Gemini AI
               </CardDescription>
             </CardHeader>
             <CardContent className="p-8">
@@ -527,7 +526,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
 
               {feedback && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
-                  <h3 className="font-semibold text-blue-800 mb-3">Feedback & Analysis</h3>
+                  <h3 className="font-semibold text-blue-800 mb-3">AI Feedback & Analysis</h3>
                   <div className="text-blue-900 whitespace-pre-line leading-relaxed">
                     {feedback}
                   </div>

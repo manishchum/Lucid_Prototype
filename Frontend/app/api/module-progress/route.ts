@@ -1,76 +1,115 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { NextRequest, NextResponse } from 'next/server'
+import { supabase } from '@/lib/supabase'
 
-// Upsert module progress by user_id + processed_module_id
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const body = await req.json();
-    const {
-      user_id,
-      processed_module_id,
-      // Optional legacy field for grouping, if you still use training_modules
-      module_id,
-      viewed_at,
-      started_at,
-      completed_at,
-      audio_listen_duration, // seconds to add
-      quiz_score,
-      // max_score,
-      quiz_feedback,
-    } = body;
+    const body = await request.json()
+    const { 
+      user_id, 
+      processed_module_id, 
+      quiz_score, 
+      max_score, 
+      quiz_feedback, 
+      completed_at 
+    } = body
 
     if (!user_id || !processed_module_id) {
-      return NextResponse.json({ error: 'user_id and processed_module_id are required' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Missing required fields: user_id or processed_module_id' },
+        { status: 400 }
+      )
     }
 
-    // Fetch existing progress
-    const { data: existing, error: fetchErr } = await supabase
+    console.log('[module-progress] Recording progress:', { 
+      user_id, 
+      processed_module_id, 
+      quiz_score, 
+      max_score 
+    })
+
+    // Check if progress record already exists
+    const { data: existingProgress, error: checkError } = await supabase
       .from('module_progress')
-      .select('*')
+      .select('module_progress_id, completed_at')
       .eq('user_id', user_id)
       .eq('processed_module_id', processed_module_id)
-      .maybeSingle();
+      .maybeSingle()
 
-    if (fetchErr && fetchErr.code !== 'PGRST116') {
-      return NextResponse.json({ error: fetchErr.message }, { status: 500 });
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error('[module-progress] Error checking existing progress:', checkError)
+      return NextResponse.json(
+        { error: 'Failed to check existing progress' },
+        { status: 500 }
+      )
     }
 
-    // Build patch
-    const patch: any = {};
-  if (module_id) patch.module_id = module_id; // optional legacy linkage
-  if (typeof viewed_at === 'string') patch.viewed_at = viewed_at;
-  if (typeof started_at === 'string') patch.started_at = started_at;
-  if (typeof completed_at === 'string') patch.completed_at = completed_at;
-  if (typeof quiz_score === 'number') patch.quiz_score = quiz_score;
-  // if (typeof max_score === 'number') patch.max_score = max_score;  if (typeof quiz_feedback === 'string') patch.quiz_feedback = quiz_feedback;
+    let result
+    const progressData = {
+      user_id,
+      processed_module_id,
+      quiz_score: quiz_score || null,
+      max_score: max_score || null,
+      quiz_feedback: quiz_feedback || null,
+      completed_at: completed_at || new Date().toISOString(),
+      started_at: existingProgress?.completed_at ? undefined : new Date().toISOString()
+    }
 
-    if (!existing) {
-      // Insert new row
-      const insertPayload = {
-        user_id,
-        processed_module_id,
-        ...patch,
-        audio_listen_duration: typeof audio_listen_duration === 'number' ? audio_listen_duration : null,
-      };
-      const { data, error } = await supabase.from('module_progress').insert(insertPayload).select('*').maybeSingle();
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ data });
-    } else {
-      // Update existing: accumulate audio duration
-  const newDuration = (existing.audio_listen_duration || 0) + (typeof audio_listen_duration === 'number' ? audio_listen_duration : 0);
-  const updatePayload = { ...patch, audio_listen_duration: newDuration };
+    if (existingProgress) {
+      // Update existing progress
       const { data, error } = await supabase
         .from('module_progress')
-        .update(updatePayload)
-        .eq('user_id', user_id)
-        .eq('processed_module_id', processed_module_id)
-        .select('*')
-        .maybeSingle();
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ data });
+        .update({
+          quiz_score: progressData.quiz_score,
+          max_score: progressData.max_score,
+          quiz_feedback: progressData.quiz_feedback,
+          completed_at: progressData.completed_at
+        })
+        .eq('module_progress_id', existingProgress.module_progress_id)
+        .select()
+        .single()
+
+      if (error) {
+        console.error('[module-progress] Error updating progress:', error)
+        return NextResponse.json(
+          { error: 'Failed to update progress record' },
+          { status: 500 }
+        )
+      }
+      result = data
+    } else {
+      // Create new progress record
+      const { data, error } = await supabase
+        .from('module_progress')
+        .insert(progressData)
+        .select()
+        .single()
+
+      if (error) {
+        console.error('[module-progress] Error creating progress:', error)
+        return NextResponse.json(
+          { error: 'Failed to create progress record' },
+          { status: 500 }
+        )
+      }
+      result = data
     }
-  } catch (err: any) {
-    console.error('[module-progress] Error:', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+
+    console.log('[module-progress] Progress recorded successfully:', result?.module_progress_id)
+
+    return NextResponse.json({
+      success: true,
+      message: 'Module progress recorded successfully',
+      data: result
+    })
+
+  } catch (error) {
+    console.error('[module-progress] Error:', error)
+    return NextResponse.json(
+      { 
+        error: 'Failed to record module progress',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    )
   }
 }
