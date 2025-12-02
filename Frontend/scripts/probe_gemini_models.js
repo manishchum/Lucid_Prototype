@@ -64,7 +64,8 @@ async function probe() {
     'gemini-pro-1.0',
     'gemini-ultra',
     'gemini-flash',
-    'gemini-alpha'
+    'gemini-alpha',
+    'gemini-2.5-flash-lite'
   ];
 
   for (const model of models) {

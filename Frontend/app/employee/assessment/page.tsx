@@ -153,6 +153,9 @@ const AssessmentPage = () => {
           .insert({ type: 'baseline', company_id: companyId, questions: JSON.stringify(questionsForModule) })
           .select()
           .single();
+
+          console.log("--------------------------------")
+        console.log("Error in inserting the data in assessments: ",newDef)
         assessmentId = newDef?.assessment_id || null;
       }
 
