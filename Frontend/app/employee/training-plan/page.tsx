@@ -628,15 +628,15 @@ export default function TrainingPlanPage() {
                       <TabsTrigger
                         key={mod._tabValue}
                         value={mod._tabValue}
-                        className={`text-left py-4 px-5 rounded-xl mb-3 border whitespace-normal relative transition-all duration-200 ${
+                        className={`text-left py-0 px-5 rounded-xl mb-3 border whitespace-normal relative transition-all duration-200 flex w-full h-28 ${
                           mod._isCompleted
                             ? "bg-green-100 text-green-800 border-green-300 shadow-md"
                             : "bg-white text-gray-900 hover:bg-blue-50 hover:shadow-md border-gray-200"
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <div className="font-semibold text-base lg:text-lg flex items-center gap-2">
+                        <div className="flex items-start justify-between w-full h-full">
+                          <div className="flex-1 flex flex-col justify-between h-full py-4">
+                            <div className="font-semibold text-base lg:text-base flex items-center gap-2 leading-tight break-words">
                               {mod._isCompleted && (
                                 <span className="text-green-600 text-lg">
                                   ✓
@@ -644,9 +644,8 @@ export default function TrainingPlanPage() {
                               )}
                               {mod.title}
                             </div>
-                            <div className="text-xs text-gray-500 mt-1">
-                              {mod.objectives?.length || 0} objectives •{" "}
-                              {mod.recommended_time} hours
+                            <div className="text-sm text-gray-500">
+                              {mod.objectives?.length || 0} objectives • {mod.recommended_time} hours
                             </div>
                           </div>
                           {mod._isCompleted && (
