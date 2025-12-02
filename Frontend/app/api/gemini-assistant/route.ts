@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '../../../lib/supabase'
-import { callGemini, COMMON_GEMINI_MODELS } from '../../../lib/gemini-client'
+import { callGemini } from '../../../lib/gemini-client'
 
 // Simple intent detection heuristics
 function detectIntent(q: string, mode?: string) {
@@ -65,8 +65,8 @@ export async function POST(req: NextRequest) {
     // build grounding text
     const sourceParts = matches.map(m => `Title: ${m.title || 'unknown'}\n\n${excerptFromContent(m.content || '', 1200)}`).join('\n\n---\n\n')
 
-    // choose gemini model probe order
-    const geminiModel = process.env.GEMINI_MODEL || COMMON_GEMINI_MODELS[0]
+    // hardcoded Gemini model
+    const geminiModel = 'gemini-2.5-flash-lite'
     if (!process.env.GEMINI_API_KEY) {
       const fallback = excerptFromContent(sourceParts || '')
       return NextResponse.json({ answer: fallback || `No content found for "${query}".`, llm_model_used: null, llm_error: [{ model: 'gemini', error: 'no_gemini_key' }] })
