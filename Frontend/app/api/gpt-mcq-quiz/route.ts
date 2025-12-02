@@ -364,14 +364,48 @@ Objectives: ${JSON.stringify([moduleContent])}`;
         learning_style: userLearningStyle || null
       };
     });
-    const { data: insData, error: insErr } = await supabase
+    // Try upsert first (idempotent intent). If the DB lacks a unique constraint
+    // on `original_module_id` Postgres returns 42P10. In that case, fall back to
+    // a safer insert+requery flow so we don't return 500 to the caller.
+    let insData: any = null;
+    let insErr: any = null;
+    const upsertRes = await supabase
       .from('processed_modules')
-      .insert(inserts)
+      .upsert(inserts, { onConflict: 'original_module_id' })
       .select('processed_module_id, original_module_id');
+    insData = upsertRes.data; insErr = upsertRes.error;
+
     if (insErr) {
-      console.error('[gpt-mcq-quiz] Failed to insert processed_modules:', insErr);
-      return NextResponse.json({ error: 'Failed to ensure processed_modules entries' }, { status: 500 });
+      // If the error indicates no matching unique constraint for ON CONFLICT,
+      // fall back to a plain insert and then re-query existing rows.
+      if (insErr.code === '42P10') {
+        console.warn('[gpt-mcq-quiz] upsert failed (no unique constraint). Falling back to insert + re-query.', insErr.message);
+        const insertRes = await supabase
+          .from('processed_modules')
+          .insert(inserts)
+          .select('processed_module_id, original_module_id');
+        if (!insertRes.error && Array.isArray(insertRes.data)) {
+          insData = insertRes.data;
+        } else {
+          // If insert also failed (likely due to concurrent inserts), re-query the
+          // processed_modules rows for our missingModuleIds to obtain ids.
+          console.warn('[gpt-mcq-quiz] insert fallback failed; re-querying processed_modules for missing module ids.', insertRes.error);
+          const { data: requeryRows, error: requeryErr } = await supabase
+            .from('processed_modules')
+            .select('processed_module_id, original_module_id')
+            .in('original_module_id', missingModuleIds);
+          if (!requeryErr) insData = requeryRows;
+          else {
+            console.error('[gpt-mcq-quiz] Re-query after failed insert also failed:', requeryErr);
+            return NextResponse.json({ error: 'Failed to ensure processed_modules entries' }, { status: 500 });
+          }
+        }
+      } else {
+        console.error('[gpt-mcq-quiz] Failed to upsert processed_modules:', insErr);
+        return NextResponse.json({ error: 'Failed to ensure processed_modules entries' }, { status: 500 });
+      }
     }
+
     if (Array.isArray(insData)) {
       for (const p of insData) {
         if (p && p.original_module_id && p.processed_module_id) processedMap.set(String(p.original_module_id), String(p.processed_module_id));
