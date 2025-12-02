@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from 'next/navigation'
 import { MessageSquare, X, Send } from "lucide-react";
+// AssistantTabs removed - restore original inline chat UI
 
 export default function LucidAssistant() {
   const router = useRouter()
@@ -110,13 +111,16 @@ export default function LucidAssistant() {
   const handleMenuChoice = async (choice: number) => {
     // Map choice to mode and optionally prefill prompt
     if (choice === 1) {
-      // Navigate to the All Modules / Content Library page and close assistant
-      try {
-        setOpen(false)
-        router.push('/content-library')
-      } catch (e) {
-        console.error('navigation error', e)
-      }
+      // Summarize content: set mode so subsequent queries use summarization flow
+      setMode('summarize')
+      setMessages(m => [...m, { from: 'bot', text: 'You selected: Summarize content. Type what you want summarized (module name, topic, or paste text).' }])
+      return
+    }
+
+    if (choice === 2) {
+      // Practice: generate practice questions
+      setMode('practice')
+      setMessages(m => [...m, { from: 'bot', text: 'You selected: Practice. Tell me what topic or module you want practice questions for, and I will generate MCQs, short answers, and scenarios.' }])
       return
     }
 
@@ -136,26 +140,7 @@ export default function LucidAssistant() {
       return
     }
 
-    // For other choices, call server for simple canned responses
-    const mapping: Record<number, string> = {
-      1: 'explore',
-      2: 'report',
-      3: 'navigate',
-      5: 'something_else'
-    }
-    const modeStr = mapping[choice]
-    setMode(modeStr)
-    setMessages(m => [...m, { from: 'user', text: `Selected option ${choice}` }])
-    try {
-      setLoading(true)
-      const res = await fetch('/api/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: modeStr }) })
-      const data = await res.json()
-      setMessages(m => [...m, { from: 'bot', text: data?.answer || 'No response' }])
-    } catch (e) {
-      setMessages(m => [...m, { from: 'bot', text: 'An error occurred while contacting the assistant.' }])
-    } finally {
-      setLoading(false)
-    }
+    // navigation option removed from UI; other choices handled above
   }
 
   return (
@@ -220,18 +205,17 @@ export default function LucidAssistant() {
           </div>
 
           <div style={{ padding: '12px 14px', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ color: '#6b7280', fontSize: 13 }}>Hi — How can I help you today?</div>
+                <div style={{ color: '#6b7280', fontSize: 13 }}>Hi — How can I help you today?</div>
 
-              {/* Vertical menu tabs shown when no mode selected and no messages yet */}
-              {messages.length === 0 && !mode && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8, alignItems: 'flex-start' }}>
-                  <button onClick={() => handleMenuChoice(1)} style={{ padding: '8px 12px', borderRadius: 999, fontSize: 14, minWidth: 160, textAlign: 'left', background: '#f3f4f6', border: '1px solid #e6edf3' }}>1. Explore content</button>
-                    <button onClick={() => handleMenuChoice(2)} style={{ padding: '8px 12px', borderRadius: 999, fontSize: 14, minWidth: 160, textAlign: 'left', background: '#f3f4f6', border: '1px solid #e6edf3' }}>2. Report issue</button>
-                    <button onClick={() => handleMenuChoice(3)} style={{ padding: '8px 12px', borderRadius: 999, fontSize: 14, minWidth: 160, textAlign: 'left', background: '#f3f4f6', border: '1px solid #e6edf3' }}>3. Navigation help</button>
-                    <button onClick={() => handleMenuChoice(4)} style={{ padding: '8px 12px', borderRadius: 999, fontSize: 14, minWidth: 160, textAlign: 'left', background: '#2563eb', color: 'white', border: 'none' }}>4. Ask doubt related to content</button>
-                    <button onClick={() => handleMenuChoice(5)} style={{ padding: '8px 12px', borderRadius: 999, fontSize: 14, minWidth: 160, textAlign: 'left', background: '#f3f4f6', border: '1px solid #e6edf3' }}>5. Something else</button>
-                </div>
-              )}
+                  {/* Vertical menu tabs shown when no mode selected and no messages yet */}
+                  {messages.length === 0 && !mode && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8, alignItems: 'flex-start' }}>
+                      <button onClick={() => handleMenuChoice(1)} style={{ padding: '8px 12px', borderRadius: 999, fontSize: 14, minWidth: 160, textAlign: 'left', background: '#f3f4f6', border: '1px solid #e6edf3' }}>Summarize content</button>
+                        <button onClick={() => handleMenuChoice(2)} style={{ padding: '8px 12px', borderRadius: 999, fontSize: 14, minWidth: 160, textAlign: 'left', background: '#f3f4f6', border: '1px solid #e6edf3' }}>Practice</button>
+                        {/* Navigation help removed per request */}
+                        <button onClick={() => handleMenuChoice(4)} style={{ padding: '8px 12px', borderRadius: 999, fontSize: 14, minWidth: 160, textAlign: 'left', background: '#2563eb', color: 'white', border: 'none' }}>Ask doubt related to content</button>
+                    </div>
+                  )}
 
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 6, paddingTop: 6 }}>
               {messages.length === 0 && (

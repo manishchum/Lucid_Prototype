@@ -7,6 +7,15 @@ export async function POST(request: NextRequest) {
     const query = (body?.query || '').toString().trim()
     const mode = body?.mode || null
     const userId = body?.user_id || null
+    // collector for model-level errors (populated when we try OpenAI models)
+    let modelErrors: Array<{ model: string; error: string }> = []
+
+    // Diagnostic: log whether provider keys exist (do not print actual keys)
+    try {
+      console.log('[assistant] env flags:', { hasGemini: Boolean(process.env.GEMINI_API_KEY), hasOpenAI: Boolean(process.env.OPENAI_API_KEY) })
+    } catch (e) {
+      // ignore logging errors
+    }
 
     // helper: append a simple {question,answer} object into ask_doubt jsonb array
     const saveAskDoubt = async (uid: string | null, question: string, answer: string) => {
@@ -39,21 +48,23 @@ export async function POST(request: NextRequest) {
 
     // If caller is asking for a menu flow (non-doubt), handle without requiring a query
     if (mode && mode !== 'doubt' && !query) {
-      // simple canned responses for menu flows
-      if (mode === 'explore') {
-        return NextResponse.json({ answer: 'What type of content would you like to explore? Options: Modules / Notes / Guides / Your generated content.' })
+      // simple canned responses for menu flows (updated modes)
+      if (mode === 'summarize') {
+        return NextResponse.json({ answer: 'Summarize content: Tell me the module name, topic, or paste the text you want summarized.' })
       }
-      if (mode === 'report') {
-        return NextResponse.json({ answer: 'Sure — please describe the issue you are experiencing (include page, steps, and expected behavior).' })
-      }
-      if (mode === 'navigate') {
-        return NextResponse.json({ answer: 'Navigation help: How to access modules / Generate content / View saved content / Manage account. Which would you like?' })
-      }
-      if (mode === 'something_else') {
-        return NextResponse.json({ answer: 'I can help with a variety of tasks — please tell me what you need.' })
+      if (mode === 'practice') {
+        return NextResponse.json({ answer: 'Practice: I can generate MCQs, short answers, and scenario questions. Which topic or module would you like practice for?' })
       }
       // fallback
       return NextResponse.json({ answer: 'How can I help? Please type your question or pick a menu option.' })
+    }
+
+    // Quick greeting handler: if user just says "hi"/"hello", return a friendly reply immediately.
+    // This ensures an intuitive response even when LLM calls fail due to quota/access.
+    const greetingRegex = /^(hi|hello|hey|hiya|yo|hey there|good (morning|afternoon|evening))\b/i
+    if (query && greetingRegex.test(query) && query.length < 40) {
+      const friendly = `Hi — I'm Lucid Assistant 👋\nI can help you find modules, summarize content, or answer doubts about your learning material. Try asking: "Find modules about prompt engineering" or "Summarize the module on problem solving." What would you like to do?`
+      return NextResponse.json({ answer: friendly, llm_model_used: null, llm_error: null })
     }
 
     // Tokenize the query to improve matching (remove short/common words)
@@ -61,6 +72,10 @@ export async function POST(request: NextRequest) {
     const tokens = Array.from(new Set(normalized.split(/\s+/).filter(t => t.length >= 3 && !['the','and','for','with','you','how','what','when','where','is','are','in','on','of','a','an'].includes(t))))
 
     let matches: any[] = []
+
+    // Prepare LLM diagnostics that may be referenced outside the synth try/catch
+    let synthData: any = null
+    let usedModel: string | null = null
 
     try {
       if (tokens.length > 0) {
@@ -279,56 +294,134 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const synthResp = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4',
-          messages: [
-            { role: 'system', content: synthSystem },
-            { role: 'user', content: synthUser },
-          ],
-          temperature: 0.45,
-          max_tokens: 1100,
-        }),
-      })
+      // helper to call OpenAI with a chosen model and return parsed JSON (or null)
+      const callOpenAI = async (model: string, messages: any[], max_tokens: number) => {
+        try {
+          const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ model, messages, temperature: 0.45, max_tokens }),
+          })
+          if (!resp.ok) {
+            const text = await resp.text().catch(() => '')
+            const errMsg = `status=${resp.status} ${text}`
+            console.warn(`[assistant] openai ${model} call failed:`, resp.status, text)
+            return { data: null, error: errMsg }
+          }
+          const data = await resp.json()
+          return { data, error: null }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error(`[assistant] openai ${model} network error`, err)
+          return { data: null, error: errMsg }
+        }
+      }
 
-      if (synthResp.ok) {
-        const synthData = await synthResp.json()
+      // helper to call Google Gemini (Generative Language) when GEMINI_API_KEY is present
+      const callGemini = async (modelName: string, promptText: string, max_tokens = 512) => {
+        const key = process.env.GEMINI_API_KEY
+        if (!key) return { data: null, error: 'no_gemini_key' }
+        try {
+          const url = `https://generativelanguage.googleapis.com/v1beta2/models/${modelName}:generate?key=${key}`
+          const body = {
+            prompt: { text: promptText },
+            temperature: 0.45,
+            maxOutputTokens: max_tokens,
+            candidateCount: 1
+          }
+          const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+          if (!resp.ok) {
+            const text = await resp.text().catch(() => '')
+            const errMsg = `status=${resp.status} ${text}`
+            console.warn('[assistant] gemini call failed:', resp.status, text)
+            return { data: null, error: errMsg }
+          }
+          const data = await resp.json()
+          return { data, error: null }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error('[assistant] gemini network error', err)
+          return { data: null, error: errMsg }
+        }
+      }
+
+      // Prefer Gemini (if configured), otherwise fallback to OpenAI models
+      // Prefer cheaper / more accessible model first to avoid quota failures
+      const preferredOpenAI = ['gpt-3.5-turbo', 'gpt-4', 'gpt-4o']
+      const messagesForSynth = [
+        { role: 'system', content: synthSystem },
+        { role: 'user', content: synthUser },
+      ]
+
+      // Use Gemini exclusively for the assistant when configured.
+      const geminiModel = process.env.GEMINI_MODEL || 'text-bison-001'
+      if (process.env.GEMINI_API_KEY) {
+        const gResp = await callGemini(geminiModel, synthUser, 1100)
+        if (gResp && gResp.data && !gResp.error) {
+          // Normalize Gemini output to the same shape as OpenAI responses
+          const cand = gResp.data.candidates?.[0]?.content || gResp.data.candidates?.[0]?.output || gResp.data.output?.[0]?.content || ''
+          synthData = { choices: [{ message: { content: cand } }] }
+          usedModel = `gemini:${geminiModel}`
+        } else {
+          const errText = (gResp && gResp.error) || 'unknown_gemini_error'
+          modelErrors.push({ model: `gemini:${geminiModel}`, error: errText })
+          console.error('[assistant] gemini failed for synth pass', errText)
+          // Return grounded fallback so the user still receives content rather than attempting OpenAI
+          const fallbackAnswer = cleanFormatting(sourceParts)
+          if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
+          return NextResponse.json({ answer: fallbackAnswer, llm_model_used: null, llm_error: modelErrors.length ? modelErrors : null })
+        }
+      } else {
+        // Gemini is required for the assistant in this configuration
+        console.warn('[assistant] GEMINI_API_KEY missing; assistant configured to use Gemini only')
+        const fallbackAnswer = cleanFormatting(sourceParts)
+        if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
+        return NextResponse.json({ answer: fallbackAnswer, llm_model_used: null, llm_error: [{ model: 'gemini', error: 'no_gemini_key' }] })
+      }
+
+      if (synthData) {
         const synthText = synthData.choices?.[0]?.message?.content || ''
         if (synthText && typeof synthText === 'string' && synthText.trim().length > 0) {
-          // if synthesis closely copied the sources, run a forced paraphrase pass
           const needsParaphrase = hasLongOverlap(sourceParts, synthText, 8)
           if (needsParaphrase) {
             try {
               const paraSystem = `You are a careful editor. Paraphrase the following text so that no sentence is copied verbatim from the original sources. Preserve meaning, change wording and structure, and format bullets with '- ' on separate lines. Do not include citations.`
               const paraUser = `Paraphrase this text:\n\n${synthText}`
-              const paraResp = await fetch('https://api.openai.com/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  model: 'gpt-4',
-                  messages: [
-                    { role: 'system', content: paraSystem },
-                    { role: 'user', content: paraUser },
-                  ],
-                  temperature: 0.45,
-                  max_tokens: 1000,
-                }),
-              })
-              if (paraResp.ok) {
-                const paraData = await paraResp.json()
-                const paraText = paraData.choices?.[0]?.message?.content || ''
+              // Paraphrase using Gemini when available (assistant is Gemini-first)
+              let paraRespData: any = null
+              if (process.env.GEMINI_API_KEY) {
+                try {
+                  const pResp = await callGemini(geminiModel, paraUser, 1000)
+                  if (pResp && pResp.data && !pResp.error) {
+                    const cand = pResp.data.candidates?.[0]?.content || pResp.data.candidates?.[0]?.output || pResp.data.output?.[0]?.content || ''
+                    paraRespData = { choices: [{ message: { content: cand } }] }
+                    if (!usedModel) usedModel = `gemini:${geminiModel}`
+                  } else {
+                    modelErrors.push({ model: `gemini:${geminiModel}`, error: (pResp && pResp.error) || 'unknown_gemini_error' })
+                  }
+                } catch (err) {
+                  modelErrors.push({ model: `gemini:${geminiModel}`, error: err instanceof Error ? err.message : String(err) })
+                }
+              } else {
+                for (const pm of preferredOpenAI) {
+                  const resp = await callOpenAI(pm, [{ role: 'system', content: paraSystem }, { role: 'user', content: paraUser }], 1000)
+                  if (resp && resp.data) {
+                    paraRespData = resp.data
+                    if (!usedModel) usedModel = pm
+                    break
+                  }
+                  if (resp && resp.error) modelErrors.push({ model: pm, error: resp.error })
+                }
+              }
+              if (paraRespData) {
+                const paraText = paraRespData.choices?.[0]?.message?.content || ''
                 if (paraText && typeof paraText === 'string' && paraText.trim().length > 0) {
                   const finalAnswer = cleanFormatting(paraText)
                   if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, finalAnswer)
-                  return NextResponse.json({ answer: finalAnswer })
+                  return NextResponse.json({ answer: finalAnswer, llm_model_used: usedModel, llm_error: modelErrors.length ? modelErrors : null })
                 }
               }
             } catch (e) {
@@ -336,15 +429,13 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // otherwise return cleaned synthesized text
           const finalAnswer = cleanFormatting(synthText)
           if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, finalAnswer)
-          return NextResponse.json({ answer: finalAnswer })
+          return NextResponse.json({ answer: finalAnswer, llm_model_used: usedModel, llm_error: modelErrors.length ? modelErrors : null })
         }
-      } else {
-        const errTxt = await synthResp.text().catch(() => '')
-        console.warn('[assistant] synth LLM error', synthResp.status, errTxt)
       }
+      // If we reach here, all model attempts failed or produced no text
+      console.warn('[assistant] openai produced no valid text; falling back to sourceParts', modelErrors)
     } catch (e) {
       console.error('[assistant] synth call failed', e)
     }
@@ -352,7 +443,7 @@ export async function POST(request: NextRequest) {
     // last-resort fallback: return cleaned sourceParts so the user still gets useful content
     const fallbackAnswer = cleanFormatting(sourceParts)
     if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
-    return NextResponse.json({ answer: fallbackAnswer })
+    return NextResponse.json({ answer: fallbackAnswer, llm_model_used: null, llm_error: modelErrors.length ? modelErrors : null })
 
     // --- end retrieval+synthesis pipeline ---
 
