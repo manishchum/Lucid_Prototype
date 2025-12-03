@@ -818,7 +818,30 @@ export default function EmployeeWelcome() {
                             })()}
 
                             <Button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)}>Baseline Assessment</Button>
-                            <Button onClick={() => router.push('/employee/training-plan')}>Learning Plan</Button>
+                            <Button onClick={async () => {
+                              try {
+                                if (!employee?.user_id) {
+                                  alert('Could not determine employee. Please reload or login again.');
+                                  return;
+                                }
+                                const res = await fetch(`/api/training-plan?module_id=${encodeURIComponent(m.id)}`, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ user_id: employee.user_id }),
+                                });
+                                const data = await res.json().catch(() => ({}));
+                                if (!res.ok) {
+                                  const msg = data?.error || data?.message || 'Failed to generate learning plan';
+                                  alert(`Error: ${msg}`);
+                                  return;
+                                }
+                                // Redirect to training plan page scoped to this module
+                                router.push(`/employee/training-plan?module_id=${encodeURIComponent(m.id)}`);
+                              } catch (e) {
+                                console.error('Error requesting module training plan', e);
+                                alert('Network error while requesting training plan.');
+                              }
+                            }}>Learning Plan</Button>
                           </div>
                         </div>
                       ))
