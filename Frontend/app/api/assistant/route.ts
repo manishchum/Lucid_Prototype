@@ -23,17 +23,47 @@ export async function POST(request: NextRequest) {
       if (!uid) return
       try {
         // Prefer calling an atomic RPC if available
-        const { error } = await supabase.rpc('append_ask_doubt_qna', { p_user: uid, p_question: question, p_answer: answer })
-        if (error) {
+        const { error: rpcError } = await supabase.rpc('append_ask_doubt_qna', { p_user: uid, p_question: question, p_answer: answer })
+        if (rpcError) {
+          console.warn('[assistant] append_ask_doubt_qna rpc error', { user: uid, rpcError })
           // Fallback: read current array and upsert with appended element
-          const { data: existing } = await supabase.from('chatbot_user_interactions').select('ask_doubt').eq('user_id', uid).single()
+          const { data: existing, error: selectErr } = await supabase.from('chatbot_user_interactions').select('ask_doubt').eq('user_id', uid).single()
+          if (selectErr) console.warn('[assistant] fallback select error', { user: uid, selectErr })
           let arr: any[] = []
           if (existing && Array.isArray(existing.ask_doubt)) arr = existing.ask_doubt
           arr.push({ question, answer })
-          await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, ask_doubt: arr, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
+          const { data: upsertData, error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, ask_doubt: arr, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
+          if (upsertErr) {
+            console.warn('[assistant] fallback upsert error', { user: uid, upsertErr })
+          } else {
+            try { console.log('[assistant] fallback upsert ok', { user: uid, upsertRows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
+          }
         }
       } catch (e) {
         console.warn('[assistant] saveAskDoubt failed', e)
+      }
+    }
+
+    // helper: append a summary object into summarize jsonb array
+    const saveSummarize = async (uid: string | null, item: any) => {
+      if (!uid) return
+      try {
+        // Try to read existing summarize array
+        const { data: existing, error: selectErr } = await supabase.from('chatbot_user_interactions').select('summarize').eq('user_id', uid).single()
+        if (selectErr) {
+          // no existing row or error - attempt upsert to create the row with summarize array
+          const { error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, summarize: [item], updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
+          if (upsertErr) console.warn('[assistant] saveSummarize initial upsert error', { user: uid, upsertErr })
+          return
+        }
+        let arr: any[] = []
+        if (existing && Array.isArray(existing.summarize)) arr = existing.summarize
+        arr.push(item)
+        const { data: upsertData, error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, summarize: arr, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
+        if (upsertErr) console.warn('[assistant] saveSummarize upsert error', { user: uid, upsertErr })
+        else try { console.log('[assistant] saveSummarize ok', { user: uid, rows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
+      } catch (e) {
+        console.warn('[assistant] saveSummarize failed', e)
       }
     }
 
@@ -267,6 +297,25 @@ export async function POST(request: NextRequest) {
 
     const truncate = (s: string, max = 1500) => (s && s.length > max ? s.slice(0, max) + '\n...[truncated]' : s)
     let sourceParts = ''
+    let _pdfUsed = false
+
+    // If a PDF was uploaded and the user selected summarize mode, prefer that
+    // PDF content exclusively as the grounding source (avoid using module matches).
+    if (mode === 'summarize' && body?.pdf_base64) {
+      try {
+        const b64: string = body.pdf_base64
+        const buf = Buffer.from(b64, 'base64')
+        const pdfModule = await import('pdf-parse')
+        const pdfParse: any = (pdfModule && (pdfModule as any).default) || pdfModule
+        const pdfRes = await pdfParse(buf)
+        const extracted = (pdfRes && pdfRes.text) ? String(pdfRes.text) : ''
+        sourceParts = cleanFormatting(removeCitationArtifacts(extracted || ''))
+        _pdfUsed = true
+        console.log('[assistant] using uploaded PDF as grounding, length:', sourceParts.length)
+      } catch (e) {
+        console.warn('[assistant] pdf extraction failed, falling back to normal grounding', e)
+      }
+    }
     // Allow callers to force ungrounded generation from Gemini (ignore matched content)
     const forceUngrounded = Boolean(body?.ungrounded || body?.force_gemini || body?.generate_only)
 
@@ -277,7 +326,7 @@ export async function POST(request: NextRequest) {
       console.warn('[assistant] ungrounded requested but GEMINI_API_KEY missing')
       return NextResponse.json({ answer: 'Assistant unavailable: GEMINI_API_KEY is not set in the server environment. Restart the Next dev server in the shell where you set the key, then try again.' })
     }
-    if (sections && sections.length > 0) {
+    if (!_pdfUsed && sections && sections.length > 0) {
       // Use only the cleaned section text for grounding; do not include source headings or titles
       sourceParts = sections.map((s) => {
         const cleanText = removeCitationArtifacts(s.text)
@@ -293,13 +342,26 @@ export async function POST(request: NextRequest) {
 
     // Synthesis prompt: ask model to paraphrase and synthesize (no citations).
     // If `forceUngrounded` is true, instruct the model to answer directly without using grounding context.
-    const synthSystem = forceUngrounded
+    let synthSystem = forceUngrounded
       ? `You are a helpful, conversational assistant. Answer the user's question directly and concisely. Do not rely on external context or try to search a corpus; instead, use general knowledge and reasoning to produce a clear, step-by-step response when helpful. Do not include citations. Output plain text only.`
       : `You are a helpful, conversational assistant. Use the provided content as grounding but DO NOT copy lines verbatim unless explicitly asked for quotes. Synthesize a single polished, human-sounding answer that is clear, intuitive, and step-by-step when helpful. You may use general knowledge to fill small gaps but avoid inventing specific factual claims. Do not include source IDs or citations. Output plain text only.`
 
-    const synthUser = forceUngrounded
+    let synthUser = forceUngrounded
       ? `User question: ${query}\n\nInstructions: Provide a polished, direct answer to the question. Use '- ' for bullets and ensure each bullet is on its own line. Do not output citations or raw database fields.`
       : `User question: ${query}\n\nContext (for grounding only):\n${sourceParts}\n\nInstructions: Provide a polished, paraphrased answer that resonates with the provided content. Use '- ' for bullets and ensure each bullet is on its own line. Do not output citations or raw database fields.`
+
+    // If the client requested summarize mode, use a stronger, more extractive prompt
+    if (mode === 'summarize') {
+      synthSystem = `You are an expert subject-matter summarizer. Your goal is to produce a knowledge-dense, extractive summary targeted to someone who will *use* this material (a practitioner or learner). Prioritize facts and instructions that are present in the source. Do NOT hallucinate specifics. Structure the output with clear headings and sections: "Key facts", "Definitions", "Procedures / Steps", "Examples", "Actionable Takeaways". Under each heading, use short bullet points. When the source contains section headings or page numbers, include brief section references in parentheses. Keep the language precise and technical where appropriate. Output in Markdown. Do not include citations or raw DB fields.`
+
+      synthUser = `Please produce a detailed, structured summary of the following source. Focus on extracting concrete knowledge, procedures, and actionable points rather than a high-level overview. Preserve terminology from the source where useful.
+\nSource:\n${sourceParts}\n\nInstructions:\n- Produce sections with these headings: Key facts; Definitions; Procedures / Steps; Examples; Actionable takeaways.
+- For each section, list 6–12 concise bullet points (or fewer if not available).
+- When a detail is ambiguous or not present, say "Not found in source." Do not invent facts.
+- If the source has section names, mention them briefly in parentheses after the bullet.
+- Keep the final summary between 200 and 1200 words, favoring clarity and actionable detail.
+\nOutput in Markdown only.`
+    }
 
     // helper to detect long verbatim overlaps between sources and output
     const hasLongOverlap = (src: string, out: string, windowWords = 8) => {
@@ -310,6 +372,17 @@ export async function POST(request: NextRequest) {
         if (seq.length > 20 && out.includes(seq)) return true
       }
       return false
+    }
+
+    // helper: format module-like headings as bold Markdown (e.g. "Module 1: Intro" -> "**Module 1: Intro**")
+    const formatModuleHeadings = (s: string) => {
+      if (!s) return s
+      try {
+        // replace lines that start with 'Module' optionally numbered, or 'Module <n>:' patterns
+        return s.replace(/^(\s*)(Module\s*\d+\s*:?.*)$/gmi, (m, p1, p2) => `${p1}**${p2.trim()}**`)
+      } catch (e) {
+        return s
+      }
     }
 
     try {
@@ -338,7 +411,8 @@ export async function POST(request: NextRequest) {
       // Use Gemini exclusively for the assistant when configured.
       const geminiModel = 'gemini-2.5-flash-lite'
       if (process.env.GEMINI_API_KEY) {
-        const gResp = await callGemini(geminiModel, synthUser, 1500)
+        const synthMaxTokens = mode === 'summarize' ? 2500 : 1500
+        const gResp = await callGemini(geminiModel, synthUser, synthMaxTokens)
         try { console.log('[assistant] gemini raw response', { model: geminiModel, gRespPreview: JSON.stringify(gResp).slice(0,2000) }) } catch(e) {}
         if (gResp && gResp.data && !gResp.error) {
           // Prefer helper-normalized `.text` when present, else fall back to candidate shapes
@@ -360,6 +434,7 @@ export async function POST(request: NextRequest) {
           // Return grounded fallback so the user still receives content rather than attempting OpenAI
           const fallbackAnswer = cleanFormatting(sourceParts)
           if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
+          if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: fallbackAnswer, source: body?.pdf_name ? 'pdf' : 'text', created_at: new Date().toISOString() })
           return NextResponse.json({ answer: fallbackAnswer, llm_model_used: null, llm_error: modelErrors.length ? modelErrors : null })
         }
       } else {
@@ -367,6 +442,7 @@ export async function POST(request: NextRequest) {
         console.warn('[assistant] GEMINI_API_KEY missing; assistant configured to use Gemini only')
         const fallbackAnswer = cleanFormatting(sourceParts)
         if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
+        if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: fallbackAnswer, source: body?.pdf_name ? 'pdf' : 'text', created_at: new Date().toISOString() })
         return NextResponse.json({ answer: fallbackAnswer, llm_model_used: null, llm_error: [{ model: 'gemini', error: 'no_gemini_key' }] })
       }
 
@@ -399,11 +475,13 @@ export async function POST(request: NextRequest) {
               if (paraRespData) {
                 const paraText = paraRespData.choices?.[0]?.message?.content || ''
                 if (paraText && typeof paraText === 'string' && paraText.trim().length > 0) {
-                  const finalAnswer = cleanFormatting(paraText)
+                  let finalAnswer = cleanFormatting(paraText)
+                  finalAnswer = formatModuleHeadings(finalAnswer)
                   try {
                     console.log('[assistant] returning paraphrased answer from gemini', { preview: finalAnswer.slice(0,400), usedModel: usedModel })
                   } catch (e) {}
                   if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, finalAnswer)
+                  if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: finalAnswer, source: body?.pdf_name ? 'pdf' : 'text', created_at: new Date().toISOString() })
                   return NextResponse.json({ answer: finalAnswer, llm_model_used: usedModel, llm_error: modelErrors.length ? modelErrors : null })
                 }
               }
@@ -412,11 +490,13 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          const finalAnswer = cleanFormatting(synthText)
+          let finalAnswer = cleanFormatting(synthText)
+          finalAnswer = formatModuleHeadings(finalAnswer)
           try {
             console.log('[assistant] returning synth answer from gemini', { preview: finalAnswer.slice(0,400), usedModel: usedModel })
           } catch (e) {}
           if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, finalAnswer)
+          if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: finalAnswer, source: body?.pdf_name ? 'pdf' : 'text', created_at: new Date().toISOString() })
           return NextResponse.json({ answer: finalAnswer, llm_model_used: usedModel, llm_error: modelErrors.length ? modelErrors : null })
         }
       }
@@ -438,7 +518,10 @@ export async function POST(request: NextRequest) {
     try {
       console.log('[assistant] returning final fallback from sourceParts', { preview: fallbackAnswer.slice(0,400), modelErrors: modelErrors })
     } catch (e) {}
+    // format module headings for fallback answer as well
+    fallbackAnswer = formatModuleHeadings(fallbackAnswer)
     if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
+    if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: fallbackAnswer, source: body?.pdf_name ? 'pdf' : 'text', created_at: new Date().toISOString() })
     return NextResponse.json({ answer: fallbackAnswer, llm_model_used: null, llm_error: modelErrors.length ? modelErrors : null })
 
     // --- end retrieval+synthesis pipeline ---
