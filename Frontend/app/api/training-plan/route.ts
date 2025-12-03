@@ -1,21 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import OpenAI from "openai";
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import crypto from "crypto";
 import ensureProcessedModulesForPlan from "@/lib/processedModulesHelper";
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Request received");
   const { user_id } = await req.json();
+  // Read optional module_id from query string: /api/training-plan?module_id=${moduleId}
+  const module_id = req.nextUrl?.searchParams?.get("module_id") || null;
   console.log("[Training Plan API] user_id:", user_id);
+  if (module_id) console.log("[Training Plan API] module_id (query):", module_id);
   if (!user_id) {
     console.error("[Training Plan API] Missing user_id");
     return NextResponse.json({ error: "Missing user_id" }, { status: 400 });
   }
-  // Validate OpenAI API key early to avoid opaque 500s later
-  if (!process.env.OPENAI_API_KEY) {
-    console.error("[Training Plan API] OPENAI_API_KEY is not set");
-    return NextResponse.json({ error: "Server misconfiguration: OPENAI_API_KEY is missing." }, { status: 500 });
+  // Validate Gemini API key early to avoid opaque 500s later
+  if (!process.env.GEMINI_API_KEY) {
+    console.error("[Training Plan API] GEMINI_API_KEY is not set");
+    return NextResponse.json({ error: "Server misconfiguration: GEMINI_API_KEY is missing." }, { status: 500 });
   }
   // Fetch company_id for this employee
   let company_id = null;
@@ -101,65 +106,51 @@ export async function POST(req: NextRequest) {
   console.log("[Training Plan API] Baseline percent assessments:", baselinePercentAssessments);
 
   // Compute hash only from baseline assessments so module quizzes don't change the plan
+  // Include module_id in the hash when provided so cached plans are scoped per-module
   const assessmentHash = crypto.createHash("sha256")
-    .update(JSON.stringify({ baselinePercentAssessments }))
+    .update(JSON.stringify({ baselinePercentAssessments, module_id: module_id ?? null }))
     .digest("hex");
   console.log("[Training Plan API] assessmentHash:", assessmentHash);
-
-  // Fetch all processed modules for this company by joining training_modules, handling empty lists safely
-  console.log("[Training Plan API] Fetching processed modules for company_id:", company_id);
-  const { data: trainingModuleRows, error: tmError } = await supabase
-    .from("training_modules")
-    .select("module_id")
-    .eq("company_id", company_id);
-  if (tmError) {
-    console.error("[Training Plan API] Error fetching training modules:", tmError);
-    return NextResponse.json({ error: tmError.message }, { status: 500 });
-  }
-  const tmIds = (trainingModuleRows || []).map((m: any) => m.module_id);
-  let modules: any[] = [];
-  if (tmIds.length > 0) {
-    const { data: pmRows, error: modError } = await supabase
-      .from("processed_modules")
-      .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
-      .in("original_module_id", tmIds);
-    if (modError) {
-      console.error("[Training Plan API] Error fetching modules:", modError);
-      return NextResponse.json({ error: modError.message }, { status: 500 });
-    }
-    modules = pmRows || [];
-  } else {
-    console.log("[Training Plan API] No training modules found for company; proceeding with empty module list");
-  }
-  console.log("[Training Plan API] Modules for company_id:", company_id, modules);
-
-  const { data: lsData, error: lsError } = await supabase
-    .from("employee_learning_style")
-    .select("learning_style, gpt_analysis")
-    .eq("user_id", user_id)
-    .single();
-  let gptText = "";
-  if (lsData) {
-    gptText = `Learning Style: ${lsData.learning_style}\nAnalysis: ${lsData.gpt_analysis}`;
-  }
-
-  // Step 1.5: Check if a learning plan already exists and matches the current assessment state (avoid unnecessary GPT calls)
+  // Step 1.5: Check if a learning plan already exists for this user (and module if provided)
   console.log("[Training Plan API] Checking for latest assigned learning plan...");
-  const { data: existingPlan, error: existingPlanError } = await supabase
-    .from("learning_plan")
-    .select("learning_plan_id, plan_json, reasoning, status, assessment_hash")
-    .eq("user_id", user_id)
-  .eq("status", "ASSIGNED")
-    .order("learning_plan_id", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (existingPlanError && (existingPlanError as any).code !== "PGRST116") { // PGRST116: No rows found
-    console.error("[Training Plan API] Error checking existing plan:", existingPlanError);
-    return NextResponse.json({ error: existingPlanError.message }, { status: 500 });
+  let existingPlan: any = null;
+  let existingPlanError: any = null;
+  try {
+    if (module_id) {
+      const ep = await supabase
+        .from("learning_plan")
+        .select("learning_plan_id, plan_json, reasoning, status, assessment_hash, module_id")
+        .eq("user_id", user_id)
+        .eq("module_id", module_id)
+        .eq("status", "ASSIGNED")
+        .order("learning_plan_id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      existingPlan = ep.data;
+      existingPlanError = ep.error;
+    } else {
+      const ep = await supabase
+        .from("learning_plan")
+        .select("learning_plan_id, plan_json, reasoning, status, assessment_hash, module_id")
+        .eq("user_id", user_id)
+        .eq("status", "ASSIGNED")
+        .order("learning_plan_id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      existingPlan = ep.data;
+      existingPlanError = ep.error;
+    }
+  } catch (e) {
+    existingPlanError = e;
   }
+  if (existingPlanError && (existingPlanError as any).code !== "PGRST116") {
+    console.error("[Training Plan API] Error checking existing plan:", existingPlanError);
+    return NextResponse.json({ error: existingPlanError.message || String(existingPlanError) }, { status: 500 });
+  }
+
+  // If the cached plan matches the assessment hash, return it early (cache hit)
   if (existingPlan && existingPlan.assessment_hash === assessmentHash) {
     console.log("[Training Plan API] No change in assessments. Returning existing plan (pre-GPT).");
-    // Ensure processed_modules exist for modules referenced by the cached plan
     try {
       await ensureProcessedModulesForPlan(user_id, company_id, existingPlan.plan_json);
     } catch (e) {
@@ -167,6 +158,91 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ plan: existingPlan.plan_json, reasoning: existingPlan.reasoning });
   }
+
+  // Fetch all processed modules for this company by joining training_modules, handling empty lists safely
+  console.log("[Training Plan API] Fetching processed modules for company_id:", company_id);
+  let modules: any[] = [];
+  // If a specific module_id is provided, validate it belongs to the company and fetch only that processed module
+  if (module_id) {
+    try {
+      // Require that a learning_plan exists for this user+module (we fetched existingPlan earlier)
+      if (!existingPlan) {
+        console.error("[Training Plan API] No learning_plan found for user+module:", module_id);
+        return NextResponse.json({ error: "LEARNING_PLAN_NOT_FOUND_FOR_MODULE", message: "No learning plan exists for this user and module. Please create or assign a learning plan first." }, { status: 404 });
+      }
+
+      // Try to extract referenced module ids from the saved learning_plan.plan_json
+      let referencedModuleIds: string[] = [];
+      try {
+        const planObj = existingPlan?.plan_json
+          ? typeof existingPlan.plan_json === "string"
+            ? JSON.parse(existingPlan.plan_json)
+            : existingPlan.plan_json
+          : null;
+        const planModules = planObj?.modules || planObj?.learning_plan?.modules || planObj?.plan?.modules || [];
+        if (Array.isArray(planModules) && planModules.length > 0) {
+          referencedModuleIds = planModules
+            .map((m: any) => m?.original_module_id || m?.module_id || m?.id || m?.processed_module_id)
+            .filter(Boolean)
+            .map(String);
+        }
+      } catch (e) {
+        console.warn("[Training Plan API] Could not parse existing plan_json modules, falling back to provided module_id", e);
+      }
+
+      const targetModuleIds = referencedModuleIds.length > 0 ? referencedModuleIds : [module_id];
+
+      const { data: pmRows, error: modError } = await supabase
+        .from("processed_modules")
+        .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
+        .in("original_module_id", targetModuleIds);
+      if (modError) {
+        console.error("[Training Plan API] Error fetching processed modules for learning_plan:", modError);
+        return NextResponse.json({ error: modError.message }, { status: 500 });
+      }
+      modules = pmRows || [];
+    } catch (e) {
+      console.error("[Training Plan API] Unexpected error assembling modules for module_id:", e);
+      return NextResponse.json({ error: String(e) }, { status: 500 });
+    }
+  } else {
+    // No specific module requested — fall back to previous behavior: fetch all company training modules
+    const { data: trainingModuleRows, error: tmError } = await supabase
+      .from("training_modules")
+      .select("module_id")
+      .eq("company_id", company_id);
+    if (tmError) {
+      console.error("[Training Plan API] Error fetching training modules:", tmError);
+      return NextResponse.json({ error: tmError.message }, { status: 500 });
+    }
+    const tmIds = (trainingModuleRows || []).map((m: any) => m.module_id);
+    if (tmIds.length > 0) {
+      const { data: pmRows, error: modError } = await supabase
+        .from("processed_modules")
+        .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
+        .in("original_module_id", tmIds);
+      if (modError) {
+        console.error("[Training Plan API] Error fetching modules:", modError);
+        return NextResponse.json({ error: modError.message }, { status: 500 });
+      }
+      modules = pmRows || [];
+    } else {
+      console.log("[Training Plan API] No training modules found for company; proceeding with empty module list");
+    }
+  }
+  console.log("[Training Plan API] Modules for company_id:", company_id, modules);
+
+  const { data: lsData, error: lsError } = await supabase
+    .from("employee_learning_style")
+    .select("learning_style, gemini_analysis")
+    .eq("user_id", user_id)
+    .single();
+  let geminiText = "";
+  if (lsData) {
+    geminiText = `Learning Style: ${lsData.learning_style}\nAnalysis: ${lsData.gemini_analysis}`;
+  }
+
+  
 
   // Fetch employee KPIs (description and score)
   const { data: kpiRows, error: kpiError } = await supabase
@@ -185,10 +261,10 @@ export async function POST(req: NextRequest) {
       }).join("\n");
   }
 
-  // Compose prompt for GPT
+  // Compose prompt for Gemini
   const prompt =
     "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan. If KPI scores (description, score, benchmark, and datatype) are available, use them; otherwise, rely only on baseline assessments.\n\n" +
-    gptText + "\n\n" +
+    geminiText + "\n\n" +
     (kpiText ? kpiText + "\n\n" : "") +
     "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n" +
     "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
@@ -214,32 +290,40 @@ export async function POST(req: NextRequest) {
     "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
     "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"kpi_influence\": string,\n  \"overall_strategy\": string\n}\n" +
     "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
-  console.log("[Training Plan API] Prompt for GPT:", prompt);
+  console.log("[Training Plan API] Prompt for Gemini:", prompt);
 
-  // Call OpenAI with a widely supported model and safe token limits
-  console.log("[Training Plan API] Calling OpenAI (gpt-4o-mini)...");
+  // Call Gemini with gemini-2.5-flash-lite model
+  console.log("[Training Plan API] Calling Gemini (gemini-2.5-flash-lite)...");
   let planJsonRaw = "";
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "You are an expert corporate trainer and instructional designer." },
-        { role: "user", content: prompt },
-      ],
-      // Keep output size reasonable to reduce errors; adjust if needed
-      max_tokens: 3000,
-      temperature: 0.7,
-    });
-    planJsonRaw = completion.choices[0]?.message?.content?.trim() || "";
-    console.log("[Training Plan API] GPT raw response:", planJsonRaw);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    planJsonRaw = response.text()?.trim() || "";
+    console.log("[Training Plan API] Gemini raw response:", planJsonRaw);
   } catch (err: any) {
-    console.error("[Training Plan API] OpenAI call failed:", err?.response?.data || err?.message || err);
-    return NextResponse.json({ error: "OpenAI call failed", details: err?.message || String(err) }, { status: 500 });
+    console.error("[Training Plan API] Gemini call failed:", err?.message || err);
+    return NextResponse.json({ error: "Gemini call failed", details: err?.message || String(err) }, { status: 500 });
   }
 
-  // Remove Markdown code block markers if present
-  planJsonRaw = planJsonRaw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+  // Clean the response to remove markdown code blocks and extra formatting
+  let cleanedContent = planJsonRaw.trim();
+  
+  // Remove markdown code blocks if present
+  cleanedContent = cleanedContent.replace(/^```json\s*/i, '');
+  cleanedContent = cleanedContent.replace(/^```\s*/i, '');
+  cleanedContent = cleanedContent.replace(/\s*```$/i, '');
+  
+  // Remove any leading/trailing whitespace again
+  cleanedContent = cleanedContent.trim();
+  
+  // Try to find JSON object bounds if there's extra text
+  const jsonStart = cleanedContent.indexOf('{');
+  const jsonEnd = cleanedContent.lastIndexOf('}');
+  
+  if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+    cleanedContent = cleanedContent.substring(jsonStart, jsonEnd + 1);
+  }
 
   // Hardened parsing with sanitation and fallbacks
   let plan: any = null;
@@ -248,7 +332,7 @@ export async function POST(req: NextRequest) {
   const sanitizeJson = (s: string): string => {
     let out = s.trim();
     // Normalize smart quotes and apostrophes
-    out = out.replace(/[“”]/g, '"').replace(/[’]/g, "'");
+    out = out.replace(/[""]/g, '"').replace(/[']/g, "'");
     // Merge keys like "Key1" and "Key2": into a single valid JSON key
     out = out.replace(/"([^"\n]+)"\s+and\s+"([^"\n]+)"\s*:/g, '"$1 and $2":');
     // Remove trailing commas before } or ]
@@ -275,14 +359,14 @@ export async function POST(req: NextRequest) {
   };
 
   // Attempt 1: strict parse
-  let parsed = tryParse(planJsonRaw);
+  let parsed = tryParse(cleanedContent);
   if (!parsed) {
     // Attempt 2: sanitize and parse
-    const cleaned = sanitizeJson(planJsonRaw);
+    const cleaned = sanitizeJson(cleanedContent);
     parsed = tryParse(cleaned);
     if (!parsed) {
       // Attempt 3: extract plan and reasoning blocks separately
-      const cleaned2 = sanitizeJson(planJsonRaw);
+      const cleaned2 = sanitizeJson(cleanedContent);
       let planBlock: any = null;
       let reasoningBlock: any = null;
       const planMatch = cleaned2.match(/"plan"\s*:\s*({[\s\S]*?})\s*(,|})/);
@@ -296,8 +380,8 @@ export async function POST(req: NextRequest) {
   }
 
   if (!parsed) {
-    console.error("[Training Plan API] Could not parse GPT response as JSON after sanitation. Raw response:", planJsonRaw);
-    return NextResponse.json({ error: "Could not parse GPT response as JSON.", raw: planJsonRaw }, { status: 500 });
+    console.error("[Training Plan API] Could not parse Gemini response as JSON after sanitation. Raw response:", planJsonRaw);
+    return NextResponse.json({ error: "Could not parse Gemini response as JSON.", raw: planJsonRaw }, { status: 500 });
   }
   plan = parsed.plan ?? null;
   reasoning = parsed.reasoning ?? null;
@@ -338,8 +422,8 @@ export async function POST(req: NextRequest) {
     console.log("[Training Plan API] No existing plan. Inserting new...");
     dbResult = await supabase
       .from("learning_plan")
-      // Right now the last updated module is assigned 
-      .insert({ user_id, plan_json: plan, reasoning: reasoning, status: "ASSIGNED", module_id: tmIds[tmIds.length-1], assessment_hash: assessmentHash });
+      // Assign provided module_id if present, otherwise fall back to null
+      .insert({ user_id, plan_json: plan, reasoning: reasoning, status: "ASSIGNED", module_id: module_id ?? null, assessment_hash: assessmentHash });
   }
   if (dbResult.error) {
     console.error("[Training Plan API] Error saving plan:", dbResult.error);
