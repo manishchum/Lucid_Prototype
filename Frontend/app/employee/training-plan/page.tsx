@@ -518,6 +518,7 @@ export default function TrainingPlanPage() {
     const normalizedMod = {
       ...mod,
       title: mod.title || mod.name || `Module ${idx + 1}`,
+      recommended_time: mod.recommended_time || mod.time || 0, // Ensure time is available
     };
 
     const fallback = `${idx}-${normalizedMod.title || "module"}`;
@@ -543,7 +544,16 @@ export default function TrainingPlanPage() {
     return { ...normalizedMod, _tabValue: tabValue, _isCompleted: isCompleted };
   });
 
-  // console.log("Color Green");
+  // Calculate accurate completion count - only count modules that are actually in the plan
+  const planModuleIds = normalizedModules.map(mod => String(
+    mod?.processed_module_id ?? mod?.id ?? mod?.original_module_id
+  )).filter(id => id && id !== "undefined" && id !== "null");
+  
+  const actualCompletedCount = planModuleIds.filter(moduleId => 
+    completedModules.includes(moduleId)
+  ).length;
+
+  const totalModulesCount = normalizedModules.length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
@@ -597,19 +607,17 @@ export default function TrainingPlanPage() {
                     Progress Overview
                   </span>
                   <span className="text-sm font-bold text-green-600">
-                    {completedModules.length} / {normalizedModules.length}{" "}
-                    Modules Completed
+                    {actualCompletedCount} / {totalModulesCount} Modules Completed
                   </span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
                   <div
                     className="bg-gradient-to-r from-green-400 to-green-600 h-2 rounded-full transition-all duration-500"
                     style={{
-                      width: `${
-                        (completedModules.length /
-                          Math.max(normalizedModules.length, 1)) *
+                      width: `${Math.min(
+                        (actualCompletedCount / Math.max(totalModulesCount, 1)) * 100,
                         100
-                      }%`,
+                      )}%`,
                     }}
                   ></div>
                 </div>
@@ -645,7 +653,7 @@ export default function TrainingPlanPage() {
                               {mod.title}
                             </div>
                             <div className="text-sm text-gray-500">
-                              {mod.objectives?.length || 0} objectives • {mod.recommended_time} hours
+                              {mod.objectives?.length || 0} objectives • {mod.recommended_time || 0} hours
                             </div>
                           </div>
                           {mod._isCompleted && (

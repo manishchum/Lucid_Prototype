@@ -66,8 +66,8 @@ export default function AssistantTabs({ userId, onBack }: { userId?: string | nu
       {/* Left: vertical tab column */}
       <div style={{ width: 120, background: '#fbfdff', borderRight: '1px solid #eef2f6', display: 'flex', flexDirection: 'column', gap: 6, padding: 8 }}>
         <button onClick={() => setTab('summarize')} style={{ padding: 10, textAlign: 'left', borderRadius: 8, background: tab==='summarize' ? '#2563eb' : 'transparent', color: tab==='summarize' ? 'white' : '#111' }}>Summarize</button>
-        <button onClick={() => setTab('doubt')} style={{ padding: 10, textAlign: 'left', borderRadius: 8, background: tab==='doubt' ? '#2563eb' : 'transparent', color: tab==='doubt' ? 'white' : '#111' }}>Ask Doubt</button>
-        <button onClick={() => setTab('practice')} style={{ padding: 10, textAlign: 'left', borderRadius: 8, background: tab==='practice' ? '#2563eb' : 'transparent', color: tab==='practice' ? 'white' : '#111' }}>Practice</button>
+        <button onClick={() => setTab('doubt')} style={{ padding: 10, textAlign: 'left', borderRadius: 8, background: tab==='doubt' ? '#2563eb' : 'transparent', color: tab==='doubt' ? 'white' : '#111' }}>Ask Queries</button>
+        <button onClick={() => setTab('practice')} style={{ padding: 10, textAlign: 'left', borderRadius: 8, background: tab==='practice' ? '#2563eb' : 'transparent', color: tab==='practice' ? 'white' : '#111' }}>Practice questions</button>
         <button onClick={() => setTab('explain')} style={{ padding: 10, textAlign: 'left', borderRadius: 8, background: tab==='explain' ? '#2563eb' : 'transparent', color: tab==='explain' ? 'white' : '#111' }}>Explain</button>
         <button onClick={() => setTab('flashcards')} style={{ padding: 10, textAlign: 'left', borderRadius: 8, background: tab==='flashcards' ? '#2563eb' : 'transparent', color: tab==='flashcards' ? 'white' : '#111' }}>Flashcards</button>
       </div>
@@ -82,7 +82,7 @@ export default function AssistantTabs({ userId, onBack }: { userId?: string | nu
 
             {tab === 'doubt' && (
               <div style={{ minHeight: 160, maxHeight: 280, overflow: 'auto', padding: 8, border: '1px solid #eef2f6', borderRadius: 8, marginBottom: 8 }}>
-                {messages.length === 0 && <div style={{ color: '#6b7280' }}>You selected: Ask doubt related to content. Please type your question and I will search your content.</div>}
+                {messages.length === 0 && <div style={{ color: '#6b7280' }}>You selected: Ask queries. Please type your question and I will search your content.</div>}
                 {messages.map((m, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: m.from === 'user' ? 'flex-end' : 'flex-start', marginBottom: 8 }}>
                     <div style={{ maxWidth: '80%', padding: 10, borderRadius: 8, background: m.from === 'user' ? '#2563eb' : '#f3f4f6', color: m.from === 'user' ? 'white' : '#111' }}>{m.text}</div>
