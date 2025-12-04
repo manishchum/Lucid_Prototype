@@ -4,37 +4,75 @@ import { supabase } from '@/lib/supabase'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { employeeId, moduleId, quizScore, quizFeedback } = body
+    console.log('📚 DEBUG: Complete module request body:', body)
+    
+    const { 
+      employeeId, 
+      moduleId, 
+      quizScore, 
+      quizFeedback, 
+      maxScore,
+      processed_module_id,
+      user_id,
+      quiz_score,
+      max_score,
+      quiz_feedback
+    } = body
 
-    if (!employeeId || !moduleId) {
+    // Handle both old and new parameter formats
+    const userId = employeeId || user_id
+    const processedModuleId = processed_module_id || moduleId
+    const score = quizScore || quiz_score
+    const feedback = quizFeedback || quiz_feedback
+    const maximum = maxScore || max_score
+
+    if (!userId || !processedModuleId) {
       return NextResponse.json(
-        { error: 'Missing required fields: employeeId or moduleId' },
+        { error: 'Missing required fields: user_id and processed_module_id are required' },
         { status: 400 }
       )
     }
 
-    console.log('📚 DEBUG: Processing module completion:', { employeeId, moduleId })
+    console.log('📚 DEBUG: Processing module completion:', { 
+      userId, 
+      processedModuleId, 
+      score, 
+      maximum, 
+      feedback: feedback ? 'present' : 'missing' 
+    })
 
-    // Check if there's already a progress record for this employee and module
+    // Check if there's already a progress record for this user and processed module
     const { data: existingProgress, error: checkError } = await supabase
       .from('module_progress')
-      .select('id, completed_at')
-      .eq('user_id', employeeId)
-      .eq('module_id', moduleId)
-      .single()
+      .select('module_progress_id, completed_at, quiz_score')
+      .eq('user_id', userId)
+      .eq('processed_module_id', processedModuleId)
+      .maybeSingle()
+
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error('📚 DEBUG: Error checking existing progress:', checkError)
+      return NextResponse.json(
+        { error: 'Failed to check existing progress' },
+        { status: 500 }
+      )
+    }
 
     let progressData
     const completionTime = new Date().toISOString()
 
     if (existingProgress) {
-      // Update existing progress record
+      console.log('📚 DEBUG: Updating existing progress record:', existingProgress.module_progress_id)
+      
+      // Update existing progress record - only update columns that exist in the schema
+      const updateData: any = {
+        completed_at: completionTime,
+        quiz_score: score || null,
+        quiz_feedback: feedback || null
+      }
+
       const { data, error: updateError } = await supabase
         .from('module_progress')
-        .update({
-          completed_at: completionTime,
-          quiz_score: quizScore || null,
-          quiz_feedback: quizFeedback || null
-        })
+        .update(updateData)
         .eq('module_progress_id', existingProgress.module_progress_id)
         .select()
         .single()
@@ -48,17 +86,21 @@ export async function POST(request: NextRequest) {
       }
       progressData = data
     } else {
-      // Create new progress record
+      console.log('📚 DEBUG: Creating new progress record')
+      
+      // Create new progress record - only include columns that exist in the schema
+      const insertData: any = {
+        user_id: userId,
+        processed_module_id: processedModuleId,
+        started_at: completionTime,
+        completed_at: completionTime,
+        quiz_score: score || null,
+        quiz_feedback: feedback || null
+      }
+
       const { data, error: insertError } = await supabase
         .from('module_progress')
-        .insert({
-          user_id: employeeId,
-          module_id: moduleId,
-          started_at: completionTime, // Assuming they started when they completed
-          completed_at: completionTime,
-          quiz_score: quizScore || null,
-          quiz_feedback: quizFeedback || null
-        })
+        .insert(insertData)
         .select()
         .single()
 
@@ -72,10 +114,11 @@ export async function POST(request: NextRequest) {
       progressData = data
     }
 
-    console.log('📚 DEBUG: Module completion recorded successfully')
+    console.log('📚 DEBUG: Module completion recorded successfully:', progressData)
 
     // Only send admin notification if this is a new completion (not an update)
-    if (!existingProgress?.completed_at) {
+    const isNewCompletion = !existingProgress?.completed_at
+    if (isNewCompletion) {
       try {
         console.log('📧 DEBUG: Triggering admin notification for new completion')
         
@@ -86,8 +129,8 @@ export async function POST(request: NextRequest) {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            employeeId: employeeId,
-            moduleId: moduleId,
+            employeeId: userId,
+            moduleId: processedModuleId,
             completionDate: completionTime
           }),
         })
@@ -108,7 +151,10 @@ export async function POST(request: NextRequest) {
       success: true,
       message: 'Module completion recorded successfully',
       data: progressData,
-      isNewCompletion: !existingProgress?.completed_at
+      isNewCompletion,
+      score: score || null,
+      maxScore: maximum || null,
+      feedback: feedback || null
     })
 
   } catch (error) {
