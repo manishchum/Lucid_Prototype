@@ -26,20 +26,57 @@ export async function POST(req: NextRequest) {
     if (fetchError && fetchError.code !== "PGRST116") { // PGRST116: No rows found
       return NextResponse.json({ error: fetchError.message }, { status: 500 })
     }
-    if (existing) {
-      return NextResponse.json({ error: "Learning style already submitted for this user." }, { status: 403 })
-    }
-    // Insert new entry
     const now = new Date().toISOString();
-    const { error: insertError } = await adminClient
-      .from("employee_learning_style")
-      .insert({ user_id, answers, created_at: now, updated_at: now })
-    if (insertError) {
-      return NextResponse.json({ error: insertError.message }, { status: 500 })
+    if (existing) {
+      // If a row exists, update answers and timestamp so we can re-run analysis
+      const { error: updateError } = await adminClient
+        .from('employee_learning_style')
+        .update({ answers, updated_at: now })
+        .eq('user_id', user_id)
+      if (updateError) {
+        return NextResponse.json({ error: updateError.message }, { status: 500 })
+      }
+    } else {
+      // Insert new entry
+      const { error: insertError } = await adminClient
+        .from("employee_learning_style")
+        .insert({ user_id, answers, created_at: now, updated_at: now })
+      if (insertError) {
+        return NextResponse.json({ error: insertError.message }, { status: 500 })
+      }
+    }
+
+    // Compute deterministic fallback learning style from the answers (10 questions per style)
+    let fallbackStyle: string | null = null
+    try {
+      const nums = answers.map((a: any) => Number(a) || 0)
+      const sumRange = (start: number, end: number) => nums.slice(start, end).reduce((s: number, v: number) => s + v, 0)
+      const scores = {
+        CS: sumRange(0, 10),
+        AS: sumRange(10, 20),
+        AR: sumRange(20, 30),
+        CR: sumRange(30, 40),
+      }
+      const entries = Object.entries(scores)
+      entries.sort((a, b) => b[1] - a[1])
+      fallbackStyle = entries[0][0]
+      // Save fallback learning style immediately so row isn't left null
+      const { error: fallbackErr } = await adminClient
+        .from('employee_learning_style')
+        .update({ learning_style: fallbackStyle, updated_at: new Date().toISOString() })
+        .eq('user_id', user_id)
+      if (fallbackErr) {
+        console.error('[LearningStyle] Failed to save fallback learning style', fallbackErr)
+      } else {
+        console.log('[LearningStyle] Saved fallback learning style:', fallbackStyle)
+      }
+    } catch (e) {
+      console.error('[LearningStyle] Fallback computation error', e)
     }
 
     // Call GPT for learning style analysis
     let gptResult = null
+    let rawGPTText: string | null = null
     try {
       // Import OpenAI library (edge/serverless compatible)
       const openaiModule = await import("openai")
@@ -164,6 +201,7 @@ ${qaPairs}`;
       console.log("[LearningStyle] OpenAI raw response:", completion)
       // Parse GPT response
       const gptText = completion.choices[0]?.message?.content || ""
+      rawGPTText = gptText
       console.log("[LearningStyle] OpenAI parsed text:", gptText)
       // Remove Markdown code fences if present
       let cleanedText = gptText.trim()
@@ -185,16 +223,72 @@ ${qaPairs}`;
     }
 
     // Save GPT result (learning style classification and analysis) in employee_learning_style
-    if (gptResult && (gptResult.dominant_style || gptResult.learning_style) && gptResult.report) {
-      await adminClient
-        .from("employee_learning_style")
-        .update({
-          learning_style: gptResult.dominant_style || gptResult.learning_style,
-          gpt_analysis: gptResult.report,
-          updated_at: new Date().toISOString()
-        })
-        .eq("user_id", user_id)
-      console.log("GPT Analysis saved to Supabase")
+    try {
+      let learnedStyle: string | null = null
+      let analysisText: string | null = null
+
+      if (gptResult) {
+        // gptResult may already be an object parsed from JSON, or contain error/raw fields
+        if (typeof gptResult === 'object') {
+          // Possible keys: dominant_style, learning_style, dominant, scores, report
+          learnedStyle = gptResult.dominant_style || gptResult.learning_style || gptResult.dominant || null
+          analysisText = gptResult.report || gptResult.analysis || gptResult.reportText || null
+          // If scores provided, pick the highest
+          if (!learnedStyle && gptResult.scores && typeof gptResult.scores === 'object') {
+            const sEntries = Object.entries(gptResult.scores)
+            sEntries.sort((a: any, b: any) => Number(b[1]) - Number(a[1]))
+            learnedStyle = sEntries[0]?.[0] || null
+          }
+        }
+
+        // If we couldn't extract a clear report text, use raw text from GPT (or rawGPTText)
+        if (!analysisText) {
+          if (gptResult && gptResult.raw) analysisText = String(gptResult.raw)
+          else if (rawGPTText) analysisText = rawGPTText
+        }
+      }
+
+      const updatePayload: any = { updated_at: new Date().toISOString() }
+      // Always prefer to keep the deterministic fallback unless we have an actual GPT analysis text
+      // Save analysis text if available (from parsed report or raw GPT text)
+      if (analysisText) {
+        updatePayload.gpt_analysis = analysisText
+      } else if (gptResult && (gptResult.raw || gptResult.raw_text)) {
+        // If parsing didn't yield structured report, persist raw GPT text as analysis
+        updatePayload.gpt_analysis = String(gptResult.raw || gptResult.raw_text)
+      } else if (rawGPTText) {
+        // Fallback: if we captured rawGPTText earlier, persist that
+        updatePayload.gpt_analysis = rawGPTText
+      }
+
+      // Decide the final style to persist and return: prefer GPT-derived only when we also have analysis text
+      const finalStyle = (learnedStyle && updatePayload.gpt_analysis) ? learnedStyle : fallbackStyle
+
+      if (finalStyle) updatePayload.learning_style = finalStyle
+
+      // If we have something besides updated_at to save, update the row
+      if (Object.keys(updatePayload).length > 1) {
+        const { error: saveErr } = await adminClient
+          .from('employee_learning_style')
+          .update(updatePayload)
+          .eq('user_id', user_id)
+        if (saveErr) {
+          console.error('[LearningStyle] Failed to save GPT analysis', saveErr)
+        } else {
+          console.log('[LearningStyle] GPT analysis & learning_style saved for', user_id, 'finalStyle=', finalStyle)
+        }
+      } else {
+        console.log('[LearningStyle] No GPT-derived learning_style or analysis to save (kept fallback)')
+      }
+
+      // Ensure the response contains the same dominant_style the DB now has
+      if (gptResult && typeof gptResult === 'object') {
+        gptResult.dominant_style = finalStyle || gptResult.dominant_style || gptResult.learning_style || null
+      } else if (!gptResult) {
+        gptResult = { dominant_style: finalStyle }
+      }
+    } catch (saveEx) {
+      console.error('[LearningStyle] Error saving GPT result', saveEx)
     }
 
     return NextResponse.json({ success: true, gpt: gptResult })
