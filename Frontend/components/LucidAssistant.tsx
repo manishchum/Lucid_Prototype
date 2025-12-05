@@ -42,7 +42,7 @@ export default function LucidAssistant() {
   // Load persisted messages from localStorage on mount
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY)
+git      const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
         const parsed = JSON.parse(raw)
         if (Array.isArray(parsed)) setMessages(parsed)
