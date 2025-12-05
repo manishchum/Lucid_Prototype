@@ -48,7 +48,6 @@ export async function POST(request: NextRequest) {
       user_id,
       processed_module_id,
       quiz_score: quiz_score || null,
-      max_score: max_score || null,
       quiz_feedback: quiz_feedback || null,
       completed_at: completed_at || new Date().toISOString(),
       started_at: existingProgress?.completed_at ? undefined : new Date().toISOString()
@@ -60,7 +59,6 @@ export async function POST(request: NextRequest) {
         .from('module_progress')
         .update({
           quiz_score: progressData.quiz_score,
-          max_score: progressData.max_score,
           quiz_feedback: progressData.quiz_feedback,
           completed_at: progressData.completed_at
         })

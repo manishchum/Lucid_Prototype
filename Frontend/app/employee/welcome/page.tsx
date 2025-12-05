@@ -78,6 +78,14 @@ interface Employee {
   company_id?: string
 }
 
+interface ModuleAssessmentStatus {
+  moduleId: string
+  hasBaseline: boolean
+  baselineCompleted: boolean
+  baselineScore?: number
+  baselineMaxScore?: number
+}
+
 export default function EmployeeWelcome() {
   const { user, loading: authLoading, logout } = useAuth()
   const [employee, setEmployee] = useState<Employee | null>(null)
@@ -85,12 +93,13 @@ export default function EmployeeWelcome() {
   const [scoreHistory, setScoreHistory] = useState<any[]>([])
   const [moduleProgress, setModuleProgress] = useState<any[]>([])
   const [assignedModules, setAssignedModules] = useState<any[]>([])
+  const [moduleAssessmentStatus, setModuleAssessmentStatus] = useState<Map<string, ModuleAssessmentStatus>>(new Map())
   const [learningStyle, setLearningStyle] = useState<string | null>(null)
   const [baselineScore, setBaselineScore] = useState<number | null>(null)
   const [baselineMaxScore, setBaselineMaxScore] = useState<number | null>(null)
   const [allAssignedCompleted, setAllAssignedCompleted] = useState<boolean>(false)
   const [showProfileDropdown, setShowProfileDropdown] = useState(false)
-  const [baselineRequired, setBaselineRequired] = useState<boolean>(true) // New state for baseline requirement
+  const [baselineRequired, setBaselineRequired] = useState<boolean>(true)
   const [companyStats, setCompanyStats] = useState<{
     totalEmployees: number
     completedEmployees: number
@@ -147,7 +156,6 @@ export default function EmployeeWelcome() {
       }
 
       setEmployee(employeeData)
-      // LOG: Employee data fetched
       console.log("[EmployeeWelcome] Employee data:", employeeData)
 
       // Fetch employee learning style
@@ -171,14 +179,12 @@ export default function EmployeeWelcome() {
       }
 
       // Fetch all assessment results for this employee (history)
-      // Note: employee_assessments does not have created_at; avoid selecting/ordering by it
       const { data: assessments, error: assessmentError } = await supabase
         .from("employee_assessments")
         .select("employee_assessment_id, score, max_score, feedback, question_feedback, assessment_id, assessments(type, questions)")
         .eq("user_id", employeeData.user_id)
         .order("employee_assessment_id", { ascending: false })
       setScoreHistory(assessments || [])
-      // LOG: Assessment history fetched
       console.log("[EmployeeWelcome] Assessment history:", assessments)
 
       // Determine baseline completion by checking the company's baseline assessment ID
@@ -223,7 +229,7 @@ export default function EmployeeWelcome() {
         console.warn('[EmployeeWelcome] baseline completion check failed:', e)
       }
 
-      // Fallback: derive latest baseline by joined type if direct lookup didn’t set it
+      // Fallback: derive latest baseline by joined type if direct lookup didn't set it
       if (baselineScore === null) {
         try {
           const baselineRows = (assessments || []).filter((row: any) => {
@@ -243,166 +249,116 @@ export default function EmployeeWelcome() {
         }
       }
 
-      // Determine if assigned learning plan modules are all completed
-      try {
-        const { data: planRows } = await supabase
-          .from('learning_plan')
-          .select('learning_plan_id, module_id, status, plan_json, baseline_assessment,user_id') // Fetch baseline_assessment column
-          .eq('user_id', employeeData.user_id)
-          .order('learning_plan_id', { ascending: false })
+      // Get learning plans and check baseline_assessment requirement
+      const { data: planRows } = await supabase
+        .from('learning_plan')
+        .select('learning_plan_id, module_id, status, plan_json, baseline_assessment, user_id')
+        .eq('user_id', employeeData.user_id)
+        .order('learning_plan_id', { ascending: false })
 
-        // Check if any learning plan requires baseline assessment
-        let requiresBaseline = false
-        if (planRows && planRows.length > 0) {
-          requiresBaseline = planRows.some((plan: any) => plan.baseline_assessment === 1)
-        }
-        setBaselineRequired(requiresBaseline) // Set baselineRequired state
+      // Check if any learning plan requires baseline assessment
+      let requiresBaseline = false
+      if (planRows && planRows.length > 0) {
+        requiresBaseline = planRows.some((plan: any) => plan.baseline_assessment === 1)
+      }
+      setBaselineRequired(requiresBaseline)
 
-        // If the company's learning plan does NOT require a baseline assessment,
-        // provide a safe default baseline score so existing UI logic that
-        // expects a baselineScore does not block navigation. The backend may
-        // also insert an employee_assessments row with 50% — in that case the
-        // real value will already be set above and we won't overwrite it.
-        if (!requiresBaseline) {
-          if (baselineScore === null || baselineScore === undefined) {
-            setBaselineScore(50);
-          }
-          if (baselineMaxScore === null || baselineMaxScore === undefined) {
-            setBaselineMaxScore(100);
-          }
-        }
-        console.log("Plan Rows",planRows);
-        // Check completion status for assigned plans
-        const assignedPlans = planRows?.filter((plan: any) => plan.status === 'ASSIGNED') || []
-        let completed = false
-        let completedModules = 0
-        let totalModules = 0
-        console.log("Assigned Plans",assignedPlans);
-        
-        if (assignedPlans.length > 0) {
-          // Count total modules across all assigned plans
-          totalModules = assignedPlans.length
-          
-          // Get all module IDs from assigned plans
-          const moduleIds = assignedPlans.map((plan: any) => plan.module_id).filter(Boolean)
-          
-          if (moduleIds.length > 0) {
-            console.log("Module IDs to check:", moduleIds);
-            
-            // First, get the processed_module_ids that correspond to our learning plan module_ids
-            // We need to join through training_modules -> processed_modules -> module_progress
-            const { data: processedModules } = await supabase
-              .from('processed_modules')
-              .select('processed_module_id, original_module_id')
-              // .in('training_module_id', moduleIds)
-            
-            console.log("Processed modules data:", processedModules);
-            
-            if (processedModules && processedModules.length > 0) {
-              const processedModuleIds = processedModules.map(pm => pm.processed_module_id).filter(Boolean)
-              
-              // Now check completion status using processed_module_ids
-              const { data: moduleProgress } = await supabase
-                .from('module_progress')
-                .select('processed_module_id, completed_at')
-                .eq('user_id', employeeData.user_id)
-                .in('processed_module_id', processedModuleIds)
-              
-              console.log("Module progress data:", moduleProgress);
-              
-              // Count completed modules
-              const completedSet = new Set(
-                (moduleProgress || [])
-                  .filter((progress: any) => progress.completed_at)
-                  .map((progress: any) => String(progress.processed_module_id))
-              )
-              
-              // Map back to count how many of our original modules are completed
-              // by checking which training_module_ids have completed processed_modules
-              const completedTrainingModules = new Set()
-              processedModules.forEach(pm => {
-                if (completedSet.has(String(pm.processed_module_id))) {
-                  completedTrainingModules.add(String(pm.training_module_id))
-                }
-              })
-              
-              completedModules = completedTrainingModules.size
-              completed = completedModules >= totalModules
-              
-              console.log("Completion status:", { 
-                totalModules, 
-                completedModules, 
-                completed, 
-                processedModuleIds,
-                completedProcessedModuleIds: Array.from(completedSet),
-                completedTrainingModuleIds: Array.from(completedTrainingModules)
-              });
-            } else {
-              console.log("No processed modules found for the assigned module IDs");
-              // If no processed modules exist yet, no completion is possible
-              completedModules = 0
-              completed = false
-            }
-          }
-        }
-
-        setAllAssignedCompleted(completed)
-        console.log("None of the progress check failed:", completed, completedModules, totalModules)
-        // Calculate progress percentage
-        const progress = totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0
-        setProgressPercentage(progress)
-
-        // Fetch company statistics for nudges
-        if (employeeData.company_id) {
-          console.log('[DEBUG] Employee has company_id, calling fetchCompanyStats:', employeeData.company_id);
-          await fetchCompanyStats(employeeData.company_id, employeeData.user_id, progress)
-        } else {
-          console.log('[DEBUG] No company_id found for employee, nudges disabled:', employeeData);
-        }
-
-        // Extract assigned modules for display on welcome page
-        try {
-          const modulesList: { id: string; title: string | null }[] = []
-          if (planRows && planRows.length > 0) {
-            const explicitModuleIds = Array.from(new Set(planRows.map((p: any) => p.module_id).filter(Boolean))).map(String)
-            if (explicitModuleIds.length > 0) {
-              try {
-                const { data: tmRows } = await supabase.from('training_modules').select('module_id, title').in('module_id', explicitModuleIds as any[])
-                if (tmRows && tmRows.length > 0) {
-                  for (const r of tmRows) {
-                    if (r?.module_id) modulesList.push({ id: String(r.module_id), title: r.title || null })
-                  }
-                } else {
-                  // fallback: add raw ids
-                  explicitModuleIds.forEach((mid: string) => modulesList.push({ id: mid, title: null }))
-                }
-              } catch (err) {
-                // If training_modules lookup fails, still include module ids
-                explicitModuleIds.forEach((mid: string) => modulesList.push({ id: mid, title: null }))
-              }
-            }
-          }
-
-          // dedupe by id (prefer first title found)
-          const dedupMap = new Map<string, { id: string; title: string | null }>()
-          for (const m of modulesList) {
-            if (!dedupMap.has(m.id)) dedupMap.set(m.id, m)
-            else if (!dedupMap.get(m.id)?.title && m.title) dedupMap.set(m.id, m)
-          }
-          const dedup = Array.from(dedupMap.values())
-          setAssignedModules(dedup)
-        } catch (e) {
-          console.warn('[EmployeeWelcome] extracting assigned modules failed:', e)
-          setAssignedModules([])
-        }
-      } catch (e) {
-        console.warn('[EmployeeWelcome] assigned modules completion check failed:', e)
-        setAllAssignedCompleted(false)
-        setBaselineRequired(true) // Default to requiring baseline if check fails
+      // If baseline not required, set default scores
+      if (!requiresBaseline && baselineScore === null) {
+        setBaselineScore(50);
+        setBaselineMaxScore(100);
       }
 
-      // Fetch module progress for this employee, join processed_modules for title
-      // LOG: Fetching module_progress for user_id:", employeeData.id)
+      console.log("Plan Rows", planRows);
+      
+      // Get assigned plans and calculate completion
+      const assignedPlans = planRows?.filter((plan: any) => plan.status === 'ASSIGNED') || []
+      let completed = false
+      let completedModules = 0
+      let totalModules = 0
+      
+      console.log("Assigned Plans", assignedPlans);
+      
+      if (assignedPlans.length > 0) {
+        totalModules = assignedPlans.length
+        const moduleIds = assignedPlans.map((plan: any) => plan.module_id).filter(Boolean)
+        
+        if (moduleIds.length > 0) {
+          console.log("Module IDs to check:", moduleIds);
+          
+          // Get processed modules for the training modules
+          const { data: processedModules } = await supabase
+            .from('processed_modules')
+            .select('processed_module_id, original_module_id')
+            .in('original_module_id', moduleIds)
+          
+          console.log("Processed modules data:", processedModules);
+          
+          if (processedModules && processedModules.length > 0) {
+            const processedModuleIds = processedModules.map(pm => pm.processed_module_id).filter(Boolean)
+            
+            // Check completion status using processed_module_ids
+            const { data: moduleProgressData } = await supabase
+              .from('module_progress')
+              .select('processed_module_id, completed_at')
+              .eq('user_id', employeeData.user_id)
+              .in('processed_module_id', processedModuleIds)
+            
+            console.log("Module progress data:", moduleProgressData);
+            
+            // Count completed modules
+            const completedSet = new Set(
+              (moduleProgressData || [])
+                .filter((progress: any) => progress.completed_at)
+                .map((progress: any) => String(progress.processed_module_id))
+            )
+            
+            // Map back to count how many of our original modules are completed
+            const completedTrainingModules = new Set()
+            processedModules.forEach(pm => {
+              if (completedSet.has(String(pm.processed_module_id))) {
+                completedTrainingModules.add(String(pm.original_module_id))
+              }
+            })
+            
+            completedModules = completedTrainingModules.size
+            completed = completedModules >= totalModules
+            
+            console.log("Completion status:", { 
+              totalModules, 
+              completedModules, 
+              completed, 
+              processedModuleIds,
+              completedProcessedModuleIds: Array.from(completedSet),
+              completedTrainingModuleIds: Array.from(completedTrainingModules)
+            });
+          } else {
+            console.log("No processed modules found for the assigned module IDs");
+            completedModules = 0
+            completed = false
+          }
+        }
+      }
+
+      setAllAssignedCompleted(completed)
+      console.log("Module completion check result:", completed, completedModules, totalModules)
+      
+      // Calculate progress percentage
+      const progress = totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0
+      setProgressPercentage(progress)
+
+      // Fetch company statistics for nudges
+      if (employeeData.company_id) {
+        console.log('[DEBUG] Employee has company_id, calling fetchCompanyStats:', employeeData.company_id);
+        await fetchCompanyStats(employeeData.company_id, employeeData.user_id, progress)
+      } else {
+        console.log('[DEBUG] No company_id found for employee, nudges disabled:', employeeData);
+      }
+
+      // Extract assigned modules and check their baseline assessment status
+      await loadAssignedModulesWithBaselineStatus(employeeData, assignedPlans)
+
+      // Fetch module progress for this employee
       const { data: progressData, error: progressError } = await supabase
         .from("module_progress")
         .select("*, processed_modules(title)")
@@ -417,6 +373,117 @@ export default function EmployeeWelcome() {
       router.push("/login")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadAssignedModulesWithBaselineStatus = async (employeeData: any, assignedPlans: any[]) => {
+    try {
+      const modulesList: { id: string; title: string | null }[] = []
+      const assessmentStatusMap = new Map<string, ModuleAssessmentStatus>()
+      
+      if (assignedPlans && assignedPlans.length > 0) {
+        const explicitModuleIds = Array.from(new Set(assignedPlans.map((p: any) => p.module_id).filter(Boolean))).map(String)
+        
+        if (explicitModuleIds.length > 0) {
+          // Get module titles
+          const { data: tmRows } = await supabase
+            .from('training_modules')
+            .select('module_id, title')
+            .in('module_id', explicitModuleIds as any[])
+          
+          if (tmRows && tmRows.length > 0) {
+            for (const r of tmRows) {
+              if (r?.module_id) {
+                modulesList.push({ id: String(r.module_id), title: r.title || null })
+              }
+            }
+          }
+
+          // Check baseline assessment status for each module using the learning_plan table
+          for (const moduleId of explicitModuleIds) {
+            console.log(`[DEBUG] Checking baseline status for module ${moduleId}`);
+            
+            // Check if baseline is assigned in learning_plan
+            const { data: learningPlan } = await supabase
+              .from('learning_plan')
+              .select('baseline_assessment')
+              .eq('user_id', employeeData.user_id)
+              .eq('module_id', moduleId)
+              .single()
+            
+            let hasBaseline = false
+            let baselineCompleted = false
+            let baselineScore: number | undefined
+            let baselineMaxScore: number | undefined
+            
+            if (learningPlan && learningPlan.baseline_assessment === 1) {
+              hasBaseline = true
+              console.log(`[DEBUG] Module ${moduleId} has baseline assignment`);
+              
+              // Check if user has completed baseline assessment for this company
+              const { data: baselineAssessments } = await supabase
+                .from('assessments')
+                .select('assessment_id')
+                .eq('type', 'baseline')
+                .eq('company_id', employeeData.company_id)
+              
+              if (baselineAssessments && baselineAssessments.length > 0) {
+                // Check if any of these baseline assessments are completed by the user
+                const assessmentIds = baselineAssessments.map(a => a.assessment_id)
+                
+                const { data: completedBaseline } = await supabase
+                  .from('employee_assessments')
+                  .select('score, max_score, completed_at')
+                  .eq('user_id', employeeData.user_id)
+                  .in('assessment_id', assessmentIds)
+                  .not('completed_at', 'is', null)
+                  .order('completed_at', { ascending: false })
+                  .limit(1)
+                
+                if (completedBaseline && completedBaseline.length > 0) {
+                  baselineCompleted = true
+                  baselineScore = completedBaseline[0].score
+                  baselineMaxScore = completedBaseline[0].max_score
+                  console.log(`[DEBUG] Module ${moduleId} baseline completed with score:`, baselineScore);
+                }
+              }
+            }
+            
+            assessmentStatusMap.set(moduleId, {
+              moduleId,
+              hasBaseline,
+              baselineCompleted,
+              baselineScore,
+              baselineMaxScore
+            })
+            
+            console.log(`[DEBUG] Module ${moduleId} status:`, {
+              hasBaseline,
+              baselineCompleted,
+              baselineScore
+            });
+          }
+        }
+      }
+
+      // Dedupe modules by id
+      const dedupMap = new Map<string, { id: string; title: string | null }>()
+      for (const m of modulesList) {
+        if (!dedupMap.has(m.id)) dedupMap.set(m.id, m)
+        else if (!dedupMap.get(m.id)?.title && m.title) dedupMap.set(m.id, m)
+      }
+      const dedup = Array.from(dedupMap.values())
+      
+      setAssignedModules(dedup)
+      setModuleAssessmentStatus(assessmentStatusMap)
+      
+      console.log('[DEBUG] Final assigned modules:', dedup)
+      console.log('[DEBUG] Final assessment status map:', assessmentStatusMap)
+      
+    } catch (e) {
+      console.warn('[EmployeeWelcome] extracting assigned modules with baseline status failed:', e)
+      setAssignedModules([])
+      setModuleAssessmentStatus(new Map())
     }
   }
 
@@ -444,7 +511,7 @@ export default function EmployeeWelcome() {
       const employeeIds = companyEmployees.map((emp: any) => emp.user_id)
       const { data: allPlans } = await supabase
         .from('learning_plan')
-        .select('user_id, plan_json, status')
+        .select('user_id, module_id, status')
         .in('user_id', employeeIds)
         .eq('status', 'ASSIGNED')
 
@@ -455,45 +522,68 @@ export default function EmployeeWelcome() {
       const employeeProgressMap = new Map<string, number>()
 
       // Calculate completion for each employee
+      const employeeModuleCounts = new Map<string, { total: number, completed: number }>()
+      
+      // Group plans by user
+      const plansByUser = new Map<string, any[]>()
       for (const plan of allPlans || []) {
-        let empProgress = 0
-        if (plan.plan_json) {
-          let planObj = plan.plan_json
-          if (typeof planObj === 'string') {
-            try { planObj = JSON.parse(planObj) } catch {}
-          }
-          const mods = planObj?.modules || planObj?.learning_plan?.modules || planObj?.plan?.modules
-          if (Array.isArray(mods) && mods.length > 0) {
-            const totalMods = mods.length
-            const processedIds = Array.from(new Set(mods.map((m: any) => m?.processed_module_id).filter(Boolean))).map(String)
-            const originalIds = Array.from(new Set(mods.map((m: any) => m?.original_module_id).filter(Boolean))).map(String)
-            
-            let completedCount = 0
-            if (processedIds.length > 0) {
-              const { data: progP } = await supabase
-                .from('module_progress')
-                .select('processed_module_id, completed_at')
-                .eq('user_id', plan.user_id)
-                .in('processed_module_id', processedIds)
-              const completedSet = new Set((progP || []).filter((r: any) => r.completed_at).map((r: any) => String(r.processed_module_id)))
-              completedCount += completedSet.size
-            }
-            if (originalIds.length > 0) {
-              const { data: progO } = await supabase
-                .from('module_progress')
-                .select('module_id, completed_at')
-                .eq('user_id', plan.user_id)
-                .in('module_id', originalIds)
-              const completedSet = new Set((progO || []).filter((r: any) => r.completed_at).map((r: any) => String(r.module_id)))
-              // Merge: assume overlap minimal; union approximate
-              console.log('[EmployeeWelcome] originalIds completed set size:', completedSet);
-              completedCount = Math.max(completedCount, completedSet.size)
-            }
-            empProgress = totalMods > 0 ? Math.round((completedCount / totalMods) * 100) : 0
-            if (empProgress === 100) completedEmployees++
-          }
+        if (!plansByUser.has(plan.user_id)) {
+          plansByUser.set(plan.user_id, [])
         }
-        employeeProgressMap.set(plan.user_id, empProgress)
+        plansByUser.get(plan.user_id)!.push(plan)
+      }
+
+      // Calculate progress for each employee
+      for (const [empUserId, plans] of plansByUser) {
+        const totalModules = plans.length
+        
+        if (totalModules === 0) {
+          employeeProgressMap.set(empUserId, 0)
+          continue
+        }
+
+        // Get processed modules for this employee's assigned modules
+        const moduleIds = plans.map(p => p.module_id).filter(Boolean)
+        const { data: processedModules } = await supabase
+          .from('processed_modules')
+          .select('processed_module_id, original_module_id')
+          .in('original_module_id', moduleIds)
+
+        if (processedModules && processedModules.length > 0) {
+          const processedModuleIds = processedModules.map(pm => pm.processed_module_id)
+          
+          // Check completion status
+          const { data: moduleProgressData } = await supabase
+            .from('module_progress')
+            .select('processed_module_id, completed_at')
+            .eq('user_id', empUserId)
+            .in('processed_module_id', processedModuleIds)
+
+          const completedSet = new Set(
+            (moduleProgressData || [])
+              .filter((progress: any) => progress.completed_at)
+              .map((progress: any) => String(progress.processed_module_id))
+          )
+
+          // Count completed original modules
+          const completedOriginalModules = new Set()
+          processedModules.forEach(pm => {
+            if (completedSet.has(String(pm.processed_module_id))) {
+              completedOriginalModules.add(String(pm.original_module_id))
+            }
+          })
+
+          const completedCount = completedOriginalModules.size
+          const progress = Math.round((completedCount / totalModules) * 100)
+          
+          employeeProgressMap.set(empUserId, progress)
+          
+          if (progress === 100) {
+            completedEmployees++
+          }
+        } else {
+          employeeProgressMap.set(empUserId, 0)
+        }
       }
 
       console.log('[DEBUG] Employee progress map:', employeeProgressMap);
@@ -560,6 +650,27 @@ export default function EmployeeWelcome() {
     router.push("/")
   }
 
+  const getBaselineButtonState = (moduleId: string) => {
+    const status = moduleAssessmentStatus.get(moduleId)
+    if (!status) {
+      return { disabled: true, text: 'Loading...', variant: 'outline' as const }
+    }
+    
+    if (!status.hasBaseline) {
+      return { disabled: true, text: 'No Baseline Required', variant: 'outline' as const }
+    }
+    
+    if (status.baselineCompleted) {
+      return { 
+        disabled: true, 
+        text: `Completed (${status.baselineScore}/${status.baselineMaxScore})`, 
+        variant: 'outline' as const 
+      }
+    }
+    
+    return { disabled: false, text: 'Take Baseline Assessment', variant: 'default' as const }
+  }
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -590,60 +701,7 @@ export default function EmployeeWelcome() {
                 <Users className="w-8 h-8 text-green-600 mr-3" />
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">Learner's Dashboard</h1>
-                  {/* <p className="text-sm text-gray-600">Welcome to your dashboard</p> */}
               </div>
-            </div>
-            <div className="relative">
-              {/* Profile Dropdown - Commented Out */}
-              {/*
-              <button
-                onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
-              >
-                <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white">
-                  <User className="w-5 h-5" />
-                </div>
-                <span className="text-sm font-medium text-gray-700">
-                  {employee?.name || user?.displayName || "Profile"}
-                </span>
-                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${showProfileDropdown ? 'rotate-180' : ''}`} />
-              </button>
-              
-              {showProfileDropdown && (
-                <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <div className="font-medium text-gray-900">
-                      {employee?.name || user?.displayName || "User"}
-                    </div>
-                    <div className="text-sm text-gray-500">{user?.email}</div>
-                  </div>
-                  
-                  <div className="py-1">
-                    <button
-                      onClick={() => {
-                        setShowProfileDropdown(false)
-                        router.push("/employee/account")
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                    >
-                      <User className="w-4 h-4" />
-                      Account Settings
-                    </button>
-                    
-                    <button
-                      onClick={() => {
-                        setShowProfileDropdown(false)
-                        handleLogout()
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      Logout
-                    </button>
-                  </div>
-                </div>
-              )}
-              */}
             </div>
           </div>
         </div>
@@ -651,7 +709,7 @@ export default function EmployeeWelcome() {
 
         {/* Page content */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">        
-        <div className="grid gap-8">{/* Welcome Card */}
+        <div className="grid gap-8">
           {/* Progress Nudge Card */}
           {nudgeMessage && (
             <Card className="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200">
@@ -703,7 +761,7 @@ export default function EmployeeWelcome() {
             </Card>
           )}
 
-          {/* Assigned Modules Card */}
+          {/* Learning Preference Card */}
           <Card>
             <CardHeader>
               <CardTitle>Learning Preference</CardTitle>
@@ -724,9 +782,6 @@ export default function EmployeeWelcome() {
                         </Button>
                       </div>
                     </div>
-                  </div>
-                  <div>
-                    {/* kept for layout parity */}
                   </div>
                 </div>
               ) : (
@@ -768,364 +823,106 @@ export default function EmployeeWelcome() {
                     {assignedModules.length === 0 ? (
                       <div className="text-gray-500">You have no modules assigned yet.</div>
                     ) : (
-                      assignedModules.map((m) => (
-                        <div key={m.id} className="flex items-center justify-between p-3 rounded-lg border bg-white">
-                          <div className="font-medium text-gray-800">{m.title || `Module ${m.id}`}</div>
+                      assignedModules.map((m) => {
+                        const buttonState = getBaselineButtonState(m.id)
+                        
+                        return (
+                          <div key={m.id} className="flex items-center justify-between p-3 rounded-lg border bg-white">
+                            <div className="font-medium text-gray-800">{m.title || `Module ${m.id}`}</div>
 
-                          <div className="flex items-center gap-3">
-                            {(() => {
-                              let percent = 0
-                              const matches = (moduleProgress || []).filter((mp: any) => {
-                                try {
-                                  if (mp?.processed_module_id && String(mp.processed_module_id) === String(m.id)) return true
-                                  if (mp?.module_id && String(mp.module_id) === String(m.id)) return true
-                                  if (
-                                    mp?.processed_modules?.title &&
-                                    m?.title &&
-                                    String(mp.processed_modules.title).toLowerCase().includes(String(m.title).toLowerCase())
-                                  ) return true
-                                } catch (e) {}
-                                return false
-                              })
-                              if (matches.length > 0) {
-                                for (const mp of matches) {
-                                  if (mp.completed_at) {
-                                    percent = 100
-                                    break
+                            <div className="flex items-center gap-3">
+                              {(() => {
+                                let percent = 0
+                                const matches = (moduleProgress || []).filter((mp: any) => {
+                                  try {
+                                    if (mp?.processed_module_id && String(mp.processed_module_id) === String(m.id)) return true
+                                    if (mp?.module_id && String(mp.module_id) === String(m.id)) return true
+                                    if (
+                                      mp?.processed_modules?.title &&
+                                      m?.title &&
+                                      String(mp.processed_modules.title).toLowerCase().includes(String(m.title).toLowerCase())
+                                    ) return true
+                                  } catch (e) {}
+                                  return false
+                                })
+                                if (matches.length > 0) {
+                                  for (const mp of matches) {
+                                    if (mp.completed_at) {
+                                      percent = 100
+                                      break
+                                    }
+                                    let indicators = 0
+                                    if (mp.viewed_at) indicators++
+                                    if (mp.audio_listen_duration && mp.audio_listen_duration > 0) indicators++
+                                    if (mp.quiz_score !== null && mp.quiz_score !== undefined) indicators++
+                                    const p = indicators > 0 ? Math.round((indicators / 3) * 90) : 0
+                                    if (p > percent) percent = p
                                   }
-                                  let indicators = 0
-                                  if (mp.viewed_at) indicators++
-                                  if (mp.audio_listen_duration && mp.audio_listen_duration > 0) indicators++
-                                  if (mp.quiz_score !== null && mp.quiz_score !== undefined) indicators++
-                                  const p = indicators > 0 ? Math.round((indicators / 3) * 90) : 0
-                                  if (p > percent) percent = p
                                 }
-                              }
 
-                              return (
-                                <div className="w-48 sm:w-64 lg:w-72">
-                                  <div className="w-full bg-gray-200 rounded-full h-2">
-                                    <div
-                                      className={`h-2 rounded-full transition-all duration-500 ${percent >= 100 ? 'bg-green-500' : 'bg-gradient-to-r from-blue-500 to-green-400'}`}
-                                      style={{ width: `${percent}%` }}
-                                      aria-valuenow={percent}
-                                      aria-valuemin={0}
-                                      aria-valuemax={100}
-                                    />
+                                return (
+                                  <div className="w-48 sm:w-64 lg:w-72">
+                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                      <div
+                                        className={`h-2 rounded-full transition-all duration-500 ${percent >= 100 ? 'bg-green-500' : 'bg-gradient-to-r from-blue-500 to-green-400'}`}
+                                        style={{ width: `${percent}%` }}
+                                        aria-valuenow={percent}
+                                        aria-valuemin={0}
+                                        aria-valuemax={100}
+                                      />
+                                    </div>
                                   </div>
-                                </div>
-                              )
-                            })()}
+                                )
+                              })()}
 
-                            <Button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)}>Baseline Assessment</Button>
-                            <Button onClick={async () => {
-                              try {
-                                if (!employee?.user_id) {
-                                  alert('Could not determine employee. Please reload or login again.');
-                                  return;
+                              <Button 
+                                variant={buttonState.variant}
+                                disabled={buttonState.disabled}
+                                onClick={() => !buttonState.disabled && router.push(`/employee/assessment?moduleId=${m.id}`)}
+                                className="min-w-[180px]"
+                              >
+                                {buttonState.text}
+                              </Button>
+                              
+                              <Button onClick={async () => {
+                                try {
+                                  if (!employee?.user_id) {
+                                    alert('Could not determine employee. Please reload or login again.');
+                                    return;
+                                  }
+                                  const res = await fetch(`/api/training-plan?module_id=${encodeURIComponent(m.id)}`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ user_id: employee.user_id }),
+                                  });
+                                  const data = await res.json().catch(() => ({}));
+                                  if (!res.ok) {
+                                    const msg = data?.error || data?.message || 'Failed to generate learning plan';
+                                    alert(`Error: ${msg}`);
+                                    return;
+                                  }
+                                  // Redirect to training plan page scoped to this module
+                                  router.push(`/employee/training-plan?module_id=${encodeURIComponent(m.id)}`);
+                                } catch (e) {
+                                  console.error('Error requesting module training plan', e);
+                                  alert('Network error while requesting training plan.');
                                 }
-                                const res = await fetch(`/api/training-plan?module_id=${encodeURIComponent(m.id)}`, {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ user_id: employee.user_id }),
-                                });
-                                const data = await res.json().catch(() => ({}));
-                                if (!res.ok) {
-                                  const msg = data?.error || data?.message || 'Failed to generate learning plan';
-                                  alert(`Error: ${msg}`);
-                                  return;
-                                }
-                                // Redirect to training plan page scoped to this module
-                                router.push(`/employee/training-plan?module_id=${encodeURIComponent(m.id)}`);
-                              } catch (e) {
-                                console.error('Error requesting module training plan', e);
-                                alert('Network error while requesting training plan.');
-                              }
-                            }}>Learning Plan</Button>
+                              }}>Learning Plan</Button>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        )
+                      })
                     )}
                   </div>
                 </CardContent>
               </Card>
-
-              {false && (
-              <Card className="bg-gradient-to-r from-gray-50 to-blue-50 border border-blue-100">
-                <CardHeader>
-                  <CardTitle className="text-gray-900">Follow these steps to maximize your learning experience</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between py-10 px-2 gap-2">
-                    <StepCircle
-                      step={1}
-                      label="Learning Preference"
-                      subtitle="Your brain has a style—let’s discover it"
-                      completed={!!learningStyle}
-                      active={!learningStyle}
-                      onClick={() => !learningStyle && router.push("/employee/learning-style")}
-                    />
-                    {baselineRequired && (
-                      <StepCircle
-                        step={2}
-                        label="Baseline Assessment"
-                        subtitle="Evaluate your current skill level"
-                        completed={!!baselineScore}
-                        active={!!learningStyle && baselineScore === null}
-                        onClick={() => learningStyle && baselineScore === null && router.push("/employee/assessment")}
-                      />
-                    )}
-                    <StepCircle
-                      step={baselineRequired ? 3 : 2}
-                      label="Learning Plan"
-                      subtitle="Get your personalized learning roadmap"
-                      completed={allAssignedCompleted}
-                      active={
-                        baselineRequired
-                          ? !!learningStyle && baselineScore !== null && !allAssignedCompleted
-                          : !!learningStyle && !allAssignedCompleted
-                      }
-                      onClick={() => {
-                        if (baselineRequired) {
-                          if (learningStyle && baselineScore !== null && !allAssignedCompleted) router.push("/employee/training-plan");
-                        } else {
-                          if (learningStyle && !allAssignedCompleted) router.push("/employee/training-plan");
-                        }
-                      }}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-              )}
             </>
           )}
-          {/*
-          <Card className="bg-gradient-to-r from-green-500 to-blue-600 text-white">
-            <CardHeader>
-              <CardTitle className="text-3xl">Welcome, {employee?.name || user?.email}!</CardTitle>
-              <CardDescription className="text-green-100">
-                You've successfully logged into your personalized training portal
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center text-green-100">
-                <Clock className="w-5 h-5 mr-2" />
-                <span>Member since {new Date(employee?.joined_at || "").toLocaleDateString()}</span>
-              </div>
-            </CardContent>
-          </Card>
-          */}
 
-          {false && (
-          <Card className="bg-gradient-to-r from-gray-50 to-blue-50 border border-blue-100">
-            <CardHeader>
-              <CardTitle className="text-gray-900">Follow these steps to maximize your learning experience</CardTitle>
-              {/* <CardDescription className="text-gray-600">
-                Follow these steps to maximize your learning experience
-              </CardDescription> */}
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between py-10 px-2 gap-2">
-                <StepCircle
-                  step={1}
-                  label="Learning Preference"
-                  subtitle="Your brain has a style—let’s discover it"
-                  completed={!!learningStyle}
-                  active={!learningStyle}
-                  onClick={() => !learningStyle && router.push("/employee/learning-style")}
-                />
-                {/* PHASED RELEASE: Steps 2 and 3 hidden until later rollout */}
-                
-                {baselineRequired && (
-                  <StepCircle
-                    step={2}
-                    label="Baseline Assessment"
-                    subtitle="Evaluate your current skill level"
-                    completed={!!baselineScore}
-                    active={!!learningStyle && baselineScore === null}
-                    onClick={() => learningStyle && baselineScore === null && router.push("/employee/assessment")}
-                  />
-                )}
-
-                
-                <StepCircle
-                  step={baselineRequired ? 3 : 2}
-                  label="Learning Plan"
-                  subtitle="Get your personalized learning roadmap"
-                  completed={allAssignedCompleted}
-                  active={
-                    baselineRequired
-                      ? !!learningStyle && baselineScore !== null && !allAssignedCompleted
-                      : !!learningStyle && !allAssignedCompleted
-                  }
-                  onClick={() => {
-                    if (baselineRequired) {
-                      if (learningStyle && baselineScore !== null && !allAssignedCompleted) router.push("/employee/training-plan");
-                    } else {
-                      if (learningStyle && !allAssignedCompleted) router.push("/employee/training-plan");
-                    }
-                  }}
-                />
-              
-              </div>
-            </CardContent>
-          </Card>
-          )}
-
-          {/* Learning Style Card with sequential logic */}
-          {/* 
-          <Card className="border border-blue-200 bg-white/80 backdrop-blur">
-            <CardHeader>
-              <CardTitle>Your Learning Style</CardTitle>
-              <CardDescription>
-                Personalized recommendations are tuned to your learning style
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {learningStyle ? (
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge className="text-sm px-2 py-1">{learningStyle}</Badge>
-                      <span className="text-gray-600">Saved to your profile</span>
-                    </div>
-                    <LearningStyleBlurb styleCode={learningStyle} />
-                  </div>
-                  <Button disabled title={`Learning style: ${learningStyle}`} variant="outline">
-                    ✓ Completed
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium mb-1">Not set yet</div>
-                    <div className="text-sm text-gray-600">Take a 5-minute survey to personalize your plan.</div>
-                  </div>
-                  <Button onClick={() => router.push("/employee/learning-style")}>Check your learning style</Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Main Cards with sequential activation */}
-          {/* 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Assessments (Baseline) - Only enabled if learning style is completed */}
-            {/* 
-            <Card className={!learningStyle ? "opacity-60" : ""}>
-              <CardHeader>
-                <div className={`w-12 h-12 rounded-lg flex items-center justify-center mb-4 ${
-                  !learningStyle ? "bg-gray-100" : "bg-purple-100"
-                }`}>
-                  <Users className={`w-6 h-6 ${!learningStyle ? "text-gray-400" : "text-purple-600"}`} />
-                </div>
-                <CardTitle className={!learningStyle ? "text-gray-500" : ""}>Assessments</CardTitle>
-                <CardDescription className={!learningStyle ? "text-gray-400" : ""}>
-                  Take baseline and module assessments
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className={`text-sm mb-4 ${!learningStyle ? "text-gray-400" : "text-gray-500"}`}>
-                  AI-generated assessments will help track your progress.
-                </p>
-                {!learningStyle ? (
-                  <Button className="w-full" disabled>
-                    Complete Learning Style First
-                  </Button>
-                ) : baselineScore !== null ? (
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-700">
-                      <div className="font-medium">Baseline assessment completed</div>
-                      <div>Score: <b>{baselineScore}</b>{baselineMaxScore ? <span> / {baselineMaxScore}</span> : null}</div>
-                    </div>
-                    {allAssignedCompleted ? (
-                      <Button className="w-44" onClick={() => router.push('/employee/assessment?moduleId=baseline')} title="You can retake the baseline after completing assigned modules">
-                        Retake Baseline
-                      </Button>
-                    ) : (
-                      <Button className="w-44" disabled title="Baseline already completed; finish your assigned modules to retake">
-                        ✓ Completed
-                      </Button>
-                    )}
-                  </div>
-                ) : (
-                  <Button className="w-full" onClick={() => router.push("/employee/assessment")}>
-                    Start Baseline Assessment
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Learning Plan - Only enabled if both learning style and baseline are completed */}
-            {/* 
-            <Card className={(!learningStyle || baselineScore === null) ? "opacity-60" : ""}>
-              <CardHeader>
-                <div className={`w-12 h-12 rounded-lg flex items-center justify-center mb-4 ${
-                  (!learningStyle || baselineScore === null) ? "bg-gray-100" : "bg-orange-100"
-                }`}>
-                  <Clock className={`w-6 h-6 ${
-                    (!learningStyle || baselineScore === null) ? "text-gray-400" : "text-orange-600"
-                  }`} />
-                </div>
-                <CardTitle className={(!learningStyle || baselineScore === null) ? "text-gray-500" : ""}>
-                  Learning Plan
-                </CardTitle>
-                <CardDescription className={(!learningStyle || baselineScore === null) ? "text-gray-400" : ""}>
-                  View your personalized learning path
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className={`text-sm mb-4 ${
-                  (!learningStyle || baselineScore === null) ? "text-gray-400" : "text-gray-500"
-                }`}>
-                  AI will create a custom learning plan based on your assessment.
-                </p>
-                {!learningStyle ? (
-                  <Button className="w-full" disabled>
-                    Complete Learning Style First
-                  </Button>
-                ) : baselineScore === null ? (
-                  <Button className="w-full" disabled>
-                    Complete Baseline Assessment First
-                  </Button>
-                ) : (
-                  <Button className="w-full" onClick={() => router.push("/employee/training-plan")}>
-                    View Learning Plan
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Score & Feedback History - Always available */}
-            {/* 
-            <Card className="">
-              <CardHeader>
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
-                  <BookOpen className="w-6 h-6 text-blue-600" />
-                </div>
-                <CardTitle>Score & Feedback History</CardTitle>
-                <CardDescription>View all your assessment results and AI feedback</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-gray-500 mb-4">
-                  See your full history of scores and feedback for all assessments.
-                </p>
-                <Button className="w-full" onClick={() => router.push("/employee/score-history")}>
-                  View Score & Feedback History
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-          */}
-
-          {/* Progress Tracker Card (unchanged) */}
+          {/* Progress Tracker Card */}
           <Card>
             <CardHeader>
               <CardTitle>Track Your Progress</CardTitle>
-            {/*  <CardDescription>
-                Track your progress<br />
-                {/* <span className="text-xs text-gray-400">(Fetched from <b>module_progress</b> table)</span> */}
-              {/* </CardDescription> */}
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
@@ -1196,56 +993,4 @@ function LearningStyleBlurb({ styleCode }: { styleCode: string }) {
       <div>{info.blurb}</div>
     </div>
   );
-}
-
-function StepCircle({
-  step,
-  label,
-  subtitle,
-  completed,
-  active,
-  onClick,
-}: {
-  step: number
-  label: string
-  subtitle: string
-  completed?: boolean
-  active?: boolean
-  onClick?: () => void
-}) {
-  return (
-    <div className="flex flex-col items-center flex-1 px-2">
-      <div
-        className={`flex items-center justify-center w-20 h-20 rounded-full border-4 mb-3
-          ${completed
-            ? "bg-green-500 border-green-500"
-            : active
-            ? "bg-blue-600 border-blue-600"
-            : "bg-gray-100 border-gray-300"}
-        `}
-      >
-        {completed ? (
-          <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-          </svg>
-        ) : (
-          <span className={`text-2xl font-bold ${active ? "text-white" : "text-gray-400"}`}>{step}</span>
-        )}
-      </div>
-      <div className={`text-lg font-semibold mb-1 ${active ? "text-blue-900" : completed ? "text-green-900" : "text-gray-700"}`}>
-        {label}
-      </div>
-      <div className="text-gray-500 text-sm mb-3 text-center">{subtitle}</div>
-      {completed ? (
-        <span className="px-4 py-1 rounded-full bg-green-100 text-green-700 text-sm font-medium">Completed</span>
-      ) : active ? (
-        <button
-          className="px-5 py-2 rounded-full bg-blue-600 text-white font-semibold flex items-center gap-2 shadow hover:bg-blue-700 transition"
-          onClick={onClick}
-        >
-          Start <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-        </button>
-      ) : null}
-    </div>
-  )
 }

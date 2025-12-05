@@ -82,6 +82,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      console.log(payload);
+      console.log(res);
       const result = await res.json();
       feedbackText = result.feedback || "";
       if (typeof result.score === 'number') setScore(result.score);
@@ -89,6 +91,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       setFeedback(feedbackText);
       // Log quiz taken into module_progress
       try {
+        console.log(result);
         await fetch('/api/module-progress', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
