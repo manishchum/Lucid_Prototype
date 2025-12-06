@@ -83,23 +83,22 @@ Objectives: ${JSON.stringify(objectives)}
     
     let quiz;
     try {
-      // Clean the response to remove markdown code blocks and extra formatting
+      // Clean the response to remove markdown code blocks and extract JSON
       let cleanedContent = content.trim();
       
-      // Remove markdown code blocks if present
-      cleanedContent = cleanedContent.replace(/^```json\s*/i, '');
-      cleanedContent = cleanedContent.replace(/^```\s*/i, '');
-      cleanedContent = cleanedContent.replace(/\s*```$/i, '');
-      
-      // Remove any leading/trailing whitespace again
-      cleanedContent = cleanedContent.trim();
-      
-      // Try to find JSON array bounds if there's extra text
+      // Find JSON array bounds in the response
       const jsonStart = cleanedContent.indexOf('[');
       const jsonEnd = cleanedContent.lastIndexOf(']');
       
       if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
         cleanedContent = cleanedContent.substring(jsonStart, jsonEnd + 1);
+      } else {
+        // Fallback: remove markdown code fences if present
+        if (cleanedContent.startsWith('```json')) {
+          cleanedContent = cleanedContent.replace(/^```json/, '').replace(/```$/, '').trim();
+        } else if (cleanedContent.startsWith('```')) {
+          cleanedContent = cleanedContent.replace(/^```/, '').replace(/```$/, '').trim();
+        }
       }
       
       console.log('[gpt-mcq-quiz][DEBUG] Cleaned content for parsing:', cleanedContent.slice(0, 200) + '...');
@@ -126,6 +125,7 @@ Objectives: ${JSON.stringify(objectives)}
 export async function POST(request: NextRequest) {
   const body = await request.json();
   console.log("[gpt-mcq-quiz] POST body:", body);
+  
   // Derive learning style from provided user_id when available
   const reqUserId = body.user_id || body.userId || null;
   let userLearningStyle: string | null = null;
@@ -143,14 +143,18 @@ export async function POST(request: NextRequest) {
       console.warn('[gpt-mcq-quiz] Error fetching learning style:', e);
     }
   }
-  // Per-module quiz branch: run when a single moduleId is provided. Also
-  // treat `moduleIds` arrays of length 1 as a per-module request so the UI
-  // button "Baseline Assessment" (which may send moduleIds) generates a
-  // baseline only for that module instead of combining modules.
+  
+  // Determine if this is a baseline or module assessment request
+  // Check for explicit baseline flag or if this is part of baseline assessment flow
+  const isBaselineRequest = body.isBaseline === true || body.assessmentType === 'baseline';
+  
+  // Per-module quiz branch: run when a single moduleId is provided for module assessments only
+  // For baseline assessments, skip this branch even with single moduleId
   const explicitModuleId = body.moduleId || null;
   const singleFromArray = Array.isArray(body.moduleIds) && body.moduleIds.length === 1 ? String(body.moduleIds[0]) : null;
   const moduleId = explicitModuleId ? String(explicitModuleId) : singleFromArray;
-  if (moduleId) {
+  
+  if (moduleId && !isBaselineRequest) {
     // If a moduleId was provided explicitly or via single-element moduleIds
     // array, treat as a per-module quiz request.
     if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
@@ -172,33 +176,41 @@ export async function POST(request: NextRequest) {
         .from('processed_modules')
         .select('processed_module_id, title, content, original_module_id, learning_style')
         .eq('processed_module_id', moduleId)
-        .maybeSingle();
       if (pmIdErr) console.warn('[gpt-mcq-quiz] lookup processed_modules by processed_module_id warning:', pmIdErr);
       if (pmById && pmById.processed_module_id) {
         existingProcessed = pmById;
         processedModuleId = pmById.processed_module_id;
+        console.log("Inside the processed module id looking ")
       }
+      console.log('[gpt-mcq-quiz] processed_module lookup by id result:', pmById);
     } catch (e) {
       console.warn('[gpt-mcq-quiz] Error querying processed_modules by id:', e);
     }
 
     if (!processedModuleId) {
+      console.log("Inside the processed module id looking ")
       try {
         const { data: pmByOriginal, error: pmOrigErr } = await supabase
           .from('processed_modules')
           .select('processed_module_id, title, content, original_module_id, learning_style')
-          .eq('original_module_id', moduleId)
-          .maybeSingle();
+          .eq('processed_module_id', moduleId)
+        console.log(moduleId)
+        console.log(pmByOriginal)
+        console.log("______________")
         if (pmOrigErr) console.warn('[gpt-mcq-quiz] lookup processed_modules by original_module_id warning:', pmOrigErr);
-        if (pmByOriginal && pmByOriginal.processed_module_id) {
-          existingProcessed = pmByOriginal;
-          processedModuleId = pmByOriginal.processed_module_id;
+        if (pmByOriginal && pmByOriginal[0].processed_module_id) {
+          console.log("Inside this")
+          existingProcessed = pmByOriginal[0];
+          processedModuleId = pmByOriginal[0].processed_module_id;
         }
+        console.log("Data of the processed module by original id ",pmByOriginal)
       } catch (e) {
         console.warn('[gpt-mcq-quiz] Error querying processed_modules by original_module_id:', e);
       }
     }
 
+    console.log("Processed module id is : ",processedModuleId)
+    console.log(existingProcessed)
     if (!processedModuleId) {
       return NextResponse.json({ error: 'Processed module not found. Ensure a processed_modules entry exists for this module.' }, { status: 404 });
     }
@@ -217,6 +229,7 @@ export async function POST(request: NextRequest) {
       .order('assessment_id', { ascending: false })
       .limit(1);
     const existing = Array.isArray(assessmentsList) ? assessmentsList[0] : null;
+    console.log("Error here")
     if (existing) {
       // Always return existing quiz, regardless of questions content
       try {
@@ -227,6 +240,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ quiz: existing.questions, assessmentId: existing.assessment_id });
       }
     }
+
+    console.log("Till now all good")
   // Compose prompt for per-module MCQ quiz (no mixed question types)
   const prompt = `You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom's Taxonomy.
 
@@ -285,7 +300,27 @@ Objectives: ${JSON.stringify([moduleContent])}`;
       
       let quiz = [];
       try {
-        quiz = JSON.parse(content);
+        // Clean the response to remove markdown code blocks and extract JSON
+        let cleanedContent = content.trim();
+        
+        // Find JSON array bounds in the response
+        const jsonStart = cleanedContent.indexOf('[');
+        const jsonEnd = cleanedContent.lastIndexOf(']');
+        
+        if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+          cleanedContent = cleanedContent.substring(jsonStart, jsonEnd + 1);
+        } else {
+          // Fallback: remove markdown code fences if present
+          if (cleanedContent.startsWith('```json')) {
+            cleanedContent = cleanedContent.replace(/^```json/, '').replace(/```$/, '').trim();
+          } else if (cleanedContent.startsWith('```')) {
+            cleanedContent = cleanedContent.replace(/^```/, '').replace(/```$/, '').trim();
+          }
+        }
+        
+        console.log('[gpt-mcq-quiz][DEBUG] Cleaned content for parsing:', cleanedContent.slice(0, 200) + '...');
+        
+        quiz = JSON.parse(cleanedContent);
       } catch (e) {
         console.log('[gpt-mcq-quiz][DEBUG] Failed to parse Gemini response:', e, content);
         quiz = [];
@@ -338,12 +373,14 @@ Objectives: ${JSON.stringify([moduleContent])}`;
       console.error('Error generating quiz with Gemini:', error);
       return NextResponse.json({ error: 'Failed to generate quiz' }, { status: 500 });
     }
-    
   }
 
   // Baseline (multi-module) quiz generation with modules_snapshot logic
-  const { moduleIds, companyId, trainingId } = body;
-  if (!moduleIds || !Array.isArray(moduleIds) || moduleIds.length === 0) {
+  console.log('[gpt-mcq-quiz] Processing baseline assessment request');
+  const { moduleIds, companyId,assessmentType,isBaseline,user_id } = body;
+  console.log(moduleIds)
+  console.log(companyId)
+  if (!moduleIds  || moduleIds.length === 0) {
     return NextResponse.json({ error: 'moduleIds (array) required' }, { status: 400 });
   }
   if (!companyId) {
@@ -353,8 +390,11 @@ Objectives: ${JSON.stringify([moduleContent])}`;
   const { data, error } = await supabase
     .from('training_modules')
     .select('module_id, title, gpt_summary, ai_modules, ai_objectives, company_id')
-    .in('module_id', moduleIds)
+    .eq('module_id', moduleIds)
     .eq('company_id', companyId);
+    console.log(data)
+    console.log("------------------------")
+    console.log(error)
   if (error || !data || data.length === 0) return NextResponse.json({ error: 'Modules not found' }, { status: 404 });
   // Map training module_id -> row for easy lookup
   const tmMap = new Map<string, any>();
@@ -376,7 +416,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
   }
 
   // Insert missing processed_modules in bulk
-  const missingModuleIds = moduleIds.filter((m: any) => !processedMap.has(String(m)));
+  const missingModuleIds = moduleIds
   if (missingModuleIds.length > 0) {
     const inserts = missingModuleIds.map((mId: any) => {
       const tm = tmMap.get(String(mId)) || {};
@@ -439,7 +479,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
   }
 
   // Build array of processed_module_ids corresponding to requested training moduleIds
-  const processedIds = moduleIds.map((m: any) => processedMap.get(String(m))).filter(Boolean);
+  const processedIds = moduleIds
 
   // 3. Ensure no baseline already exists for any requested processed_module_id
   // Use `employee_assessments` so checks respect the per-user mapping. Fetch the

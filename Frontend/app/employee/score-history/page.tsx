@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import EmployeeNavigation from "@/components/employee-navigation";
-import { AIFeedbackSections } from "../assessment/ai-feedback-sections";
+import  AIFeedbackSections  from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 
 // Helper component to format question-specific feedback

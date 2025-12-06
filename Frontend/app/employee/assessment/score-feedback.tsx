@@ -3,7 +3,7 @@
 
 
 import React from "react";
-import { AIFeedbackSections } from "./ai-feedback-sections";
+import AIFeedbackSections  from "./ai-feedback-sections";
 
 interface ScoreFeedbackCardProps {
   score: number;
