@@ -67,49 +67,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // helper: append a chat message into chat jsonb array (role: 'user'|'assistant')
-    const saveChatMessage = async (uid: string | null, msg: any) => {
-      if (!uid) return
-      try {
-        // Try RPC first if available (atomic append)
-        try {
-          const { error: rpcError } = await supabase.rpc('append_chat_message', { p_user: uid, p_message: msg })
-          if (!rpcError) return
-          console.warn('[assistant] append_chat_message rpc error', { user: uid, rpcError })
-        } catch (e) {
-          // RPC not available or failed - fallback to reading/upserting the array
-        }
-
-        const { data: existing, error: selectErr } = await supabase.from('chatbot_user_interactions').select('chat').eq('user_id', uid).single()
-        if (selectErr) {
-          // attempt upsert to create row with chat array
-          const { error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, chat: [msg], updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
-          if (upsertErr) {
-            console.warn('[assistant] saveChatMessage initial upsert error', { user: uid, upsertErr })
-            // last-resort fallback: append into ask_doubt to avoid data loss
-            try {
-              const { data: existingAsk, error: sel2 } = await supabase.from('chatbot_user_interactions').select('ask_doubt').eq('user_id', uid).single()
-              let arr2: any[] = []
-              if (existingAsk && Array.isArray(existingAsk.ask_doubt)) arr2 = existingAsk.ask_doubt
-              arr2.push({ fallback_chat: msg })
-              await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, ask_doubt: arr2, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
-            } catch (e) {
-              console.warn('[assistant] saveChatMessage fallback ask_doubt failed', e)
-            }
-          }
-          return
-        }
-        let arr: any[] = []
-        if (existing && Array.isArray(existing.chat)) arr = existing.chat
-        arr.push(msg)
-        const { data: upsertData, error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, chat: arr, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
-        if (upsertErr) console.warn('[assistant] saveChatMessage upsert error', { user: uid, upsertErr })
-        else try { console.log('[assistant] saveChatMessage ok', { user: uid, rows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
-      } catch (e) {
-        console.warn('[assistant] saveChatMessage failed', e)
-      }
-    }
-
     // If caller sent a start action (e.g., user selected Ask Doubt), ensure a row exists
     if (body?.action === 'start' && userId) {
       try {
@@ -385,6 +342,79 @@ export async function POST(request: NextRequest) {
     }
 
     // Synthesis prompt: ask model to paraphrase and synthesize (no citations).
+    // Practice mode: generate questions in various forms (MCQ, short answer, long answer, scenario).
+    if (mode === 'practice') {
+      const detectPracticeType = (q: string) => {
+        const s = (q || '').toLowerCase()
+        const countMatch = s.match(/(\d+)\s*(mcq|questions|qns|qs|items|cases)?/)
+        const count = countMatch ? parseInt(countMatch[1], 10) : null
+        if (/\b(mcq|multiple choice|multiple-choice|multiplechoice)\b/.test(s)) return { type: 'mcq', count: count || 5 }
+        if (/\b(short answer|short-answer|short)\b/.test(s)) return { type: 'short_answer', count: count || 8 }
+        if (/\b(long answer|essay|detailed|long)\b/.test(s)) return { type: 'long_answer', count: count || 3 }
+        if (/\b(scenario|case study|scenario-based|case)\b/.test(s)) return { type: 'scenario', count: count || 3 }
+        // allow explicit param
+        if (body?.practice_type) return { type: String(body.practice_type), count: count || 5 }
+        // default: mixed set of practice items
+        return { type: 'mixed', count: count || 8 }
+      }
+
+      const req = detectPracticeType(query || '')
+      const maxTokensForPractice = 1200
+      let practicePromptSystem = ''
+      let practicePromptUser = ''
+
+      if (req.type === 'mcq') {
+        practicePromptSystem = `You are an expert assessment author. Generate clear multiple-choice questions (MCQs) grounded in the provided source. For each question include: question text, four options labeled A–D, the correct option letter, and a one-sentence explanation for the correct answer. Keep language simple and unambiguous.`
+        practicePromptUser = `Generate ${req.count} MCQs for this topic. Source:\n${sourceParts}`
+      } else if (req.type === 'short_answer') {
+        practicePromptSystem = `You are an assessment writer. Generate short-answer questions that ask for concise factual responses (1–2 sentences). For each item provide the question and a 1–2 sentence answer.`
+        practicePromptUser = `Generate ${req.count} short-answer questions from the source. Source:\n${sourceParts}`
+      } else if (req.type === 'long_answer') {
+        practicePromptSystem = `You are an assessment writer. Generate long-answer / essay-style questions that require explanation or synthesis. For each item provide the question and a short rubric (3–5 bullet points) describing what a full answer should include.`
+        practicePromptUser = `Generate ${req.count} long-answer questions from the source. Source:\n${sourceParts}`
+      } else if (req.type === 'scenario') {
+        practicePromptSystem = `You are an educator. Create scenario-based prompts (case studies) grounded in the source. Each scenario should include a short narrative and 2–4 follow-up questions asking the learner to apply concepts. Provide brief model answers.`
+        practicePromptUser = `Generate ${req.count} scenario-based practice items from the source. Source:\n${sourceParts}`
+      } else {
+        practicePromptSystem = `You are an assessment author. Produce a mixed set of practice items (MCQs, short answers, and one scenario). Label each item with its type.`
+        practicePromptUser = `Generate ${req.count} varied practice items from the source. Source:\n${sourceParts}`
+      }
+
+      try {
+        // call Gemini via helper
+        const practiceResp = await (async () => {
+          try {
+            const r = await libCallGemini(practicePromptUser, { candidateModels: ['gemini-2.5-flash-lite'], maxOutputTokens: maxTokensForPractice, temperature: 0.25 })
+            return r
+          } catch (e) { return { data: null, ok: false, text: String(e) } }
+        })()
+            const savePracticeQues = async (uid: string | null, item: any) => {
+              if (!uid) return
+              try {
+                // Try to read existing practise_ques array
+                const { data: existing, error: selectErr } = await supabase.from('chatbot_user_interactions').select('practise_ques').eq('user_id', uid).single()
+                if (selectErr) {
+                  // attempt upsert to create the row with practise_ques array
+                  const { error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, practise_ques: [item], updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
+                  if (upsertErr) console.warn('[assistant] savePracticeQues initial upsert error (practise_ques)', { user: uid, upsertErr })
+                  return
+                }
+                let arr: any[] = []
+                if (existing && Array.isArray(existing.practise_ques)) arr = existing.practise_ques
+                arr.push(item)
+                const { data: upsertData, error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, practise_ques: arr, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
+                if (upsertErr) console.warn('[assistant] savePracticeQues upsert error (practise_ques)', { user: uid, upsertErr })
+                else try { console.log('[assistant] savePracticeQues ok (practise_ques)', { user: uid, rows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
+              } catch (e) {
+                console.warn('[assistant] savePracticeQues failed', e)
+              }
+            }
+      } catch (e) {
+        console.error('[assistant] practice generation failed', e)
+        // fall through to normal synth if practice fails
+      }
+    }
+
     // If `forceUngrounded` is true, instruct the model to answer directly without using grounding context.
     let synthSystem = forceUngrounded
       ? `You are a helpful, conversational assistant. Answer the user's question directly and concisely. Do not rely on external context or try to search a corpus; instead, use general knowledge and reasoning to produce a clear, step-by-step response when helpful. Do not include citations. Output plain text only.`

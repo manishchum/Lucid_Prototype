@@ -42,10 +42,36 @@ export default function LucidAssistant() {
   // Load persisted messages from localStorage on mount
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (Array.isArray(parsed)) setMessages(parsed)
+      // First try to load from server-side persisted chat (preferred)
+      const existingId = localStorage.getItem('lucid_assistant_user_id')
+      const loadFromServer = async (id?: string | null) => {
+        if (!id) return
+        try {
+          const resp = await fetch(`/api/assistant/chat?user_id=${encodeURIComponent(id)}`)
+          if (resp.ok) {
+            const d = await resp.json().catch(() => null)
+            if (d && Array.isArray(d.chat) && d.chat.length > 0) {
+              // Map server chat shape { role: 'user'|'assistant', text } -> UI shape { from: 'user'|'bot', text }
+              const mapped = d.chat.map((c: any) => ({ from: c.role === 'user' ? 'user' : 'bot', text: (c.text || c.summary || '') }))
+              setMessages(mapped)
+              return
+            }
+          }
+        } catch (e) {
+          // ignore fetch errors and fall back to localStorage
+        }
+      }
+
+      if (existingId) {
+        // attempt to load server chat first
+        loadFromServer(existingId)
+      } else {
+        // fallback to local storage if no user id yet
+        const raw = localStorage.getItem(STORAGE_KEY)
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          if (Array.isArray(parsed)) setMessages(parsed)
+        }
       }
     } catch (e) {
       // ignore parse errors
