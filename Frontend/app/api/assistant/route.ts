@@ -67,6 +67,49 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // helper: append a chat message into chat jsonb array (role: 'user'|'assistant')
+    const saveChatMessage = async (uid: string | null, msg: any) => {
+      if (!uid) return
+      try {
+        // Try RPC first if available (atomic append)
+        try {
+          const { error: rpcError } = await supabase.rpc('append_chat_message', { p_user: uid, p_message: msg })
+          if (!rpcError) return
+          console.warn('[assistant] append_chat_message rpc error', { user: uid, rpcError })
+        } catch (e) {
+          // RPC not available or failed - fallback to reading/upserting the array
+        }
+
+        const { data: existing, error: selectErr } = await supabase.from('chatbot_user_interactions').select('chat').eq('user_id', uid).single()
+        if (selectErr) {
+          // attempt upsert to create row with chat array
+          const { error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, chat: [msg], updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
+          if (upsertErr) {
+            console.warn('[assistant] saveChatMessage initial upsert error', { user: uid, upsertErr })
+            // last-resort fallback: append into ask_doubt to avoid data loss
+            try {
+              const { data: existingAsk, error: sel2 } = await supabase.from('chatbot_user_interactions').select('ask_doubt').eq('user_id', uid).single()
+              let arr2: any[] = []
+              if (existingAsk && Array.isArray(existingAsk.ask_doubt)) arr2 = existingAsk.ask_doubt
+              arr2.push({ fallback_chat: msg })
+              await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, ask_doubt: arr2, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
+            } catch (e) {
+              console.warn('[assistant] saveChatMessage fallback ask_doubt failed', e)
+            }
+          }
+          return
+        }
+        let arr: any[] = []
+        if (existing && Array.isArray(existing.chat)) arr = existing.chat
+        arr.push(msg)
+        const { data: upsertData, error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, chat: arr, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
+        if (upsertErr) console.warn('[assistant] saveChatMessage upsert error', { user: uid, upsertErr })
+        else try { console.log('[assistant] saveChatMessage ok', { user: uid, rows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
+      } catch (e) {
+        console.warn('[assistant] saveChatMessage failed', e)
+      }
+    }
+
     // If caller sent a start action (e.g., user selected Ask Doubt), ensure a row exists
     if (body?.action === 'start' && userId) {
       try {
@@ -182,6 +225,7 @@ export async function POST(request: NextRequest) {
       if (results.length > 0) {
         const answer = `Duration: ${results.join('; ')}`
         if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, answer)
+        try { await saveChatMessage(userId, { role: 'assistant', text: answer, created_at: new Date().toISOString() }) } catch (e) {}
         return NextResponse.json({ answer, sources: matches.map((m: any) => ({ id: m.id, title: m.title })) })
       }
       // else fall through to LLM if no structured durations available
@@ -350,17 +394,41 @@ export async function POST(request: NextRequest) {
       ? `User question: ${query}\n\nInstructions: Provide a polished, direct answer to the question. Use '- ' for bullets and ensure each bullet is on its own line. Do not output citations or raw database fields.`
       : `User question: ${query}\n\nContext (for grounding only):\n${sourceParts}\n\nInstructions: Provide a polished, paraphrased answer that resonates with the provided content. Use '- ' for bullets and ensure each bullet is on its own line. Do not output citations or raw database fields.`
 
-    // If the client requested summarize mode, use a stronger, more extractive prompt
+    // If the client requested summarize mode, choose a prompt based on user intent
+    let summarizeIntent: string | null = null
     if (mode === 'summarize') {
-      synthSystem = `You are an expert subject-matter summarizer. Your goal is to produce a knowledge-dense, extractive summary targeted to someone who will *use* this material (a practitioner or learner). Prioritize facts and instructions that are present in the source. Do NOT hallucinate specifics. Structure the output with clear headings and sections: "Key facts", "Definitions", "Procedures / Steps", "Examples", "Actionable Takeaways". Under each heading, use short bullet points. When the source contains section headings or page numbers, include brief section references in parentheses. Keep the language precise and technical where appropriate. Output in Markdown. Do not include citations or raw DB fields.`
+      const detectSummarizeIntent = (q: string) => {
+        if (!q) return 'complete_summary'
+        const s = q.toLowerCase()
+        if (/\b(topic|topics|outline|headings|sections|toc|table of contents)\b/.test(s)) return 'topics'
+        if (/\b(key point|key points|keypoints|takeaway|takeaways|bullets|bullet points|highlights)\b/.test(s)) return 'key_points'
+        if (/\b(action items|action-item|action items|next steps|todo|to do|tasks|actions)\b/.test(s)) return 'action_items'
+        if (/\b(brief|short|concise|tldr|tl;dr|one-liner|one line|quick summary)\b/.test(s)) return 'short_summary'
+        if (/\b(complete|detailed|detailed summary|full summary|comprehensive|in detail|long)\b/.test(s)) return 'complete_summary'
+        // default to complete structured summary
+        return 'complete_summary'
+      }
 
-      synthUser = `Please produce a detailed, structured summary of the following source. Focus on extracting concrete knowledge, procedures, and actionable points rather than a high-level overview. Preserve terminology from the source where useful.
-\nSource:\n${sourceParts}\n\nInstructions:\n- Produce sections with these headings: Key facts; Definitions; Procedures / Steps; Examples; Actionable takeaways.
-- For each section, list 6–12 concise bullet points (or fewer if not available).
-- When a detail is ambiguous or not present, say "Not found in source." Do not invent facts.
-- If the source has section names, mention them briefly in parentheses after the bullet.
-- Keep the final summary between 200 and 1200 words, favoring clarity and actionable detail.
-\nOutput in Markdown only.`
+      summarizeIntent = detectSummarizeIntent(query || body?.pdf_name || '')
+
+      // Build prompt templates for each intent
+      if (summarizeIntent === 'topics') {
+        synthSystem = `You are an expert content analyst. Extract the main topical structure from the source text. Produce a concise list of topic headings or section titles that represent the major themes. For each topic, include a 1-2 sentence description (no more). Output plain Markdown list with headings.`
+        synthUser = `Produce a topics-only outline for the following source. Source:\n${sourceParts}\n\nInstructions:\n- List 8–20 topic headings or section names in order of prominence.\n- For each topic, include a 1–2 sentence description summarizing what that topic covers (no examples, no procedures).\n- Keep output compact and use Markdown list format.`
+      } else if (summarizeIntent === 'key_points') {
+        synthSystem = `You are an expert summarizer. Extract the most important fact-level takeaways from the source. Produce concise bullet points that a learner can scan quickly. Do not invent facts; if missing, say 'Not found in source.' Output plain Markdown bullets.`
+        synthUser = `Produce 6–15 concise key-point bullets from the source. Source:\n${sourceParts}\n\nInstructions:\n- Each bullet should be 1–2 lines and focus on facts or central ideas.\n- Prefer precise phrasing from the source when present.\n- Output as a Markdown list with '- '.`
+      } else if (summarizeIntent === 'short_summary') {
+        synthSystem = `You are a concise summarizer. Produce a short, high-value summary suitable for a quick review. Keep it to 3–6 sentences or 4–6 bullets. Output plain text or Markdown bullets.`
+        synthUser = `Produce a short summary of the source (3–6 sentences or up to 6 bullets). Source:\n${sourceParts}\n\nInstructions:\n- Keep it brief and focused on the most important points.\n- Do not include procedural step lists or long examples.`
+      } else if (summarizeIntent === 'action_items') {
+        synthSystem = `You are a practical assistant that extracts actionable next steps from the source. Produce a prioritized checklist of actions someone should take to apply the content. Output plain Markdown checklist items ('- [ ] ...').`
+        synthUser = `From the source, extract a set of actionable items or next steps (5–12). Source:\n${sourceParts}\n\nInstructions:\n- Each item should be a clear, executable action.\n- Prioritize items when possible and include brief rationale in parentheses.`
+      } else {
+        // complete_summary (default)
+        synthSystem = `You are an expert subject-matter summarizer. Your goal is to produce a knowledge-dense, extractive summary targeted to someone who will *use* this material (a practitioner or learner). Prioritize facts and instructions that are present in the source. Do NOT hallucinate specifics. Structure the output with clear headings and sections: "Key facts", "Definitions", "Procedures / Steps", "Examples", "Actionable Takeaways". Under each heading, use short bullet points. When the source contains section headings or page numbers, include brief section references in parentheses. Keep the language precise and technical where appropriate. Output in Markdown. Do not include citations or raw DB fields.`
+        synthUser = `Please produce a detailed, structured summary of the following source. Focus on extracting concrete knowledge, procedures, and actionable points rather than a high-level overview. Preserve terminology from the source where useful.\n\nSource:\n${sourceParts}\n\nInstructions:\n- Produce sections with these headings: Key facts; Definitions; Procedures / Steps; Examples; Actionable takeaways.\n- For each section, list 6–12 concise bullet points (or fewer if not available).\n- When a detail is ambiguous or not present, say "Not found in source." Do not invent facts.\n- If the source has section names, mention them briefly in parentheses after the bullet.\n- Keep the final summary between 200 and 1200 words, favoring clarity and actionable detail.\n\nOutput in Markdown only.`
+      }
     }
 
     // helper to detect long verbatim overlaps between sources and output
@@ -385,7 +453,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Persist the user's message to chat history (non-blocking)
     try {
+      try { await saveChatMessage(userId, { role: 'user', text: query, created_at: new Date().toISOString() }) } catch (e) { /* non-fatal */ }
       // OpenAI integration removed: assistant uses Gemini exclusively.
 
       // Adapter: delegate to shared gemini helper and normalize result to
@@ -433,14 +503,17 @@ export async function POST(request: NextRequest) {
           } catch (e) {}
           // Return grounded fallback so the user still receives content rather than attempting OpenAI
           const fallbackAnswer = cleanFormatting(sourceParts)
+          // persist assistant reply
+          try { await saveChatMessage(userId, { role: 'assistant', text: fallbackAnswer, llm_model_used: null, llm_error: modelErrors.length ? modelErrors : null, created_at: new Date().toISOString() }) } catch (e) {}
           if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
-          if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: fallbackAnswer, source: body?.pdf_name ? 'pdf' : 'text', created_at: new Date().toISOString() })
+          if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: fallbackAnswer, source: body?.pdf_name ? 'pdf' : 'text', intent: summarizeIntent || 'complete_summary', created_at: new Date().toISOString() })
           return NextResponse.json({ answer: fallbackAnswer, llm_model_used: null, llm_error: modelErrors.length ? modelErrors : null })
         }
       } else {
         // Gemini is required for the assistant in this configuration
         console.warn('[assistant] GEMINI_API_KEY missing; assistant configured to use Gemini only')
         const fallbackAnswer = cleanFormatting(sourceParts)
+        try { await saveChatMessage(userId, { role: 'assistant', text: fallbackAnswer, llm_model_used: null, llm_error: [{ model: 'gemini', error: 'no_gemini_key' }], created_at: new Date().toISOString() }) } catch (e) {}
         if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
         if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: fallbackAnswer, source: body?.pdf_name ? 'pdf' : 'text', created_at: new Date().toISOString() })
         return NextResponse.json({ answer: fallbackAnswer, llm_model_used: null, llm_error: [{ model: 'gemini', error: 'no_gemini_key' }] })
@@ -474,14 +547,16 @@ export async function POST(request: NextRequest) {
               }
               if (paraRespData) {
                 const paraText = paraRespData.choices?.[0]?.message?.content || ''
-                if (paraText && typeof paraText === 'string' && paraText.trim().length > 0) {
+                  if (paraText && typeof paraText === 'string' && paraText.trim().length > 0) {
                   let finalAnswer = cleanFormatting(paraText)
                   finalAnswer = formatModuleHeadings(finalAnswer)
                   try {
                     console.log('[assistant] returning paraphrased answer from gemini', { preview: finalAnswer.slice(0,400), usedModel: usedModel })
                   } catch (e) {}
+                  // persist assistant reply
+                  try { await saveChatMessage(userId, { role: 'assistant', text: finalAnswer, llm_model_used: usedModel, intent: summarizeIntent || null, created_at: new Date().toISOString() }) } catch (e) {}
                   if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, finalAnswer)
-                  if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: finalAnswer, source: body?.pdf_name ? 'pdf' : 'text', created_at: new Date().toISOString() })
+                  if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: finalAnswer, source: body?.pdf_name ? 'pdf' : 'text', intent: summarizeIntent || 'complete_summary', created_at: new Date().toISOString() })
                   return NextResponse.json({ answer: finalAnswer, llm_model_used: usedModel, llm_error: modelErrors.length ? modelErrors : null })
                 }
               }
@@ -495,8 +570,10 @@ export async function POST(request: NextRequest) {
           try {
             console.log('[assistant] returning synth answer from gemini', { preview: finalAnswer.slice(0,400), usedModel: usedModel })
           } catch (e) {}
+          // persist assistant reply
+          try { await saveChatMessage(userId, { role: 'assistant', text: finalAnswer, llm_model_used: usedModel, intent: summarizeIntent || null, created_at: new Date().toISOString() }) } catch (e) {}
           if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, finalAnswer)
-          if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: finalAnswer, source: body?.pdf_name ? 'pdf' : 'text', created_at: new Date().toISOString() })
+          if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: finalAnswer, source: body?.pdf_name ? 'pdf' : 'text', intent: summarizeIntent || 'complete_summary', created_at: new Date().toISOString() })
           return NextResponse.json({ answer: finalAnswer, llm_model_used: usedModel, llm_error: modelErrors.length ? modelErrors : null })
         }
       }
@@ -520,8 +597,10 @@ export async function POST(request: NextRequest) {
     } catch (e) {}
     // format module headings for fallback answer as well
     fallbackAnswer = formatModuleHeadings(fallbackAnswer)
+    // persist assistant fallback reply
+    try { await saveChatMessage(userId, { role: 'assistant', text: fallbackAnswer, llm_model_used: null, llm_error: modelErrors.length ? modelErrors : null, intent: summarizeIntent || null, created_at: new Date().toISOString() }) } catch (e) {}
     if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
-    if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: fallbackAnswer, source: body?.pdf_name ? 'pdf' : 'text', created_at: new Date().toISOString() })
+    if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: fallbackAnswer, source: body?.pdf_name ? 'pdf' : 'text', intent: summarizeIntent || 'complete_summary', created_at: new Date().toISOString() })
     return NextResponse.json({ answer: fallbackAnswer, llm_model_used: null, llm_error: modelErrors.length ? modelErrors : null })
 
     // --- end retrieval+synthesis pipeline ---

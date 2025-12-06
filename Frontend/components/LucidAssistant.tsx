@@ -42,7 +42,7 @@ export default function LucidAssistant() {
   // Load persisted messages from localStorage on mount
   useEffect(() => {
     try {
-git      const raw = localStorage.getItem(STORAGE_KEY)
+      const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
         const parsed = JSON.parse(raw)
         if (Array.isArray(parsed)) setMessages(parsed)
@@ -51,8 +51,8 @@ git      const raw = localStorage.getItem(STORAGE_KEY)
       // ignore parse errors
     }
     try {
-      const existingId = localStorage.getItem('lucid_assistant_user_id')
-      if (existingId) setAssistantUserId(existingId)
+      const existingId2 = localStorage.getItem('lucid_assistant_user_id')
+      if (existingId2) setAssistantUserId(existingId2)
       else {
         const id = typeof crypto !== 'undefined' && (crypto as any).randomUUID ? (crypto as any).randomUUID() : `anon-${Date.now()}`
         localStorage.setItem('lucid_assistant_user_id', id)
