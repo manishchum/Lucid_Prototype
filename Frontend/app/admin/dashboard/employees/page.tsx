@@ -937,7 +937,6 @@ export default function EmployeesPage() {
                         <th className="text-center p-3 font-medium text-gray-700">Role</th>
                         <th className="text-center p-3 font-medium text-gray-700">Status</th>
                         <th className="text-center p-3 font-medium text-gray-700">Position</th>
-                        <th className="text-center p-3 font-medium text-gray-700">Hire Date</th>
                         <th className="text-center p-3 font-medium text-gray-700">Actions</th>
                       </tr>
                     </thead>
