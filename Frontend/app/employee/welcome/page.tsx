@@ -762,6 +762,7 @@ export default function EmployeeWelcome() {
           )}
 
           {/* Learning Preference Card */}
+          {/* COMMENTED OUT - Learning Preference Card
           <Card>
             <CardHeader>
               <CardTitle>Learning Preference</CardTitle>
@@ -795,6 +796,7 @@ export default function EmployeeWelcome() {
               )}
             </CardContent>
           </Card>
+          */}
 
           {/* If learning preference not completed, block rest of dashboard */}
           {!learningStyle ? (

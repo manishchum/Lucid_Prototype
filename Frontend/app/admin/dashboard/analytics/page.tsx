@@ -184,22 +184,45 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
   };
 
   const loadLearningStyleData = async () => {
-    const { data: learningStyleResults, error } = await supabase
-      .from('employee_learning_style')
-      .select(`
-        user_id,
-        learning_style,
-        gemini_analysis,
-        created_at,
-        updated_at,
-        users!inner(name, email, company_id, department_id)
-      `)
-      .eq('users.company_id', companyId)
-      .order('created_at', { ascending: false });
+    try {
+      // First get all learning styles
+      const { data: learningStyleResults, error: styleError } = await supabase
+        .from('employee_learning_style')
+        .select('*');
 
-    if (error) throw error;
+      if (styleError) {
+        console.error('Error fetching learning styles:', styleError);
+        return;
+      }
 
-    calculateLearningStyleStatistics(learningStyleResults || []);
+      // Then get users for this company
+      const { data: companyUsers, error: userError } = await supabase
+        .from('users')
+        .select('user_id, name, email, company_id, department_id')
+        .eq('company_id', companyId);
+
+      if (userError) {
+        console.error('Error fetching users:', userError);
+        return;
+      }
+
+      // Filter learning styles by company users
+      const userIds = new Set(companyUsers?.map(u => u.user_id) || []);
+      const filteredResults = learningStyleResults?.filter(ls => userIds.has(ls.user_id)) || [];
+
+      // Merge user data
+      const mergedResults = filteredResults.map(ls => {
+        const user = companyUsers?.find(u => u.user_id === ls.user_id);
+        return {
+          ...ls,
+          users: user || { name: 'Unknown', email: '', company_id: companyId, department_id: null }
+        };
+      });
+
+      calculateLearningStyleStatistics(mergedResults);
+    } catch (error) {
+      console.error('Failed to load learning style data:', error);
+    }
   };
 
   const loadKpiData = async () => {
@@ -413,6 +436,14 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
   };
 
   const calculateLearningStyleStatistics = (data: any[]) => {
+    console.log('Calculating learning style statistics for:', data);
+    
+    if (!data || data.length === 0) {
+      console.log('No learning style data available');
+      setLearningStyleStats([]);
+      return;
+    }
+
     const styleMap = new Map();
     const departmentMap = new Map();
 
@@ -422,7 +453,7 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
       styleMap.set(style, (styleMap.get(style) || 0) + 1);
 
       // Department breakdown
-      const deptId = item.users.department_id || 'unassigned';
+      const deptId = item.users?.department_id || 'unassigned';
       if (!departmentMap.has(deptId)) {
         departmentMap.set(deptId, { total: 0, styles: new Map() });
       }
@@ -437,6 +468,7 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
       percentage: Math.round((count / data.length) * 100)
     }));
 
+    console.log('Learning style stats calculated:', learningStyleStatsArray);
     setLearningStyleStats(learningStyleStatsArray);
   };
 
