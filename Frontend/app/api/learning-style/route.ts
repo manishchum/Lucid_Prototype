@@ -188,21 +188,15 @@ Return JSON: {
 
 Survey Responses:
 ${qaPairs}`;
-      //   console.log("[LearningStyle] OpenAI prompt:", prompt)
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4.1",
-        messages: [
-          { role: "system", content: "You are an expert learning style analyst." },
-          { role: "user", content: prompt }
-        ],
-        temperature: 0.2,
-        max_tokens: 1000
-      })
-      console.log("[LearningStyle] GPT prompt:", prompt)
-      console.log("[LearningStyle] OpenAI raw response:", completion)
-      // Parse GPT response
-      const gptText = completion.choices[0]?.message?.content || ""
-      console.log("[LearningStyle] OpenAI parsed text:", gptText)
+      console.log("[LearningStyle] Gemini prompt:", prompt)
+      
+      const result = await model.generateContent(prompt)
+      const response = await result.response
+      const gptText = response.text()
+      
+      console.log("[LearningStyle] Gemini raw response:", gptText)
+      console.log("[LearningStyle] Gemini parsed text:", gptText)
+      
       // Remove Markdown code fences if present
       let cleanedText = gptText.trim()
        // Find JSON block in the response
@@ -235,7 +229,8 @@ ${qaPairs}`;
       console.error("[LearningStyle] Gemini call error:", gptErr)
     }
 
-    // Save GPT result (learning style classification and analysis) in employee_learning_style
+<<<<<<< HEAD
+    // Save Gemini result (learning style classification and analysis) in employee_learning_style
     if (gptResult && (gptResult.dominant_style || gptResult.learning_style) && gptResult.report) {
       await adminClient
         .from("employee_learning_style")
@@ -245,7 +240,76 @@ ${qaPairs}`;
           updated_at: new Date().toISOString()
         })
         .eq("user_id", user_id)
-      console.log("GPT Analysis saved to Supabase")
+      console.log("Gemini Analysis saved to Supabase")
+=======
+    // Save GPT result (learning style classification and analysis) in employee_learning_style
+    try {
+      let learnedStyle: string | null = null
+      let analysisText: string | null = null
+
+      if (gptResult) {
+        // gptResult may already be an object parsed from JSON, or contain error/raw fields
+        if (typeof gptResult === 'object') {
+          // Possible keys: dominant_style, learning_style, dominant, scores, report
+          learnedStyle = gptResult.dominant_style || gptResult.learning_style || gptResult.dominant || null
+          analysisText = gptResult.report || gptResult.analysis || gptResult.reportText || null
+          // If scores provided, pick the highest
+          if (!learnedStyle && gptResult.scores && typeof gptResult.scores === 'object') {
+            const sEntries = Object.entries(gptResult.scores)
+            sEntries.sort((a: any, b: any) => Number(b[1]) - Number(a[1]))
+            learnedStyle = sEntries[0]?.[0] || null
+          }
+        }
+
+        // If we couldn't extract a clear report text, use raw text from GPT (or rawGPTText)
+        if (!analysisText) {
+          if (gptResult && gptResult.raw) analysisText = String(gptResult.raw)
+          else if (rawGPTText) analysisText = rawGPTText
+        }
+      }
+
+      const updatePayload: any = { updated_at: new Date().toISOString() }
+      // Always prefer to keep the deterministic fallback unless we have an actual GPT analysis text
+      // Save analysis text if available (from parsed report or raw GPT text)
+      if (analysisText) {
+        updatePayload.gpt_analysis = analysisText
+      } else if (gptResult && (gptResult.raw || gptResult.raw_text)) {
+        // If parsing didn't yield structured report, persist raw GPT text as analysis
+        updatePayload.gpt_analysis = String(gptResult.raw || gptResult.raw_text)
+      } else if (rawGPTText) {
+        // Fallback: if we captured rawGPTText earlier, persist that
+        updatePayload.gpt_analysis = rawGPTText
+      }
+
+      // Decide the final style to persist and return: prefer GPT-derived only when we also have analysis text
+      const finalStyle = (learnedStyle && updatePayload.gpt_analysis) ? learnedStyle : fallbackStyle
+
+      if (finalStyle) updatePayload.learning_style = finalStyle
+
+      // If we have something besides updated_at to save, update the row
+      if (Object.keys(updatePayload).length > 1) {
+        const { error: saveErr } = await adminClient
+          .from('employee_learning_style')
+          .update(updatePayload)
+          .eq('user_id', user_id)
+        if (saveErr) {
+          console.error('[LearningStyle] Failed to save GPT analysis', saveErr)
+        } else {
+          console.log('[LearningStyle] GPT analysis & learning_style saved for', user_id, 'finalStyle=', finalStyle)
+        }
+      } else {
+        console.log('[LearningStyle] No GPT-derived learning_style or analysis to save (kept fallback)')
+      }
+
+      // Ensure the response contains the same dominant_style the DB now has
+      if (gptResult && typeof gptResult === 'object') {
+        gptResult.dominant_style = finalStyle || gptResult.dominant_style || gptResult.learning_style || null
+      } else if (!gptResult) {
+        gptResult = { dominant_style: finalStyle }
+      }
+    } catch (saveEx) {
+      console.error('[LearningStyle] Error saving GPT result', saveEx)
+>>>>>>> 8061e5cd4995002d81fe3cd5e252967b6efaacd2
     }
 
     return NextResponse.json({ success: true, gpt: gptResult })
