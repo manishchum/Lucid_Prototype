@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
-import OpenAI from "openai"
+import { GoogleGenerativeAI } from "@google/generative-ai"
 
 export async function POST(req: NextRequest) {
   try {
@@ -74,13 +74,14 @@ export async function POST(req: NextRequest) {
       console.error('[LearningStyle] Fallback computation error', e)
     }
 
-    // Call GPT for learning style analysis
+    // Call Gemini for learning style analysis
     let gptResult = null
     let rawGPTText: string | null = null
     try {
-      // Import OpenAI library (edge/serverless compatible)
-      const openaiModule = await import("openai")
-      const openai = new openaiModule.OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+      // Initialize Gemini AI
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" })
+
       // List of 48 learning style questions
       const questions = [
       "I like having written directions before starting a task.",
@@ -187,41 +188,60 @@ Return JSON: {
 
 Survey Responses:
 ${qaPairs}`;
-      //   console.log("[LearningStyle] OpenAI prompt:", prompt)
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4.1",
-        messages: [
-          { role: "system", content: "You are an expert learning style analyst." },
-          { role: "user", content: prompt }
-        ],
-        temperature: 0.2,
-        max_tokens: 1000
-      })
-      console.log("[LearningStyle] GPT prompt:", prompt)
-      console.log("[LearningStyle] OpenAI raw response:", completion)
-      // Parse GPT response
-      const gptText = completion.choices[0]?.message?.content || ""
-      rawGPTText = gptText
-      console.log("[LearningStyle] OpenAI parsed text:", gptText)
+      console.log("[LearningStyle] Gemini prompt:", prompt)
+      
+      const result = await model.generateContent(prompt)
+      const response = await result.response
+      const gptText = response.text()
+      
+      console.log("[LearningStyle] Gemini raw response:", gptText)
+      console.log("[LearningStyle] Gemini parsed text:", gptText)
+      
       // Remove Markdown code fences if present
       let cleanedText = gptText.trim()
-      if (cleanedText.startsWith('```json')) {
-        cleanedText = cleanedText.replace(/^```json/, '').replace(/```$/, '').trim()
-      } else if (cleanedText.startsWith('```')) {
-        cleanedText = cleanedText.replace(/^```/, '').replace(/```$/, '').trim()
-      }
+       // Find JSON block in the response
+       const jsonStart = cleanedText.indexOf('{')
+       const jsonEnd = cleanedText.lastIndexOf('}')
+       
+       if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+         cleanedText = cleanedText.substring(jsonStart, jsonEnd + 1)
+       } else {
+         // Fallback: remove markdown code fences if present
+         if (cleanedText.startsWith('```json')) {
+           cleanedText = cleanedText.replace(/^```json/, '').replace(/```$/, '').trim()
+         } else if (cleanedText.startsWith('```')) {
+           cleanedText = cleanedText.replace(/^```/, '').replace(/```$/, '').trim()
+         }
+       }
+       
+       console.log("[LearningStyle] Cleaned text for parsing:", cleanedText)
+       
       try {
+        console.log(cleanedText)
         gptResult = JSON.parse(cleanedText)
-        console.log("[LearningStyle] OpenAI parsed JSON:", gptResult)
+        console.log("[LearningStyle] Gemini parsed JSON:", gptResult)
       } catch (jsonErr) {
-        gptResult = { error: "GPT response not valid JSON", raw: gptText }
-        console.error("[LearningStyle] OpenAI JSON parse error:", jsonErr)
+        gptResult = { error: "Gemini response not valid JSON", raw: gptText }
+        console.error("[LearningStyle] Gemini JSON parse error:", jsonErr)
       }
     } catch (gptErr: any) {
-      gptResult = { error: "GPT analysis failed", details: gptErr?.message || String(gptErr) }
-      console.error("[LearningStyle] OpenAI call error:", gptErr)
+      gptResult = { error: "Gemini analysis failed", details: gptErr?.message || String(gptErr) }
+      console.error("[LearningStyle] Gemini call error:", gptErr)
     }
 
+<<<<<<< HEAD
+    // Save Gemini result (learning style classification and analysis) in employee_learning_style
+    if (gptResult && (gptResult.dominant_style || gptResult.learning_style) && gptResult.report) {
+      await adminClient
+        .from("employee_learning_style")
+        .update({
+          learning_style: gptResult.dominant_style || gptResult.learning_style,
+          gpt_analysis: gptResult.report,
+          updated_at: new Date().toISOString()
+        })
+        .eq("user_id", user_id)
+      console.log("Gemini Analysis saved to Supabase")
+=======
     // Save GPT result (learning style classification and analysis) in employee_learning_style
     try {
       let learnedStyle: string | null = null
@@ -289,6 +309,7 @@ ${qaPairs}`;
       }
     } catch (saveEx) {
       console.error('[LearningStyle] Error saving GPT result', saveEx)
+>>>>>>> 8061e5cd4995002d81fe3cd5e252967b6efaacd2
     }
 
     return NextResponse.json({ success: true, gpt: gptResult })

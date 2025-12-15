@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -82,23 +81,47 @@ const AssessmentPage = () => {
           employeeId = empData?.user_id || null;
         }
         if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
+        
         // If a moduleId query param is present, request a per-module quiz.
         const urlModuleId = searchParams.get('moduleId');
+        console.log("Error in getting learning_plan");
         let res;
         if (urlModuleId) {
+          // Check if this is a baseline assessment request by looking at learning plan
+          const { data: learningPlan } = await supabase
+            .from('learning_plan')
+            .select('baseline_assessment')
+            .eq('user_id', employeeId)
+            .eq('module_id', urlModuleId)
+            .single()
+
+          const isBaselineRequest = learningPlan && learningPlan.baseline_assessment === 1;
+          console.log(isBaselineRequest)
+          // console.log")
+            console.log("Inside the if statement for per-module quiz request.");
+          console.log(urlModuleId)
           res = await fetch('/api/gpt-mcq-quiz', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ moduleId: urlModuleId, user_id: employeeId }),
+            body: JSON.stringify({ 
+              moduleIds: [urlModuleId],
+              companyId:companyId, 
+              user_id: employeeId,
+              isBaseline: isBaselineRequest,
+              assessmentType: isBaselineRequest ? 'baseline' : 'module'
+            }),
           });
         } else {
           // Request a baseline quiz for all assigned modules (multi-module baseline)
+          console.log("Inside the else statement for per-module quiz request.");
           res = await fetch('/api/gpt-mcq-quiz', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
               moduleIds: modules.map(m => m.module_id), 
-              companyId 
+              companyId,
+              isBaseline: true,
+              assessmentType: 'baseline'
             }),
           });
         }
