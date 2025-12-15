@@ -388,27 +388,41 @@ export async function POST(request: NextRequest) {
             return r
           } catch (e) { return { data: null, ok: false, text: String(e) } }
         })()
-            const savePracticeQues = async (uid: string | null, item: any) => {
-              if (!uid) return
-              try {
-                // Try to read existing practise_ques array
-                const { data: existing, error: selectErr } = await supabase.from('chatbot_user_interactions').select('practise_ques').eq('user_id', uid).single()
-                if (selectErr) {
-                  // attempt upsert to create the row with practise_ques array
-                  const { error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, practise_ques: [item], updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
-                  if (upsertErr) console.warn('[assistant] savePracticeQues initial upsert error (practise_ques)', { user: uid, upsertErr })
-                  return
-                }
-                let arr: any[] = []
-                if (existing && Array.isArray(existing.practise_ques)) arr = existing.practise_ques
-                arr.push(item)
-                const { data: upsertData, error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, practise_ques: arr, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
-                if (upsertErr) console.warn('[assistant] savePracticeQues upsert error (practise_ques)', { user: uid, upsertErr })
-                else try { console.log('[assistant] savePracticeQues ok (practise_ques)', { user: uid, rows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
-              } catch (e) {
-                console.warn('[assistant] savePracticeQues failed', e)
-              }
+        
+        const savePracticeQues = async (uid: string | null, item: any) => {
+          if (!uid) return
+          try {
+            // Try to read existing practise_ques array
+            const { data: existing, error: selectErr } = await supabase.from('chatbot_user_interactions').select('practise_ques').eq('user_id', uid).single()
+            if (selectErr) {
+              // attempt upsert to create the row with practise_ques array
+              const { error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, practise_ques: [item], updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
+              if (upsertErr) console.warn('[assistant] savePracticeQues initial upsert error (practise_ques)', { user: uid, upsertErr })
+              return
             }
+            let arr: any[] = []
+            if (existing && Array.isArray(existing.practise_ques)) arr = existing.practise_ques
+            arr.push(item)
+            const { data: upsertData, error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, practise_ques: arr, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
+            if (upsertErr) console.warn('[assistant] savePracticeQues upsert error (practise_ques)', { user: uid, upsertErr })
+            else try { console.log('[assistant] savePracticeQues ok (practise_ques)', { user: uid, rows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
+          } catch (e) {
+            console.warn('[assistant] savePracticeQues failed', e)
+          }
+        }
+
+        if (practiceResp && practiceResp.ok && practiceResp.data) {
+          const practiceText = practiceResp.data.text || practiceResp.data.candidates?.[0]?.content || practiceResp.data.candidates?.[0]?.output || practiceResp.data.output?.[0]?.content || ''
+          if (practiceText && practiceText.trim().length > 0) {
+            // Save to database using same pattern as ask doubt and summarize
+            if (userId) {
+              await savePracticeQues(userId, { query: query, type: req.type, content: practiceText, created_at: new Date().toISOString() })
+            }
+            // Return the generated practice questions
+            const finalAnswer = cleanFormatting(practiceText)
+            return NextResponse.json({ answer: finalAnswer, llm_model_used: 'gemini-2.5-flash-lite' })
+          }
+        }
       } catch (e) {
         console.error('[assistant] practice generation failed', e)
         // fall through to normal synth if practice fails
@@ -472,7 +486,7 @@ export async function POST(request: NextRequest) {
       return false
     }
 
-    // helper: format module-like headings as bold Markdown (e.g. "Module 1: Intro" -> "**Module 1: Intro**")
+     // helper: format module-like headings as bold Markdown (e.g. "Module 1: Intro" -> "**Module 1: Intro**")
     const formatModuleHeadings = (s: string) => {
       if (!s) return s
       try {
