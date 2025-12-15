@@ -26,20 +26,57 @@ export async function POST(req: NextRequest) {
     if (fetchError && fetchError.code !== "PGRST116") { // PGRST116: No rows found
       return NextResponse.json({ error: fetchError.message }, { status: 500 })
     }
-    if (existing) {
-      return NextResponse.json({ error: "Learning style already submitted for this user." }, { status: 403 })
-    }
-    // Insert new entry
     const now = new Date().toISOString();
-    const { error: insertError } = await adminClient
-      .from("employee_learning_style")
-      .insert({ user_id, answers, created_at: now, updated_at: now })
-    if (insertError) {
-      return NextResponse.json({ error: insertError.message }, { status: 500 })
+    if (existing) {
+      // If a row exists, update answers and timestamp so we can re-run analysis
+      const { error: updateError } = await adminClient
+        .from('employee_learning_style')
+        .update({ answers, updated_at: now })
+        .eq('user_id', user_id)
+      if (updateError) {
+        return NextResponse.json({ error: updateError.message }, { status: 500 })
+      }
+    } else {
+      // Insert new entry
+      const { error: insertError } = await adminClient
+        .from("employee_learning_style")
+        .insert({ user_id, answers, created_at: now, updated_at: now })
+      if (insertError) {
+        return NextResponse.json({ error: insertError.message }, { status: 500 })
+      }
+    }
+
+    // Compute deterministic fallback learning style from the answers (10 questions per style)
+    let fallbackStyle: string | null = null
+    try {
+      const nums = answers.map((a: any) => Number(a) || 0)
+      const sumRange = (start: number, end: number) => nums.slice(start, end).reduce((s: number, v: number) => s + v, 0)
+      const scores = {
+        CS: sumRange(0, 10),
+        AS: sumRange(10, 20),
+        AR: sumRange(20, 30),
+        CR: sumRange(30, 40),
+      }
+      const entries = Object.entries(scores)
+      entries.sort((a, b) => b[1] - a[1])
+      fallbackStyle = entries[0][0]
+      // Save fallback learning style immediately so row isn't left null
+      const { error: fallbackErr } = await adminClient
+        .from('employee_learning_style')
+        .update({ learning_style: fallbackStyle, updated_at: new Date().toISOString() })
+        .eq('user_id', user_id)
+      if (fallbackErr) {
+        console.error('[LearningStyle] Failed to save fallback learning style', fallbackErr)
+      } else {
+        console.log('[LearningStyle] Saved fallback learning style:', fallbackStyle)
+      }
+    } catch (e) {
+      console.error('[LearningStyle] Fallback computation error', e)
     }
 
     // Call Gemini for learning style analysis
     let gptResult = null
+    let rawGPTText: string | null = null
     try {
       // Initialize Gemini AI
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
@@ -151,15 +188,21 @@ Return JSON: {
 
 Survey Responses:
 ${qaPairs}`;
-      console.log("[LearningStyle] Gemini prompt:", prompt)
-      
-      const result = await model.generateContent(prompt)
-      const response = await result.response
-      const gptText = response.text()
-      
-      console.log("[LearningStyle] Gemini raw response:", gptText)
-      console.log("[LearningStyle] Gemini parsed text:", gptText)
-      
+      //   console.log("[LearningStyle] OpenAI prompt:", prompt)
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4.1",
+        messages: [
+          { role: "system", content: "You are an expert learning style analyst." },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.2,
+        max_tokens: 1000
+      })
+      console.log("[LearningStyle] GPT prompt:", prompt)
+      console.log("[LearningStyle] OpenAI raw response:", completion)
+      // Parse GPT response
+      const gptText = completion.choices[0]?.message?.content || ""
+      console.log("[LearningStyle] OpenAI parsed text:", gptText)
       // Remove Markdown code fences if present
       let cleanedText = gptText.trim()
        // Find JSON block in the response
@@ -192,7 +235,7 @@ ${qaPairs}`;
       console.error("[LearningStyle] Gemini call error:", gptErr)
     }
 
-    // Save Gemini result (learning style classification and analysis) in employee_learning_style
+    // Save GPT result (learning style classification and analysis) in employee_learning_style
     if (gptResult && (gptResult.dominant_style || gptResult.learning_style) && gptResult.report) {
       await adminClient
         .from("employee_learning_style")
@@ -202,7 +245,7 @@ ${qaPairs}`;
           updated_at: new Date().toISOString()
         })
         .eq("user_id", user_id)
-      console.log("Gemini Analysis saved to Supabase")
+      console.log("GPT Analysis saved to Supabase")
     }
 
     return NextResponse.json({ success: true, gpt: gptResult })

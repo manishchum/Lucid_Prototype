@@ -107,6 +107,8 @@ export default function EmployeesPage() {
   const [showAssignmentsView, setShowAssignmentsView] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<User | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
   
   // Filter states
   const [searchTerm, setSearchTerm] = useState('');
@@ -208,7 +210,8 @@ export default function EmployeesPage() {
           *,
           department:sub_department(department_name, sub_department_name, department_id)
         `)
-        .eq('company_id', companyId);
+        .eq('company_id', companyId)
+        .eq('is_active', true);
 
       if (error) throw error;
 
@@ -425,6 +428,47 @@ export default function EmployeesPage() {
   const handleEditUser = (user: User) => {
     setSelectedEmployee(user);
     setShowUpdateModal(true);
+  };
+
+  const handleDeleteUser = (user: User) => {
+    setUserToDelete(user);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!userToDelete) return;
+
+    try {
+      setLoading(true);
+      setError('');
+      
+      // Soft delete - mark user as inactive instead of hard delete
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ is_active: false })
+        .eq('user_id', userToDelete.user_id);
+
+      if (updateError) throw updateError;
+
+      // Also deactivate user role assignments
+      await supabase
+        .from('user_role_assignments')
+        .update({ is_active: false })
+        .eq('user_id', userToDelete.user_id);
+
+      setSuccess(`User ${userToDelete.name} has been deactivated successfully`);
+      setShowDeleteConfirm(false);
+      setUserToDelete(null);
+      
+      // Reload users to reflect changes
+      if (admin?.company_id) {
+        await loadUsers(admin.company_id);
+      }
+    } catch (error: any) {
+      setError(`Failed to delete user: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Close dropdown handlers when clicking outside
@@ -893,7 +937,6 @@ export default function EmployeesPage() {
                         <th className="text-center p-3 font-medium text-gray-700">Role</th>
                         <th className="text-center p-3 font-medium text-gray-700">Status</th>
                         <th className="text-center p-3 font-medium text-gray-700">Position</th>
-                        <th className="text-center p-3 font-medium text-gray-700">Hire Date</th>
                         <th className="text-center p-3 font-medium text-gray-700">Actions</th>
                       </tr>
                     </thead>
@@ -970,7 +1013,12 @@ export default function EmployeesPage() {
                               >
                                 <Edit className="w-4 h-4 mr-1" />
                               </Button>
-                              <Button variant="outline" size="sm" className="text-red-600">
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="text-red-600"
+                                onClick={() => handleDeleteUser(user)}
+                              >
                                 <Trash2 className="w-4 h-4 mr-1" />
                               </Button>
                             </div>
@@ -1025,6 +1073,36 @@ export default function EmployeesPage() {
             setShowUpdateModal(false);
           }}
         />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && userToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Confirm Delete</h3>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete <strong>{userToDelete.name}</strong>? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setUserToDelete(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={confirmDeleteUser}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Bulk Module Assignment Modal */}
@@ -2706,9 +2784,10 @@ function UpdateEmployeeModal({
   const handleRoleToggle = (roleId: string) => {
     setFormData(prev => ({
       ...prev,
-      selected_roles: prev.selected_roles.includes(roleId)
-        ? prev.selected_roles.filter(id => id !== roleId)
-        : [...prev, roleId]
+      // ensure selected_roles is an array before operating on it
+      selected_roles: (Array.isArray(prev.selected_roles) ? prev.selected_roles : []).includes(roleId)
+        ? (Array.isArray(prev.selected_roles) ? prev.selected_roles.filter(id => id !== roleId) : [])
+        : [...(Array.isArray(prev.selected_roles) ? prev.selected_roles : []), roleId]
     }));
   };
 

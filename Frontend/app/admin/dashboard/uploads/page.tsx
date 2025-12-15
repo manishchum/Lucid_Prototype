@@ -413,6 +413,50 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     }
   };
 
+  const handleViewModule = async (module: any) => {
+    try {
+      if (module.content_url) {
+        // Extract the storage path from the content_url
+        // The URL format is like: https://...storage.../training-content/file-path?token=...
+        // We need to extract the file path and create a fresh signed URL
+        
+        const url = new URL(module.content_url);
+        const pathSegments = url.pathname.split('/');
+        
+        // Find the index where 'training-content' is and get everything after it
+        const trainingContentIndex = pathSegments.indexOf('training-content');
+        if (trainingContentIndex === -1) {
+          // If we can't extract the path, try opening the stored URL directly
+          window.open(module.content_url, '_blank');
+          return;
+        }
+        
+        const storagePath = pathSegments.slice(trainingContentIndex + 1).join('/');
+        
+        // Generate a fresh signed URL with longer expiry (24 hours)
+        const { data, error } = await supabase
+          .storage
+          .from('training-content')
+          .createSignedUrl(storagePath, 24 * 60 * 60); // 24 hours expiry
+
+        if (error) {
+          console.error('Failed to generate signed URL:', error);
+          setError('Failed to open training module');
+          return;
+        }
+
+        // Open the fresh signed URL in a new tab
+        window.open(data.signedUrl, '_blank');
+      } else {
+        console.error('No content URL found for module');
+        setError('Training module file not found');
+      }
+    } catch (error: any) {
+      console.error('Failed to view module:', error);
+      setError('Failed to open training module');
+    }
+  };
+
   const handleDeleteModule = async (moduleId: string) => {
     if (!confirm("Are you sure you want to delete this training module?")) return;
 
@@ -495,14 +539,14 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                     </div>
 
                     <div className="flex gap-2">
-                      {module.content_url && (
-                        <Button variant="outline" size="sm" asChild>
-                          <a href={module.content_url} target="_blank" rel="noopener noreferrer">
-                            <Eye className="w-4 h-4 mr-1" />
-                            View
-                          </a>
-                        </Button>
-                      )}
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => handleViewModule(module)}
+                      >
+                        <Eye className="w-4 h-4 mr-1" />
+                        View
+                      </Button>
                       
                       <Button 
                         variant="outline" 

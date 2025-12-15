@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
@@ -245,7 +245,7 @@ const EmployeeNavigation = ({
             </div>
           </div>
 
-          <nav className="flex flex-col gap-1 px-2 py-6 flex-1">
+          <nav className="flex flex-col gap-1 px-2 py-6 flex-1 overflow-y-auto">
             {[
               { href: '/employee/welcome', icon: <Home className="w-5 h-5" /> , label: 'Home'},
               { href: '/employee/training-plan', icon: <BookOpen className="w-5 h-5" /> , label: 'Learning Plan'},
@@ -258,45 +258,75 @@ const EmployeeNavigation = ({
               if (m.href === '/employee/training-plan') {
                 return (
                   <div key={m.href} className="flex flex-col">
-                    <div className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${isActiveRoute(m.href) ? 'text-violet-600 bg-violet-50' : 'text-gray-700 hover:bg-gray-100'}`}>
-                      <Link href={m.href} onClick={closeMobileSidebar} className="flex items-center gap-3 flex-1">
-                        <div className={`icon-box rounded-lg transition-colors border ${isActiveRoute(m.href) ? 'bg-violet-50 border-violet-100 text-violet-600' : 'border-transparent text-gray-500 hover:border-gray-200 hover:bg-gray-50'}`}>
-                          {renderIcon(m.icon)}
-                        </div>
-                        {!isCollapsed && <span>{m.label}</span>}
-                      </Link>
-
+                    <div 
+                      className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors cursor-pointer ${isActiveRoute(m.href) ? 'text-violet-600 bg-violet-50' : 'text-gray-700 hover:bg-gray-100'}`}
+                      onClick={(e) => { 
+                        e.preventDefault(); 
+                        if (isCollapsed) {
+                          router.push(m.href);
+                          closeMobileSidebar();
+                        } else {
+                          setCoursesOpen(!coursesOpen); 
+                        }
+                      }}
+                    >
+                      <div className={`icon-box rounded-lg transition-colors border ${isActiveRoute(m.href) ? 'bg-violet-50 border-violet-100 text-violet-600' : 'border-transparent text-gray-500 hover:border-gray-200 hover:bg-gray-50'}`}>
+                        {renderIcon(m.icon)}
+                      </div>
                       {!isCollapsed && (
-                        <button type="button" onClick={(e) => { e.preventDefault(); setCoursesOpen(!coursesOpen); }} className="p-1">
+                        <>
+                          <span className="flex-1">{m.label}</span>
                           <ChevronDown className={`w-4 h-4 transition-transform ${coursesOpen ? 'rotate-180' : ''}`} />
-                        </button>
+                        </>
                       )}
                     </div>
 
                     {!isCollapsed && coursesOpen && (
                       <div className="pl-14 pr-4 pt-2 pb-2">
-                        <ul className="flex flex-col gap-2">
-                          <li className="flex items-center justify-between">
-                            <div className="relative flex items-center">
-                              <span className={`absolute left-3 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/welcome') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
-                              <Link href="/employee/welcome" onClick={closeMobileSidebar} className="ml-8 text-sm text-gray-700">Active Modules</Link>
-                            </div>
-                          </li>
-
-                          <li className="flex items-center justify-between text-sm text-gray-700">
-                            <div className="relative flex items-center">
-                              <span className={`absolute left-3 top-2 w-2 h-2 rounded-full ${isActiveRoute('/employee/welcome') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
-                              <Link href="/employee/welcome" onClick={closeMobileSidebar} className="ml-8">Completed</Link>
-                            </div>
-                          </li>
-
-                          <li className="flex items-center justify-between text-sm text-gray-700">
-                            <div className="relative flex items-center">
-                              <span className={`absolute left-3 top-2 w-2 h-2 rounded-full ${isActiveRoute('/content-library') ? 'bg-violet-500' : 'border border-gray-300 bg-transparent'}`} />
-                              <Link href="/content-library" onClick={closeMobileSidebar} className="ml-8">All Modules</Link>
-                            </div>
-                          </li>
-                        </ul>
+                        <div className="py-2 space-y-1">
+                          {[
+                            {
+                              href: '/employee/welcome',
+                              icon: <PlayCircle className="w-4 h-4" />,
+                              label: 'Active Modules'
+                            },
+                            {
+                              href: '/employee/welcome',
+                              icon: <CheckCircle2 className="w-4 h-4" />,
+                              label: 'Completed'
+                            },
+                            {
+                              href: '/content-library',
+                              icon: <ListChecks className="w-4 h-4" />,
+                              label: 'All Modules'
+                            }
+                          ].map((subItem) => (
+                            <Link
+                              key={subItem.href}
+                              href={subItem.href}
+                              onClick={closeMobileSidebar}
+                              className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                                isActiveRoute(subItem.href)
+                                  ? 'text-gray-700 bg-white border-r-2 border-gray-200'
+                                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                              }`}
+                            >
+                              <div className="relative flex items-center">
+                                <span
+                                  className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${
+                                    isActiveRoute(subItem.href)
+                                      ? 'border border-gray-400 bg-transparent'
+                                      : 'border border-gray-300 bg-transparent'
+                                  }`}
+                                />
+                                <div className="flex items-center gap-2">
+                                  {renderIcon(subItem.icon)}
+                                  <span>{subItem.label}</span>
+                                </div>
+                              </div>
+                            </Link>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
