@@ -229,19 +229,6 @@ ${qaPairs}`;
       console.error("[LearningStyle] Gemini call error:", gptErr)
     }
 
-<<<<<<< HEAD
-    // Save Gemini result (learning style classification and analysis) in employee_learning_style
-    if (gptResult && (gptResult.dominant_style || gptResult.learning_style) && gptResult.report) {
-      await adminClient
-        .from("employee_learning_style")
-        .update({
-          learning_style: gptResult.dominant_style || gptResult.learning_style,
-          gpt_analysis: gptResult.report,
-          updated_at: new Date().toISOString()
-        })
-        .eq("user_id", user_id)
-      console.log("Gemini Analysis saved to Supabase")
-=======
     // Save GPT result (learning style classification and analysis) in employee_learning_style
     try {
       let learnedStyle: string | null = null
@@ -309,7 +296,6 @@ ${qaPairs}`;
       }
     } catch (saveEx) {
       console.error('[LearningStyle] Error saving GPT result', saveEx)
->>>>>>> 8061e5cd4995002d81fe3cd5e252967b6efaacd2
     }
 
     return NextResponse.json({ success: true, gpt: gptResult })

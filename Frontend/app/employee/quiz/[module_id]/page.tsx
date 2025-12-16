@@ -530,8 +530,34 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
               {feedback && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
                   <h3 className="font-semibold text-blue-800 mb-3">AI Feedback & Analysis</h3>
-                  <div className="text-blue-900 whitespace-pre-line leading-relaxed">
-                    {feedback}
+                  <div className="text-blue-900 leading-relaxed">
+                    {feedback.split('\n').map((line, index) => {
+                      // Handle markdown headers
+                      if (line.startsWith('### ')) {
+                        return <h4 key={index} className="text-lg font-semibold mt-4 mb-2 text-blue-800">{line.replace('### ', '')}</h4>;
+                      }
+                      if (line.startsWith('## ')) {
+                        return <h3 key={index} className="text-xl font-bold mt-6 mb-3 text-blue-900">{line.replace('## ', '')}</h3>;
+                      }
+                      if (line.startsWith('# ')) {
+                        return <h2 key={index} className="text-2xl font-bold mt-6 mb-4 text-blue-900">{line.replace('# ', '')}</h2>;
+                      }
+                      // Handle horizontal rules
+                      if (line.trim() === '---') {
+                        return <hr key={index} className="my-4 border-blue-300" />;
+                      }
+                      // Handle bullet points
+                      if (line.startsWith('* ')) {
+                        return <li key={index} className="ml-4 mb-1 text-blue-900">{line.replace('* ', '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}</li>;
+                      }
+                      // Handle bold text and empty lines
+                      if (line.trim() === '') {
+                        return <br key={index} />;
+                      }
+                      // Handle regular paragraphs with bold formatting
+                      const processedLine = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                      return <p key={index} className="mb-2 text-blue-900" dangerouslySetInnerHTML={{ __html: processedLine }}></p>;
+                    })}
                   </div>
                 </div>
               )}

@@ -506,7 +506,7 @@ export default function EmployeeWelcome() {
       const totalEmployees = companyEmployees.length
       console.log('[DEBUG] Total employees in company:', totalEmployees);
 
-      // Get learning plan completion for all company employees
+      // Get learning plan assignments for all company employees
       const employeeIds = companyEmployees.map((emp: any) => emp.user_id)
       const { data: allPlans } = await supabase
         .from('learning_plan')
@@ -520,98 +520,126 @@ export default function EmployeeWelcome() {
       let userRank = null
       const employeeProgressMap = new Map<string, number>()
 
-      // Calculate completion for each employee
-      const employeeModuleCounts = new Map<string, { total: number, completed: number }>()
-      
-      // Group plans by user
-      const plansByUser = new Map<string, any[]>()
-      for (const plan of allPlans || []) {
-        if (!plansByUser.has(plan.user_id)) {
-          plansByUser.set(plan.user_id, [])
-        }
-        plansByUser.get(plan.user_id)!.push(plan)
-      }
-
-      // Calculate progress for each employee
-      for (const [empUserId, plans] of plansByUser) {
-        const totalModules = plans.length
+      // Calculate completion for each employee using the same logic as Track Your Progress
+      for (const empUserId of employeeIds) {
+        console.log('[DEBUG] Processing employee:', empUserId);
         
-        if (totalModules === 0) {
+        // Get assigned plans for this employee
+        const employeePlans = (allPlans || []).filter(plan => plan.user_id === empUserId)
+        console.log('[DEBUG] Employee plans for', empUserId, ':', employeePlans);
+        
+        if (employeePlans.length === 0) {
           employeeProgressMap.set(empUserId, 0)
+          console.log('[DEBUG] No plans for employee', empUserId, ', setting progress to 0');
           continue
         }
 
-        // Get processed modules for this employee's assigned modules
-        const moduleIds = plans.map(p => p.module_id).filter(Boolean)
-        const { data: processedModules } = await supabase
-          .from('processed_modules')
-          .select('processed_module_id, original_module_id')
-          .in('original_module_id', moduleIds)
+        const moduleIds = employeePlans.map(plan => plan.module_id).filter(Boolean)
+        let completedModules = 0
+        let totalModules = employeePlans.length
 
-        if (processedModules && processedModules.length > 0) {
-          const processedModuleIds = processedModules.map(pm => pm.processed_module_id)
+        console.log('[DEBUG] Module IDs for employee', empUserId, ':', moduleIds);
+
+        if (moduleIds.length > 0) {
+          // Get processed modules for the assigned training modules (same as Track Your Progress logic)
+          const { data: processedModules } = await supabase
+            .from('processed_modules')
+            .select('processed_module_id, original_module_id')
+            .in('original_module_id', moduleIds)
           
-          // Check completion status
-          const { data: moduleProgressData } = await supabase
-            .from('module_progress')
-            .select('processed_module_id, completed_at')
-            .eq('user_id', empUserId)
-            .in('processed_module_id', processedModuleIds)
-
-          const completedSet = new Set(
-            (moduleProgressData || [])
-              .filter((progress: any) => progress.completed_at)
-              .map((progress: any) => String(progress.processed_module_id))
-          )
-
-          // Count completed original modules
-          const completedOriginalModules = new Set()
-          processedModules.forEach(pm => {
-            if (completedSet.has(String(pm.processed_module_id))) {
-              completedOriginalModules.add(String(pm.original_module_id))
-            }
-          })
-
-          const completedCount = completedOriginalModules.size
-          const progress = Math.round((completedCount / totalModules) * 100)
+          console.log('[DEBUG] Processed modules for employee', empUserId, ':', processedModules);
           
-          employeeProgressMap.set(empUserId, progress)
-          
-          if (progress === 100) {
-            completedEmployees++
+          if (processedModules && processedModules.length > 0) {
+            const processedModuleIds = processedModules.map(pm => pm.processed_module_id).filter(Boolean)
+            
+            // Check completion status using processed_module_ids (same as Track Your Progress logic)
+            const { data: moduleProgressData } = await supabase
+              .from('module_progress')
+              .select('processed_module_id, completed_at')
+              .eq('user_id', empUserId)
+              .in('processed_module_id', processedModuleIds)
+            
+            console.log('[DEBUG] Module progress data for employee', empUserId, ':', moduleProgressData);
+            
+            // Count completed modules (same logic as Track Your Progress)
+            const completedSet = new Set(
+              (moduleProgressData || [])
+                .filter((progress: any) => progress.completed_at)
+                .map((progress: any) => String(progress.processed_module_id))
+            )
+            
+            console.log('[DEBUG] Completed processed module IDs for employee', empUserId, ':', Array.from(completedSet));
+            
+            // Map back to count how many of our original modules are completed
+            const completedTrainingModules = new Set()
+            processedModules.forEach(pm => {
+              if (completedSet.has(String(pm.processed_module_id))) {
+                completedTrainingModules.add(String(pm.original_module_id))
+              }
+            })
+            
+            completedModules = completedTrainingModules.size
+            console.log('[DEBUG] Completed training modules for employee', empUserId, ':', completedModules, 'out of', totalModules);
+          } else {
+            completedModules = 0
+            console.log('[DEBUG] No processed modules found for employee', empUserId);
           }
-        } else {
-          employeeProgressMap.set(empUserId, 0)
+        }
+
+        // Calculate progress percentage (same as Track Your Progress logic)
+        const progress = totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0
+        employeeProgressMap.set(empUserId, progress)
+        
+        console.log('[DEBUG] Final progress for employee', empUserId, ':', progress, '%');
+        
+        // Count as completed employee if 100% (same as Track Your Progress logic)
+        if (progress === 100) {
+          completedEmployees++
+          console.log('[DEBUG] Employee', empUserId, 'marked as completed (100%)');
         }
       }
 
-      console.log('[DEBUG] Employee progress map:', employeeProgressMap);
+      console.log('[DEBUG] Employee progress map:', Object.fromEntries(employeeProgressMap));
       console.log('[DEBUG] Completed employees count:', completedEmployees);
 
       // Calculate user rank
       const progressValues = Array.from(employeeProgressMap.values()).sort((a, b) => b - a)
+      console.log('[DEBUG] All progress values (sorted):', progressValues);
+      
       const userProgressIndex = progressValues.findIndex(p => p <= userProgress)
       if (userProgressIndex !== -1) {
         userRank = userProgressIndex + 1
       }
 
+      console.log('[DEBUG] User progress:', userProgress, '%, rank:', userRank);
+
       const topPercentile = totalEmployees > 0 ? Math.round(((totalEmployees - (userRank || totalEmployees)) / totalEmployees) * 100) : 0
 
-      console.log('[DEBUG] Calculated stats:', { userRank, topPercentile });
+      console.log('[DEBUG] Calculated stats:', { 
+        totalEmployees, 
+        completedEmployees, 
+        userRank, 
+        topPercentile,
+        userProgress 
+      });
 
-      setCompanyStats({
+      // Force update the state even if values are the same
+      const newStats = {
         totalEmployees,
         completedEmployees,
         userRank,
         topPercentile
-      })
+      }
+      
+      setCompanyStats(newStats)
+      console.log('[DEBUG] Set company stats:', newStats);
 
-      // Generate nudge message
+      // Generate nudge message with additional debugging
       console.log('[DEBUG] Calling generateNudgeMessage with:', { userProgress, userRank, totalEmployees, topPercentile, completedEmployees });
       generateNudgeMessage(userProgress, userRank, totalEmployees, topPercentile, completedEmployees)
 
     } catch (error) {
-      console.warn('Failed to fetch company stats:', error)
+      console.error('[DEBUG] Error in fetchCompanyStats:', error)
     }
   }
 
@@ -626,18 +654,24 @@ export default function EmployeeWelcome() {
     }
 
     let message = "";
-    if (percentile >= 80) {
-      message = `🏆 Amazing! You're in the top ${100 - percentile}% of learners in your company. Complete your training to maintain your lead!`;
+    
+    // Ensure we have valid data before generating messages
+    if (total === 0) {
+      message = "🎯 Welcome! Complete your learning modules to get started on your learning journey!";
+    } else if (percentile >= 80) {
+      message = `🏆 Amazing! You're in the top ${100 - percentile}% of learners in your company (${total} employees). Complete your training to maintain your lead!`;
     } else if (percentile >= 60) {
-      message = `🎯 You're in the top ${100 - percentile}% of your company. Complete this training to join the top 20% and earn SME status!`;
+      message = `🎯 You're in the top ${100 - percentile}% of your company (${total} employees). Complete this training to join the top 20% and earn SME status!`;
     } else if (percentile >= 40) {
-      message = `⚡ Push forward! Complete your training to surpass ${Math.max(0, total - (rank || total) - Math.round(total * 0.2))} colleagues and reach the top 20%!`;
+      const peopleToSurpass = Math.max(0, total - (rank || total) - Math.round(total * 0.2));
+      message = `⚡ Push forward! Complete your training to surpass ${peopleToSurpass} colleagues and reach the top 20% in your company of ${total} employees!`;
     } else if (progress >= 50) {
       message = `🚀 You're halfway there! Complete your training to join ${completed} successful colleagues and earn your SME tag!`;
     } else if (progress > 0) {
-      message = `💪 Great start! Complete this training and you'll be ahead of ${Math.max(0, total - completed)} colleagues in your company!`;
+      const peopleAhead = Math.max(0, total - completed);
+      message = `💪 Great start! Complete this training and you'll be ahead of ${peopleAhead} colleagues in your company of ${total} employees!`;
     } else {
-      message = `🎯 Start your learning journey! Join ${completed} colleagues who have already completed their training and earned SME status!`;
+      message = `🎯 Start your learning journey! Join ${completed} colleagues who have already completed their training and earned SME status in your company of ${total} employees!`;
     }
     
     console.log('[DEBUG] Setting nudge message:', message);
