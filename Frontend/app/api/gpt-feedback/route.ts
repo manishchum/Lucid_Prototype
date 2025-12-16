@@ -38,7 +38,8 @@ export async function POST(request: NextRequest) {
       user_id: normalizedUserId,
       assessment_id: normalizedAssessmentId,
       answers: normalizedAnswers,
-      type: (moduleId || processedModuleId) ? 'module' : 'baseline'
+      type: (moduleId || processedModuleId) ? 'module' : 'baseline',
+      module_id: moduleId || processedModuleId // Pass module_id for training-plan calls
     });
 
     // Call the new submit-assessment API internally
@@ -51,7 +52,8 @@ export async function POST(request: NextRequest) {
         user_id: normalizedUserId,
         assessment_id: normalizedAssessmentId,
         answers: normalizedAnswers,
-        type: (moduleId || processedModuleId) ? 'module' : 'baseline'
+        type: (moduleId || processedModuleId) ? 'module' : 'baseline',
+        module_id: moduleId || processedModuleId // Pass module_id for potential training-plan calls
       })
     });
 

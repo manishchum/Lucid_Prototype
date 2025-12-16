@@ -65,6 +65,9 @@ export async function POST(request: NextRequest) {
     console.log("[Training Plan API] user_id:", user_id);
     if (module_id_query) console.log("[Training Plan API] module_id (query):", module_id_query);
     // Validate Gemini API key early to avoid opaque 500s later
+    console.log("The module id is not passed in the request")
+    console.log(module_id)
+    console.log(module_id_query)
     if (!process.env.GEMINI_API_KEY) {
       console.error("[Training Plan API] GEMINI_API_KEY is not set");
       return NextResponse.json({ error: "Server misconfiguration: GEMINI_API_KEY is missing." }, { status: 500 });

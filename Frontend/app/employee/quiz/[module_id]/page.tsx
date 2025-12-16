@@ -548,14 +548,18 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                       }
                       // Handle bullet points
                       if (line.startsWith('* ')) {
-                        return <li key={index} className="ml-4 mb-1 text-blue-900">{line.replace('* ', '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}</li>;
+                        const processedLine = line.replace('* ', '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/<strong>(.*?)<\/strong>/g, '<strong>$1</strong>');
+                        return <li key={index} className="ml-4 mb-1 text-blue-900 list-disc" dangerouslySetInnerHTML={{ __html: processedLine }}></li>;
                       }
                       // Handle bold text and empty lines
                       if (line.trim() === '') {
                         return <br key={index} />;
                       }
-                      // Handle regular paragraphs with bold formatting
-                      const processedLine = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                      // Handle regular paragraphs with both markdown and HTML bold formatting
+                      let processedLine = line
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Convert markdown bold to HTML
+                        .replace(/<strong>(.*?)<\/strong>/g, '<strong>$1</strong>'); // Keep existing HTML bold tags
+                      
                       return <p key={index} className="mb-2 text-blue-900" dangerouslySetInnerHTML={{ __html: processedLine }}></p>;
                     })}
                   </div>
