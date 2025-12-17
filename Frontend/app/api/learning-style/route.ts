@@ -20,15 +20,44 @@ export async function POST(req: NextRequest) {
     // Check if already exists for this employee
     const { data: existing, error: fetchError } = await adminClient
       .from("employee_learning_style")
-      .select("user_id")
+      .select("user_id, learning_style, gpt_analysis, answers")
       .eq("user_id", user_id)
       .single()
+    
     if (fetchError && fetchError.code !== "PGRST116") { // PGRST116: No rows found
       return NextResponse.json({ error: fetchError.message }, { status: 500 })
     }
+
     const now = new Date().toISOString();
+    
+    // If learning style and analysis already exist, just update answers and return existing data
+    if (existing && existing.learning_style && existing.gpt_analysis) {
+      console.log('[LearningStyle] Learning style already determined, updating answers only:', existing.learning_style)
+      
+      // Update only the answers to keep record of latest submission
+      const { error: updateError } = await adminClient
+        .from('employee_learning_style')
+        .update({ answers, updated_at: now })
+        .eq('user_id', user_id)
+      
+      if (updateError) {
+        console.error('[LearningStyle] Error updating answers:', updateError)
+      }
+      
+      // Return existing analysis without regenerating
+      return NextResponse.json({ 
+        success: true, 
+        gpt: { 
+          dominant_style: existing.learning_style,
+          learning_style: existing.learning_style,
+          report: existing.gpt_analysis 
+        },
+        message: 'Learning style already determined - using existing analysis'
+      })
+    }
+
     if (existing) {
-      // If a row exists, update answers and timestamp so we can re-run analysis
+      // If a row exists but no learning style determined yet, update answers and continue with analysis
       const { error: updateError } = await adminClient
         .from('employee_learning_style')
         .update({ answers, updated_at: now })
@@ -203,35 +232,6 @@ ${qaPairs}`;
        const jsonStart = cleanedText.indexOf('{')
        const jsonEnd = cleanedText.lastIndexOf('}')
        
-       if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-         cleanedText = cleanedText.substring(jsonStart, jsonEnd + 1)
-       } else {
-         // Fallback: remove markdown code fences if present
-         if (cleanedText.startsWith('```json')) {
-           cleanedText = cleanedText.replace(/^```json/, '').replace(/```$/, '').trim()
-         } else if (cleanedText.startsWith('```')) {
-           cleanedText = cleanedText.replace(/^```/, '').replace(/```$/, '').trim()
-         }
-       }
-       
-       console.log("[LearningStyle] Cleaned text for parsing:", cleanedText)
-       
-      try {
-        console.log(cleanedText)
-        gptResult = JSON.parse(cleanedText)
-        console.log("[LearningStyle] Gemini parsed JSON:", gptResult)
-      } catch (jsonErr) {
-        gptResult = { error: "Gemini response not valid JSON", raw: gptText }
-        console.error("[LearningStyle] Gemini JSON parse error:", jsonErr)
-      }
-    } catch (gptErr: any) {
-      gptResult = { error: "Gemini analysis failed", details: gptErr?.message || String(gptErr) }
-      console.error("[LearningStyle] Gemini call error:", gptErr)
-    }
-
-    // Save GPT result (learning style classification and analysis) in employee_learning_style
-    try {
-      let learnedStyle: string | null = null
       let analysisText: string | null = null
 
       if (gptResult) {

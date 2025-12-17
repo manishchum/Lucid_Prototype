@@ -19,10 +19,10 @@ export async function POST(request: NextRequest) {
     if (module_id) {
       const { data: existingPlan, error: planCheckError } = await supabase
         .from('learning_plan')
-        .select('learning_plan_id, plan_json, status')
+        .select('learning_plan_id, plan_json, status, reasoning')
         .eq('user_id', user_id)
         .eq('module_id', module_id)
-        .order('created_at', { ascending: false })
+        .order('assigned_on', { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -46,12 +46,20 @@ export async function POST(request: NextRequest) {
         }
 
         if (planContent) {
+          // Ensure processed modules exist for the existing plan
+          try {
+            let company_id = null;
+            await ensureProcessedModulesForPlan(user_id, company_id, existingPlan.plan_json);
+          } catch (e) {
+            console.error('📚 Error ensuring processed modules for existing plan:', e);
+          }
+          
           return NextResponse.json({
-            message: 'Retrieved existing learning plan',
-            learningPlan: planContent,
+            plan: planContent,
+            reasoning: existingPlan.reasoning,
             planId: existingPlan.learning_plan_id,
             status: existingPlan.status,
-            isExisting: true
+            message: 'Using existing stable learning plan - no regeneration needed'
           });
         }
       }
@@ -198,17 +206,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: existingPlanError.message || String(existingPlanError) }, { status: 500 });
     }
 
-    // If the cached plan matches the assessment hash, return it early (cache hit)
-    if (existingPlan && existingPlan.assessment_hash === assessmentHash) {
-      console.log("[Training Plan API] No change in assessments. Returning existing plan (pre-GPT).");
+    // If any plan exists for this user/module combination, return it (regardless of assessment hash)
+    // This ensures learning plans remain stable once created
+    if (existingPlan && existingPlan.plan_json) {
+      console.log("[Training Plan API] Existing plan found - returning stable plan without regeneration");
       try {
         await ensureProcessedModulesForPlan(user_id, company_id, existingPlan.plan_json);
       } catch (e) {
-        console.error("[Training Plan API] ensureProcessedModulesForPlan failed on cache-hit:", e);
+        console.error("[Training Plan API] ensureProcessedModulesForPlan failed on existing plan:", e);
       }
-      return NextResponse.json({ plan: existingPlan.plan_json, reasoning: existingPlan.reasoning });
+      
+      return NextResponse.json({ 
+        plan: existingPlan.plan_json, 
+        reasoning: existingPlan.reasoning,
+        message: "Using existing stable learning plan"
+      });
     }
 
+    // Only generate new plan if NO plan exists at all
+    console.log("[Training Plan API] No existing plan found - generating new plan");
+    
     // Fetch all processed modules for this company by joining training_modules, handling empty lists safely
     console.log("[Training Plan API] Fetching processed modules for company_id:", company_id);
     let modules: any[] = [];
@@ -259,6 +276,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: tmError.message }, { status: 500 });
       }
       const tmIds = (trainingModuleRows || []).map((m: any) => m.module_id);
+      console.log("_______________________")
+      console.log(tmIds)
+
       if (tmIds.length > 0) {
         const { data: pmRows, error: modError } = await supabase
           .from("processed_modules")

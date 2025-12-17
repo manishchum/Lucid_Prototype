@@ -155,7 +155,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                   <div className="text-sm text-gray-500">Module Content</div>
 
                   <div className="mt-4 w-full">
-                    {module.audio_url ? (
+                    {/* {module.audio_url ? (
                       <div>
                         <AudioPlayer
                           employeeId={employee?.user_id}
@@ -167,7 +167,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       </div>
                     ) : (
                       <GenerateAudioButton moduleId={module.processed_module_id} onAudioGenerated={url => setModule((m: any) => ({ ...m, audio_url: url }))} />
-                    )}
+                    )} */}
                   </div>
                 </div>
 
@@ -177,7 +177,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                     <div className="flex items-center justify-between mb-3">
                     </div>
 
-                    <div>
+                    {/* <div>
                       <div className="text-xs text-gray-500 mb-2">Video</div>
                       {module.video_url ? (
                         <div>
@@ -191,15 +191,15 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       ) : (
                         <GenerateVideoButton moduleId={module.processed_module_id} onVideoGenerated={url => setModule((m: any) => ({ ...m, video_url: url }))} />
                       )}
-                    </div>
+                    </div> */}
 
                     <div className="mt-4 text-gray-700 leading-relaxed max-w-none" dangerouslySetInnerHTML={{ __html: formatContent(module.content || '') }} />
                   </div>
 
                   {/* Actions */}
-                  <div className="flex justify-end">
+                  {/* <div className="flex justify-end">
                     <button className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg shadow hover:bg-violet-700">Ask AI</button>
-                  </div>
+                  </div> */}
                 </div>
               </div>
             </main>

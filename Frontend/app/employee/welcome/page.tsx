@@ -941,7 +941,10 @@ export default function EmployeeWelcome() {
                                   const res = await fetch(`/api/training-plan?module_id=${encodeURIComponent(m.id)}`, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ user_id: employee.user_id }),
+                                    body: JSON.stringify({ 
+                                      user_id: employee.user_id,
+                                      module_id: m.id 
+                                    }),
                                   });
                                   const data = await res.json().catch(() => ({}));
                                   if (!res.ok) {
