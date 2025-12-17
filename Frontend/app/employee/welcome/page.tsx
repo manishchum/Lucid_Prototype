@@ -745,8 +745,23 @@ export default function EmployeeWelcome() {
         <div className="grid gap-8">
           {/* Progress Nudge Card */}
           {nudgeMessage && (
-            <Card className="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200">
-              <CardContent className="pt-6">
+            <Card className={`bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200 relative ${progressPercentage === 0 ? 'overflow-hidden' : ''}`}>
+              {/* Lock Overlay for 0% progress */}
+              {progressPercentage === 0 && (
+                <div className="absolute inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-10">
+                  <div className="text-center text-white">
+                    <div className="w-16 h-16 mx-auto mb-3 bg-gray-700 rounded-full flex items-center justify-center">
+                      <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <h4 className="text-lg font-semibold mb-2">Learning Locked</h4>
+                    <p className="text-sm opacity-90">Complete your baseline assessment to unlock your progress</p>
+                  </div>
+                </div>
+              )}
+              
+              <CardContent className={`pt-6 ${progressPercentage === 0 ? 'filter blur-sm' : ''}`}>
                 <div className="flex items-start gap-4">
                   <div className="flex-shrink-0">
                     {progressPercentage === 100 ? (
@@ -795,7 +810,6 @@ export default function EmployeeWelcome() {
           )}
 
           {/* Learning Preference Card */}
-          {/* COMMENTED OUT - Learning Preference Card
           <Card>
             <CardHeader>
               <CardTitle>Learning Preference</CardTitle>
@@ -829,7 +843,6 @@ export default function EmployeeWelcome() {
               )}
             </CardContent>
           </Card>
-          */}
 
           {/* If learning preference not completed, block rest of dashboard */}
           {!learningStyle ? (
