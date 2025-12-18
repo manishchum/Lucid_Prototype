@@ -281,11 +281,41 @@ export default function ScoreHistoryPage() {
       // Fetch assessment history
       const { data: assessments } = await supabase
         .from("employee_assessments")
-        .select("employee_assessment_id, score, max_score, feedback, question_feedback, assessment_id, assessments(type, questions)")
+        .select("employee_assessment_id, score, max_score, feedback, question_feedback, assessment_id, assessments(type, questions, processed_module_id)")
         .eq("user_id", employeeData.user_id)
         .order("employee_assessment_id", { ascending: false });
-      
-      setScoreHistory(assessments || []);
+
+      // Enrich with module titles for non-baseline assessments
+      let enriched = assessments || [];
+      try {
+        const moduleIds = (enriched || [])
+          .filter((a: any) => a?.assessments?.type === 'module' && a.assessments?.processed_module_id)
+          .map((a: any) => String(a.assessments.processed_module_id));
+        if (moduleIds.length) {
+          const { data: mods } = await supabase
+            .from('processed_modules')
+            .select('processed_module_id, title')
+            .in('processed_module_id', moduleIds);
+          const titleMap = new Map<string, string>();
+          (mods || []).forEach((m: any) => {
+            if (m?.processed_module_id && m?.title) {
+              titleMap.set(String(m.processed_module_id), m.title);
+            }
+          });
+          enriched = enriched.map((a: any) => {
+            if (a?.assessments?.type === 'module') {
+              const pid = String(a.assessments?.processed_module_id || '');
+              const title = pid ? titleMap.get(pid) : undefined;
+              return { ...a, assessments: { ...a.assessments, module_title: title } };
+            }
+            return a;
+          });
+        }
+      } catch (e) {
+        console.log('[score-history] module title enrich error', e);
+      }
+
+      setScoreHistory(enriched);
 
       // Fetch learning style data
       const { data: learningStyle, error: learningStyleError } = await supabase
@@ -486,7 +516,7 @@ export default function ScoreHistoryPage() {
                         <div className="flex items-center justify-between mb-8 cursor-pointer" onClick={() => toggleExpand(idx)}>
                           <div className="flex flex-col gap-4 flex-1">
                             <span className={`text-3xl font-extrabold ${isBaseline ? 'text-blue-800' : 'text-gray-800'}`}>
-                              {isBaseline ? 'Baseline Assessment' : 'Module Assessment'}
+                              {isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}
                             </span>
                             <div className="flex items-center gap-4 mt-4 text-2xl">
                               <span className="text-gray-600 font-semibold">Score:</span>
@@ -525,7 +555,7 @@ export default function ScoreHistoryPage() {
                   // Collapsed tile (grid)
                   return (
                     <div key={idx} className={`border-2 rounded-2xl p-8 flex flex-col h-full ${isBaseline ? 'border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50' : 'border-gray-200 bg-gray-50'} transition-all duration-200 hover:shadow-xl cursor-pointer`} onClick={() => toggleExpand(idx)}>
-                      <span className={`text-2xl font-bold mb-4 ${isBaseline ? 'text-blue-800' : 'text-gray-800'}`}>{isBaseline ? 'Baseline Assessment' : 'Module Assessment'}</span>
+                      <span className={`text-2xl font-bold mb-4 ${isBaseline ? 'text-blue-800' : 'text-gray-800'}`}>{isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}</span>
                       <div className="flex items-center gap-3 text-xl mb-2">
                         <span className="text-gray-600 font-semibold">Score:</span>
                         <span className={`font-bold ${isBaseline ? 'text-blue-700' : 'text-gray-700'}`}>{item.score} / {item.max_score ?? '?'}</span>

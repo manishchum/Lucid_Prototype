@@ -149,6 +149,13 @@ export default function LearningStyleSurvey() {
 
   const [surveyFrozen, setSurveyFrozen] = useState(false);
 
+  // Scroll to top whenever survey page changes
+  useEffect(() => {
+    if (page === 'survey') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [surveyPage, page]);
+
   const handleChange = (idx: number, value: number) => {
     if (submitting || surveyFrozen) return;
     const updated = [...answers]
@@ -537,74 +544,103 @@ export default function LearningStyleSurvey() {
           className="transition-all duration-300 ease-in-out py-10"
           style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
         >
-          <div className="max-w-2xl mx-auto px-4 flex flex-col items-center">
+          <div className="max-w-4xl mx-auto px-4">
         {/* Progress Bar */}
-        <div className="w-full mb-8">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-gray-600">Questions {startIdx + 1} - {endIdx} of {questions.length}</span>
-            <span className="text-sm text-gray-600">{Math.round((answers.filter(a => a !== null).length / questions.length) * 100)}% complete</span>
-          </div>
-          <div className="w-full h-2 bg-gray-200 rounded-full">
-            <div className="h-2 bg-blue-500 rounded-full transition-all duration-300" style={{ width: `${(answers.filter(a => a !== null).length / questions.length) * 100}%` }}></div>
-          </div>
-        </div>
+        <Card className="shadow-sm mb-6">
+          <CardContent className="p-4 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+              <h2 className="text-lg sm:text-xl font-semibold">Learning Style Assessment</h2>
+              <div className="text-sm text-gray-600">
+                Page {surveyPage + 1} of {totalPages}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm text-gray-600">
+                <span>Progress</span>
+                <span>{Math.round((answers.filter(a => a !== null).length / questions.length) * 100)}% Complete</span>
+              </div>
+              <div className="w-full h-2 bg-gray-200 rounded-full">
+                <div className="h-2 bg-blue-500 rounded-full transition-all duration-300" style={{ width: `${(answers.filter(a => a !== null).length / questions.length) * 100}%` }}></div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
          {/* Global scale instruction */}
-         <div className="w-full flex justify-center mb-4">
-           <div className="bg-blue-50 border border-blue-100 rounded px-4 py-2 text-xs text-gray-500 italic">
-             Use the scale: 1 = least preferred, 5 = most preferred
-           </div>
-         </div>
-         <form onSubmit={handleSubmit} className="w-full">
-           {questions.slice(startIdx, endIdx).map((q, idx) => (
-             <div key={startIdx + idx} className="bg-white rounded-xl shadow p-6 flex flex-col items-center mb-6">
-               <label className="font-bold text-lg mb-4 text-center">{q}</label>
-               <div className="flex gap-3 mt-2">
-                 {[1,2,3,4,5].map(val => (
-                   <button
-                     type="button"
-                     key={val}
-                     className={`w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center text-lg font-bold transition-all duration-200
-                       ${answers[startIdx + idx] === val ? "bg-blue-600 text-white border-blue-600 scale-110" : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-blue-100"}`}
-                     onClick={() => handleChange(startIdx + idx, val)}
-                     aria-label={`Rate ${val}`}
-                     disabled={submitting || surveyFrozen}
-                   >
-                     <span>{val}</span>
-                   </button>
-                 ))}
-               </div>
+         <Card className="shadow-sm mb-6">
+           <CardContent className="p-4">
+             <div className="text-center text-sm text-gray-600">
+               Use the scale: <span className="font-semibold">1 = least preferred</span>, <span className="font-semibold">5 = most preferred</span>
              </div>
+           </CardContent>
+         </Card>
+
+         {/* Individual Question Cards */}
+         <div className="space-y-8">
+           {questions.slice(startIdx, endIdx).map((q, idx) => (
+             <Card key={startIdx + idx} className="shadow-lg">
+               <CardContent className="p-6">
+                 <div className="font-medium text-base sm:text-lg mb-3 text-center">
+                   {startIdx + idx + 1}. {q}
+                 </div>
+                 <div className="flex justify-center gap-3 mt-3">
+                   {[1,2,3,4,5].map(val => (
+                     <button
+                       type="button"
+                       key={val}
+                       className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 flex items-center justify-center text-lg font-bold transition-all duration-200 ${
+                         answers[startIdx + idx] === val 
+                           ? "bg-blue-600 text-white border-blue-600 scale-110 shadow-lg" 
+                           : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-blue-100 hover:border-blue-300"
+                       }`}
+                       onClick={() => handleChange(startIdx + idx, val)}
+                       aria-label={`Rate ${val}`}
+                       disabled={submitting || surveyFrozen}
+                     >
+                       <span>{val}</span>
+                     </button>
+                   ))}
+                 </div>
+               </CardContent>
+             </Card>
            ))}
-          <div className="flex justify-between items-center w-full">
-            <Button
-              type="button"
-              variant="outline"
-              className="px-6"
-              disabled={surveyPage === 0 || submitting || surveyFrozen}
-              onClick={() => setSurveyPage(surveyPage - 1)}
-            >
-              <ChevronLeft className="w-4 h-4 mr-1" /> Previous
-            </Button>
-            {surveyPage === totalPages - 1 ? (
-              <Button
-                type="submit"
-                className="px-8"
-                disabled={submitting || !allAnswered || surveyFrozen}
-              >
-                {submitting ? "Submitting..." : "Submit Survey"}
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                className="px-8"
-                disabled={answers.slice(startIdx, endIdx).some(a => a === null) || submitting || surveyFrozen}
-                onClick={() => setSurveyPage(surveyPage + 1)}
-              >
-                Next <ChevronRight className="w-4 h-4 ml-1" />
-              </Button>
-            )}
-          </div>
-        </form>
+         </div>
+
+         {/* Navigation Buttons */}
+         <div className="flex flex-col sm:flex-row gap-4 justify-between mt-6">
+           <Button
+             type="button"
+             variant="outline"
+             size="sm"
+             className="flex items-center gap-2"
+             disabled={surveyPage === 0 || submitting || surveyFrozen}
+             onClick={() => setSurveyPage(surveyPage - 1)}
+           >
+             <ChevronLeft className="w-4 h-4" />
+             Previous
+           </Button>
+           {surveyPage === totalPages - 1 ? (
+             <Button
+               type="button"
+               onClick={handleSubmit}
+               className="px-8"
+               disabled={submitting || !allAnswered || surveyFrozen}
+             >
+               {submitting ? "Submitting..." : "Submit Survey"}
+             </Button>
+           ) : (
+             <Button
+               type="button"
+               size="sm"
+               className="flex items-center gap-2"
+               disabled={answers.slice(startIdx, endIdx).some(a => a === null) || submitting || surveyFrozen}
+               onClick={() => setSurveyPage(surveyPage + 1)}
+             >
+               Next
+               <ChevronRight className="w-4 h-4" />
+             </Button>
+           )}
+         </div>
           </div>
         </div>
       </div>

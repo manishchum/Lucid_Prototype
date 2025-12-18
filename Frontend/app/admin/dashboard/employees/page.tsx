@@ -464,6 +464,9 @@ export default function EmployeesPage() {
       if (admin?.company_id) {
         await loadUsers(admin.company_id);
       }
+      
+      // Scroll to top to see updated list
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error: any) {
       setError(`Failed to delete user: ${error.message}`);
     } finally {
@@ -586,6 +589,8 @@ export default function EmployeesPage() {
                   onSuccess={() => {
                     loadUsers(admin.company_id);
                     setSuccess("Users uploaded successfully!");
+                    // Scroll to top to see the new users
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   onError={setError}
                 />
@@ -1057,6 +1062,8 @@ export default function EmployeesPage() {
           loadUsers(admin.company_id);
           setSuccess("User added successfully!");
           setShowAddModal(false);
+          // Scroll to top to see the new user
+          window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
       />
 
@@ -1071,6 +1078,8 @@ export default function EmployeesPage() {
             loadUsers(admin.company_id);
             setSuccess("Employee updated successfully!");
             setShowUpdateModal(false);
+            // Scroll to top to see the updated employee
+            window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
         />
       )}

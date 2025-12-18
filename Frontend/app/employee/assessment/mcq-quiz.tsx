@@ -35,6 +35,11 @@ const MCQQuiz: React.FC<MCQQuizProps> = ({ questions, onSubmit }) => {
     setProgressPercent(progress);
   }, [selected, questions.length]);
 
+  // Scroll to top whenever page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [currentPage]);
+
   const handleSelect = (qIdx: number, optIdx: number) => {
     if (submitted) return;
     const newSelected = [...selected];

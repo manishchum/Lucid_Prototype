@@ -9,16 +9,19 @@ import EmployeeNavigation from "@/components/employee-navigation";
 
 export default function ModuleQuizPage({ params }: { params: { module_id: string } }) {
   const { user, loading: authLoading } = useAuth();
+  
   // Handler for navigation
   const handleNext = () => {
     if (currentPage < totalPages - 1) {
       setCurrentPage(currentPage + 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
   const handlePrevious = () => {
     if (currentPage > 0) {
       setCurrentPage(currentPage - 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -97,7 +100,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             user_id: employeeId,
-            processed_module_id: moduleId,
+            processed_module_id: resolvedModuleId || moduleId,
             quiz_score: typeof result.score === 'number' ? result.score : null,
             max_score: typeof result.maxScore === 'number' ? result.maxScore : quiz.length,
             quiz_feedback: feedbackText,
@@ -129,6 +132,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   const [assessmentId, setAssessmentId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [resolvedModuleId, setResolvedModuleId] = useState<string | null>(null);
   const router = useRouter();
 
   const questionsPerPage = 10;
@@ -161,6 +165,10 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   // ...existing handleSubmit function...
 
   useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [currentPage]);
+
+  useEffect(() => {
     // Validate moduleId from route params
     if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
       setError('Invalid or missing module id. Please navigate from the Training Plan page.');
@@ -171,19 +179,31 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       setLoading(true);
       setError(null);
       
-      // Fetch module name first
+      // Fetch module metadata and resolve canonical processed_module_id
       try {
-        const { data: moduleData } = await supabase
+        let moduleData: any = null;
+        const byProcessed = await supabase
           .from('processed_modules')
-          .select('title')
+          .select('processed_module_id, original_module_id, title')
           .eq('processed_module_id', moduleId)
           .maybeSingle();
-        
-        if (moduleData?.title) {
-          setModuleName(moduleData.title);
+        moduleData = byProcessed?.data || null;
+
+        if (!moduleData) {
+          const byOriginal = await supabase
+            .from('processed_modules')
+            .select('processed_module_id, original_module_id, title')
+            .eq('original_module_id', moduleId)
+            .maybeSingle();
+          moduleData = byOriginal?.data || null;
+        }
+
+        if (moduleData) {
+          if (moduleData.title) setModuleName(moduleData.title);
+          if (moduleData.processed_module_id) setResolvedModuleId(String(moduleData.processed_module_id));
         }
       } catch (e) {
-        console.log('[quiz] module name fetch error', e);
+        console.log('[quiz] module metadata fetch error', e);
       }
       
       let learningStyle: string | null = null;
@@ -367,97 +387,61 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
               </CardHeader>
             </Card>
 
-            {/* Questions Card */}
-            <Card className="mb-6 shadow-xl">
-              <CardHeader className="bg-white border-b">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-xl text-gray-800">
-                    Questions {currentPage * questionsPerPage + 1}-{Math.min((currentPage + 1) * questionsPerPage, quiz?.length || 0)}
-                  </CardTitle>
-                  {totalPages > 1 && (
-                    <div className="text-sm text-gray-500">
-                      Page {currentPage + 1} of {totalPages}
-                    </div>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="p-8">
-                <div className="space-y-8">
-                  {currentQuestions.map((q, idx) => {
-                    const globalIdx = currentPage * questionsPerPage + idx;
-                    const isAnswered = answers[globalIdx] !== -1 && answers[globalIdx] !== '';
-                    
-                    return (
-                      <div key={globalIdx} className={`p-6 rounded-lg border-2 transition-all ${
-                        isAnswered 
-                          ? 'border-green-200 bg-green-50' 
-                          : 'border-gray-200 bg-white hover:border-blue-200'
-                      }`}>
-                        <div className="flex items-start gap-4">
-                          {/* Question Number */}
-                          <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                            isAnswered 
-                              ? 'bg-green-500 text-white' 
-                              : 'bg-blue-100 text-blue-700'
-                          }`}>
-                            {globalIdx + 1}
-                          </div>
-                          
-                          <div className="flex-1">
-                            {/* Question Text */}
-                            <div className="font-semibold text-lg text-gray-800 mb-4">
-                              {q.question}
-                            </div>
-                            
-                            {/* Answer Options */}
-                            {(Array.isArray(q.options) && q.options.length > 0) ? (
-                              <div className="space-y-3">
-                                {q.options.map((opt: string, oIdx: number) => (
-                                  <label 
-                                    key={oIdx} 
-                                    className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all ${
-                                      answers[globalIdx] === oIdx
-                                        ? 'border-blue-500 bg-blue-50 shadow-md'
-                                        : 'border-gray-200 hover:border-blue-300 hover:bg-blue-25'
-                                    }`}
-                                  >
-                                    <input
-                                      type="radio"
-                                      name={`q${globalIdx}`}
-                                      checked={answers[globalIdx] === oIdx}
-                                      onChange={() => handleSelect(globalIdx, oIdx)}
-                                      disabled={submitted}
-                                      className="sr-only"
-                                    />
-                                    <div className={`w-5 h-5 rounded-full border-2 mr-3 flex items-center justify-center ${
-                                      answers[globalIdx] === oIdx
-                                        ? 'border-blue-500 bg-blue-500'
-                                        : 'border-gray-300'
-                                    }`}>
-                                      {answers[globalIdx] === oIdx && (
-                                        <div className="w-2 h-2 rounded-full bg-white"></div>
-                                      )}
-                                    </div>
-                                    <span className="text-gray-700 flex-1">{opt}</span>
-                                  </label>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="text-red-600 text-sm bg-red-50 p-3 rounded">
-                                No options available for this question.
-                              </div>
-                            )}
-                          </div>
-                        </div>
+            {/* Individual Question Cards */}
+            <div className="space-y-8">
+              {currentQuestions.map((q, idx) => {
+                const globalIdx = currentPage * questionsPerPage + idx;
+                const isAnswered = answers[globalIdx] !== -1 && answers[globalIdx] !== '';
+                
+                return (
+                  <Card key={globalIdx} className="shadow-lg">
+                    <CardContent className="p-6">
+                      <div className="font-medium text-base sm:text-lg mb-3">
+                        {globalIdx + 1}. {q.question}
                       </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
+                      
+                      {/* Answer Options */}
+                      {(Array.isArray(q.options) && q.options.length > 0) ? (
+                        <div className="space-y-2 mt-3">
+                          {q.options.map((opt: string, oIdx: number) => (
+                            <button
+                              key={oIdx}
+                              onClick={() => handleSelect(globalIdx, oIdx)}
+                              disabled={submitted}
+                              className={`w-full p-4 text-left border-2 rounded-lg transition-all duration-200 hover:shadow-md ${
+                                answers[globalIdx] === oIdx
+                                  ? "border-blue-500 bg-blue-50 shadow-sm"
+                                  : "border-gray-200 hover:border-gray-300"
+                              } ${submitted ? "cursor-not-allowed" : "cursor-pointer"}`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                  answers[globalIdx] === oIdx
+                                    ? "border-blue-500 bg-blue-500"
+                                    : "border-gray-300"
+                                }`}>
+                                  {answers[globalIdx] === oIdx && (
+                                    <div className="w-2 h-2 rounded-full bg-white"></div>
+                                  )}
+                                </div>
+                                <span className="text-sm sm:text-base">{opt}</span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-red-600 text-sm bg-red-50 p-3 rounded">
+                          No options available for this question.
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
 
             {/* Navigation */}
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center mt-6">
               <Button
                 variant="outline"
                 onClick={handlePrevious}
@@ -474,7 +458,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
               {currentPage === totalPages - 1 ? (
                 <Button
                   onClick={handleSubmit}
-                  disabled={answers.some(a => a === -1) || isSubmitting}
+                  disabled={answers.some(a => a === -1 || a === '') || isSubmitting}
                   className="px-8 py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
                 >
                   {isSubmitting ? (
@@ -489,7 +473,10 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
               ) : (
                 <Button
                   onClick={handleNext}
-                  disabled={currentPage === totalPages - 1}
+                  disabled={currentQuestions.some((_, idx) => {
+                    const globalIdx = currentPage * questionsPerPage + idx;
+                    return answers[globalIdx] === -1 || answers[globalIdx] === '';
+                  })}
                   className="px-6 py-3"
                 >
                   Next

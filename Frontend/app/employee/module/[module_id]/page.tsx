@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
+import { ChevronLeft } from "lucide-react";
 
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
   const moduleId = params.module_id;
@@ -149,6 +150,18 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           <div>
             <main className="w-full">
               <div className="bg-white rounded-lg shadow-sm border p-12 w-full min-h-screen">
+                {/* Back button */}
+                <div className="mb-6">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex items-center gap-2"
+                    onClick={() => router.back()}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Back
+                  </Button>
+                </div>
                 {/* Title and audio area */}
                 <div>
                   <h2 className="text-xl font-semibold">{module.title}</h2>

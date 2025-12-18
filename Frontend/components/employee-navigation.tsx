@@ -39,6 +39,7 @@ const EmployeeNavigation = ({
   const [adminDropdownOpen, setAdminDropdownOpen] = useState(false);
   const [userRoles, setUserRoles] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   const displayUser = providedUser || employee;
   const handleLogout = providedOnLogout || (async () => {
@@ -89,6 +90,16 @@ const EmployeeNavigation = ({
       fetchEmployee();
     }
   }, [providedUser, authUser?.email, pathname]);
+
+  useEffect(() => {
+    setIsNavigating(false);
+  }, [pathname]);
+
+  const handleNavigate = (href: string) => {
+    setIsNavigating(true);
+    closeMobileSidebar();
+    router.push(href);
+  };
 
   const isActiveRoute = (route: string) => {
     if (route === '/employee/welcome') {
@@ -195,6 +206,15 @@ const EmployeeNavigation = ({
         }
       `}</style>
       
+      {isNavigating && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+          <div className="bg-white p-6 rounded-lg shadow-xl flex flex-col items-center gap-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            <p className="text-gray-600 font-medium">Loading...</p>
+          </div>
+        </div>
+      )}
+      
       <div className="lg:hidden fixed top-4 left-4 z-50">
         <Button
           variant="outline"
@@ -263,8 +283,7 @@ const EmployeeNavigation = ({
                       onClick={(e) => { 
                         e.preventDefault(); 
                         if (isCollapsed) {
-                          router.push(m.href);
-                          closeMobileSidebar();
+                          handleNavigate(m.href);
                         } else {
                           setCoursesOpen(!coursesOpen); 
                         }
@@ -301,11 +320,10 @@ const EmployeeNavigation = ({
                               label: 'All Modules'
                             }
                           ].map((subItem) => (
-                            <Link
+                            <button
                               key={subItem.href}
-                              href={subItem.href}
-                              onClick={closeMobileSidebar}
-                              className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                              onClick={() => handleNavigate(subItem.href)}
+                              className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors w-full text-left ${
                                 isActiveRoute(subItem.href)
                                   ? 'text-gray-700 bg-white border-r-2 border-gray-200'
                                   : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
@@ -324,7 +342,7 @@ const EmployeeNavigation = ({
                                   <span>{subItem.label}</span>
                                 </div>
                               </div>
-                            </Link>
+                            </button>
                           ))}
                         </div>
                       </div>
@@ -334,12 +352,12 @@ const EmployeeNavigation = ({
               }
 
               return (
-                <Link key={m.href} href={m.href} onClick={closeMobileSidebar} className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${isActiveRoute(m.href) ? 'text-violet-600 bg-violet-50' : 'text-gray-700 hover:bg-gray-100'}`}>
+                <button key={m.href} onClick={() => handleNavigate(m.href)} className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors w-full text-left ${isActiveRoute(m.href) ? 'text-violet-600 bg-violet-50' : 'text-gray-700 hover:bg-gray-100'}`}>
                     <div className={`icon-box rounded-lg transition-colors border ${isActiveRoute(m.href) ? 'bg-violet-50 border-violet-100 text-violet-600' : 'border-transparent text-gray-500 hover:border-gray-200 hover:bg-gray-50'}`}>
                     {renderIcon(m.icon)}
                   </div>
                   {!isCollapsed && <span>{m.label}</span>}
-                </Link>
+                </button>
               );
             })}
 
@@ -353,8 +371,7 @@ const EmployeeNavigation = ({
                   }`}
                   onClick={() => {
                     if (isCollapsed) {
-                      router.push("/admin/dashboard/analytics");
-                      closeMobileSidebar();
+                      handleNavigate("/admin/dashboard/analytics");
                     } else {
                       setAdminDropdownOpen(!adminDropdownOpen);
                     }
@@ -405,11 +422,10 @@ const EmployeeNavigation = ({
                           label: "KPI & Content Uploads",
                         },
                       ].map((subItem) => (
-                        <Link
+                        <button
                           key={subItem.href}
-                          href={subItem.href}
-                          onClick={closeMobileSidebar}
-                          className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                          onClick={() => handleNavigate(subItem.href)}
+                          className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors w-full text-left ${
                             isActiveRoute(subItem.href)
                               ? "text-blue-600 bg-blue-50 border-r-2 border-blue-600"
                               : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
@@ -428,7 +444,7 @@ const EmployeeNavigation = ({
                               <span>{subItem.label}</span>
                             </div>
                           </div>
-                        </Link>
+                        </button>
                       ))}
                     </div>
                   </div>

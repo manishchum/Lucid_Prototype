@@ -890,7 +890,7 @@ export default function TrainingPlanPage() {
                         >
                           {mod._isCompleted
                             ? "Quiz Completed"
-                            : "Show What You Got"}
+                            : "Module Quiz"}
                         </Button>
                       </div>
                     </TabsContent>

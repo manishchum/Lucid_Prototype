@@ -80,6 +80,8 @@ const Quiz: React.FC<QuizProps> = ({
         if (newAnswers[currentQuestion + 1] !== undefined) {
           setSelectedAnswer(newAnswers[currentQuestion + 1]);
         }
+        // Scroll to top smoothly
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
         // Quiz is complete, submit it
         submitQuiz(newAnswers);
@@ -96,6 +98,8 @@ const Quiz: React.FC<QuizProps> = ({
       } else {
         setSelectedAnswer(null);
       }
+      // Scroll to top smoothly
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
