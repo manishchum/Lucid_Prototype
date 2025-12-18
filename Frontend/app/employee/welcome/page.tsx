@@ -399,6 +399,27 @@ export default function EmployeeWelcome() {
             }
           }
 
+          // Also get titles from processed_modules for handbook modules
+          const { data: processedMods } = await supabase
+            .from('processed_modules')
+            .select('processed_module_id, original_module_id, title')
+            .in('original_module_id', explicitModuleIds as any[])
+          
+          if (processedMods && processedMods.length > 0) {
+            for (const pm of processedMods) {
+              const existingIndex = modulesList.findIndex(m => String(m.id) === String(pm.original_module_id))
+              if (existingIndex >= 0) {
+                // Update with processed_modules title if available
+                if (pm.title && !modulesList[existingIndex].title) {
+                  modulesList[existingIndex].title = pm.title
+                }
+              } else {
+                // Add new entry for handbook module
+                modulesList.push({ id: String(pm.original_module_id), title: pm.title || null })
+              }
+            }
+          }
+
           // Check baseline assessment status for each module using the learning_plan table
           for (const moduleId of explicitModuleIds) {
             console.log(`[DEBUG] Checking baseline status for module ${moduleId}`);

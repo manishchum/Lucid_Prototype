@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import EmployeeNavigation from "@/components/employee-navigation";
-import { Users } from "lucide-react";
+import { Users, ChevronLeft } from "lucide-react";
 
 export default function TrainingPlanPage() {
   // Track completed modules for the user
@@ -604,6 +604,14 @@ export default function TrainingPlanPage() {
         }}
       >
         <div className="max-w-7xl mx-auto">
+          {/* Back Button */}
+          <button
+            onClick={() => router.back()}
+            className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium mb-6 transition-colors"
+          >
+            <ChevronLeft className="w-5 h-5" />
+            Back
+          </button>
           <Card className="mb-8">
             <CardHeader>
               <CardTitle>Your Roadmap to Mastery</CardTitle>
