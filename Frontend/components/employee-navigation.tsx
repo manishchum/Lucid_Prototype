@@ -96,7 +96,10 @@ const EmployeeNavigation = ({
   }, [pathname]);
 
   const handleNavigate = (href: string) => {
-    setIsNavigating(true);
+    // Only show loader if navigating to a different page
+    if (href !== pathname) {
+      setIsNavigating(true);
+    }
     closeMobileSidebar();
     router.push(href);
   };

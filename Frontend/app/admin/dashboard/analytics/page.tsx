@@ -109,6 +109,8 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
         completed_at,
         due_date,
         baseline_assessment,
+        module_id,
+        user_id,
         users!inner(user_id, name, email, department_id, employment_status),
         training_modules!inner(title, module_id, processing_status)
       `)
@@ -130,8 +132,73 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
 
     if (error) throw error;
 
-    setProgressData(progressResults || []);
-    calculateModuleStatistics(progressResults || []);
+    // Enrich learning plan data with module_progress info to get actual completion status
+    let enrichedResults = progressResults || [];
+    
+    if (enrichedResults.length > 0) {
+      // Get all processed modules for these training modules to find module_id -> processed_module_id mapping
+      const moduleIds = [...new Set(enrichedResults.map(r => r.module_id))];
+      
+      const { data: processedModulesData } = await supabase
+        .from('processed_modules')
+        .select('processed_module_id, original_module_id')
+        .in('original_module_id', moduleIds);
+
+      // Create mapping from original_module_id to processed_module_ids
+      const moduleIdToProcessedIds = new Map();
+      processedModulesData?.forEach(pm => {
+        if (!moduleIdToProcessedIds.has(pm.original_module_id)) {
+          moduleIdToProcessedIds.set(pm.original_module_id, []);
+        }
+        moduleIdToProcessedIds.get(pm.original_module_id).push(pm.processed_module_id);
+      });
+
+      // Get all module progress data for these users and processed modules
+      const allProcessedModuleIds = Array.from(moduleIdToProcessedIds.values()).flat();
+      
+      const { data: moduleProgressData } = await supabase
+        .from('module_progress')
+        .select('user_id, processed_module_id, completed_at')
+        .in('processed_module_id', allProcessedModuleIds);
+
+      // Create a map for quick lookup of module progress by user and processed module
+      const progressMap = new Map();
+      moduleProgressData?.forEach(mp => {
+        const key = `${mp.user_id}-${mp.processed_module_id}`;
+        progressMap.set(key, mp);
+      });
+
+      // Enrich learning plan records with actual module progress
+      enrichedResults = enrichedResults.map(record => {
+        const processedModuleIds = moduleIdToProcessedIds.get(record.module_id) || [];
+        
+        // Check if any processed module items have been completed
+        const completedProcessedModules = processedModuleIds.filter(pmId => {
+          const key = `${record.user_id}-${pmId}`;
+          return progressMap.has(key);
+        });
+
+        // Determine status based on completed processed modules
+        let calculatedStatus = 'ASSIGNED';
+        if (completedProcessedModules.length > 0) {
+          if (completedProcessedModules.length === processedModuleIds.length) {
+            calculatedStatus = 'COMPLETED';
+          } else {
+            calculatedStatus = 'IN_PROGRESS';
+          }
+        }
+        
+        return {
+          ...record,
+          status: calculatedStatus,
+          completedItems: completedProcessedModules.length,
+          totalItems: processedModuleIds.length
+        };
+      });
+    }
+
+    setProgressData(enrichedResults);
+    calculateModuleStatistics(enrichedResults);
   };
 
   const loadAssessmentData = async () => {

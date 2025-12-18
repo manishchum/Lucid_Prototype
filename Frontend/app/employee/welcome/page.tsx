@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 
 interface StepButtonProps {
   step: number;
@@ -91,6 +91,19 @@ export default function EmployeeWelcome() {
   const [loading, setLoading] = useState(true)
   const [scoreHistory, setScoreHistory] = useState<any[]>([])
   const [moduleProgress, setModuleProgress] = useState<any[]>([])
+  const [moduleCompletion, setModuleCompletion] = useState<Record<string, { completed: number; total: number; percent: number; title?: string }>>({})
+  const uniqueModuleProgress = useMemo(() => {
+    const map = new Map<string, any>()
+    moduleProgress.forEach((mp: any, idx: number) => {
+      const key = mp?.processed_module_id ? String(mp.processed_module_id) : `row-${idx}`
+      const existing = map.get(key)
+      const isCompleted = !!mp?.completed_at
+      if (!existing || (!existing.completed_at && isCompleted)) {
+        map.set(key, mp)
+      }
+    })
+    return Array.from(map.values())
+  }, [moduleProgress])
   const [assignedModules, setAssignedModules] = useState<any[]>([])
   const [moduleAssessmentStatus, setModuleAssessmentStatus] = useState<Map<string, ModuleAssessmentStatus>>(new Map())
   const [learningStyle, setLearningStyle] = useState<string | null>(null)
@@ -361,13 +374,60 @@ export default function EmployeeWelcome() {
       // Fetch module progress for this employee
       const { data: progressData, error: progressError } = await supabase
         .from("module_progress")
-        .select("*, processed_modules(title)")
+        .select("*, processed_modules(title, original_module_id)")
         .eq("user_id", employeeData.user_id)
       if (progressError) {
         console.error("[EmployeeWelcome] module_progress fetch error:", progressError)
       }
       console.log("[EmployeeWelcome] module_progress data:", progressData)
-      setModuleProgress(progressData || [])
+      const progressRows = progressData || []
+      setModuleProgress(progressRows)
+
+      // Build per-module completion using ALL processed modules under each assigned training module
+      const assignedModuleIds: string[] = (assignedPlans || [])
+        .map((p: any) => p.module_id)
+        .filter((id: any) => id !== null && id !== undefined)
+        .map((id: any) => String(id))
+
+      if (assignedModuleIds.length > 0) {
+        // Fetch all processed modules for these training modules (denominator)
+        const { data: allProcessedForAssigned } = await supabase
+          .from('processed_modules')
+          .select('processed_module_id, original_module_id')
+          .in('original_module_id', assignedModuleIds)
+
+        // Map original module -> list of its processed module ids
+        const processedByOriginal = new Map<string, string[]>()
+        allProcessedForAssigned?.forEach((pm: any) => {
+          const key = String(pm.original_module_id)
+          const arr = processedByOriginal.get(key) || []
+          arr.push(String(pm.processed_module_id))
+          processedByOriginal.set(key, arr)
+        })
+
+        // Set of completed processed module ids for this user (numerator)
+        const completedSet = new Set(
+          progressRows
+            .filter((p: any) => p.completed_at && p.processed_module_id)
+            .map((p: any) => String(p.processed_module_id))
+        )
+
+        const summary: Record<string, { completed: number; total: number; percent: number; title?: string }> = {}
+        assignedModuleIds.forEach((modId) => {
+          const list = processedByOriginal.get(modId) || []
+          const total = list.length
+          const completed = list.filter((pid) => completedSet.has(pid)).length
+          summary[modId] = {
+            completed,
+            total,
+            percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+          }
+        })
+
+        setModuleCompletion(summary)
+      } else {
+        setModuleCompletion({})
+      }
     } catch (error) {
       console.error("Employee access check failed:", error)
       router.push("/login")
@@ -718,7 +778,7 @@ export default function EmployeeWelcome() {
     if (status.baselineCompleted) {
       return { 
         disabled: true, 
-        text: `Completed (${status.baselineScore}/${status.baselineMaxScore})`, 
+        text: 'Baseline Completed',
         variant: 'outline' as const 
       }
     }
@@ -851,7 +911,7 @@ export default function EmployeeWelcome() {
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                   <div className="flex items-start gap-4">
                     <div className="flex-shrink-0">
-                      <div className="w-20 h-20 rounded-full bg-green-600 text-white flex items-center justify-center text-2xl font-semibold">{learningStyle}</div>
+                      <div className="w-20 h-20 rounded-full bg-blue-600 text-white flex items-center justify-center text-2xl font-semibold">{learningStyle}</div>
                     </div>
                     <div className="min-w-0">
                       <LearningStyleBlurb styleCode={learningStyle} />
@@ -921,44 +981,22 @@ export default function EmployeeWelcome() {
 
                             <div className="flex items-center gap-3">
                               {(() => {
-                                let percent = 0
-                                const matches = (moduleProgress || []).filter((mp: any) => {
-                                  try {
-                                    if (mp?.processed_module_id && String(mp.processed_module_id) === String(m.id)) return true
-                                    if (mp?.module_id && String(mp.module_id) === String(m.id)) return true
-                                    if (
-                                      mp?.processed_modules?.title &&
-                                      m?.title &&
-                                      String(mp.processed_modules.title).toLowerCase().includes(String(m.title).toLowerCase())
-                                    ) return true
-                                  } catch (e) {}
-                                  return false
-                                })
-                                if (matches.length > 0) {
-                                  for (const mp of matches) {
-                                    if (mp.completed_at) {
-                                      percent = 100
-                                      break
-                                    }
-                                    let indicators = 0
-                                    if (mp.viewed_at) indicators++
-                                    if (mp.audio_listen_duration && mp.audio_listen_duration > 0) indicators++
-                                    if (mp.quiz_score !== null && mp.quiz_score !== undefined) indicators++
-                                    const p = indicators > 0 ? Math.round((indicators / 3) * 90) : 0
-                                    if (p > percent) percent = p
-                                  }
-                                }
-
+                                const completion = moduleCompletion[String(m.id)]
+                                const percent = completion?.percent ?? 0
+                                const completed = completion?.completed ?? 0
+                                const total = completion?.total ?? 0
+                                const deg = Math.min(percent, 100) * 3.6
                                 return (
-                                  <div className="w-48 sm:w-64 lg:w-72">
-                                    <div className="w-full bg-gray-200 rounded-full h-2">
-                                      <div
-                                        className={`h-2 rounded-full transition-all duration-500 ${percent >= 100 ? 'bg-green-500' : 'bg-gradient-to-r from-blue-500 to-green-400'}`}
-                                        style={{ width: `${percent}%` }}
-                                        aria-valuenow={percent}
-                                        aria-valuemin={0}
-                                        aria-valuemax={100}
-                                      />
+                                  <div className="relative w-12 h-12 group" title={`${completed}/${total} modules completed`}>
+                                    <div
+                                      className="absolute inset-0 rounded-full"
+                                      style={{ background: `conic-gradient(#2563eb ${deg}deg, #e5e7eb ${deg}deg)` }}
+                                    />
+                                    <div className="absolute inset-1 rounded-full bg-white flex items-center justify-center text-[10px] font-semibold text-gray-800">
+                                      {percent}%
+                                    </div>
+                                    <div className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 rounded bg-blue-600 text-white text-[10px] px-2 py-1 shadow hidden group-hover:block">
+                                      {completed}/{total} modules completed
                                     </div>
                                   </div>
                                 )
@@ -1022,29 +1060,19 @@ export default function EmployeeWelcome() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {moduleProgress.length === 0 ? (
+                {uniqueModuleProgress.length === 0 ? (
                   <div className="text-gray-500">Nothing here (yet) — complete your first module to see progress.</div>
                 ) : (
-                  moduleProgress.map((mod, idx) => {
-                    // LOG: Each module progress row
+                  uniqueModuleProgress.map((mod, idx) => {
                     console.log(`[EmployeeWelcome] Rendering moduleProgress[${idx}]:`, mod)
                     return (
-                      <div key={mod.processed_module_id} className={`flex items-center justify-between p-3 rounded-lg ${mod.completed_at ? "bg-green-50" : "bg-gray-50"}`}>
-                        <span className={`font-medium ${mod.completed_at ? "text-green-800" : "text-gray-600"}`}>{mod.processed_modules?.title || `Module ${mod.processed_module_id}`}</span>
+                      <div key={mod.processed_module_id} className={`flex items-center justify-between p-3 rounded-lg ${mod.completed_at ? "bg-blue-50" : "bg-gray-50"}`}>
+                        <span className={`font-medium ${mod.completed_at ? "text-blue-800" : "text-gray-700"}`}>{mod.processed_modules?.title || `Module ${mod.processed_module_id}`}</span>
                         <div className="flex gap-2 items-center">
-                          {mod.viewed_at && (
-                            <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">Viewed</span>
-                          )}
-                          {mod.audio_listen_duration > 0 && (
-                            <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">Audio: {mod.audio_listen_duration}s</span>
-                          )}
-                          {mod.quiz_score !== null && (
-                            <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">Quiz: {mod.quiz_score}</span>
-                          )}
                           {mod.completed_at ? (
-                            <span className="px-2 py-1 bg-green-200 text-green-800 rounded-full text-xs font-medium">✓ Complete</span>
+                            <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">✓ Complete</span>
                           ) : (
-                            <span className="px-2 py-1 bg-gray-200 text-gray-600 rounded-full text-xs font-medium">In Progress</span>
+                            <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">In Progress</span>
                           )}
                         </div>
                       </div>

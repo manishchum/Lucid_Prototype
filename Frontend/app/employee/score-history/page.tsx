@@ -409,31 +409,31 @@ export default function ScoreHistoryPage() {
         <div className="max-w-6xl mx-auto">
         {/* Learning Style Section */}
         {learningStyleData ? (
-          <Card className="mb-2 shadow-xl scale-95">
-            <CardHeader className="bg-gradient-to-r from-green-50 to-blue-50 rounded-t-2xl py-8 px-8">
-              <CardTitle className="text-3xl font-extrabold text-gray-800">Discover how you learn best</CardTitle>
-              <CardDescription className="text-xl mt-2">
+          <Card className="mb-8 shadow-md">
+            <CardHeader className="bg-gradient-to-r from-sky-500 to-blue-500 rounded-t-xl py-5 px-6">
+              <CardTitle className="text-2xl font-bold text-white">Discover how you learn best</CardTitle>
+              <CardDescription className="text-sm mt-1 text-sky-100">
                 Understand your learning DNA to achieve outcomes faster
               </CardDescription>
             </CardHeader>
-            <CardContent className="p-12">
-              <div className="border-b pb-8 mb-8">
-                <div className="flex items-center justify-between mb-6 cursor-pointer" onClick={() => setLearningStyleExpanded(!learningStyleExpanded)}>
-                  <div className="flex items-center gap-6">
-                    <div className="bg-white/80 backdrop-blur-sm border border-blue-200 rounded-xl shadow-sm px-5 py-4 flex items-center gap-4 hover:shadow-md transition-shadow">
-                      <div className="w-14 h-14 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center text-xl font-bold shadow-inner">
+            <CardContent className="p-6">
+              <div className="border-b pb-4 mb-4">
+                <div className="flex items-center justify-between mb-3 cursor-pointer" onClick={() => setLearningStyleExpanded(!learningStyleExpanded)}>
+                  <div className="flex items-center gap-4">
+                    <div className="bg-sky-50 border border-sky-200 rounded-lg shadow-sm px-4 py-3 flex items-center gap-3 hover:shadow-md transition-shadow">
+                      <div className="w-12 h-12 rounded-md bg-sky-500 text-white flex items-center justify-center text-lg font-bold shadow-sm">
                         {learningStyleData.learning_style}
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-sm font-medium tracking-wide text-blue-600 uppercase">Primary Style</span>
-                        <span className="text-base font-semibold text-gray-800 leading-snug max-w-xs">
+                        <span className="text-xs font-medium tracking-wide text-sky-600 uppercase">Primary Style</span>
+                        <span className="text-sm font-semibold text-gray-800 leading-snug max-w-xs">
                           {getLearningStyleInfo(learningStyleData.learning_style).label}
                         </span>
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-8">
-                    <span className="text-lg text-gray-500">
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm text-gray-500">
                       Completed: {new Date(learningStyleData.updated_at || learningStyleData.created_at).toLocaleDateString()}
                     </span>
                     <button
@@ -490,38 +490,38 @@ export default function ScoreHistoryPage() {
         )}
         
         {/* Assessment History Section */}
-        <Card className="mb-12 shadow-3xl scale-95">
-          <CardHeader className="bg-gradient-to-r from-green-50 to-blue-50 rounded-t-2xl py-8 px-8">
-            <CardTitle className="text-2xl font-extrabold text-gray-800">Your Growth Record
+        <Card className="mb-12 shadow-md">
+          <CardHeader className="bg-gradient-to-r from-sky-500 to-blue-500 rounded-t-xl py-5 px-6">
+            <CardTitle className="text-2xl font-bold text-white">Your Growth Record
 </CardTitle>
-            <CardDescription className="text-xl mt-2">Review your scores & track growth
+            <CardDescription className="text-sm mt-1 text-sky-100">Review your scores & track growth
 </CardDescription>
           </CardHeader>
-          <CardContent className="p-12">
+          <CardContent className="p-6">
             {scoreHistory.length === 0 && (
-              <div className="text-center py-12">
-                <div className="text-gray-500 text-lg mb-4">No assessments taken yet.</div>
-                <p className="text-gray-400">Complete your first assessment to see detailed feedback and insights here.</p>
+              <div className="text-center py-6">
+                <div className="text-gray-500 text-sm mb-2">No assessments taken yet.</div>
+                <p className="text-gray-400 text-xs">Complete your first assessment to see detailed feedback and insights here.</p>
               </div>
             )}
             {scoreHistory.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-10">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {scoreHistory.map((item, idx) => {
                   const isExpanded = expanded[idx] || false;
                   const isBaseline = item.assessments?.type === 'baseline';
                   // If expanded, make the tile span all columns and increase padding/font
                   if (isExpanded) {
                     return (
-                      <div key={idx} className={`col-span-1 sm:col-span-2 lg:col-span-3 border-2 rounded-2xl p-12 flex flex-col h-full border-gray-200 bg-gray-50 transition-all duration-200 shadow-2xl z-10 relative`}>
-                        <div className="flex items-center justify-between mb-8 cursor-pointer" onClick={() => toggleExpand(idx)}>
-                          <div className="flex flex-col gap-4 flex-1">
-                            <span className={`text-3xl font-extrabold text-gray-800`}>
+                      <div key={idx} className={`col-span-1 sm:col-span-2 lg:col-span-3 border-2 border-sky-200 rounded-lg p-6 flex flex-col h-full bg-gradient-to-br from-sky-50 to-white transition-all duration-200 shadow-md z-10 relative`}>
+                        <div className="flex items-center justify-between mb-4 cursor-pointer" onClick={() => toggleExpand(idx)}>
+                          <div className="flex flex-col gap-2 flex-1">
+                            <span className={`text-xl font-bold text-sky-900`}>
                               {isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}
                             </span>
-                            <div className="flex items-center gap-4 mt-4 text-2xl">
-                              <span className="text-gray-600 font-semibold">Score:</span>
-                              <span className={`font-extrabold text-gray-700`}>{item.score} / {item.max_score ?? '?'}</span>
-                              <div className={`px-4 py-2 rounded-full text-xl font-bold bg-gray-100 text-gray-700`}>{Math.round((item.score / (item.max_score || 1)) * 100)}%</div>
+                            <div className="flex items-center gap-3 mt-2 text-base">
+                              <span className="text-sky-700 font-semibold">Score:</span>
+                              <span className={`font-bold text-sky-900`}>{item.score} / {item.max_score ?? '?'}</span>
+                              <div className={`px-3 py-1 rounded-md text-sm font-bold bg-sky-200 text-sky-900`}>{Math.round((item.score / (item.max_score || 1)) * 100)}%</div>
                             </div>
                           </div>
                           <button
@@ -554,12 +554,12 @@ export default function ScoreHistoryPage() {
                   }
                   // Collapsed tile (grid)
                   return (
-                    <div key={idx} className={`border-2 rounded-2xl p-8 flex flex-col h-full border-gray-200 bg-gray-50 transition-all duration-200 hover:shadow-xl cursor-pointer`} onClick={() => toggleExpand(idx)}>
-                      <span className={`text-2xl font-bold mb-4 text-gray-800`}>{isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}</span>
-                      <div className="flex items-center gap-3 text-xl mb-2">
-                        <span className="text-gray-600 font-semibold">Score:</span>
-                        <span className={`font-bold text-gray-700`}>{item.score} / {item.max_score ?? '?'}</span>
-                        <div className={`px-3 py-1 rounded-full text-lg font-bold bg-gray-100 text-gray-700`}>{Math.round((item.score / (item.max_score || 1)) * 100)}%</div>
+                    <div key={idx} className={`border-2 border-sky-200 rounded-lg p-4 flex flex-col h-full bg-gradient-to-br from-sky-50 to-white transition-all duration-200 hover:shadow-md cursor-pointer`} onClick={() => toggleExpand(idx)}>
+                      <span className={`text-lg font-bold mb-2 text-sky-900`}>{isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}</span>
+                      <div className="flex items-center gap-2 text-sm mb-2">
+                        <span className="text-sky-700 font-semibold">Score:</span>
+                        <span className={`font-bold text-sky-900`}>{item.score} / {item.max_score ?? '?'}</span>
+                        <div className={`px-2 py-0.5 rounded text-xs font-bold bg-sky-200 text-sky-900`}>{Math.round((item.score / (item.max_score || 1)) * 100)}%</div>
                       </div>
                       <div className="flex justify-end mt-auto">
                         <span className={`text-3xl text-gray-600`}>▼</span>
