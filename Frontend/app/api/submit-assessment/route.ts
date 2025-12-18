@@ -142,43 +142,76 @@ export async function POST(request: NextRequest) {
     let aiFeedback = null;
     try {
       if (process.env.GEMINI_API_KEY) {
-        const feedbackPrompt = `
-Generate personalized feedback for a quiz/assessment submission.
+        const feedbackPrompt = `You are an expert educational assessment analyst. Generate a structured quiz feedback report using EXACTLY this format:
 
-Assessment Type: ${assessment.type || 'quiz'}
-Score: ${score}/${maxScore} (${scorePercentage}%)
+## Quiz Feedback Report
 
-User Performance:
-${correctAnswers.map((answer, index) => `
-Question ${index + 1}: ${answer.question}
-User Answer: ${answer.userAnswer !== undefined ? (questions[index]?.options?.[answer.userAnswer] || 'No answer') : 'No answer'}
-Correct Answer: ${questions[index]?.options?.[answer.correctAnswer] || 'N/A'}
-Result: ${answer.isCorrect ? 'Correct' : 'Incorrect'}
-Bloom's Level: ${answer.bloomLevel || 'N/A'}
-${answer.explanation ? `Explanation: ${answer.explanation}` : ''}
-`).join('\n')}
+**Assessment:** ${assessment.type || 'Module'} Quiz
+**Score:** ${score}/${maxScore} (${scorePercentage}%)
 
-Please provide:
-1. A brief congratulatory or encouraging opening
-2. Overall performance summary
-3. Strengths identified (areas where user performed well)
-4. Areas for improvement (specific topics to focus on)
-5. Actionable study recommendations
-6. Encouraging closing remarks
+### Overall Performance Summary
+${scorePercentage >= 80 ? 'Excellent work! You have demonstrated a strong understanding of the material.' : 
+  scorePercentage >= 60 ? 'Good job! You have a solid foundation with some areas for improvement.' : 
+  'You\'re on the right track! This assessment highlights specific areas where additional focus will help you succeed.'}
 
-Keep the feedback constructive, specific, and encouraging. Format it as a structured report with clear sections.
-`;
+### Strengths Identified
+Based on your performance, you excelled in these areas:
+${correctAnswers.filter(a => a.isCorrect).slice(0, 3).map((answer, index) => 
+  `* **Question ${answer.questionIndex + 1}:** You correctly identified concepts related to ${answer.bloomLevel || 'core knowledge'}.`
+).join('\n')}
+
+### Areas for Improvement
+Focus on strengthening your understanding in these topics:
+${correctAnswers.filter(a => !a.isCorrect).slice(0, 3).map((answer, index) => 
+  `* **Question ${answer.questionIndex + 1}:** Review the concept of "${answer.question.substring(0, 50)}..."`
+).join('\n')}
+
+### Actionable Study Recommendations
+To improve your performance:
+* **Review incorrect answers:** Focus on questions ${correctAnswers.filter(a => !a.isCorrect).map(a => a.questionIndex + 1).join(', ')}
+* **Practice application:** Work on applying concepts in practical scenarios
+* **Study the explanations:** Review the detailed explanations for each incorrect answer
+
+### Closing Remarks
+${scorePercentage >= 80 ? 'Keep up the excellent work! You\'re mastering this material effectively.' : 
+  'With focused study on the identified areas, you\'ll improve significantly. Keep practicing!'}
+
+IMPORTANT: Use this EXACT format with these headings. Do not add extra sections or change the structure.`;
 
         const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
         const result = await model.generateContent(feedbackPrompt);
         const response = await result.response;
-        aiFeedback = response.text();
+        let rawFeedback = response.text();
+
+        // Standardize the response format
+        if (rawFeedback) {
+          // Remove any markdown code blocks
+          rawFeedback = rawFeedback.replace(/```[\s\S]*?```/g, '');
+          // Ensure consistent header format
+          rawFeedback = rawFeedback.replace(/^#+\s*/gm, '## ');
+          // Clean up extra whitespace
+          rawFeedback = rawFeedback.replace(/\n{3,}/g, '\n\n');
+          aiFeedback = rawFeedback.trim();
+        }
 
         console.log('🤖 AI feedback generated successfully');
       }
     } catch (feedbackError) {
       console.error('🤖 Error generating AI feedback:', feedbackError);
-      // Continue without AI feedback - don't fail the whole process
+      // Provide fallback feedback
+      aiFeedback = `## Quiz Feedback Report
+
+**Assessment:** ${assessment.type || 'Module'} Quiz
+**Score:** ${score}/${maxScore} (${scorePercentage}%)
+
+### Overall Performance Summary
+You scored ${scorePercentage}% on this assessment. ${scorePercentage >= 70 ? 'Well done!' : 'Keep studying to improve your understanding.'}
+
+### Areas for Review
+${correctAnswers.filter(a => !a.isCorrect).map(a => `* Question ${a.questionIndex + 1}: ${a.question}`).join('\n')}
+
+### Next Steps
+Review the questions you missed and study the related concepts to improve your understanding.`;
     }
 
     // Save the assessment result

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -21,6 +21,9 @@ export default function TrainingPlanPage() {
   const [completedModules, setCompletedModules] = useState<string[]>([]);
 
   const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  
   const [plan, setPlan] = useState<any>(null);
   const [reasoning, setReasoning] = useState<any>(null);
   const [baselineRequired, setBaselineRequired] = useState(false);
@@ -218,11 +221,19 @@ export default function TrainingPlanPage() {
         console.error("[training-plan] baseline pre-check failed", e);
       }
 
-      // Call training-plan API
+      // Extract module_id from URL parameters
+      const moduleId = searchParams.get('module_id');
+      
+      // Call training-plan API with module_id if present
+      const requestBody: any = { user_id: employeeData.user_id };
+      if (moduleId) {
+        requestBody.module_id = moduleId;
+      }
+
       const res = await fetch("/api/training-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: employeeData.user_id }),
+        body: JSON.stringify(requestBody),
       });
       const result = await res.json();
       // If API indicates baseline is required, show a clear prompt
@@ -281,7 +292,6 @@ export default function TrainingPlanPage() {
     }
   };
 
-  const router = useRouter();
   // Helper: resolve a usable processed_modules.processed_module_id for navigation
   const resolveModuleId = async (mod: any): Promise<string | null> => {
     try {
