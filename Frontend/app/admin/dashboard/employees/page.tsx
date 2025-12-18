@@ -870,37 +870,36 @@ export default function EmployeesPage() {
             </CardContent>
           </Card>
 
-          {/* Bulk Actions Bar */}
-          {selectedUsers.length > 0 && (
-            <Card className="bg-blue-50 border-blue-200">
-              <CardContent className="py-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <span className="text-blue-800 font-medium">
-                      {selectedUsers.length} user{selectedUsers.length !== 1 ? 's' : ''} selected
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setSelectedUsers([])}
-                      className="text-blue-600 border-blue-300"
-                    >
-                      Clear Selection
-                    </Button>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={handleBulkAssignModules}
-                      className="bg-blue-600 hover:bg-blue-700"
-                    >
-                      <BookOpen className="w-4 h-4 mr-2" />
-                      Assign Modules
-                    </Button>
-                  </div>
+          {/* Bulk Actions Bar - always visible; enable button only when selection > 0 */}
+          <Card className="bg-blue-50 border-blue-200">
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <span className="text-blue-800 font-medium">
+                    {selectedUsers.length} user{selectedUsers.length !== 1 ? 's' : ''} selected
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedUsers([])}
+                    className="text-blue-600 border-blue-300"
+                  >
+                    Clear Selection
+                  </Button>
                 </div>
-              </CardContent>
-            </Card>
-          )}
+                <div className="flex gap-2">
+                  <Button
+                    onClick={handleBulkAssignModules}
+                    disabled={selectedUsers.length === 0}
+                    className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    <BookOpen className="w-4 h-4 mr-2" />
+                    Assign Modules
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* User List */}
           <Card>

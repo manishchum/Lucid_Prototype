@@ -107,6 +107,7 @@ export default function EmployeeWelcome() {
   }>({ totalEmployees: 0, completedEmployees: 0, userRank: null, topPercentile: null })
   const [nudgeMessage, setNudgeMessage] = useState<string>("")
   const [progressPercentage, setProgressPercentage] = useState<number>(0)
+  const [isNavOverlay, setIsNavOverlay] = useState<boolean>(false)
   const router = useRouter()
   
   // Add debugging for nudge component
@@ -718,6 +719,15 @@ export default function EmployeeWelcome() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100" onClick={() => setShowProfileDropdown(false)}>
       <EmployeeNavigation showBack={false} showForward={false} />
+
+      {isNavOverlay && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+          <div className="bg-white p-6 rounded-lg shadow-xl flex flex-col items-center gap-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            <p className="text-gray-600 font-medium">Loading...</p>
+          </div>
+        </div>
+      )}
       
       {/* Main content area that adapts to sidebar */}
       <div 
@@ -933,8 +943,10 @@ export default function EmployeeWelcome() {
                               </Button>
                               
                               <Button onClick={async () => {
+                                setIsNavOverlay(true);
                                 try {
                                   if (!employee?.user_id) {
+                                    setIsNavOverlay(false);
                                     alert('Could not determine employee. Please reload or login again.');
                                     return;
                                   }
@@ -948,6 +960,7 @@ export default function EmployeeWelcome() {
                                   });
                                   const data = await res.json().catch(() => ({}));
                                   if (!res.ok) {
+                                    setIsNavOverlay(false);
                                     const msg = data?.error || data?.message || 'Failed to generate learning plan';
                                     alert(`Error: ${msg}`);
                                     return;
@@ -957,6 +970,7 @@ export default function EmployeeWelcome() {
                                 } catch (e) {
                                   console.error('Error requesting module training plan', e);
                                   alert('Network error while requesting training plan.');
+                                  setIsNavOverlay(false);
                                 }
                               }}>Learning Plan</Button>
                             </div>

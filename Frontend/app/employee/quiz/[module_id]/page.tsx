@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ChevronLeft } from "lucide-react";
 import EmployeeNavigation from "@/components/employee-navigation";
 
 export default function ModuleQuizPage({ params }: { params: { module_id: string } }) {
@@ -330,6 +331,14 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         }}
       >
         <div className="max-w-3xl mx-auto">
+          {/* Back Button */}
+          <button
+            onClick={() => router.back()}
+            className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium mb-6 transition-colors"
+          >
+            <ChevronLeft className="w-5 h-5" />
+            Back
+          </button>
         
         {!submitted ? (
           <>
@@ -552,16 +561,6 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                   </div>
                 </div>
               )}
-
-              <div className="text-center">
-                <Button 
-                  onClick={() => router.back()}
-                  className="px-8 py-3 text-lg"
-                  variant="outline"
-                >
-                  Back to Training Plan
-                </Button>
-              </div>
             </CardContent>
           </Card>
         )}
