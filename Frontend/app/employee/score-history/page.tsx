@@ -512,16 +512,16 @@ export default function ScoreHistoryPage() {
                   // If expanded, make the tile span all columns and increase padding/font
                   if (isExpanded) {
                     return (
-                      <div key={idx} className={`col-span-1 sm:col-span-2 lg:col-span-3 border-2 rounded-2xl p-12 flex flex-col h-full ${isBaseline ? 'border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50' : 'border-gray-200 bg-gray-50'} transition-all duration-200 shadow-2xl z-10 relative`}> 
+                      <div key={idx} className={`col-span-1 sm:col-span-2 lg:col-span-3 border-2 rounded-2xl p-12 flex flex-col h-full border-gray-200 bg-gray-50 transition-all duration-200 shadow-2xl z-10 relative`}>
                         <div className="flex items-center justify-between mb-8 cursor-pointer" onClick={() => toggleExpand(idx)}>
                           <div className="flex flex-col gap-4 flex-1">
-                            <span className={`text-3xl font-extrabold ${isBaseline ? 'text-blue-800' : 'text-gray-800'}`}>
+                            <span className={`text-3xl font-extrabold text-gray-800`}>
                               {isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}
                             </span>
                             <div className="flex items-center gap-4 mt-4 text-2xl">
                               <span className="text-gray-600 font-semibold">Score:</span>
-                              <span className={`font-extrabold ${isBaseline ? 'text-blue-700' : 'text-gray-700'}`}>{item.score} / {item.max_score ?? '?'}</span>
-                              <div className={`px-4 py-2 rounded-full text-xl font-bold ${isBaseline ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>{Math.round((item.score / (item.max_score || 1)) * 100)}%</div>
+                              <span className={`font-extrabold text-gray-700`}>{item.score} / {item.max_score ?? '?'}</span>
+                              <div className={`px-4 py-2 rounded-full text-xl font-bold bg-gray-100 text-gray-700`}>{Math.round((item.score / (item.max_score || 1)) * 100)}%</div>
                             </div>
                           </div>
                           <button
@@ -530,7 +530,7 @@ export default function ScoreHistoryPage() {
                             tabIndex={-1}
                             type="button"
                           >
-                            <span className={`text-4xl ${isBaseline ? 'text-blue-600' : 'text-gray-600'}`}>{isExpanded ? '▲' : '▼'}</span>
+                            <span className={`text-4xl text-gray-600`}>{isExpanded ? '▲' : '▼'}</span>
                           </button>
                         </div>
                         <div className="mt-10 space-y-10">
@@ -554,15 +554,15 @@ export default function ScoreHistoryPage() {
                   }
                   // Collapsed tile (grid)
                   return (
-                    <div key={idx} className={`border-2 rounded-2xl p-8 flex flex-col h-full ${isBaseline ? 'border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50' : 'border-gray-200 bg-gray-50'} transition-all duration-200 hover:shadow-xl cursor-pointer`} onClick={() => toggleExpand(idx)}>
-                      <span className={`text-2xl font-bold mb-4 ${isBaseline ? 'text-blue-800' : 'text-gray-800'}`}>{isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}</span>
+                    <div key={idx} className={`border-2 rounded-2xl p-8 flex flex-col h-full border-gray-200 bg-gray-50 transition-all duration-200 hover:shadow-xl cursor-pointer`} onClick={() => toggleExpand(idx)}>
+                      <span className={`text-2xl font-bold mb-4 text-gray-800`}>{isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}</span>
                       <div className="flex items-center gap-3 text-xl mb-2">
                         <span className="text-gray-600 font-semibold">Score:</span>
-                        <span className={`font-bold ${isBaseline ? 'text-blue-700' : 'text-gray-700'}`}>{item.score} / {item.max_score ?? '?'}</span>
-                        <div className={`px-3 py-1 rounded-full text-lg font-bold ${isBaseline ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>{Math.round((item.score / (item.max_score || 1)) * 100)}%</div>
+                        <span className={`font-bold text-gray-700`}>{item.score} / {item.max_score ?? '?'}</span>
+                        <div className={`px-3 py-1 rounded-full text-lg font-bold bg-gray-100 text-gray-700`}>{Math.round((item.score / (item.max_score || 1)) * 100)}%</div>
                       </div>
                       <div className="flex justify-end mt-auto">
-                        <span className={`text-3xl ${isBaseline ? 'text-blue-600' : 'text-gray-600'}`}>▼</span>
+                        <span className={`text-3xl text-gray-600`}>▼</span>
                       </div>
                     </div>
                   );

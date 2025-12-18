@@ -856,7 +856,17 @@ export default function EmployeeWelcome() {
                     <div className="min-w-0">
                       <LearningStyleBlurb styleCode={learningStyle} />
                       <div className="mt-4 md:mt-2">
-                        <Button variant="outline" onClick={() => router.push('/employee/score-history')}>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            try {
+                              setIsNavOverlay(true);
+                              router.push('/employee/score-history');
+                            } catch (e) {
+                              setIsNavOverlay(false);
+                            }
+                          }}
+                        >
                           Get your full report
                         </Button>
                       </div>
