@@ -296,7 +296,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading quiz...</p>
         </div>
       </div>
@@ -511,7 +511,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                     `${Math.round((score / maxScore) * 100)}%`
                   ) : (
                     <div className="flex items-center justify-center gap-2">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                       <span className="text-2xl">Grading...</span>
                     </div>
                   )}
