@@ -70,10 +70,7 @@ export async function POST(request: NextRequest) {
         correctAnswerText = question.options?.[correctIndex]?.trim() || '';
         isCorrect = userAnswerText === correctAnswerText;
         
-        console.log('🔍 Question', i + 1, '- String comparison:');
-        console.log('👤 User answer (string):', userAnswerText);
-        console.log('✅ Correct answer (string):', correctAnswerText);
-        console.log('🎯 Match:', isCorrect);
+       
       }
       // Handle index-based answers (fallback for compatibility)
       else if (typeof userAnswer === 'number') {
@@ -83,11 +80,7 @@ export async function POST(request: NextRequest) {
         
         userAnswerText = question.options?.[userAnswerNum] || 'Invalid option';
         correctAnswerText = question.options?.[correctIndexNum] || 'Invalid option';
-        
-        console.log('🔍 Question', i + 1, '- Index comparison:');
-        console.log('👤 User answer (index):', userAnswerNum, '→', userAnswerText);
-        console.log('✅ Correct answer (index):', correctIndexNum, '→', correctAnswerText);
-        console.log('🎯 Match:', isCorrect);
+     
       }
       // Handle case where no answer was provided
       else {
@@ -95,8 +88,6 @@ export async function POST(request: NextRequest) {
         correctAnswerText = question.options?.[correctIndex] || 'Invalid correct option';
         isCorrect = false;
         
-        console.log('🔍 Question', i + 1, '- No answer provided');
-        console.log('✅ Correct answer would be:', correctAnswerText);
       }
 
       console.log('📝 Question text:', question.question);
@@ -215,6 +206,7 @@ Review the questions you missed and study the related concepts to improve your u
     }
 
     // Save the assessment result
+    console.log('💾 Saving assessment result to database for user_id:', user_id, 'assessment_id:', assessment_id);
     const { data: savedResult, error: saveError } = await supabase
       .from('employee_assessments')
       .upsert({

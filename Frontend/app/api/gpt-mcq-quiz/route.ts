@@ -71,7 +71,7 @@ Summary: ${summary}
 Modules: ${JSON.stringify(modules)}
 Objectives: ${JSON.stringify(objectives)}
 `;
-  console.log("[gpt-mcq-quiz] Calling Gemini with prompt:", prompt.slice(0, 500));
+  // console.log("[gpt-mcq-quiz] Calling Gemini with prompt:", prompt.slice(0, 500));
 
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
@@ -429,6 +429,8 @@ Objectives: ${JSON.stringify([moduleContent])}`;
         learning_style: userLearningStyle || null
       };
     });
+    console.log(inserts);
+    console.log("Adding values to the inserts")
     // Try upsert first (idempotent intent). If the DB lacks a unique constraint
     // on `original_module_id` Postgres returns 42P10. In that case, fall back to
     // a safer insert+requery flow so we don't return 500 to the caller.
