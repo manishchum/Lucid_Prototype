@@ -121,6 +121,7 @@ export default function EmployeeWelcome() {
   const [nudgeMessage, setNudgeMessage] = useState<string>("")
   const [progressPercentage, setProgressPercentage] = useState<number>(0)
   const [isNavOverlay, setIsNavOverlay] = useState<boolean>(false)
+  const [baselineLoadingId, setBaselineLoadingId] = useState<string | null>(null)
   const router = useRouter()
   
   // Add debugging for nudge component
@@ -811,6 +812,19 @@ export default function EmployeeWelcome() {
     return { disabled: false, text: 'Take Baseline Assessment', variant: 'default' as const }
   }
 
+  const handleBaselineClick = async (moduleId: string) => {
+    if (baselineLoadingId) return
+    setBaselineLoadingId(moduleId)
+    setIsNavOverlay(true)
+    try {
+      await Promise.resolve(router.push(`/employee/assessment?moduleId=${moduleId}`))
+    } catch (e) {
+      console.error('Error navigating to baseline assessment', e)
+      setIsNavOverlay(false)
+      setBaselineLoadingId(null)
+    }
+  }
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -964,13 +978,14 @@ export default function EmployeeWelcome() {
                     <div className="font-medium mb-1">Not set yet</div>
                     <div className="text-sm text-gray-600">Take a short 5-minute survey to personalize your learning experience.</div>
                   </div>
-                  <Button onClick={() => router.push('/employee/learning-style')}>Set Learning Preference</Button>
+                  <Button onClick={() => router.push('/employee/learning-style')}>Take Survey</Button>
                 </div>
               )}
             </CardContent>
           </Card>
 
           {/* If learning preference not completed, block rest of dashboard */}
+          {/*
           {!learningStyle ? (
             <Card>
               <CardHeader>
@@ -985,6 +1000,7 @@ export default function EmployeeWelcome() {
               </CardContent>
             </Card>
           ) : (
+          */}
             <>
               {/* Assigned Modules Card */}
               <Card>
@@ -1031,11 +1047,21 @@ export default function EmployeeWelcome() {
 
                               <Button 
                                 variant={buttonState.variant}
-                                disabled={buttonState.disabled}
-                                onClick={() => !buttonState.disabled && router.push(`/employee/assessment?moduleId=${m.id}`)}
+                                disabled={buttonState.disabled || baselineLoadingId === m.id}
+                                onClick={() => {
+                                  if (buttonState.disabled || baselineLoadingId === m.id) return
+                                  handleBaselineClick(String(m.id))
+                                }}
                                 className="min-w-[180px]"
                               >
-                                {buttonState.text}
+                                {baselineLoadingId === m.id ? (
+                                  <span className="flex items-center gap-2">
+                                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    Redirecting...
+                                  </span>
+                                ) : (
+                                  buttonState.text
+                                )}
                               </Button>
                               
                               <Button onClick={async () => {
@@ -1078,37 +1104,48 @@ export default function EmployeeWelcome() {
                 </CardContent>
               </Card>
             </>
-          )}
+          {/* )} */}
 
-          {/* Progress Tracker Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Track Your Progress</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {uniqueModuleProgress.length === 0 ? (
-                  <div className="text-gray-500">Nothing here (yet) — complete your first module to see progress.</div>
-                ) : (
-                  uniqueModuleProgress.map((mod, idx) => {
-                    console.log(`[EmployeeWelcome] Rendering moduleProgress[${idx}]:`, mod)
-                    return (
-                      <div key={mod.processed_module_id} className={`flex items-center justify-between p-3 rounded-lg ${mod.completed_at ? "bg-blue-50" : "bg-gray-50"}`}>
-                        <span className={`font-medium ${mod.completed_at ? "text-blue-800" : "text-gray-700"}`}>{mod.processed_modules?.title || `Module ${mod.processed_module_id}`}</span>
-                        <div className="flex gap-2 items-center">
-                          {mod.completed_at ? (
-                            <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">✓ Complete</span>
-                          ) : (
-                            <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">In Progress</span>
-                          )}
+          {/* Progress Tracker Card: visible only after baseline completion or when not required */}
+          {baselineScore !== null && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Track Your Progress</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {uniqueModuleProgress.length === 0 ? (
+                    assignedModules.length === 0 ? (
+                      <div className="text-gray-500">No assigned modules yet.</div>
+                    ) : (
+                      assignedModules.map((m) => (
+                        <div key={m.id} className="flex items-center justify-between p-3 rounded-lg bg-gray-50">
+                          <span className="font-medium text-gray-700">{m.title || `Module ${m.id}`}</span>
+                          <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">In Progress</span>
                         </div>
-                      </div>
+                      ))
                     )
-                  })
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                  ) : (
+                    uniqueModuleProgress.map((mod, idx) => {
+                      console.log(`[EmployeeWelcome] Rendering moduleProgress[${idx}]:`, mod)
+                      return (
+                        <div key={mod.processed_module_id} className={`flex items-center justify-between p-3 rounded-lg ${mod.completed_at ? "bg-blue-50" : "bg-gray-50"}`}>
+                          <span className={`font-medium ${mod.completed_at ? "text-blue-800" : "text-gray-700"}`}>{mod.processed_modules?.title || `Module ${mod.processed_module_id}`}</span>
+                          <div className="flex gap-2 items-center">
+                            {mod.completed_at ? (
+                              <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">✓ Complete</span>
+                            ) : (
+                              <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">In Progress</span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
         </div>
       </div>

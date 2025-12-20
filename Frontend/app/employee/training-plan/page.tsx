@@ -31,6 +31,7 @@ export default function TrainingPlanPage() {
   const [baselineExists, setBaselineExists] = useState(false);
   const [baselineCompleted, setBaselineCompleted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [baselineNavLoading, setBaselineNavLoading] = useState(false);
 
   // Fetch completed modules from Supabase (same logic as employee/welcome)
   useEffect(() => {
@@ -427,11 +428,21 @@ export default function TrainingPlanPage() {
               <div className="flex gap-4">
                 <Button
                   onClick={() => {
+                    if (baselineNavLoading) return;
+                    setBaselineNavLoading(true);
                     window.location.href = "/employee/assessment";
                   }}
+                  disabled={baselineNavLoading}
                   className="bg-blue-600 text-white"
                 >
-                  Take Baseline Assessment
+                  {baselineNavLoading ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Redirecting...
+                    </span>
+                  ) : (
+                    'Take Baseline Assessment'
+                  )}
                 </Button>
                 <Button
                   variant="outline"

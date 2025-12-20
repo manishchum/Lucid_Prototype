@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from "@/lib/supabase";
 import MCQQuiz from "./mcq-quiz";
 import ScoreFeedbackCard from "./score-feedback";
 import { useAuth } from "@/contexts/auth-context";
 import EmployeeNavigation from "@/components/employee-navigation";
+import { ChevronLeft } from "lucide-react";
 
 interface TrainingModule {
   module_id: string;
@@ -16,6 +17,7 @@ interface TrainingModule {
 
 const AssessmentPage = () => {
   const { user } = useAuth();
+  const router = useRouter();
   const [modules, setModules] = useState<TrainingModule[]>([]);
   const searchParams = useSearchParams();
   const [mcqQuestionsByModule, setMcqQuestionsByModule] = useState<Array<{ moduleId: string; title?: string; questions: any[] }>>([]);
@@ -237,7 +239,7 @@ const AssessmentPage = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
-      <EmployeeNavigation showForward={false} />
+      <EmployeeNavigation showBack={true} showForward={false} />
       
       {/* Main content area that adapts to sidebar */}
       <div 
@@ -247,6 +249,14 @@ const AssessmentPage = () => {
         }}
       >
         <div className="max-w-2-xl mx-auto px-4">
+          {/* Back Button */}
+          <button
+            onClick={() => router.back()}
+            className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium mb-6 transition-colors"
+          >
+            <ChevronLeft className="w-5 h-5" />
+            Back
+          </button>
           <h1 className="text-3xl font-bold mb-4">Starting Baseline</h1>
           <p className="mb-6 text-gray-700">
             Every learner is different. This short assessment helps us tailor the program to your strengths and needs, so you can learn smarter, apply faster and move closer to your career ambitions.
