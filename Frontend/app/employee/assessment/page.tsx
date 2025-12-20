@@ -262,7 +262,14 @@ const AssessmentPage = () => {
             Every learner is different. This short assessment helps us tailor the program to your strengths and needs, so you can learn smarter, apply faster and move closer to your career ambitions.
           </p>
           {error && <div className="mb-4 text-red-600">{error}</div>}
-          {loading && <div className="mb-4 text-gray-500">Loading...</div>}
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="mt-4 text-gray-600">Loading assessment...</p>
+              </div>
+            </div>
+          )}
           {!loading && score === null && mcqQuestionsByModule.length > 0 && (
             <MCQQuiz
               questions={mcqQuestionsByModule[0]?.questions || []}
