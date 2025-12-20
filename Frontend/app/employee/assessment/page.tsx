@@ -190,6 +190,7 @@ const AssessmentPage = () => {
           .from('assessments')
           .select('assessment_id')
           .eq('type', 'baseline')
+          .eq('processed_module_id',searchParams.get('moduleId'))
           .eq('company_id', companyId)
           .limit(1)
           .maybeSingle();

@@ -152,6 +152,7 @@ export default function EmployeeWelcome() {
   }, [user, authLoading, router])
 
   const checkEmployeeAccess = async () => {
+    console.log("Inside the checkEmployeeAccess function")
     if (!user?.email) return
 
     try {
@@ -443,6 +444,7 @@ export default function EmployeeWelcome() {
       const assessmentStatusMap = new Map<string, ModuleAssessmentStatus>()
       
       if (assignedPlans && assignedPlans.length > 0) {
+        console.log("Inside the loadAssignedModulesWithBaselineStatus function")
         const explicitModuleIds = Array.from(new Set(assignedPlans.map((p: any) => p.module_id).filter(Boolean))).map(String)
         
         if (explicitModuleIds.length > 0) {
@@ -502,32 +504,55 @@ export default function EmployeeWelcome() {
               hasBaseline = true
               console.log(`[DEBUG] Module ${moduleId} has baseline assignment`);
               
-              // Check if user has completed baseline assessment for this company
-              const { data: baselineAssessments } = await supabase
-                .from('assessments')
-                .select('assessment_id')
-                .eq('type', 'baseline')
-                .eq('company_id', employeeData.company_id)
+              // Get the processed_module_id for this specific training module
+              const { data: rawprocessedModuleForBaseline } = await supabase
+                .from('processed_modules')
+                .select('processed_module_id')
+                .eq('original_module_id', moduleId)
+                
+                const processedModuleForBaseline = rawprocessedModuleForBaseline[0]
+              console.log("___________________")
+              console.log("It is  able to fetch the data from processed_modules table",processedModuleForBaseline)
               
-              if (baselineAssessments && baselineAssessments.length > 0) {
-                // Check if any of these baseline assessments are completed by the user
-                const assessmentIds = baselineAssessments.map(a => a.assessment_id)
+              if (processedModuleForBaseline?.processed_module_id) {
+                console.log(`[DEBUG] Found processed_module_id ${processedModuleForBaseline.processed_module_id} for module ${moduleId}`);
                 
-                const { data: completedBaseline } = await supabase
-                  .from('employee_assessments')
-                  .select('score, max_score, completed_at')
-                  .eq('user_id', employeeData.user_id)
-                  .in('assessment_id', assessmentIds)
-                  .not('completed_at', 'is', null)
-                  .order('completed_at', { ascending: false })
-                  .limit(1)
+                // Check for baseline assessments specific to this processed_module_id
+                const { data: baselineAssessments } = await supabase
+                  .from('assessments')
+                  .select('assessment_id')
+                  .eq('type', 'baseline')
+                  .eq('processed_module_id', processedModuleForBaseline.processed_module_id)
+                  .eq('company_id', employeeData.company_id)
                 
-                if (completedBaseline && completedBaseline.length > 0) {
-                  baselineCompleted = true
-                  baselineScore = completedBaseline[0].score
-                  baselineMaxScore = completedBaseline[0].max_score
-                  console.log(`[DEBUG] Module ${moduleId} baseline completed with score:`, baselineScore);
+                console.log(`[DEBUG] Found baseline assessments for processed_module_id ${processedModuleForBaseline.processed_module_id}:`, baselineAssessments);
+                
+                if (baselineAssessments && baselineAssessments.length > 0) {
+                  // Check if any of these baseline assessments are completed by the user
+                  const assessmentIds = baselineAssessments.map(a => a.assessment_id)
+                  
+                  const { data: completedBaseline } = await supabase
+                    .from('employee_assessments')
+                    .select('score, max_score, completed_at')
+                    .eq('user_id', employeeData.user_id)
+                    .in('assessment_id', assessmentIds)
+                    .not('score', 'is', null)
+                    .order('completed_at', { ascending: false })
+                    .limit(1)
+                  
+                  console.log(`[DEBUG] Completed baseline for module ${moduleId}:`, completedBaseline);
+                  
+                  if (completedBaseline && completedBaseline.length > 0) {
+                    baselineCompleted = true
+                    baselineScore = completedBaseline[0].score
+                    baselineMaxScore = completedBaseline[0].max_score
+                    console.log(`[DEBUG] Module ${moduleId} baseline completed with score:`, baselineScore);
+                  }
+                } else {
+                  console.log(`[DEBUG] No baseline assessments found for processed_module_id ${processedModuleForBaseline.processed_module_id}`);
                 }
+              } else {
+                console.log(`[DEBUG] No processed_module found for training module ${moduleId}`);
               }
             }
             
@@ -997,6 +1022,8 @@ export default function EmployeeWelcome() {
 
                             <div className="flex items-center gap-3">
                               {(() => {
+                                console.log("[EmployeeWelcome] Rendering progress for module:", m.id);
+                                console.log(m.id);
                                 const completion = moduleCompletion[String(m.id)]
                                 const percent = completion?.percent ?? 0
                                 const completed = completion?.completed ?? 0

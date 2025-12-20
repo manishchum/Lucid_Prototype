@@ -67,7 +67,6 @@ export async function POST(request: NextRequest) {
     }
 
     const assessmentResult = await submitAssessmentResponse.json();
-    console.log('✅ Assessment processed successfully:', assessmentResult);
 
     // Return response in the format expected by legacy clients
     return NextResponse.json({
