@@ -57,35 +57,21 @@ const questions = [
 const extractReportFromJson = (analysis: string) => {
   if (!analysis) return ''
   
-  try {
-    // First, try to find and parse the JSON block
-    const jsonMatch = analysis.match(/```json\s*([\s\S]*?)```/) || analysis.match(/\{[\s\S]*?"report"[\s\S]*?\}/)
-    if (jsonMatch) {
-      const jsonStr = jsonMatch[1] || jsonMatch[0]
-      const parsed = JSON.parse(jsonStr)
-      
-      // Return ONLY the report field if it exists - convert escaped newlines to real newlines
-      if (parsed.report) {
-        return parsed.report.replace(/\\n/g, '\n')
-      }
-    }
-  } catch (e) {
-    // JSON parsing failed, try fallback
-  }
+  // Remove all markdown code blocks and JSON artifacts
+  let cleaned = analysis.replace(/```json[\s\S]*?```/g, '')  // Remove ```json...``` blocks
+  cleaned = cleaned.replace(/```[\s\S]*?```/g, '')  // Remove any other ``` blocks
+  cleaned = cleaned.replace(/^\s*[{}]\s*$/gm, '')  // Remove standalone { or }
+  cleaned = cleaned.replace(/^\s*\*\*[\s\S]*?\*\*\s*$/gm, '') // Remove markdown bold markers
   
-  // Fallback: Look for the "Here is your personalized learning style report:" section
-  const reportStart = analysis.indexOf('Here is your personalized learning style report:')
+  // Extract "Here is your personalized learning style report:" section if it exists
+  const reportStart = cleaned.indexOf('Here is your personalized learning style report:')
   if (reportStart !== -1) {
-    const reportText = analysis.substring(reportStart + 'Here is your personalized learning style report:'.length)
-    // Find where JSON starts and stop there
-    const jsonStart = reportText.indexOf('```json')
-    if (jsonStart !== -1) {
-      return reportText.substring(0, jsonStart).trim()
-    }
+    const reportText = cleaned.substring(reportStart + 'Here is your personalized learning style report:'.length)
     return reportText.trim()
   }
   
-  return ''
+  // If no explicit marker, return the cleaned text (it's likely already the report)
+  return cleaned.trim()
 }
 
 // Helper function to parse report text into 3 main tab sections
@@ -98,21 +84,37 @@ const parseReportIntoTabs = (reportText: string) => {
   reportText = reportText.replace(/^Title:\s*Your Personal Learning Style Insights\s*\n\n/i, '')
   reportText = reportText.replace(/^Here is your personalized learning style report:\s*\n\n/i, '')
   
-  const lines = reportText.split('\n').map(l => l.trim()).filter(l => l && !l.match(/^[-=•·]+$/))
+  const lines = reportText.split('\n').map(l => l.trim()).filter(l => {
+    // Skip empty lines, dividers, JSON brackets, markdown code blocks, markdown bold markers
+    if (!l) return false
+    if (l.match(/^[-=•·]+$/)) return false
+    if (l === '{' || l === '}' || l === '```' || l.startsWith('```json')) return false
+    if (l.match(/^\*\*.+\*\*$/)) return false
+    // Skip score/calculation lines (contain "Score", "Points", "Preference", "Calculating", "Identifying")
+    if (l.match(/Score:|Points|Preference|Calculating|Identifying|Secondary|Dominant/i)) return false
+    return true
+  })
   
   let currentTab: any = null
   let currentSubsection: any = null
   
   for (const line of lines) {
-    // Main section headers (e.g., "1. Your Natural Learning Style:")
-    const mainHeaderMatch = line.match(/^(\d+)\.\s*(.+?):\s*$/)
-    if (mainHeaderMatch) {
+    // Main section headers: numbered (e.g., "1. Your Natural Learning Style:") OR plain headers
+    const mainHeaderMatch = line.match(/^(?:\d+\.\s*)?(.+?):\s*$/)
+    const isMainHeader = mainHeaderMatch && (
+      mainHeaderMatch[1].toLowerCase().includes('natural learning') ||
+      mainHeaderMatch[1].toLowerCase().includes('how you thrive') ||
+      mainHeaderMatch[1].toLowerCase().includes('tips to make') ||
+      mainHeaderMatch[1].toLowerCase().includes('tips to learn')
+    )
+    
+    if (isMainHeader && mainHeaderMatch) {
       // Save previous tab
       if (currentTab) {
         tabs.push(currentTab)
       }
       
-      const title = mainHeaderMatch[2]
+      const title = mainHeaderMatch[1]
       let icon = BookOpen
       let color = 'green'
       let id = 'natural'
@@ -121,11 +123,11 @@ const parseReportIntoTabs = (reportText: string) => {
         icon = BookOpen
         color = 'green'
         id = 'natural'
-      } else if (title.toLowerCase().includes('thrive')) {
+      } else if (title.toLowerCase().includes('how you thrive')) {
         icon = Star
         color = 'purple'
         id = 'thrive'
-      } else if (title.toLowerCase().includes('tip')) {
+      } else if (title.toLowerCase().includes('tips')) {
         icon = Lightbulb
         color = 'blue'
         id = 'tips'
@@ -152,6 +154,10 @@ const parseReportIntoTabs = (reportText: string) => {
     if (bulletMatch) {
       const item = bulletMatch[1].trim().replace(/^[*\-·•]+\s*/, '')
       if (item && item.length > 0) {
+        // Initialize default tab if bullets appear before any section header
+        if (!currentTab) {
+          currentTab = { id: 'natural', title: 'Your Natural Learning Style', icon: BookOpen, color: 'green', content: '', subsections: [] }
+        }
         if (!currentSubsection) {
           currentSubsection = { subtitle: 'Tips', items: [] }
           currentTab.subsections.push(currentSubsection)
@@ -275,48 +281,24 @@ type AccordionSection = {
   subsections: { subtitle: string; items: string[] }[]
 }
 
-// Build four accordion sections from GPT output with structured + unstructured fallbacks
-const buildAccordionSections = (rawAnalysis: string, fallbackDescription: string, parsedTabs?: ReturnType<typeof parseReportIntoTabs>) => {
-  const baseSections: AccordionSection[] = [
+// Build accordion sections — mirrors score-history exactly, no structured JSON parsing
+const buildAccordionSections = (reportText: string, fallbackDescription: string): AccordionSection[] => {
+  const sections: AccordionSection[] = [
     { id: 'natural', title: 'Your Natural Learning Style', accent: 'from-blue-50 to-blue-100 border-blue-200', paragraphs: [], subsections: [] },
     { id: 'thrive', title: 'How You Thrive', accent: 'from-purple-50 to-purple-100 border-purple-200', paragraphs: [], subsections: [] },
-    { id: 'tips', title: 'Tips to Make Learning Easier', accent: 'from-green-50 to-emerald-100 border-emerald-200', paragraphs: [], subsections: [] },
-    { id: 'checklist', title: 'Your Quick Reference Checklist', accent: 'from-amber-50 to-amber-100 border-amber-200', paragraphs: [], subsections: [] }
+    { id: 'tips', title: 'Tips to Make Learning Easier', accent: 'from-green-50 to-emerald-100 border-emerald-200', paragraphs: [], subsections: [] }
   ]
 
-  const structured = parseStructuredReport(rawAnalysis)
-  if (structured) {
-    const mapSection = (id: string) => baseSections.find(s => s.id === id)
-
-    mapSection('natural')?.paragraphs.push(structured.report_intro || structured.style_meta?.tagline || fallbackDescription)
-    if (structured.strengths?.length) mapSection('natural')?.subsections.push({ subtitle: 'Strengths', items: structured.strengths })
-    if (structured.watchouts?.length) mapSection('natural')?.subsections.push({ subtitle: 'Watchouts', items: structured.watchouts })
-
-    if (structured.thrive?.length) mapSection('thrive')?.subsections.push({ subtitle: 'How You Thrive', items: structured.thrive })
-    if (structured.collaboration?.length) mapSection('thrive')?.subsections.push({ subtitle: 'Collaboration', items: structured.collaboration })
-
-    if (structured.strategies?.length) mapSection('tips')?.subsections.push({ subtitle: 'Strategies', items: structured.strategies })
-    if (structured.content_formats?.length) mapSection('tips')?.subsections.push({ subtitle: 'Content Formats', items: structured.content_formats })
-
-    if (structured.quick_actions?.length) mapSection('checklist')?.subsections.push({ subtitle: 'Quick Actions', items: structured.quick_actions })
-    if (structured.recommended_tags?.length) mapSection('checklist')?.subsections.push({ subtitle: 'Recommended Tags', items: structured.recommended_tags })
-
-    baseSections.forEach(section => {
-      if (!section.paragraphs.length) section.paragraphs.push(fallbackDescription)
-    })
-
-    return baseSections
+  const tabs = parseReportIntoTabs(reportText)
+  const pool = [...tabs]
+  const takeTab = (keywords: string[], id: string) => {
+    const idx = pool.findIndex(t => keywords.some(k => t.title.toLowerCase().includes(k)) || t.id === id)
+    if (idx >= 0) return pool.splice(idx, 1)[0]
+    return pool.shift()
   }
 
-  const tabs = parsedTabs ? [...parsedTabs] : []
-  const findAndConsumeTab = (keywords: string[], id: string) => {
-    const idx = tabs.findIndex(t => keywords.some(k => t.title.toLowerCase().includes(k)) || t.id === id)
-    if (idx >= 0) return tabs.splice(idx, 1)[0]
-    return tabs.shift()
-  }
-
-  baseSections.forEach(section => {
-    const tab = findAndConsumeTab([section.id.split('-')[0], ...section.title.toLowerCase().split(' ')], section.id)
+  sections.forEach(section => {
+    const tab = takeTab([section.id.split('-')[0], ...section.title.toLowerCase().split(' ')], section.id)
     if (tab) {
       if (tab.content) {
         const introLines = tab.content.split('\n').filter(Boolean)
@@ -334,7 +316,7 @@ const buildAccordionSections = (rawAnalysis: string, fallbackDescription: string
     if (!section.paragraphs.length) section.paragraphs.push(fallbackDescription)
   })
 
-  return baseSections
+  return sections
 }
 
 export default function LearningStyleSurvey() {
@@ -369,10 +351,10 @@ export default function LearningStyleSurvey() {
         const styleData = await styleRes.json()
         if (styleData.success && styleData.data?.gpt_analysis && styleData.data?.learning_style) {
           const learningStyleMap = {
-            'CS': { code: 'CS', label: 'Concrete Sequential', description: 'The Organizer - Prefers structure, clear steps, and hands-on practice.' },
-            'AS': { code: 'AS', label: 'Abstract Sequential', description: 'The Thinker - Learns through analysis, intellectual exploration, and theoretical models.' },
-            'AR': { code: 'AR', label: 'Abstract Random', description: 'The Connector - Learns through reflection, emotional connection, and group harmony.' },
-            'CR': { code: 'CR', label: 'Concrete Random', description: 'The Innovator - Learns through experimentation, intuition, and discovery.' }
+            'CS': { code: 'CS', label: 'The Planner', description: 'The Planner - Prefers structure, clear steps, and hands-on practice.' },
+            'AS': { code: 'AS', label: 'The Analyst', description: 'The Analyst - Learns through analysis, intellectual exploration, and theoretical models.' },
+            'AR': { code: 'AR', label: 'The Connector', description: 'The Connector - Learns through reflection, emotional connection, and group harmony.' },
+            'CR': { code: 'CR', label: 'The Explorer', description: 'The Explorer - Learns through experimentation, intuition, and discovery.' }
           }
           const styleInfo = learningStyleMap[styleData.data.learning_style as keyof typeof learningStyleMap] || learningStyleMap.CS
           setLearningStyleResult({
@@ -445,10 +427,10 @@ export default function LearningStyleSurvey() {
         // Parse GPT result from backend response
         const gptResult = data.gpt || {}
         const learningStyleMap = {
-          'CS': { code: 'CS', label: 'Concrete Sequential', description: 'The Organizer - Prefers structure, clear steps, and hands-on practice.' },
-          'AS': { code: 'AS', label: 'Abstract Sequential', description: 'The Thinker - Learns through analysis, intellectual exploration, and theoretical models.' },
+          'CS': { code: 'CS', label: 'Concrete Sequential', description: 'The Planner - Prefers structure, clear steps, and hands-on practice.' },
+          'AS': { code: 'AS', label: 'Abstract Sequential', description: 'The Analyst - Learns through analysis, intellectual exploration, and theoretical models.' },
           'AR': { code: 'AR', label: 'Abstract Random', description: 'The Connector - Learns through reflection, emotional connection, and group harmony.' },
-          'CR': { code: 'CR', label: 'Concrete Random', description: 'The Innovator - Learns through experimentation, intuition, and discovery.' }
+          'CR': { code: 'CR', label: 'Concrete Random', description: 'The Explorer - Learns through experimentation, intuition, and discovery.' }
         }
         
         const dominantStyle = gptResult.dominant_style || 'CS'
@@ -640,9 +622,8 @@ export default function LearningStyleSurvey() {
   // Summary page
   if (page === 'summary' && learningStyleResult) {
     const rawAnalysis = learningStyleResult.gptAnalysis || learningStyleResult.description
-    const reportText = extractReportFromJson(rawAnalysis)
-    const tabs = parseReportIntoTabs(reportText)
-    const accordionSections = buildAccordionSections(rawAnalysis, learningStyleResult.description, tabs)
+    const reportText = extractReportFromJson(rawAnalysis) || rawAnalysis
+    const accordionSections = buildAccordionSections(reportText, learningStyleResult.description)
     
     return (
       <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
@@ -667,18 +648,6 @@ export default function LearningStyleSurvey() {
           </div>
         </div>
 
-        {/* Learning Style Overview Card */}
-        <Card className="mb-8 bg-gradient-to-br from-blue-50 to-indigo-100 border-blue-200">
-          <CardHeader>
-            <CardTitle className="flex items-center text-2xl text-blue-800">
-              Your Learning Style
-            </CardTitle>
-            <CardDescription className="text-blue-600 text-lg">
-              {learningStyleResult.description}
-            </CardDescription>
-          </CardHeader>
-        </Card>
-
         {/* Display parsed report sections as dropdown cards */}
         <div className="space-y-4">
           <h2 className="text-2xl font-bold text-center mb-4">Your Learning Insights</h2>
@@ -702,19 +671,30 @@ export default function LearningStyleSurvey() {
                 </CardHeader>
                 {isOpen && (
                   <CardContent className="space-y-5">
-                    {section.paragraphs.map((para, idx) => (
-                      <p key={idx} className="text-gray-800 leading-relaxed text-base">
-                        {para}
-                      </p>
-                    ))}
+                    {section.paragraphs
+                      .filter(para => {
+                        // Remove learning style descriptions like "The Innovator - Learns through..."
+                        const hasLearningStylePattern = /^The (Innovator|Organizer|Thinker|Connector)\s*-\s*Learns through/i.test(para)
+                        // Remove standalone "Tips" headings
+                        const isTipsHeading = /^Tips\s*$/i.test(para.trim())
+                        return !hasLearningStylePattern && !isTipsHeading
+                      })
+                      .map((para, idx) => (
+                        <p key={idx} className="text-gray-800 leading-relaxed text-base">
+                          {para}
+                        </p>
+                      ))
+                    }
 
                     {section.subsections.length > 0 && (
                       <div className="space-y-5">
                         {section.subsections.map((subsection, subIdx) => (
                           <div key={subIdx}>
-                            <h3 className="font-extrabold text-gray-900 mb-3 text-base sm:text-lg">
-                              {subsection.subtitle}
-                            </h3>
+                            {subsection.subtitle.toLowerCase() !== 'tips' && (
+                              <h3 className="font-extrabold text-gray-900 mb-3 text-base sm:text-lg">
+                                {subsection.subtitle}
+                              </h3>
+                            )}
                             <ul className="space-y-2 ml-2">
                               {subsection.items.map((item, itemIdx) => (
                                 <li key={itemIdx} className="flex gap-3 text-gray-800 leading-relaxed text-sm">
