@@ -1200,7 +1200,8 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
         </Card>
       </div>
 
-      {/* Learning Style Distribution */}
+      {/* Learning Style Distribution — commented out as requested */}
+      {/**
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center">
@@ -1229,6 +1230,7 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
           </div>
         </CardContent>
       </Card>
+      */}
 
       {/* Assessment Performance */}
       <Card>

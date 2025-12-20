@@ -237,7 +237,8 @@ const MCQQuiz: React.FC<MCQQuizProps> = ({ questions, onSubmit }) => {
           ))}
           {/* Navigation and Submit Buttons */}
           <div className="flex flex-col sm:flex-row gap-4 justify-between mt-6">
-            <div className="flex gap-2">
+            {/* Left: Previous */}
+            <div className="flex">
               <Button
                 onClick={handlePrevPage}
                 disabled={currentPage === 0}
@@ -248,28 +249,31 @@ const MCQQuiz: React.FC<MCQQuizProps> = ({ questions, onSubmit }) => {
                 <ChevronLeft className="w-4 h-4" />
                 Previous
               </Button>
-              {currentPage < totalPages - 1 && (
+            </div>
+            {/* Right: Next or Submit */}
+            <div className="flex justify-end">
+              {currentPage < totalPages - 1 ? (
                 <Button
                   onClick={handleNextPage}
                   disabled={!allCurrentPageAnswered}
-                  variant="outline"
                   size="sm"
-                  className="flex items-center gap-2"
+                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 disabled:opacity-60"
                 >
                   Next
                   <ChevronRight className="w-4 h-4" />
                 </Button>
+              ) : (
+                allCurrentPageAnswered && (
+                  <Button
+                    onClick={handleSubmit}
+                    className="bg-green-600 hover:bg-green-700 text-white px-6"
+                    size="sm"
+                  >
+                    Submit Quiz
+                  </Button>
+                )
               )}
             </div>
-            {currentPage === totalPages - 1 && allCurrentPageAnswered && (
-              <Button
-                onClick={handleSubmit}
-                className="bg-green-600 hover:bg-green-700 text-white px-6"
-                size="sm"
-              >
-                Submit Quiz
-              </Button>
-            )}
           </div>
         </CardContent>
       </Card>

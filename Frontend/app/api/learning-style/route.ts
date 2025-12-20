@@ -104,7 +104,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Call Gemini for learning style analysis
-    let gptResult = null
+    let gptResult: any = null
+    let learnedStyle: string | null = null
     let rawGPTText: string | null = null
     try {
       // Initialize Gemini AI
@@ -157,6 +158,7 @@ export async function POST(req: NextRequest) {
       // Pair each question with its answer
       let qaPairs = questions.map((q, i) => `Q${i+1}: ${q}\nA${i+1}: ${answers[i] || ""}`).join("\n");
   console.log("[LearningStyle] QA Pairs:", qaPairs);
+  // Current (active) prompt: legacy-style narrative, but with strict section formatting for the UI parser
   const prompt = `You are an expert educational psychologist specializing in learning style models. Your goal is to administer the Gregorc Learning Style Delineator, analyze the user's responses, calculate their scores, and generate a detailed and empathetic report on their dominant learning style(s).
 
 Background on the Model: The Gregorc model defines four learning styles based on how individuals perceive and order information:
@@ -194,19 +196,21 @@ Your Step-by-Step Task:
     • 10-19 Points: Low Preference
 
 Step 2: Generate the User Report
-Generate the learning style assessment report with the following structure.
+Return the report as plain text with EXACTLY these headings and bullet structure so it can be parsed:
+
 Title: Your Personal Learning Style Insights
 
-Based on your answers, here’s what we discovered about how you learn best. Use these insights to understand your strengths and find learning plans that work for you.
 1. Your Natural Learning Style:
-  • "Your approach to learning is most like that of The [Organizer/Thinker/Connector/Innovator]."
-  • Provide a 2-3 paragraph engaging description of dominant learning style.
+  - "Your approach to learning is most like that of The [Organizer/Thinker/Connector/Innovator]."
+  - Provide a concise 2-3 paragraph description of the dominant style.
+
 2. How You Thrive:
-  • Ideal Learning Environment: List 4-5 conditions.
-  • Your Superpowers: List 3-4 strengths.
+  - Ideal Learning Environment: bullet 4-5 items
+  - Your Superpowers: bullet 3-4 items
+
 3. Tips to Make Learning Easier:
-  • If you feel stuck, try: List 3-4 actionable strategies.
-  • What to Look For: Suggest content types.
+  - If you feel stuck, try: bullet 4-5 actionable strategies
+  - What to Look For: bullet 3-4 content types
 
 Return JSON: {
   scores: { CS: number, AS: number, AR: number, CR: number },
@@ -217,42 +221,35 @@ Return JSON: {
 
 Survey Responses:
 ${qaPairs}`;
+
+  /* Structured JSON-only prompt (kept for reference, not active)
+  const prompt = `...structured schema version...`
+  */
       console.log("[LearningStyle] Gemini prompt:", prompt)
       
       const result = await model.generateContent(prompt)
       const response = await result.response
       const gptText = response.text()
-      
+      rawGPTText = gptText
+
       console.log("[LearningStyle] Gemini raw response:", gptText)
-      console.log("[LearningStyle] Gemini parsed text:", gptText)
-      
-      // Remove Markdown code fences if present
-      let cleanedText = gptText.trim()
-       // Find JSON block in the response
-       const jsonStart = cleanedText.indexOf('{')
-       const jsonEnd = cleanedText.lastIndexOf('}')
-       
+
+      // Try to parse JSON if the model returned it
       let analysisText: string | null = null
-
-      if (gptResult) {
-        // gptResult may already be an object parsed from JSON, or contain error/raw fields
-        if (typeof gptResult === 'object') {
-          // Possible keys: dominant_style, learning_style, dominant, scores, report
-          learnedStyle = gptResult.dominant_style || gptResult.learning_style || gptResult.dominant || null
-          analysisText = gptResult.report || gptResult.analysis || gptResult.reportText || null
-          // If scores provided, pick the highest
-          if (!learnedStyle && gptResult.scores && typeof gptResult.scores === 'object') {
-            const sEntries = Object.entries(gptResult.scores)
-            sEntries.sort((a: any, b: any) => Number(b[1]) - Number(a[1]))
-            learnedStyle = sEntries[0]?.[0] || null
-          }
+      try {
+        const parsed = JSON.parse(gptText)
+        gptResult = parsed
+        learnedStyle = parsed.dominant_style || parsed.learning_style || parsed.dominant || null
+        analysisText = parsed.report || parsed.analysis || parsed.reportText || null
+        if (!learnedStyle && parsed.scores && typeof parsed.scores === 'object') {
+          const sEntries = Object.entries(parsed.scores)
+          sEntries.sort((a: any, b: any) => Number(b[1]) - Number(a[1]))
+          learnedStyle = sEntries[0]?.[0] || null
         }
-
-        // If we couldn't extract a clear report text, use raw text from GPT (or rawGPTText)
-        if (!analysisText) {
-          if (gptResult && gptResult.raw) analysisText = String(gptResult.raw)
-          else if (rawGPTText) analysisText = rawGPTText
-        }
+      } catch (e) {
+        // Fallback to raw text as the report
+        gptResult = { raw: gptText }
+        analysisText = gptText
       }
 
       const updatePayload: any = { updated_at: new Date().toISOString() }
@@ -291,6 +288,10 @@ ${qaPairs}`;
       // Ensure the response contains the same dominant_style the DB now has
       if (gptResult && typeof gptResult === 'object') {
         gptResult.dominant_style = finalStyle || gptResult.dominant_style || gptResult.learning_style || null
+        // Ensure report field has actual newlines, not escaped ones
+        if (gptResult.report && typeof gptResult.report === 'string') {
+          gptResult.report = gptResult.report.replace(/\\n/g, '\n')
+        }
       } else if (!gptResult) {
         gptResult = { dominant_style: finalStyle }
       }
@@ -301,5 +302,55 @@ ${qaPairs}`;
     return NextResponse.json({ success: true, gpt: gptResult })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Unknown error" }, { status: 500 })
+  }
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url)
+    const user_id = searchParams.get('user_id')
+
+    if (!user_id) {
+      return NextResponse.json({ error: 'user_id required' }, { status: 400 })
+    }
+
+    const { createClient } = await import('@supabase/supabase-js')
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return NextResponse.json({ error: 'Supabase service key missing' }, { status: 500 })
+    }
+
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey)
+
+    const { data: record, error } = await adminClient
+      .from('employee_learning_style')
+      .select('learning_style, gpt_analysis')
+      .eq('user_id', user_id)
+      .single()
+
+    if (error && error.code !== 'PGRST116') {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    if (!record) {
+      return NextResponse.json({ data: null })
+    }
+
+    // Ensure gpt_analysis has actual newlines, not escaped ones
+    let gpt_analysis = record.gpt_analysis
+    if (gpt_analysis && typeof gpt_analysis === 'string') {
+      gpt_analysis = gpt_analysis.replace(/\\n/g, '\n')
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        learning_style: record.learning_style,
+        gpt_analysis: gpt_analysis
+      }
+    })
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Unknown error' }, { status: 500 })
   }
 }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChevronDown } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import EmployeeNavigation from "@/components/employee-navigation";
@@ -252,6 +253,7 @@ export default function ScoreHistoryPage() {
   // State to track which items are expanded (must be declared at the top level)
   const [expanded, setExpanded] = useState<{ [key: number]: boolean }>({});
   const [learningStyleExpanded, setLearningStyleExpanded] = useState<boolean>(false);
+  const [reportOpenSections, setReportOpenSections] = useState<string[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -353,29 +355,211 @@ export default function ScoreHistoryPage() {
     setExpanded((prev) => ({ ...prev, [idx]: !prev[idx] }));
   };
 
-  // Helper function to get learning style display info
-  const getLearningStyleInfo = (styleCode: string) => {
-    const styleMap: Record<string, { label: string; description: string }> = {
-      CS: {
-        label: "Concrete Sequential: The Planner",
-        description: "Prefers structure, clear steps, and hands-on practice. Learning emphasizes checklists, examples, and measurable milestones."
-      },
-      AS: {
-        label: "Abstract Sequential: The Analyst", 
-        description: "Thinks analytically and values logic. Learning focuses on theory, frameworks, and evidence-based decision making."
-      },
-      AR: {
-        label: "Abstract Random: The Connector",
-        description: "Learns through connections and stories. Learning highlights collaboration, reflection, and real-world context."
-      },
-      CR: {
-        label: "Concrete Random: The Explorer",
-        description: "Enjoys experimentation and rapid iteration. Learning leans into challenges, scenarios, and creative problem solving."
+// Helper to safely extract and parse scores from raw data
+const parseScoresFromData = (data: any): Record<string, number> | null => {
+  if (!data) return null
+  
+  // If scores already exist as object, return them
+  if (data.scores && typeof data.scores === 'object') {
+    return data.scores
+  }
+  
+  // Try to parse from gpt_analysis string if it contains JSON
+  if (data.gpt_analysis && typeof data.gpt_analysis === 'string') {
+    try {
+      const jsonMatch = data.gpt_analysis.match(/```json\s*([\s\S]*?)```/) || 
+                       data.gpt_analysis.match(/\{[\s\S]*?"scores"[\s\S]*?\}/)
+      if (jsonMatch) {
+        const jsonStr = jsonMatch[1] || jsonMatch[0]
+        const parsed = JSON.parse(jsonStr)
+        if (parsed.scores) return parsed.scores
       }
-    };
-    
-    return styleMap[styleCode] || { label: styleCode, description: "Unknown learning style" };
+    } catch (e) {
+      // Ignore parse errors
+    }
+  }
+  
+  return null
+}
+
+// Helper to extract clean report text from gpt_analysis
+const getCleanReportText = (gptAnalysis: string): string => {
+  if (!gptAnalysis) return ''
+  
+  try {
+    // Try to extract JSON
+    const jsonMatch = gptAnalysis.match(/```json\s*([\s\S]*?)```/) || 
+                     gptAnalysis.match(/\{[\s\S]*?"report"[\s\S]*?\}/)
+    if (jsonMatch) {
+      const jsonStr = jsonMatch[1] || jsonMatch[0]
+      const parsed = JSON.parse(jsonStr)
+      if (parsed.report) {
+        // Convert escaped newlines to real newlines
+        return parsed.report.replace(/\\n/g, '\n')
+      }
+    }
+  } catch (e) {
+    // Fall through to direct text
+  }
+  
+  // If it's plain text starting with "Title:", return as-is (with newline conversion)
+  if (gptAnalysis.includes('Title:') || gptAnalysis.includes('Your')) {
+    return gptAnalysis.replace(/\\n/g, '\n')
+  }
+  
+  return gptAnalysis
+}
+
+// Helper function to get learning style display info
+const getLearningStyleInfo = (styleCode: string) => {
+  const styleMap: Record<string, { label: string; description: string }> = {
+    CS: {
+      label: "Concrete Sequential: The Planner",
+      description: "Prefers structure, clear steps, and hands-on practice. Learning emphasizes checklists, examples, and measurable milestones."
+    },
+    AS: {
+      label: "Abstract Sequential: The Analyst", 
+      description: "Thinks analytically and values logic. Learning focuses on theory, frameworks, and evidence-based decision making."
+    },
+    AR: {
+      label: "Abstract Random: The Connector",
+      description: "Learns through connections and stories. Learning highlights collaboration, reflection, and real-world context."
+    },
+    CR: {
+      label: "Concrete Random: The Explorer",
+      description: "Enjoys experimentation and rapid iteration. Learning leans into challenges, scenarios, and creative problem solving."
+    }
   };
+  
+  return styleMap[styleCode] || { label: styleCode, description: "Unknown learning style" };
+};
+
+// Extract ONLY the report text from JSON response - ignore everything else before JSON
+const extractReportFromJson = (analysis: string) => {
+  if (!analysis) return ''
+
+  try {
+    const jsonMatch = analysis.match(/```json\s*([\s\S]*?)```/) || analysis.match(/\{[\s\S]*?"report"[\s\S]*?\}/)
+    if (jsonMatch) {
+      const jsonStr = jsonMatch[1] || jsonMatch[0]
+      const parsed = JSON.parse(jsonStr)
+      if (parsed.report) return parsed.report.replace(/\\n/g, '\n')
+    }
+  } catch (e) {}
+
+  const reportStart = analysis.indexOf('Here is your personalized learning style report:')
+  if (reportStart !== -1) {
+    const reportText = analysis.substring(reportStart + 'Here is your personalized learning style report:'.length)
+    const jsonStart = reportText.indexOf('```json')
+    if (jsonStart !== -1) return reportText.substring(0, jsonStart).trim()
+    return reportText.trim()
+  }
+
+  return analysis
+}
+
+// Parse report text into sections (compatible with learning-style page logic)
+const parseReportIntoTabs = (reportText: string) => {
+  const tabs: { id: string; title: string; content: string; subsections: { subtitle: string; items: string[] }[] }[] = []
+  if (!reportText) return tabs
+
+  reportText = reportText.replace(/^Title:\s*Your Personal Learning Style Insights\s*\n\n/i, '')
+  reportText = reportText.replace(/^Here is your personalized learning style report:\s*\n\n/i, '')
+
+  const lines = reportText.split('\n').map(l => l.trim()).filter(l => l && !l.match(/^[-=•·]+$/))
+  let currentTab: any = null
+  let currentSub: any = null
+
+  for (const line of lines) {
+    const mainHeader = line.match(/^(\d+)\.\s*(.+?):\s*$/)
+    if (mainHeader) {
+      if (currentTab) tabs.push(currentTab)
+      const title = mainHeader[2]
+      let id = 'natural'
+      if (title.toLowerCase().includes('thrive')) id = 'thrive'
+      else if (title.toLowerCase().includes('tip')) id = 'tips'
+      currentTab = { id, title, content: '', subsections: [] }
+      currentSub = null
+      continue
+    }
+
+    // Subsection headers: lines ending with : but not starting with bullet
+    const subHeader = line.match(/^(?![•*\-·])(\w.+?):\s*$/)
+    if (subHeader && currentTab && !line.match(/^\d+\./)) {
+      const subtitle = subHeader[1].trim()
+      if (subtitle && subtitle.length < 100) {
+        currentSub = { subtitle, items: [] }
+        currentTab.subsections.push(currentSub)
+        continue
+      }
+    }
+
+    const bullet = line.match(/^[•*\-·]\s*(.+)$/)
+    if (bullet) {
+      const item = bullet[1].trim().replace(/^[*\-·•]+\s*/, '')
+      if (item && item.length > 0) {
+        if (currentSub) currentSub.items.push(item)
+        else if (currentTab) currentTab.content += (currentTab.content ? '\n' : '') + item
+      }
+      continue
+    }
+
+    if (line && currentTab && !line.match(/^\d+\./) && !line.includes(':')) {
+      currentTab.content += (currentTab.content ? '\n' : '') + line
+    }
+  }
+  if (currentTab) tabs.push(currentTab)
+  return tabs
+}
+
+type LSSection = {
+  id: string;
+  title: string;
+  accent: string;
+  paragraphs: string[];
+  bullets?: string[];
+  subsections: { subtitle: string; items: string[] }[];
+};
+
+// Parse GPT report into four accordion sections with graceful fallbacks
+const buildLearningSections = (gptAnalysis: string, fallbackDescription: string): LSSection[] => {
+  const sections: LSSection[] = [
+    { id: 'natural', title: 'Your Natural Learning Style', accent: 'from-blue-50 to-blue-100 border-blue-200', paragraphs: [], subsections: [] },
+    { id: 'thrive', title: 'How You Thrive', accent: 'from-purple-50 to-purple-100 border-purple-200', paragraphs: [], subsections: [] },
+    { id: 'tips', title: 'Tips to Make Learning Easier', accent: 'from-green-50 to-emerald-100 border-emerald-200', paragraphs: [], subsections: [] },
+    { id: 'checklist', title: 'Your Quick Reference Checklist', accent: 'from-amber-50 to-amber-100 border-amber-200', paragraphs: [], subsections: [] }
+  ];
+
+  const cleanText = extractReportFromJson(gptAnalysis)
+  const tabs = parseReportIntoTabs(cleanText)
+  const pool = [...tabs]
+  const takeTab = (keywords: string[], id: string) => {
+    const idx = pool.findIndex(t => keywords.some(k => t.title.toLowerCase().includes(k)) || t.id === id)
+    if (idx >= 0) return pool.splice(idx, 1)[0]
+    return pool.shift()
+  }
+
+  sections.forEach(section => {
+    const tab = takeTab([section.id.split('-')[0], ...section.title.toLowerCase().split(' ')], section.id)
+    if (tab) {
+      if (tab.content) {
+        const introLines = tab.content.split('\n').filter(Boolean)
+        section.paragraphs = introLines.length > 0 ? introLines : [fallbackDescription]
+      } else if (!tab.subsections?.length) {
+        section.paragraphs = [fallbackDescription]
+      }
+      if (tab.subsections?.length) {
+        section.subsections = tab.subsections.map(sub => ({
+          subtitle: sub.subtitle,
+          items: sub.items.map(item => item.replace(/^[*•\-·]+\s*/, ''))
+        }))
+      }
+    }
+    if (!section.paragraphs.length) section.paragraphs.push(fallbackDescription)
+  })
+
+  return sections
+}
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
@@ -410,9 +594,9 @@ export default function ScoreHistoryPage() {
         {/* Learning Style Section */}
         {learningStyleData ? (
           <Card className="mb-8 shadow-md">
-            <CardHeader className="bg-gradient-to-r from-sky-500 to-blue-500 rounded-t-xl py-5 px-6">
-              <CardTitle className="text-2xl font-bold text-white">Discover how you learn best</CardTitle>
-              <CardDescription className="text-sm mt-1 text-sky-100">
+            <CardHeader className="bg-gradient-to-r from-sky-50 to-blue-50 rounded-t-xl py-5 px-6 border-b-2 border-sky-200">
+              <CardTitle className="text-2xl font-bold text-sky-700">Discover how you learn best</CardTitle>
+              <CardDescription className="text-sm mt-1 text-sky-600">
                 Understand your learning DNA to achieve outcomes faster
               </CardDescription>
             </CardHeader>
@@ -447,19 +631,54 @@ export default function ScoreHistoryPage() {
                   </div>
                 </div>
                 {learningStyleExpanded && (
-                  <div className="mt-8 space-y-8">
-                    <div>
-                      <span className="text-2xl font-bold text-gray-800 mb-3 block">Description:</span>
-                      <div className="bg-gradient-to-r from-gray-50 to-blue-50 border border-gray-200 rounded-2xl p-8 text-xl text-gray-700 leading-relaxed">
-                        {getLearningStyleInfo(learningStyleData.learning_style).description}
-                      </div>
-                    </div>
-                    {learningStyleData.gpt_analysis && (
-                      <div>
-                        <span className="text-2xl font-bold text-gray-800 mb-3 block">AI Analysis & Recommendations:</span>
-                        <AIFeedbackSections feedback={learningStyleData.gpt_analysis.replace('[Your Name]', 'Lucid').replace('Dear Employee', `Dear ${employeeName || 'Employee'}`)} />
-                      </div>
-                    )}
+                  <div className="mt-8 space-y-6">
+                    <h3 className="text-2xl font-bold text-gray-800">Your Learning Insights</h3>
+                    {buildLearningSections(learningStyleData.gpt_analysis || '', getLearningStyleInfo(learningStyleData.learning_style).description).filter(section => section.id !== 'checklist').map(section => {
+                      const isOpen = reportOpenSections.includes(section.id)
+                      const toggle = () => {
+                        setReportOpenSections(prev => (
+                          prev.includes(section.id)
+                            ? prev.filter(id => id !== section.id)
+                            : [...prev, section.id]
+                        ))
+                      }
+                      return (
+                        <Card key={section.id} className={`bg-gradient-to-br ${section.accent} border-2 shadow-sm`}>
+                          <CardHeader className="cursor-pointer" onClick={toggle}>
+                            <CardTitle className="flex items-center justify-between text-lg sm:text-xl font-semibold text-gray-900">
+                              <span>{section.title}</span>
+                              <ChevronDown className={`w-6 h-6 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                            </CardTitle>
+                          </CardHeader>
+                          {isOpen && (
+                            <CardContent className="space-y-5">
+                              {section.paragraphs.map((para, idx) => (
+                                <p key={idx} className="text-gray-800 leading-relaxed text-base">
+                                  {para}
+                                </p>
+                              ))}
+                              {section.subsections.length > 0 && (
+                                <div className="space-y-5">
+                                  {section.subsections.map((sub, subIdx) => (
+                                    <div key={subIdx}>
+                                      <h4 className="font-extrabold text-gray-900 mb-3 text-base sm:text-lg">{sub.subtitle}</h4>
+                                      <ul className="space-y-2 ml-2">
+                                        {sub.items.map((item, itemIdx) => (
+                                          <li key={itemIdx} className="flex gap-3 text-gray-800 leading-relaxed text-sm">
+                                            <span className="text-blue-600 font-semibold mt-0.5 flex-shrink-0">•</span>
+                                            <span>{item}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </CardContent>
+                          )}
+                        </Card>
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -491,10 +710,10 @@ export default function ScoreHistoryPage() {
         
         {/* Assessment History Section */}
         <Card className="mb-12 shadow-md">
-          <CardHeader className="bg-gradient-to-r from-sky-500 to-blue-500 rounded-t-xl py-5 px-6">
-            <CardTitle className="text-2xl font-bold text-white">Your Growth Record
+          <CardHeader className="bg-gradient-to-r from-sky-50 to-blue-50 rounded-t-xl py-5 px-6 border-b-2 border-sky-200">
+            <CardTitle className="text-2xl font-bold text-sky-700">Your Growth Record
 </CardTitle>
-            <CardDescription className="text-sm mt-1 text-sky-100">Review your scores & track growth
+            <CardDescription className="text-sm mt-1 text-sky-600">Review your scores & track growth
 </CardDescription>
           </CardHeader>
           <CardContent className="p-6">
