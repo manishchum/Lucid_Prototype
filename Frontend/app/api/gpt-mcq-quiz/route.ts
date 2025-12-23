@@ -426,7 +426,8 @@ Objectives: ${JSON.stringify([moduleContent])}`;
         original_module_id: String(mId),
         title: tm.title || null,
         content: tm.gpt_summary || null,
-        learning_style: userLearningStyle || null
+        learning_style: userLearningStyle || null,
+        user_id:user_id || null
       };
     });
     console.log(inserts);
