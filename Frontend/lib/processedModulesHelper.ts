@@ -95,6 +95,7 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
         section_type: m.section_type || null,
         order_index: typeof m.order_index === "number" ? m.order_index : null,
         learning_style: m.learning_style || userLearningStyle || null,
+        user_id: user_id,
       };
 
       // Use upsert to avoid race conditions and reduce duplicates when a unique
