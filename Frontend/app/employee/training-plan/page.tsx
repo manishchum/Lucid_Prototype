@@ -32,6 +32,8 @@ export default function TrainingPlanPage() {
   const [baselineCompleted, setBaselineCompleted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [baselineNavLoading, setBaselineNavLoading] = useState(false);
+  const [contentLoadingModuleId, setContentLoadingModuleId] = useState<string | null>(null);
+  const [quizLoadingModuleId, setQuizLoadingModuleId] = useState<string | null>(null);
 
   // Fetch completed modules from Supabase (same logic as employee/welcome)
   useEffect(() => {
@@ -849,6 +851,7 @@ export default function TrainingPlanPage() {
                               "[training-plan] View Content clicked for module:",
                               mod
                             );
+                            setContentLoadingModuleId(mod.processed_module_id);
                             const navId = await resolveModuleId(mod);
                             console.log(
                               "[training-plan] Resolved module id:",
@@ -860,20 +863,32 @@ export default function TrainingPlanPage() {
                               alert(
                                 "Could not find module content. Please contact support."
                               );
+                              setContentLoadingModuleId(null);
                             }
                           }}
                           disabled={
                             mod._isCompleted ||
-                            (baselineExists && !baselineCompleted)
+                            (baselineExists && !baselineCompleted) ||
+                            contentLoadingModuleId === mod.processed_module_id ||
+                            quizLoadingModuleId === mod.processed_module_id
                           }
                           className={`w-full py-3 text-base font-semibold border-2 transition-all duration-200 ${
                             mod._isCompleted ||
-                            (baselineExists && !baselineCompleted)
+                            (baselineExists && !baselineCompleted) ||
+                            contentLoadingModuleId === mod.processed_module_id ||
+                            quizLoadingModuleId === mod.processed_module_id
                               ? "bg-gray-100 text-gray-500 cursor-not-allowed"
                               : "hover:bg-blue-50"
                           }`}
                         >
-                          View Content
+                          {contentLoadingModuleId === mod.processed_module_id ? (
+                            <span className="flex items-center justify-center gap-2">
+                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-500 border-t-transparent"></div>
+                              Loading...
+                            </span>
+                          ) : (
+                            "View Content"
+                          )}
                         </Button>
                         <Button
                           variant={mod._isCompleted ? "outline" : "default"}
@@ -883,6 +898,7 @@ export default function TrainingPlanPage() {
                               "[training-plan] Quiz clicked for module:",
                               mod
                             );
+                            setQuizLoadingModuleId(mod.processed_module_id);
                             const navId = await resolveModuleId(mod);
                             console.log(
                               "[training-plan] Resolved module id:",
@@ -894,22 +910,34 @@ export default function TrainingPlanPage() {
                               alert(
                                 "Could not find module quiz. Please contact support."
                               );
+                              setQuizLoadingModuleId(null);
                             }
                           }}
                           disabled={
                             mod._isCompleted ||
-                            (baselineExists && !baselineCompleted)
+                            (baselineExists && !baselineCompleted) ||
+                            contentLoadingModuleId === mod.processed_module_id ||
+                            quizLoadingModuleId === mod.processed_module_id
                           }
                           className={`w-full py-3 text-base font-semibold transition-all duration-200 ${
                             mod._isCompleted ||
-                            (baselineExists && !baselineCompleted)
+                            (baselineExists && !baselineCompleted) ||
+                            contentLoadingModuleId === mod.processed_module_id ||
+                            quizLoadingModuleId === mod.processed_module_id
                               ? "bg-gray-100 text-gray-500 cursor-not-allowed border-2"
                               : "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
                           }`}
                         >
-                          {mod._isCompleted
-                            ? "Quiz Completed"
-                            : "Module Quiz"}
+                          {mod._isCompleted ? (
+                            "Quiz Completed"
+                          ) : quizLoadingModuleId === mod.processed_module_id ? (
+                            <span className="flex items-center justify-center gap-2">
+                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                              Loading...
+                            </span>
+                          ) : (
+                            "Module Quiz"
+                          )}
                         </Button>
                       </div>
                     </TabsContent>
