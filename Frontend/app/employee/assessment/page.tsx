@@ -4,10 +4,9 @@ import React, { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from "@/lib/supabase";
 import MCQQuiz from "./mcq-quiz";
-import ScoreFeedbackCard from "./score-feedback";
 import { useAuth } from "@/contexts/auth-context";
 import EmployeeNavigation from "@/components/employee-navigation";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 
 interface TrainingModule {
   module_id: string;
@@ -17,7 +16,6 @@ interface TrainingModule {
 
 const AssessmentPage = () => {
   const { user } = useAuth();
-  const router = useRouter();
   const [modules, setModules] = useState<TrainingModule[]>([]);
   const searchParams = useSearchParams();
   const [mcqQuestionsByModule, setMcqQuestionsByModule] = useState<Array<{ moduleId: string; title?: string; questions: any[] }>>([]);
@@ -27,6 +25,16 @@ const AssessmentPage = () => {
   const [feedback, setFeedback] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [companyId, setCompanyId] = useState<string | null>(null);
+  const [correctAnswers, setCorrectAnswers] = useState<any[]>([]);
+  const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
+  const [expandedSections, setExpandedSections] = useState<{[key: string]: boolean}>({
+    learningStyle: false,
+    howYouThrive: false,
+    tips: false,
+    questions: false
+  });
+
+  const router = useRouter();
 
   useEffect(() => {
     const fetchModules = async () => {
@@ -151,6 +159,45 @@ const AssessmentPage = () => {
     if (modules.length > 0) getMCQQuiz();
   }, [modules, user]);
 
+  const toggleSection = (section: string) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
+  };
+
+  const parseFeedbackSections = (feedback: string) => {
+    // Extract main title/header from the feedback
+    const headerMatch = feedback.match(/^##\s*(.+?)(?:\n|$)/m);
+    const mainTitle = headerMatch ? headerMatch[1].trim() : "Assessment Results";
+    
+    // Parse sections from the feedback
+    const sections: {[key: string]: string} = {};
+    const sectionRegex = /###?\s*(.+?)(?:\n([\s\S]*?))?(?=###?|$)/g;
+    let match;
+    
+    while ((match = sectionRegex.exec(feedback)) !== null) {
+      const title = match[1].trim();
+      const content = match[2]?.trim() || '';
+      
+      // Skip empty sections and the main header
+      if (content && title !== mainTitle) {
+        sections[title] = content;
+      }
+    }
+    
+    return { mainTitle, sections };
+  };
+
+  const formatContent = (content: string) => {
+    return content
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^\* (.*?)$/gm, '<li class="ml-4">$1</li>')
+      .replace(/^(\d+)\.\s+(.*?)$/gm, '<li class="ml-4"><strong>$1.</strong> $2</li>')
+      .replace(/\n\n/g, '</p><p class="mb-3">')
+      .replace(/^(?!<[h|l|p])(.*?)$/gm, '<p class="mb-3">$1</p>');
+  };
+
   const handleMCQSubmit = async (result: { score: number; answers: number[]; feedback: string[] }, moduleId: string) => {
     console.log("handleMCQSubmit called with result successfully.");
     setScore(result.score);
@@ -190,7 +237,6 @@ const AssessmentPage = () => {
           .from('assessments')
           .select('assessment_id')
           .eq('type', 'baseline')
-          .eq('processed_module_id',searchParams.get('moduleId'))
           .eq('company_id', companyId)
           .limit(1)
           .maybeSingle();
@@ -230,6 +276,20 @@ const AssessmentPage = () => {
       });
       const data = await res.json();
       setFeedback(data.feedback || "");
+      
+      setQuizQuestions(mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []);
+      
+      const questions = mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || [];
+      const answersData = questions.map((q: any, idx: number) => ({
+        question: q.question,
+        userAnswer: q.options[result.answers[idx]] || 'No answer',
+        correctAnswer: q.options[q.correctIndex] || 'Unknown',
+        isCorrect: result.answers[idx] === q.correctIndex,
+        explanation: q.explanation || '',
+        bloomLevel: q.bloomLevel || 'Unknown'
+      }));
+      setCorrectAnswers(answersData);
+      
     } catch (err: any) {
       setFeedback("Could not generate feedback.");
     } finally {
@@ -238,18 +298,16 @@ const AssessmentPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 w-full">
       <EmployeeNavigation showBack={true} showForward={false} />
       
-      {/* Main content area that adapts to sidebar */}
       <div 
         className="transition-all duration-300 ease-in-out py-10"
         style={{ 
           marginLeft: 'var(--sidebar-width, 0px)',
         }}
       >
-        <div className="max-w-2-xl mx-auto px-4">
-          {/* Back Button */}
+        <div className="max-w-8xl mx-auto px-4">
           <button
             onClick={() => router.back()}
             className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium mb-6 transition-colors"
@@ -259,7 +317,7 @@ const AssessmentPage = () => {
           </button>
           <h1 className="text-3xl font-bold mb-4">Starting Baseline</h1>
           <p className="mb-6 text-gray-700">
-            Every learner is different. This short assessment helps us tailor the program to your strengths and needs, so you can learn smarter, apply faster and move closer to your career ambitions.
+            Every learner is different. This short assessment helps us tailor the program to your strengths and needs, so you can learn smarter, apply faster and move closer to your career ambitions.
           </p>
           {error && <div className="mb-4 text-red-600">{error}</div>}
           {loading && (
@@ -277,8 +335,197 @@ const AssessmentPage = () => {
             />
           )}
           {!loading && score !== null && (
-            <div>
-              <ScoreFeedbackCard score={score!} maxScore={(mcqQuestionsByModule[0]?.questions || []).length} feedback={feedback} />
+            <div className="space-y-6 w-full">
+              {/* Main Results Card - Similar to Learning Style */}
+              <div className="bg-white rounded-lg shadow-lg p-8 border-t-4 border-blue-600 w-full">
+                {(() => {
+                  const { mainTitle, sections } = parseFeedbackSections(feedback);
+                  const sectionKeys = Object.keys(sections);
+                  
+                  return (
+                    <>
+                      <div className="text-center mb-8">
+                        <h2 className="text-4xl font-bold text-gray-900 mb-4">{mainTitle}</h2>
+                        <p className="text-gray-600 mb-6">
+                          Understand your performance to achieve better outcomes
+                        </p>
+                      </div>
+
+                      {/* Score Display */}
+                      <div className="bg-blue-50 rounded-lg p-6 mb-8 border-2 border-blue-200">
+                        <div className="flex items-center justify-between mb-4">
+                          <div>
+                            <p className="text-sm text-gray-600 mb-1">Assessment Score</p>
+                            <div className="flex items-baseline gap-3">
+                              <span className="text-4xl font-bold text-blue-600">
+                                {score}/{(mcqQuestionsByModule[0]?.questions || []).length}
+                              </span>
+                              <span className="text-2xl text-gray-600">
+                                ({Math.round((score / (mcqQuestionsByModule[0]?.questions || []).length) * 100)}%)
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-600">Completed:</span>
+                            <span className="text-sm font-medium text-green-600">
+                              {new Date().toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-3">
+                          <div 
+                            className="bg-gradient-to-r from-blue-500 to-green-500 h-3 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.round((score / (mcqQuestionsByModule[0]?.questions || []).length) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Performance Insights - Expandable Sections */}
+                      <div className="mb-8">
+                        <h3 className="text-2xl font-bold text-gray-900 mb-4">Your Performance Insights</h3>
+                        <div className="space-y-3">
+                          {sectionKeys.map((sectionTitle, idx) => {
+                            const sectionKey = `section_${idx}`;
+                            const isExpanded = expandedSections[sectionKey];
+                            
+                            // Determine background color based on section
+                            let bgColor = 'bg-blue-50';
+                            let borderColor = 'border-blue-200';
+                            if (sectionTitle.toLowerCase().includes('strength')) {
+                              bgColor = 'bg-green-50';
+                              borderColor = 'border-green-200';
+                            } else if (sectionTitle.toLowerCase().includes('improve') || sectionTitle.toLowerCase().includes('weakness')) {
+                              bgColor = 'bg-orange-50';
+                              borderColor = 'border-orange-200';
+                            } else if (sectionTitle.toLowerCase().includes('recommend') || sectionTitle.toLowerCase().includes('action')) {
+                              bgColor = 'bg-purple-50';
+                              borderColor = 'border-purple-200';
+                            }
+                            
+                            return (
+                              <div 
+                                key={sectionKey}
+                                className={`${bgColor} rounded-lg border-2 ${borderColor} overflow-hidden transition-all duration-300`}
+                              >
+                                <button
+                                  onClick={() => toggleSection(sectionKey)}
+                                  className="w-full px-6 py-4 flex items-center justify-between hover:opacity-80 transition-opacity"
+                                >
+                                  <h4 className="text-lg font-semibold text-gray-900 text-left">
+                                    {sectionTitle}
+                                  </h4>
+                                  {isExpanded ? (
+                                    <ChevronUp className="w-5 h-5 text-gray-600 flex-shrink-0" />
+                                  ) : (
+                                    <ChevronDown className="w-5 h-5 text-gray-600 flex-shrink-0" />
+                                  )}
+                                </button>
+                                {isExpanded && (
+                                  <div className="px-6 pb-4">
+                                    <div 
+                                      className="prose prose-sm max-w-none text-gray-700"
+                                      dangerouslySetInnerHTML={{ 
+                                        __html: formatContent(sections[sectionTitle])
+                                      }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Question Review - Expandable */}
+              {/* <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                <button
+                  onClick={() => toggleSection('questions')}
+                  className="w-full px-8 py-6 flex items-center justify-between bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 transition-colors border-b-2 border-blue-200"
+                >
+                  <h3 className="text-2xl font-bold text-gray-900">Question-by-Question Review</h3>
+                  {expandedSections.questions ? (
+                    <ChevronUp className="w-6 h-6 text-gray-600 flex-shrink-0" />
+                  ) : (
+                    <ChevronDown className="w-6 h-6 text-gray-600 flex-shrink-0" />
+                  )}
+                </button>
+                {expandedSections.questions && (
+                  <div className="p-8 space-y-6">
+                    {correctAnswers.map((answer, idx) => (
+                      <div 
+                        key={idx} 
+                        className={`p-6 rounded-lg border-2 ${
+                          answer.isCorrect 
+                            ? 'bg-green-50 border-green-300' 
+                            : 'bg-red-50 border-red-300'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3 mb-4">
+                          {answer.isCorrect ? (
+                            <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0 mt-1" />
+                          ) : (
+                            <XCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
+                          )}
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-2">
+                              <h4 className="font-semibold text-gray-900">Question {idx + 1}</h4>
+                              <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                                {answer.bloomLevel}
+                              </span>
+                            </div>
+                            <p className="text-gray-800 font-medium mb-4">{answer.question}</p>
+                            
+                            <div className="space-y-2 mb-4">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-gray-700">Your answer:</span>
+                                <span className={answer.isCorrect ? 'text-green-700' : 'text-red-700'}>
+                                  {answer.userAnswer}
+                                </span>
+                              </div>
+                              {!answer.isCorrect && (
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-gray-700">Correct answer:</span>
+                                  <span className="text-green-700">{answer.correctAnswer}</span>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {answer.explanation && (
+                              <div className="flex items-start gap-2 mt-3 p-3 bg-white rounded border border-gray-200">
+                                <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                                <div>
+                                  <span className="font-semibold text-gray-900">Explanation: </span>
+                                  <span className="text-gray-700">{answer.explanation}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div> */}
+
+              {/* Action Buttons */}
+              <div className="flex gap-4 justify-center">
+                <button
+                  onClick={() => router.push('/employee/welcome')}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+                >
+                  Return to Dashboard
+                </button>
+                <button
+                  onClick={() => router.push('/employee/score-history')}
+                  className="px-6 py-3 bg-white text-blue-600 border-2 border-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-colors"
+                >
+                  View All Results
+                </button>
+              </div>
             </div>
           )}
         </div>
