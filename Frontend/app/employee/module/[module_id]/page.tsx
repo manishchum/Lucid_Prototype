@@ -57,50 +57,44 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       } catch (e) {
         console.log('[module] employee fetch error', e);
       }
-      // Fetch module info, supporting both processed_modules.processed_module_id and original_module_id and style fallbacks
-      const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style";
-      const tryFetch = async () => {
-        // 1) Try by processed_modules.processed_module_id with style
-        if (style) {
-          const { data } = await supabase
-            .from('processed_modules')
-            .select(selectCols)
-            .eq('processed_module_id', moduleId)
-            .eq('learning_style', style)
-            .maybeSingle();
-          if (data) return data;
+      // Fetch module info from processed_modules - try direct lookup first, then fallbacks
+      const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style, user_id";
+      
+      let data: any = null;
+      
+      // First try: direct lookup by processed_module_id (this is what we pass from training plan)
+      console.log('[module] Attempting direct fetch by processed_module_id:', moduleId);
+      const { data: directData, error: directError } = await supabase
+        .from('processed_modules')
+        .select(selectCols)
+        .eq('processed_module_id', moduleId)
+        .maybeSingle();
+      
+      if (directError) {
+        console.error('[module] Error fetching by processed_module_id:', directError);
+      }
+      
+      if (directData) {
+        console.log('[module] Found module by processed_module_id:', directData.processed_module_id);
+        data = directData;
+      } else {
+        // Fallback: try by original_module_id
+        console.log('[module] No direct match, trying by original_module_id');
+        const { data: origData, error: origError } = await supabase
+          .from('processed_modules')
+          .select(selectCols)
+          .eq('original_module_id', moduleId)
+          .maybeSingle();
+        
+        if (origError) {
+          console.error('[module] Error fetching by original_module_id:', origError);
         }
-        // 2) Try by original_module_id with style
-        if (style) {
-          const { data } = await supabase
-            .from('processed_modules')
-            .select(selectCols)
-            .eq('original_module_id', moduleId)
-            .eq('learning_style', style)
-            .maybeSingle();
-          if (data) return data;
+        
+        if (origData) {
+          console.log('[module] Found module by original_module_id:', origData.processed_module_id);
+          data = origData;
         }
-        // 3) Try by original_module_id without style
-        {
-          const { data } = await supabase
-            .from('processed_modules')
-            .select(selectCols)
-            .eq('original_module_id', moduleId)
-            .maybeSingle();
-          if (data) return data;
-        }
-        // 4) Try by processed_modules.processed_module_id without style
-        {
-          const { data } = await supabase
-            .from('processed_modules')
-            .select(selectCols)
-            .eq('processed_module_id', moduleId)
-            .maybeSingle();
-          if (data) return data;
-        }
-        return null;
-      };
-      const data = await tryFetch();
+      }
       console.log('[module] Fetched module data:', data);
       if (data) {
         setModule(data as any);

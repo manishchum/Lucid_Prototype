@@ -19,6 +19,7 @@ import { Users, ChevronLeft } from "lucide-react";
 export default function TrainingPlanPage() {
   // Track completed modules for the user
   const [completedModules, setCompletedModules] = useState<string[]>([]);
+  const [actualUserId, setActualUserId] = useState<string | null>(null);
 
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -191,6 +192,9 @@ export default function TrainingPlanPage() {
         setLoading(false);
         return;
       }
+      // Store the actual user_id for use in resolveModuleId
+      setActualUserId(employeeData.user_id);
+      
       // Pre-check: detect if company has baseline definitions and whether user completed one
       try {
         setBaselineExists(false);
@@ -299,96 +303,28 @@ export default function TrainingPlanPage() {
   const resolveModuleId = async (mod: any): Promise<string | null> => {
     try {
       console.log("[resolveModuleId] Input module:", mod);
-      // 1) Prefer an explicit processed module id if present and valid
-      const candidates: string[] = [];
-      if (mod?.processed_module_id)
-        candidates.push(String(mod.processed_module_id));
-      if (mod?.processed_module_id)
-        candidates.push(String(mod.processed_module_id));
 
-      for (const cand of candidates) {
-        if (!cand || cand === "undefined" || cand === "null") continue;
-        const { data: pmById } = await supabase
-          .from("processed_modules")
-          .select("processed_module_id")
-          .eq("processed_module_id", cand)
-          .maybeSingle();
-        if (pmById?.processed_module_id) {
-          console.log(
-            "[resolveModuleId] Found by processed_module_id:",
-            pmById.processed_module_id
-          );
-          return pmById.processed_module_id;
-        }
+      // 1) If the module already carries a processed_module_id, use it
+      if (mod?.processed_module_id) {
+        console.log("[resolveModuleId] Using processed_module_id:", mod.processed_module_id);
+        return String(mod.processed_module_id);
       }
 
-      // 2) Try mapping from original_module_id to processed_modules.processed_module_id
-      if (
-        mod?.original_module_id &&
-        mod.original_module_id !== "undefined" &&
-        mod.original_module_id !== "null"
-      ) {
-        const { data: pmByOriginal } = await supabase
-          .from("processed_modules")
-          .select("processed_module_id")
-          .eq("original_module_id", mod.original_module_id)
-          .maybeSingle();
-        if (pmByOriginal?.processed_module_id) {
-          console.log(
-            "[resolveModuleId] Found by original_module_id:",
-            pmByOriginal.processed_module_id
-          );
-          return pmByOriginal.processed_module_id;
-        }
-      }
-
-      // 3) Fallback: resolve by title or name (best-effort)
+      // 2) Otherwise, search processed_modules by title (for plan-only modules)
       const moduleName = mod?.title || mod?.name;
-      if (moduleName) {
-        console.log("[resolveModuleId] Searching by title/name:", moduleName);
-        // Use a wildcard ILIKE search to match partial titles and ignore case
-        const titlePattern = `%${moduleName}%`;
+      if (moduleName && actualUserId) {
+        console.log("[resolveModuleId] Searching by title:", moduleName);
         const { data: pmByTitle } = await supabase
           .from("processed_modules")
           .select("processed_module_id")
-          .ilike("title", titlePattern)
+          .ilike("title", moduleName)
+          .eq("user_id", actualUserId)
           .limit(1)
           .maybeSingle();
         if (pmByTitle?.processed_module_id) {
-          console.log(
-            "[resolveModuleId] Found by title/name:",
-            pmByTitle.processed_module_id
-          );
+          console.log("[resolveModuleId] Found by title:", pmByTitle.processed_module_id);
           return pmByTitle.processed_module_id;
         }
-        // Also try a looser search on gpt_summary or ai_modules if present
-        try {
-          const { data: pmBySummary } = await supabase
-            .from("processed_modules")
-            .select("processed_module_id")
-            .ilike("gpt_summary", titlePattern)
-            .limit(1)
-            .maybeSingle();
-          if (pmBySummary?.processed_module_id) {
-            console.log(
-              "[resolveModuleId] Found by gpt_summary:",
-              pmBySummary.processed_module_id
-            );
-            return pmBySummary.processed_module_id;
-          }
-        } catch (e) {
-          // ignore if column doesn't exist
-        }
-      }
-
-      // Final fallback: if the module object contains an original_module_id (training id),
-      // return it so the module page can try to resolve by `original_module_id`.
-      if (mod?.original_module_id) {
-        console.log(
-          "[resolveModuleId] Falling back to original_module_id:",
-          mod.original_module_id
-        );
-        return String(mod.original_module_id);
       }
 
       console.error("[resolveModuleId] Could not resolve module id for:", mod);

@@ -15,6 +15,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'user_id is required' }, { status: 400 });
     }
 
+    // Resolve company_id upfront so all branches can ensure processed modules
+    let company_id = null;
+    {
+      const { data: empRecord, error: empError } = await supabase
+        .from("users")
+        .select("company_id")
+        .eq("user_id", user_id)
+        .maybeSingle();
+      if (empError || !empRecord?.company_id) {
+        console.error("[Training Plan API] Could not find company for employee");
+        return NextResponse.json({ error: "Could not find company for employee" }, { status: 400 });
+      }
+      company_id = empRecord.company_id;
+    }
+
     // Check if we already have a learning plan for this user and module
     if (module_id) {
       const { data: existingPlan, error: planCheckError } = await supabase
@@ -46,10 +61,9 @@ export async function POST(request: NextRequest) {
         }
 
         if (planContent) {
-          // Ensure processed modules exist for the existing plan
+          // Ensure processed modules exist for the existing plan (use resolved company_id)
           try {
-            let company_id = null;
-            await ensureProcessedModulesForPlan(user_id, company_id, existingPlan.plan_json);
+            await ensureProcessedModulesForPlan(user_id, company_id, planContent);
           } catch (e) {
             console.error('📚 Error ensuring processed modules for existing plan:', e);
           }
@@ -80,18 +94,7 @@ export async function POST(request: NextRequest) {
       console.error("[Training Plan API] GEMINI_API_KEY is not set");
       return NextResponse.json({ error: "Server misconfiguration: GEMINI_API_KEY is missing." }, { status: 500 });
     }
-    // Fetch company_id for this employee
-    let company_id = null;
-    const { data: empRecord, error: empError } = await supabase
-      .from("users")
-      .select("company_id")
-      .eq("user_id", user_id)
-      .maybeSingle();
-    if (empError || !empRecord?.company_id) {
-      console.error("[Training Plan API] Could not find company for employee");
-      return NextResponse.json({ error: "Could not find company for employee" }, { status: 400 });
-    }
-    company_id = empRecord.company_id;
+    // company_id already resolved above
 
     // If this company has baseline assessment(s) defined, require the user to complete them first
     try {
@@ -252,7 +255,8 @@ export async function POST(request: NextRequest) {
         const { data: pmRows, error: modError } = await supabase
           .from("processed_modules")
           .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
-          .eq("original_module_id", module_id);
+          .eq("original_module_id", module_id)
+          .eq("user_id", user_id);
         
         if (modError) {
           console.error("[Training Plan API] Error fetching processed module:", modError);
@@ -283,7 +287,8 @@ export async function POST(request: NextRequest) {
         const { data: pmRows, error: modError } = await supabase
           .from("processed_modules")
           .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
-          .in("original_module_id", tmIds);
+          .in("original_module_id", tmIds)
+          .eq("user_id", user_id);
         if (modError) {
           console.error("[Training Plan API] Error fetching modules:", modError);
           return NextResponse.json({ error: modError.message }, { status: 500 });
