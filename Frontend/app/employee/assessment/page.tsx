@@ -27,6 +27,7 @@ const AssessmentPage = () => {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [correctAnswers, setCorrectAnswers] = useState<any[]>([]);
   const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<{[key: string]: boolean}>({
     learningStyle: false,
     howYouThrive: false,
@@ -46,10 +47,11 @@ const AssessmentPage = () => {
         if (user?.email) {
           const { data: empData } = await supabase
             .from("users")
-            .select("company_id")
+            .select("company_id, user_id")
             .eq("email", user.email)
             .maybeSingle();
           companyId = empData?.company_id || null;
+          setUserId(empData?.user_id || null);
         }
         if (!companyId) throw new Error("Could not find company for user");
         // Get modules for this company only
@@ -237,15 +239,28 @@ const AssessmentPage = () => {
         console.log(mcqQuestionsByModule)
         console.log(quizEntry)
       } else {
+        const urlModuleId = searchParams.get('moduleId');
+
         // Look up (or create) the baseline assessment for this company
         console.log("Inside in this else 1")
-        const { data: assessmentDef } = await supabase
-          .from('assessments')
-          .select('assessment_id')
-          .eq('type', 'baseline')
-          .eq('company_id', companyId)
-          .limit(1)
-          .maybeSingle();
+        const { data: assessmentDef, error } = await supabase
+              .from('assessments')
+              .select(`
+                assessment_id,
+                processed_modules!inner (
+                  user_id,
+                  original_module_id
+                )
+              `)
+              .eq('type', 'baseline')
+              .eq('company_id', companyId)
+              .eq('processed_modules.original_module_id', urlModuleId)
+              .eq('processed_modules.user_id', userId)
+              .limit(1)
+              .maybeSingle();
+
+        console.log("New Query to get the result")
+        console.log(assessmentDef)
         if (assessmentDef?.assessment_id) {
           console.log("Inside in this if 2")
           assessmentId = assessmentDef.assessment_id;
