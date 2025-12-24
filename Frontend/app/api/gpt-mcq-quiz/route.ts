@@ -153,8 +153,10 @@ export async function POST(request: NextRequest) {
   const explicitModuleId = body.moduleIds || body.moduleId || null;
   const singleFromArray = Array.isArray(body.moduleIds) && body.moduleIds.length === 1 ? String(body.moduleIds[0]) : null;
   const moduleId = explicitModuleId ? String(explicitModuleId) : singleFromArray;
-  
+  console.log("Module Idis ",moduleId)
+  console.log(isBaselineRequest)
   if (moduleId && !isBaselineRequest) {
+    console.log("Inside the if statement");
     // If a moduleId was provided explicitly or via single-element moduleIds
     // array, treat as a per-module quiz request.
     if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
@@ -467,9 +469,13 @@ Objectives: ${JSON.stringify([moduleContent])}`;
   const { data: processedRows, error: processedError } = await supabase
     .from('processed_modules')
     .select('processed_module_id, original_module_id')
-    .in('original_module_id', moduleIds);
+    .in('original_module_id', moduleIds)
+    .eq("user_id",user_id || null);
+
   if (processedError) console.warn('[gpt-mcq-quiz] lookup processed_modules warning:', processedError);
 
+  console.log("These is processed rows")
+  console.log(processedRows);
   const processedMap = new Map<string, string>();
   if (Array.isArray(processedRows)) {
     for (const p of processedRows) {
