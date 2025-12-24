@@ -97,6 +97,7 @@ export async function POST(request: NextRequest) {
     // company_id already resolved above
 
     // If this company has baseline assessment(s) defined, require the user to complete them first
+    let baselineRequired = false;
     try {
       const { data: baselineDefs, error: baselineDefError } = await supabase
         .from('assessments')
@@ -107,6 +108,7 @@ export async function POST(request: NextRequest) {
         console.error('[Training Plan API] Error fetching baseline assessment definitions:', baselineDefError);
         // don't fail here; continue — but log so we can investigate
       } else if (baselineDefs && baselineDefs.length > 0) {
+        baselineRequired = true;
         // Ensure the employee has submitted at least one employee_assessments row for these baseline assessment ids
         const baselineIds = baselineDefs.map((b: any) => b.assessment_id).filter(Boolean);
         if (baselineIds.length > 0) {
@@ -122,6 +124,9 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'BASELINE_REQUIRED', message: 'Please complete the baseline assessment first.' }, { status: 403 });
           }
         }
+      } else {
+        console.log('[Training Plan API] No baseline assessments required for this company.');
+        baselineRequired = false;
       }
     } catch (e) {
       console.error('[Training Plan API] Unexpected error while enforcing baseline requirement:', e);
@@ -264,6 +269,31 @@ export async function POST(request: NextRequest) {
         }
         
         modules = pmRows || [];
+        
+        // If no processed modules found and baseline is not required, fetch raw training module as fallback
+        if (modules.length === 0 && !baselineRequired) {
+          console.log("[Training Plan API] No processed modules found, baseline not required - using raw training module");
+          const { data: tmRows, error: tmError } = await supabase
+            .from("training_modules")
+            .select("module_id, title, content, order_index, company_id")
+            .eq("module_id", module_id)
+            .eq("company_id", company_id);
+          
+          if (tmError) {
+            console.error("[Training Plan API] Error fetching training module fallback:", tmError);
+          } else if (tmRows && tmRows.length > 0) {
+            modules = tmRows.map((m: any) => ({
+              processed_module_id: m.module_id,
+              title: m.title,
+              content: m.content,
+              order_index: m.order_index || 0,
+              original_module_id: m.module_id,
+              training_modules: { company_id: m.company_id }
+            }));
+            console.log("[Training Plan API] Using raw training module as fallback");
+          }
+        }
+        
         console.log("[Training Plan API] Filtered modules for module_id:", module_id, modules);
       } catch (e) {
         console.error("[Training Plan API] Unexpected error filtering module:", e);
@@ -294,6 +324,30 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: modError.message }, { status: 500 });
         }
         modules = pmRows || [];
+        
+        // If no processed modules found and baseline is not required, fetch raw training modules as fallback
+        if (modules.length === 0 && !baselineRequired) {
+          console.log("[Training Plan API] No processed modules found, baseline not required - using raw training modules");
+          const { data: tmRows, error: tmFallbackError } = await supabase
+            .from("training_modules")
+            .select("module_id, title, content, order_index, company_id")
+            .in("module_id", tmIds)
+            .eq("company_id", company_id);
+          
+          if (tmFallbackError) {
+            console.error("[Training Plan API] Error fetching training modules fallback:", tmFallbackError);
+          } else if (tmRows && tmRows.length > 0) {
+            modules = tmRows.map((m: any) => ({
+              processed_module_id: m.module_id,
+              title: m.title,
+              content: m.content,
+              order_index: m.order_index || 0,
+              original_module_id: m.module_id,
+              training_modules: { company_id: m.company_id }
+            }));
+            console.log("[Training Plan API] Using raw training modules as fallback");
+          }
+        }
       } else {
         console.log("[Training Plan API] No training modules found for company; proceeding with empty module list");
       }
