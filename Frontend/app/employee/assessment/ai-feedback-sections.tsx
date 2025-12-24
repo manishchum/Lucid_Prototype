@@ -30,7 +30,7 @@ interface FeedbackSection {
 
 const AIFeedbackSections: React.FC<AIFeedbackSectionsProps> = ({ feedback }) => {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['opening']));
-
+  console.log('Feedback received:', feedback);
   const toggleSection = (sectionKey: string) => {
     const newExpanded = new Set(expandedSections);
     if (newExpanded.has(sectionKey)) {
@@ -67,13 +67,44 @@ const AIFeedbackSections: React.FC<AIFeedbackSectionsProps> = ({ feedback }) => 
     
     // Split by common section patterns
     const sectionPatterns = [
-      { pattern: /(?:###?\s*)?1\.\s*Opening(?:\s+Remarks?)?/i, key: 'opening', icon: <MessageSquare className="h-5 w-5" />, type: 'info' as const },
-      { pattern: /(?:###?\s*)?2\.\s*Overall\s+Performance\s+Summary/i, key: 'performance', icon: <TrendingUp className="h-5 w-5" />, type: 'neutral' as const },
-      { pattern: /(?:###?\s*)?3\.\s*Strengths?\s+Identified/i, key: 'strengths', icon: <CheckCircle2 className="h-5 w-5" />, type: 'success' as const },
-      { pattern: /(?:###?\s*)?4\.\s*Areas?\s+for\s+Improvement/i, key: 'improvement', icon: <AlertCircle className="h-5 w-5" />, type: 'warning' as const },
-      { pattern: /(?:###?\s*)?5\.\s*Actionable\s+Study\s+Recommendations/i, key: 'recommendations', icon: <Lightbulb className="h-5 w-5" />, type: 'info' as const },
-      { pattern: /(?:###?\s*)?6\.\s*Closing\s+Remarks?/i, key: 'closing', icon: <Award className="h-5 w-5" />, type: 'success' as const }
+      {
+        pattern: /(?:###?\s*)?(?:1\.\s*)?Opening(?:\s+Remarks?)?/i,
+        key: 'opening',
+        icon: <MessageSquare className="h-5 w-5" />,
+        type: 'info' as const
+      },
+      {
+        pattern: /(?:###?\s*)?(?:2\.\s*)?Overall\s+Performance\s+Summary/i,
+        key: 'performance',
+        icon: <TrendingUp className="h-5 w-5" />,
+        type: 'neutral' as const
+      },
+      {
+        pattern: /(?:###?\s*)?(?:3\.\s*)?Strengths?\s+Identified/i,
+        key: 'strengths',
+        icon: <CheckCircle2 className="h-5 w-5" />,
+        type: 'success' as const
+      },
+      {
+        pattern: /(?:###?\s*)?(?:4\.\s*)?Areas?\s+for\s+Improvement/i,
+        key: 'improvement',
+        icon: <AlertCircle className="h-5 w-5" />,
+        type: 'warning' as const
+      },
+      {
+        pattern: /(?:###?\s*)?(?:5\.\s*)?Actionable\s+Study\s+Recommendations/i,
+        key: 'recommendations',
+        icon: <Lightbulb className="h-5 w-5" />,
+        type: 'info' as const
+      },
+      {
+        pattern: /(?:###?\s*)?(?:6\.\s*)?Closing\s+Remarks?/i,
+        key: 'closing',
+        icon: <Award className="h-5 w-5" />,
+        type: 'success' as const
+      }
     ];
+    
 
     const lines = feedbackText.split('\n');
     let currentSection: { title: string; content: string[]; icon: React.ReactNode; type: 'success' | 'warning' | 'info' | 'neutral' } | null = null;
@@ -82,9 +113,15 @@ const AIFeedbackSections: React.FC<AIFeedbackSectionsProps> = ({ feedback }) => 
       const line = lines[i].trim();
       
       // Check if this line starts a new section
+      console.log("Line value:", line, typeof line);
       const matchedPattern = sectionPatterns.find(p => p.pattern.test(line));
       
+      console.log(sectionPatterns)
+
+      console.log("------------")
       if (matchedPattern) {
+        console.log("+++++++++++")
+        console.log(matchedPattern)
         // Save previous section
         if (currentSection) {
           sections.push({
@@ -227,13 +264,13 @@ const AIFeedbackSections: React.FC<AIFeedbackSectionsProps> = ({ feedback }) => 
             >
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={getSectionIconColor(section.type)}>
+                  {/* <div className={getSectionIconColor(section.type)}>
                     {section.icon}
-                  </div>
+                  </div> */}
                   <span className="text-lg font-semibold">{section.title}</span>
-                  <Badge variant="outline" className="ml-2">
+                  {/* <Badge variant="outline" className="ml-2">
                     {section.type}
-                  </Badge>
+                  </Badge> */}
                 </div>
                 <div className="text-gray-400">
                   {isExpanded ? (
