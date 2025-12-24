@@ -224,7 +224,7 @@ export async function POST(request: NextRequest) {
         console.error("[Training Plan API] ensureProcessedModulesForPlan failed on existing plan:", e);
       }
       
-      return NextResponse.json({ 
+      return NextResponse.json({
         plan: existingPlan.plan_json, 
         reasoning: existingPlan.reasoning,
         message: "Using existing stable learning plan"
