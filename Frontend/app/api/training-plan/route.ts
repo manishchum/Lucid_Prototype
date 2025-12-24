@@ -331,8 +331,7 @@ export async function POST(request: NextRequest) {
           const { data: tmRows, error: tmFallbackError } = await supabase
             .from("training_modules")
             .select("module_id, title, content, order_index, company_id")
-            .in("module_id", tmIds)
-            .eq("company_id", company_id);
+            .in("module_id", tmIds);
           
           if (tmFallbackError) {
             console.error("[Training Plan API] Error fetching training modules fallback:", tmFallbackError);

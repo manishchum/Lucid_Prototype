@@ -160,17 +160,26 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
         m.processed_module_id = newId;
       }
 
-      // Fire off content generation for this processed_module (best-effort, don't block on response)
-      if (newId) {
+      // Generate content SYNCHRONOUSLY (wait for it to complete before moving to next module)
+      if (newId && original_module_id) {
         try {
-          console.log('[processedModulesHelper] Triggering content generation for:', newId);
-          fetch(`${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/api/generate-module-content`, {
+          console.log('[processedModulesHelper] Generating content for processed_module_id:', newId, 'original_module_id:', original_module_id);
+          const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+          const contentResponse = await fetch(`${baseUrl}/api/generate-module-content`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ processed_module_ids: [newId] }),
-          }).catch((e) => console.error("[processedModulesHelper] Content generation request failed:", e));
+            body: JSON.stringify({ moduleId: original_module_id }),
+          });
+          
+          if (!contentResponse.ok) {
+            const errorText = await contentResponse.text();
+            console.error(`[processedModulesHelper] Content generation failed for ${newId}:`, errorText);
+          } else {
+            const result = await contentResponse.json();
+            console.log('[processedModulesHelper] Content generation completed:', result);
+          }
         } catch (e: any) {
-          console.error("[processedModulesHelper] Trigger fetch failed:", e?.message || e);
+          console.error("[processedModulesHelper] Content generation fetch failed:", e?.message || e);
         }
       }
     }
