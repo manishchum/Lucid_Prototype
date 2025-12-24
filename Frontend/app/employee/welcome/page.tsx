@@ -507,10 +507,11 @@ export default function EmployeeWelcome() {
               // Get the processed_module_id for this specific training module
               const { data: rawprocessedModuleForBaseline } = await supabase
                 .from('processed_modules')
-                .select('processed_module_id')
+                .select('processed_module_id,user_id,original_module_id')
                 .eq('original_module_id', moduleId)
                 
-                const processedModuleForBaseline = rawprocessedModuleForBaseline[0]
+                console.log(rawprocessedModuleForBaseline)
+                const processedModuleForBaseline = rawprocessedModuleForBaseline.find((pm) => pm.user_id === employeeData.user_id)
               console.log("___________________")
               console.log("It is  able to fetch the data from processed_modules table",processedModuleForBaseline)
               

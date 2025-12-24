@@ -150,7 +150,7 @@ export async function POST(request: NextRequest) {
   
   // Per-module quiz branch: run when a single moduleId is provided for module assessments only
   // For baseline assessments, skip this branch even with single moduleId
-  const explicitModuleId = body.moduleId || null;
+  const explicitModuleId = body.moduleIds || null;
   const singleFromArray = Array.isArray(body.moduleIds) && body.moduleIds.length === 1 ? String(body.moduleIds[0]) : null;
   const moduleId = explicitModuleId ? String(explicitModuleId) : singleFromArray;
   
@@ -511,6 +511,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
     }
 
     const templateIds = Array.from(templateMap.keys());
+    console.log(templateIds)
     // Fetch full assessment rows to get questions and original_module_id if present
     const { data: assessmentsRows, error: assessmentsErr } = await supabase
       .from('assessments')
@@ -591,17 +592,30 @@ Objectives: ${JSON.stringify([moduleContent])}`;
   const normalizedSnapshot = JSON.stringify(normalizeModules(currentModules));
   // 3. Check for existing assessment with snapshot
   const { data: existingAssessment, error: assessmentError } = await supabase
-    .from('assessments')
-    .select('assessment_id, questions, company_id, modules_snapshot')
-    .eq('type', 'baseline')
-    .eq('company_id', companyId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  .from('assessments')
+  .select(`
+    assessment_id,
+    questions,
+    company_id,
+    modules_snapshot,
+    processed_modules!inner (
+      user_id
+    )
+  `)
+  .eq('type', 'baseline')
+  .eq('company_id', companyId)
+  .eq('processed_modules.user_id', user_id)
+  .eq('processed_modules.original_module_id', moduleIds)
+  .order('created_at', { ascending: false })
+  .limit(1)
+  .maybeSingle();
   if (assessmentError && (assessmentError as any).code !== 'PGRST116') {
     console.warn('[gpt-mcq-quiz] existing baseline lookup warning:', assessmentError);
   }
 
+  console.log("It is stil returning existing assessment ")
+  console.log(existingAssessment)
+  console.log("Error in fetching existing assessment ",assessmentError)
   if (existingAssessment && existingAssessment.modules_snapshot) {
     if (existingAssessment.modules_snapshot === normalizedSnapshot) {
       // No change → return the existing quiz
@@ -609,6 +623,8 @@ Objectives: ${JSON.stringify([moduleContent])}`;
         const quizData = typeof existingAssessment.questions === 'string'
           ? JSON.parse(existingAssessment.questions)
           : existingAssessment.questions;
+
+        console.log('[gpt-mcq-quiz] Returning existing baseline assessment from DB.');
         return NextResponse.json({ quiz: quizData, source: 'db', assessmentId: existingAssessment.assessment_id });
       } catch {
         // If parse fails, treat as missing and regenerate below
@@ -628,6 +644,10 @@ Objectives: ${JSON.stringify([moduleContent])}`;
     return NextResponse.json({ error: 'Quiz generation failed or returned empty array.', rawResponse: quiz }, { status: 500 });
   }
   if (existingAssessment && existingAssessment.assessment_id) {
+
+    
+    console.log("Inside the if statement of existingAssessment")
+    console.log(existingAssessment)
     // Update the existing assessment
     const { error: updateError } = await supabase
       .from('assessments')
@@ -643,6 +663,8 @@ Objectives: ${JSON.stringify([moduleContent])}`;
     }
     return NextResponse.json({ quiz, source: 'generated', assessmentId: existingAssessment.assessment_id });
   } else {
+    console.log("Inside the else statement of existingAssessment")
+    console.log(moduleIds)
     // Insert new assessment(s): create one baseline row per module_id so each
     // assessment record stores the module_id and enforces "one baseline per module"
     const rowsToInsert = moduleIds.map((mId: any) => ({

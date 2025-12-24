@@ -135,6 +135,7 @@ const AssessmentPage = () => {
             }),
           });
         }
+        console.log(res)
         const d = await res.json();
         console.log('[Assessment] Baseline quiz result:', d);
         
@@ -230,9 +231,14 @@ const AssessmentPage = () => {
       let assessmentId: string | null = null;
       const quizEntry = mcqQuestionsByModule[0];
       if (quizEntry && (quizEntry as any).assessmentId) {
+        console.log("Inside in this if 1")
         assessmentId = (quizEntry as any).assessmentId;
+        console.log(assessmentId)
+        console.log(mcqQuestionsByModule)
+        console.log(quizEntry)
       } else {
         // Look up (or create) the baseline assessment for this company
+        console.log("Inside in this else 1")
         const { data: assessmentDef } = await supabase
           .from('assessments')
           .select('assessment_id')
@@ -241,16 +247,20 @@ const AssessmentPage = () => {
           .limit(1)
           .maybeSingle();
         if (assessmentDef?.assessment_id) {
+          console.log("Inside in this if 2")
           assessmentId = assessmentDef.assessment_id;
         } else {
+          console.log("Inside in this else 2")
+          console.log(mcqQuestionsByModule)
           const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === 'baseline')?.questions || [];
           const { data: newDef } = await supabase
             .from('assessments')
             .insert({ type: 'baseline', company_id: companyId, questions: JSON.stringify(questionsForModule) })
             .select()
             .single();
-          assessmentId = newDef?.assessment_id || null;
-        }
+            assessmentId = newDef?.assessment_id || null;
+          }
+          console.log(assessmentId)
       }
 
       // Log score in terminal
