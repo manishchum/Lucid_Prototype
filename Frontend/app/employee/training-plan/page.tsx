@@ -39,6 +39,7 @@ export default function TrainingPlanPage() {
 
   // Fetch completed modules from Supabase (same logic as employee/welcome)
   useEffect(() => {
+    console.log("[training-plan] Fetching completed modules for user:", user?.email);
     async function fetchCompletedModules() {
       if (!user?.email) return;
       // Get employee id
@@ -175,6 +176,7 @@ export default function TrainingPlanPage() {
   }, [user, authLoading]);
 
   const fetchPlan = async () => {
+    console.log("[training-plan] Fetching training plan...");
     setLoading(true);
     try {
       // Get employee id from Supabase
@@ -271,13 +273,15 @@ export default function TrainingPlanPage() {
       if (moduleId) {
         requestBody.module_id = moduleId;
       }
-
+      console.log("[training-plan] Fetching plan with body:", requestBody);
       const res = await fetch("/api/training-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
       });
       const result = await res.json();
+
+      console.log("[training-plan] Fetched plan result:", result);
       // If API indicates baseline is required, show a clear prompt
       if (result?.error === "BASELINE_REQUIRED") {
         setBaselineRequired(true);

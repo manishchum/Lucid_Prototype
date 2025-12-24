@@ -79,7 +79,7 @@ Objectives: ${JSON.stringify(objectives)}
     const response = await result.response;
     const content = response.text();
     
-    console.log('[gpt-mcq-quiz][DEBUG] Raw Gemini response:', JSON.stringify(content, null, 2));
+    // console.log('[gpt-mcq-quiz][DEBUG] Raw Gemini response:', JSON.stringify(content, null, 2));
     
     let quiz;
     try {
@@ -360,7 +360,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
       const response = await result.response;
       const content = response.text();
       
-      console.log('[gpt-mcq-quiz][DEBUG] Raw Gemini response:', JSON.stringify(content, null, 2));
+      // console.log('[gpt-mcq-quiz][DEBUG] Raw Gemini response:', JSON.stringify(content, null, 2));
       
       let quiz = [];
       try {
@@ -510,7 +510,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
       .upsert(inserts, { onConflict: 'original_module_id' })
       .select('processed_module_id, original_module_id');
     insData = upsertRes.data; insErr = upsertRes.error;
-
+    console.log("This is upsert res ",upsertRes)
     if (insErr) {
       // If the error indicates no matching unique constraint for ON CONFLICT,
       // fall back to a plain insert and then re-query existing rows.
