@@ -29,7 +29,7 @@ async function generateMCQQuiz(summary: string, modules: any[], objectives: any[
 
 Input: A learning asset (text, notes, or structured content).
 
-Output: A set of 12-13 MCQs (Multiple Choice Questions) distributed across difficulty levels based on Bloom's Taxonomy.
+Output: A set of 30 MCQs (Multiple Choice Questions) distributed across difficulty levels based on Bloom's Taxonomy.
 
 Easy → Remember & Understand (default: 20%)
 Average → Apply & Analyze (default: 50%)
@@ -57,7 +57,7 @@ Question Design Rules:
 - Clearly mark the correct answer.
 - Avoid ambiguity; test one concept per question. Ensure every concept is tested.
 
-Return ONLY a valid JSON array of 12-13 question objects, with no extra text, markdown, code blocks, or formatting. Each object must include:
+Return ONLY a valid JSON array of 30 question objects, with no extra text, markdown, code blocks, or formatting. Each object must include:
 {
   "question": string,
   "bloomLevel": string,
