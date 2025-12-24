@@ -96,41 +96,10 @@ export async function POST(request: NextRequest) {
     }
     // company_id already resolved above
 
-    // If this company has baseline assessment(s) defined, require the user to complete them first
+    // Note: Baseline requirement check removed from here as it's module-specific, not company-wide
+    // Individual modules may or may not require baseline assessments
+    // The frontend handles per-module baseline requirements based on module configuration
     let baselineRequired = false;
-    try {
-      const { data: baselineDefs, error: baselineDefError } = await supabase
-        .from('assessments')
-        .select('assessment_id, type')
-        .eq('type', 'baseline')
-        .eq('company_id', company_id);
-      if (baselineDefError) {
-        console.error('[Training Plan API] Error fetching baseline assessment definitions:', baselineDefError);
-        // don't fail here; continue — but log so we can investigate
-      } else if (baselineDefs && baselineDefs.length > 0) {
-        baselineRequired = true;
-        // Ensure the employee has submitted at least one employee_assessments row for these baseline assessment ids
-        const baselineIds = baselineDefs.map((b: any) => b.assessment_id).filter(Boolean);
-        if (baselineIds.length > 0) {
-          const { data: userBaselines, error: userBaselineError } = await supabase
-            .from('employee_assessments')
-            .select('assessment_id')
-            .in('assessment_id', baselineIds)
-            .eq('user_id', user_id);
-          if (userBaselineError) {
-            console.error('[Training Plan API] Error checking employee baseline submissions:', userBaselineError);
-          } else if (!userBaselines || userBaselines.length === 0) {
-            console.log('[Training Plan API] User has not completed required baseline assessment(s).');
-            return NextResponse.json({ error: 'BASELINE_REQUIRED', message: 'Please complete the baseline assessment first.' }, { status: 403 });
-          }
-        }
-      } else {
-        console.log('[Training Plan API] No baseline assessments required for this company.');
-        baselineRequired = false;
-      }
-    } catch (e) {
-      console.error('[Training Plan API] Unexpected error while enforcing baseline requirement:', e);
-    }
 
     // Fetch all assessments for this employee, including baseline
     console.log("[Training Plan API] Fetching assessments for employee...");

@@ -35,6 +35,7 @@ export default function TrainingPlanPage() {
   const [baselineNavLoading, setBaselineNavLoading] = useState(false);
   const [contentLoadingModuleId, setContentLoadingModuleId] = useState<string | null>(null);
   const [quizLoadingModuleId, setQuizLoadingModuleId] = useState<string | null>(null);
+  const [moduleBaselineStatus, setModuleBaselineStatus] = useState<Map<string, boolean>>(new Map());
 
   // Fetch completed modules from Supabase (same logic as employee/welcome)
   useEffect(() => {
@@ -195,6 +196,40 @@ export default function TrainingPlanPage() {
       // Store the actual user_id for use in resolveModuleId
       setActualUserId(employeeData.user_id);
       
+      // Fetch module-specific baseline requirements AND user's completion status
+      try {
+        const { data: modules } = await supabase
+          .from("training_modules")
+          .select("module_id, baseline_assessment_id")
+          .eq("company_id", employeeData.company_id);
+        
+        // Get all baseline assessments this user has completed
+        const { data: userCompletedBaselines } = await supabase
+          .from("employee_assessments")
+          .select("assessment_id")
+          .eq("user_id", employeeData.user_id);
+        
+        const completedBaselineIds = new Set(
+          (userCompletedBaselines || []).map((ub: any) => ub.assessment_id)
+        );
+        
+        const statusMap = new Map<string, boolean>();
+        if (modules) {
+          modules.forEach((mod: any) => {
+            // Check if module requires baseline AND user hasn't completed it
+            const requiresBaseline = !!mod.baseline_assessment_id;
+            const userCompletedIt = mod.baseline_assessment_id && 
+                                   completedBaselineIds.has(mod.baseline_assessment_id);
+            // Store true only if baseline is required AND user hasn't completed it
+            statusMap.set(mod.module_id, requiresBaseline && !userCompletedIt);
+          });
+        }
+        setModuleBaselineStatus(statusMap);
+        console.log("[training-plan] Module baseline status map:", statusMap);
+      } catch (e) {
+        console.error("[training-plan] Error fetching module baseline requirements:", e);
+      }
+      
       // Pre-check: detect if company has baseline definitions and whether user completed one
       try {
         setBaselineExists(false);
@@ -297,6 +332,16 @@ export default function TrainingPlanPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper: check if a module requires baseline AND user hasn't completed it
+  const moduleRequiresBaseline = (mod: any): boolean => {
+    const moduleId = mod?.original_module_id || mod?.module_id;
+    if (!moduleId) return false;
+    // Map stores true only if baseline is required AND user hasn't completed it
+    const needsBaseline = moduleBaselineStatus.get(moduleId) === true;
+    console.log(`[moduleRequiresBaseline] Module ${moduleId} needs baseline:`, needsBaseline);
+    return needsBaseline;
   };
 
   // Helper: resolve a usable processed_modules.processed_module_id for navigation
@@ -804,13 +849,13 @@ export default function TrainingPlanPage() {
                           }}
                           disabled={
                             mod._isCompleted ||
-                            (baselineExists && !baselineCompleted) ||
+                            moduleRequiresBaseline(mod) ||
                             contentLoadingModuleId === mod.processed_module_id ||
                             quizLoadingModuleId === mod.processed_module_id
                           }
                           className={`w-full py-3 text-base font-semibold border-2 transition-all duration-200 ${
                             mod._isCompleted ||
-                            (baselineExists && !baselineCompleted) ||
+                            moduleRequiresBaseline(mod) ||
                             contentLoadingModuleId === mod.processed_module_id ||
                             quizLoadingModuleId === mod.processed_module_id
                               ? "bg-gray-100 text-gray-500 cursor-not-allowed"
@@ -851,13 +896,13 @@ export default function TrainingPlanPage() {
                           }}
                           disabled={
                             mod._isCompleted ||
-                            (baselineExists && !baselineCompleted) ||
+                            moduleRequiresBaseline(mod) ||
                             contentLoadingModuleId === mod.processed_module_id ||
                             quizLoadingModuleId === mod.processed_module_id
                           }
                           className={`w-full py-3 text-base font-semibold transition-all duration-200 ${
                             mod._isCompleted ||
-                            (baselineExists && !baselineCompleted) ||
+                            moduleRequiresBaseline(mod) ||
                             contentLoadingModuleId === mod.processed_module_id ||
                             quizLoadingModuleId === mod.processed_module_id
                               ? "bg-gray-100 text-gray-500 cursor-not-allowed border-2"
