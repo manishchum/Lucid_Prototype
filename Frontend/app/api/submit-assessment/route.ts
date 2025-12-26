@@ -91,12 +91,12 @@ export async function POST(request: NextRequest) {
         isCorrect = false;
       }
 
-      console.log('📝 Question', i + 1, ':', question.question);
-      console.log('📋 Options:', options);
-      console.log('✅ Correct answer:', correctAnswerText, `(index: ${correctIndex})`);
-      console.log('👤 User answer:', userAnswerText);
-      console.log('✓ Is correct:', isCorrect);
-      console.log('---');
+      // console.log('📝 Question', i + 1, ':', question.question);
+      // console.log('📋 Options:', options);
+      // console.log('✅ Correct answer:', correctAnswerText, `(index: ${correctIndex})`);
+      // console.log('👤 User answer:', userAnswerText);
+      // console.log('✓ Is correct:', isCorrect);
+      // console.log('---');
 
       if (isCorrect) {
         score++;

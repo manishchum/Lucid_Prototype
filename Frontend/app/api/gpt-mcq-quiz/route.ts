@@ -79,7 +79,7 @@ Objectives: ${JSON.stringify(objectives)}
     const response = await result.response;
     const content = response.text();
     
-    console.log('[gpt-mcq-quiz][DEBUG] Raw Gemini response:', JSON.stringify(content, null, 2));
+    // console.log('[gpt-mcq-quiz][DEBUG] Raw Gemini response:', JSON.stringify(content, null, 2));
     
     let quiz;
     try {
@@ -360,7 +360,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
       const response = await result.response;
       const content = response.text();
       
-      console.log('[gpt-mcq-quiz][DEBUG] Raw Gemini response:', JSON.stringify(content, null, 2));
+      // console.log('[gpt-mcq-quiz][DEBUG] Raw Gemini response:', JSON.stringify(content, null, 2));
       
       let quiz = [];
       try {
