@@ -669,7 +669,7 @@ export default function TrainingPlanPage() {
                               {mod.title}
                             </div>
                             <div className="text-sm text-gray-500">
-                              {mod.objectives?.length || 0} objectives • {mod.recommended_time || 0} hours
+                              {mod.recommended_time || 0} hours
                             </div>
                           </div>
                           {mod._isCompleted && (
@@ -711,14 +711,7 @@ export default function TrainingPlanPage() {
                             {mod.recommended_time} hours
                           </div>
                         </div>
-                        <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
-                          <div className="text-sm font-semibold text-purple-800 mb-1">
-                            Learning Objectives
-                          </div>
-                          <div className="text-2xl font-bold text-purple-900">
-                            {mod.objectives?.length || 0} objectives
-                          </div>
-                        </div>
+
                       </div>
                       {/* Tips */}
                       <div className="bg-amber-50 rounded-lg p-5 border border-amber-200 mb-6">
@@ -741,90 +734,6 @@ export default function TrainingPlanPage() {
                         ) : (
                           <div className="text-amber-700">{mod.tips}</div>
                         )}
-                      </div>
-                      {/* Objectives */}
-                      <div className="mb-8">
-                        <div className="font-semibold text-lg mb-4 text-gray-900 flex items-center gap-2">
-                          {/* <span className="text-2xl">🎯</span> */}
-                          Learning Objectives
-                        </div>
-                        <div className="bg-gray-50 rounded-lg p-5 border">
-                          {Array.isArray(mod.objectives) ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {mod.objectives.map((obj: any, idx: number) =>
-                                typeof obj === "string" ||
-                                typeof obj === "number" ? (
-                                  <div
-                                    key={`${mod._tabValue}-obj-${idx}`}
-                                    className="flex items-start gap-3 p-3 bg-white rounded-lg border"
-                                  >
-                                    <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">
-                                      {idx + 1}
-                                    </div>
-                                    <div className="text-gray-700 flex-1">
-                                      {obj}
-                                    </div>
-                                  </div>
-                                ) : typeof obj === "object" && obj !== null ? (
-                                  <div
-                                    key={`${mod._tabValue}-obj-${idx}`}
-                                    className="flex items-start gap-3 p-3 bg-white rounded-lg border"
-                                  >
-                                    <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">
-                                      {idx + 1}
-                                    </div>
-                                    <div className="flex-1">
-                                      {Object.entries(obj).map(([k, v], i) => (
-                                        <div key={i} className="text-gray-700">
-                                          <span className="font-semibold">
-                                            {k}:
-                                          </span>{" "}
-                                          {typeof v === "string" ||
-                                          typeof v === "number"
-                                            ? v
-                                            : JSON.stringify(v)}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ) : null
-                              )}
-                            </div>
-                          ) : mod.objectives &&
-                            typeof mod.objectives === "object" ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {Object.entries(mod.objectives).map(
-                                ([k, v], i) => (
-                                  <div
-                                    key={`${mod._tabValue}-obj-single-${i}`}
-                                    className="flex items-start gap-3 p-3 bg-white rounded-lg border"
-                                  >
-                                    <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">
-                                      {i + 1}
-                                    </div>
-                                    <div className="text-gray-700 flex-1">
-                                      <span className="font-semibold">
-                                        {k}:
-                                      </span>{" "}
-                                      {typeof v === "string" ||
-                                      typeof v === "number"
-                                        ? v
-                                        : JSON.stringify(v)}
-                                    </div>
-                                  </div>
-                                )
-                              )}
-                            </div>
-                          ) : mod.objectives ? (
-                            <div className="text-gray-700 p-3 bg-white rounded-lg border">
-                              {mod.objectives}
-                            </div>
-                          ) : (
-                            <div className="text-gray-400 italic p-3 bg-white rounded-lg border">
-                              No objectives listed.
-                            </div>
-                          )}
-                        </div>
                       </div>
                       {/* Actions */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

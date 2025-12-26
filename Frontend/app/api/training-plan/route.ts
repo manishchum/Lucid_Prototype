@@ -366,7 +366,7 @@ export async function POST(request: NextRequest) {
       "- For each module, provide a clear justification for its inclusion and the recommended study time, based on the employee's weaknesses and learning style.\n" +
       "- Do not recommend unnecessary modules or excessive study time for high performers.\n" +
       "- The plan must be efficient and fair: high performers should not be overburdened, and weaker performers should get enough support.\n\n" +
-      "The plan should:\n- Identify weak areas based on scores, benchmarks, datatypes, and feedback\n- Match module objectives to weaknesses\n- Specify what to study, in what order, and how much time for each\n- Output a JSON object with: modules (ordered), objectives, recommended time (hours), and any tips or recommendations\n- Ensure all recommendations and tips are personalized to the employee's learning style\n\n" +
+      "The plan should:\n- Identify weak areas based on scores, benchmarks, datatypes, and feedback\n- Map modules to those weaknesses\n- Specify what to study, in what order, and how much time for each\n- Output a JSON object with: modules (ordered), recommended time (hours), and any tips or recommendations\n- Ensure all recommendations and tips are personalized to the employee's learning style\n\n" +
       "KPI Comparison Instructions:\n" +
       "- For each KPI, compare the employee's score to the benchmark using the provided datatype.\n" +
       "- If datatype is 'percentage', treat both score and benchmark as percentages out of 100.\n" +
@@ -480,16 +480,10 @@ export async function POST(request: NextRequest) {
     const sanitizePlan = (p: any) => {
       if (!p) return p;
       if (Array.isArray(p.modules)) {
-        p.modules = p.modules.map((m: any) => ({
-          ...m,
-          objectives: Array.isArray(m.objectives)
-            ? m.objectives.map((obj: any) =>
-                typeof obj === "object" && obj !== null ? JSON.stringify(obj) : obj
-              )
-            : typeof m.objectives === "object" && m.objectives !== null
-            ? [JSON.stringify(m.objectives)]
-            : m.objectives,
-        }));
+        p.modules = p.modules.map((m: any) => {
+          const { objectives, ...rest } = m || {};
+          return rest; // drop objectives entirely
+        });
       }
       return p;
     };
