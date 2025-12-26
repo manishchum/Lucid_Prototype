@@ -27,6 +27,7 @@ const AssessmentPage = () => {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [correctAnswers, setCorrectAnswers] = useState<any[]>([]);
   const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<{[key: string]: boolean}>({
     learningStyle: false,
     howYouThrive: false,
@@ -46,10 +47,11 @@ const AssessmentPage = () => {
         if (user?.email) {
           const { data: empData } = await supabase
             .from("users")
-            .select("company_id")
+            .select("company_id, user_id")
             .eq("email", user.email)
             .maybeSingle();
           companyId = empData?.company_id || null;
+          setUserId(empData?.user_id || null);
         }
         if (!companyId) throw new Error("Could not find company for user");
         // Get modules for this company only
@@ -135,6 +137,7 @@ const AssessmentPage = () => {
             }),
           });
         }
+        console.log(res)
         const d = await res.json();
         console.log('[Assessment] Baseline quiz result:', d);
         
@@ -230,27 +233,49 @@ const AssessmentPage = () => {
       let assessmentId: string | null = null;
       const quizEntry = mcqQuestionsByModule[0];
       if (quizEntry && (quizEntry as any).assessmentId) {
+        console.log("Inside in this if 1")
         assessmentId = (quizEntry as any).assessmentId;
+        console.log(assessmentId)
+        console.log(mcqQuestionsByModule)
+        console.log(quizEntry)
       } else {
+        const urlModuleId = searchParams.get('moduleId');
+
         // Look up (or create) the baseline assessment for this company
-        const { data: assessmentDef } = await supabase
-          .from('assessments')
-          .select('assessment_id')
-          .eq('type', 'baseline')
-          .eq('company_id', companyId)
-          .limit(1)
-          .maybeSingle();
+        console.log("Inside in this else 1")
+        const { data: assessmentDef, error } = await supabase
+              .from('assessments')
+              .select(`
+                assessment_id,
+                processed_modules!inner (
+                  user_id,
+                  original_module_id
+                )
+              `)
+              .eq('type', 'baseline')
+              .eq('company_id', companyId)
+              .eq('processed_modules.original_module_id', urlModuleId)
+              .eq('processed_modules.user_id', userId)
+              .limit(1)
+              .maybeSingle();
+
+        console.log("New Query to get the result")
+        console.log(assessmentDef)
         if (assessmentDef?.assessment_id) {
+          console.log("Inside in this if 2")
           assessmentId = assessmentDef.assessment_id;
         } else {
+          console.log("Inside in this else 2")
+          console.log(mcqQuestionsByModule)
           const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === 'baseline')?.questions || [];
           const { data: newDef } = await supabase
             .from('assessments')
             .insert({ type: 'baseline', company_id: companyId, questions: JSON.stringify(questionsForModule) })
             .select()
             .single();
-          assessmentId = newDef?.assessment_id || null;
-        }
+            assessmentId = newDef?.assessment_id || null;
+          }
+          console.log(assessmentId)
       }
 
       // Log score in terminal
@@ -275,6 +300,8 @@ const AssessmentPage = () => {
         }),
       });
       const data = await res.json();
+      console.log("Response from the /api/gpt-feedback endpoint:");
+      console.log(res)
       setFeedback(data.feedback || "");
       
       setQuizQuestions(mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []);
@@ -340,6 +367,7 @@ const AssessmentPage = () => {
               <div className="bg-white rounded-lg shadow-lg p-8 border-t-4 border-blue-600 w-full">
                 {(() => {
                   const { mainTitle, sections } = parseFeedbackSections(feedback);
+                  console.log(feedback)
                   const sectionKeys = Object.keys(sections);
                   
                   return (
@@ -382,7 +410,7 @@ const AssessmentPage = () => {
 
                       {/* Performance Insights - Expandable Sections */}
                       <div className="mb-8">
-                        <h3 className="text-2xl font-bold text-gray-900 mb-4">Your Performance Insights</h3>
+                        {/* <h3 className="text-2xl font-bold text-gray-900 mb-4">Your Performance Insights</h3> */}
                         <div className="space-y-3">
                           {sectionKeys.map((sectionTitle, idx) => {
                             const sectionKey = `section_${idx}`;
@@ -402,12 +430,10 @@ const AssessmentPage = () => {
                               borderColor = 'border-purple-200';
                             }
                             
+                            
                             return (
-                              <div 
-                                key={sectionKey}
-                                className={`${bgColor} rounded-lg border-2 ${borderColor} overflow-hidden transition-all duration-300`}
-                              >
-                                <button
+                              <div>
+                                {/* <button
                                   onClick={() => toggleSection(sectionKey)}
                                   className="w-full px-6 py-4 flex items-center justify-between hover:opacity-80 transition-opacity"
                                 >
@@ -419,8 +445,8 @@ const AssessmentPage = () => {
                                   ) : (
                                     <ChevronDown className="w-5 h-5 text-gray-600 flex-shrink-0" />
                                   )}
-                                </button>
-                                {isExpanded && (
+                                </button> */}
+                                {/* {isExpanded && (
                                   <div className="px-6 pb-4">
                                     <div 
                                       className="prose prose-sm max-w-none text-gray-700"
@@ -429,7 +455,7 @@ const AssessmentPage = () => {
                                       }}
                                     />
                                   </div>
-                                )}
+                                )} */}
                               </div>
                             );
                           })}
@@ -441,7 +467,7 @@ const AssessmentPage = () => {
               </div>
 
               {/* Question Review - Expandable */}
-              {/* <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+              <div className="bg-white rounded-lg shadow-lg overflow-hidden">
                 <button
                   onClick={() => toggleSection('questions')}
                   className="w-full px-8 py-6 flex items-center justify-between bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 transition-colors border-b-2 border-blue-200"
@@ -509,7 +535,7 @@ const AssessmentPage = () => {
                     ))}
                   </div>
                 )}
-              </div> */}
+              </div>
 
               {/* Action Buttons */}
               <div className="flex gap-4 justify-center">
@@ -523,7 +549,7 @@ const AssessmentPage = () => {
                   onClick={() => router.push('/employee/score-history')}
                   className="px-6 py-3 bg-white text-blue-600 border-2 border-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-colors"
                 >
-                  View All Results
+                  View Reports
                 </button>
               </div>
             </div>

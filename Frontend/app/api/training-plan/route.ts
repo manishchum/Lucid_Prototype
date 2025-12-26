@@ -15,6 +15,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'user_id is required' }, { status: 400 });
     }
 
+    // Resolve company_id upfront so all branches can ensure processed modules
+    let company_id = null;
+    {
+      const { data: empRecord, error: empError } = await supabase
+        .from("users")
+        .select("company_id")
+        .eq("user_id", user_id)
+        .maybeSingle();
+      if (empError || !empRecord?.company_id) {
+        console.error("[Training Plan API] Could not find company for employee");
+        return NextResponse.json({ error: "Could not find company for employee" }, { status: 400 });
+      }
+      company_id = empRecord.company_id;
+    }
+
     // Check if we already have a learning plan for this user and module
     if (module_id) {
       const { data: existingPlan, error: planCheckError } = await supabase
@@ -46,10 +61,9 @@ export async function POST(request: NextRequest) {
         }
 
         if (planContent) {
-          // Ensure processed modules exist for the existing plan
+          // Ensure processed modules exist for the existing plan (use resolved company_id)
           try {
-            let company_id = null;
-            await ensureProcessedModulesForPlan(user_id, company_id, existingPlan.plan_json);
+            await ensureProcessedModulesForPlan(user_id, company_id, planContent);
           } catch (e) {
             console.error('📚 Error ensuring processed modules for existing plan:', e);
           }
@@ -80,20 +94,10 @@ export async function POST(request: NextRequest) {
       console.error("[Training Plan API] GEMINI_API_KEY is not set");
       return NextResponse.json({ error: "Server misconfiguration: GEMINI_API_KEY is missing." }, { status: 500 });
     }
-    // Fetch company_id for this employee
-    let company_id = null;
-    const { data: empRecord, error: empError } = await supabase
-      .from("users")
-      .select("company_id")
-      .eq("user_id", user_id)
-      .maybeSingle();
-    if (empError || !empRecord?.company_id) {
-      console.error("[Training Plan API] Could not find company for employee");
-      return NextResponse.json({ error: "Could not find company for employee" }, { status: 400 });
-    }
-    company_id = empRecord.company_id;
+    // company_id already resolved above
 
     // If this company has baseline assessment(s) defined, require the user to complete them first
+    let baselineRequired = false;
     try {
       const { data: baselineDefs, error: baselineDefError } = await supabase
         .from('assessments')
@@ -104,6 +108,7 @@ export async function POST(request: NextRequest) {
         console.error('[Training Plan API] Error fetching baseline assessment definitions:', baselineDefError);
         // don't fail here; continue — but log so we can investigate
       } else if (baselineDefs && baselineDefs.length > 0) {
+        baselineRequired = true;
         // Ensure the employee has submitted at least one employee_assessments row for these baseline assessment ids
         const baselineIds = baselineDefs.map((b: any) => b.assessment_id).filter(Boolean);
         if (baselineIds.length > 0) {
@@ -119,6 +124,9 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'BASELINE_REQUIRED', message: 'Please complete the baseline assessment first.' }, { status: 403 });
           }
         }
+      } else {
+        console.log('[Training Plan API] No baseline assessments required for this company.');
+        baselineRequired = false;
       }
     } catch (e) {
       console.error('[Training Plan API] Unexpected error while enforcing baseline requirement:', e);
@@ -252,7 +260,8 @@ export async function POST(request: NextRequest) {
         const { data: pmRows, error: modError } = await supabase
           .from("processed_modules")
           .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
-          .eq("original_module_id", module_id);
+          .eq("original_module_id", module_id)
+          .eq("user_id", user_id);
         
         if (modError) {
           console.error("[Training Plan API] Error fetching processed module:", modError);
@@ -260,6 +269,31 @@ export async function POST(request: NextRequest) {
         }
         
         modules = pmRows || [];
+        
+        // If no processed modules found and baseline is not required, fetch raw training module as fallback
+        if (modules.length === 0 && !baselineRequired) {
+          console.log("[Training Plan API] No processed modules found, baseline not required - using raw training module");
+          const { data: tmRows, error: tmError } = await supabase
+            .from("training_modules")
+            .select("module_id, title, content, order_index, company_id")
+            .eq("module_id", module_id)
+            .eq("company_id", company_id);
+          
+          if (tmError) {
+            console.error("[Training Plan API] Error fetching training module fallback:", tmError);
+          } else if (tmRows && tmRows.length > 0) {
+            modules = tmRows.map((m: any) => ({
+              processed_module_id: m.module_id,
+              title: m.title,
+              content: m.content,
+              order_index: m.order_index || 0,
+              original_module_id: m.module_id,
+              training_modules: { company_id: m.company_id }
+            }));
+            console.log("[Training Plan API] Using raw training module as fallback");
+          }
+        }
+        
         console.log("[Training Plan API] Filtered modules for module_id:", module_id, modules);
       } catch (e) {
         console.error("[Training Plan API] Unexpected error filtering module:", e);
@@ -283,12 +317,37 @@ export async function POST(request: NextRequest) {
         const { data: pmRows, error: modError } = await supabase
           .from("processed_modules")
           .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
-          .in("original_module_id", tmIds);
+          .in("original_module_id", tmIds)
+          .eq("user_id", user_id);
         if (modError) {
           console.error("[Training Plan API] Error fetching modules:", modError);
           return NextResponse.json({ error: modError.message }, { status: 500 });
         }
         modules = pmRows || [];
+        
+        // If no processed modules found and baseline is not required, fetch raw training modules as fallback
+        if (modules.length === 0 && !baselineRequired) {
+          console.log("[Training Plan API] No processed modules found, baseline not required - using raw training modules");
+          const { data: tmRows, error: tmFallbackError } = await supabase
+            .from("training_modules")
+            .select("module_id, title, content, order_index, company_id")
+            .in("module_id", tmIds)
+            .eq("company_id", company_id);
+          
+          if (tmFallbackError) {
+            console.error("[Training Plan API] Error fetching training modules fallback:", tmFallbackError);
+          } else if (tmRows && tmRows.length > 0) {
+            modules = tmRows.map((m: any) => ({
+              processed_module_id: m.module_id,
+              title: m.title,
+              content: m.content,
+              order_index: m.order_index || 0,
+              original_module_id: m.module_id,
+              training_modules: { company_id: m.company_id }
+            }));
+            console.log("[Training Plan API] Using raw training modules as fallback");
+          }
+        }
       } else {
         console.log("[Training Plan API] No training modules found for company; proceeding with empty module list");
       }

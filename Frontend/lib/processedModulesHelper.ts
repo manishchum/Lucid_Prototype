@@ -72,9 +72,13 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
       // or by title (for plan-only modules) to avoid duplicates
       let existingQuery: any = supabase.from("processed_modules").select("processed_module_id").limit(1);
       if (original_module_id) {
-        existingQuery = existingQuery.eq("original_module_id", original_module_id);
+        existingQuery = existingQuery
+          .eq("original_module_id", original_module_id)
+          .eq("user_id", user_id);
       } else {
-        existingQuery = existingQuery.ilike("title", title);
+        existingQuery = existingQuery
+          .ilike("title", title)
+          .eq("user_id", user_id);
       }
       const { data: existing, error: exErr } = await existingQuery;
       if (exErr) {
@@ -101,7 +105,7 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
       // Use upsert to avoid race conditions and reduce duplicates when a unique
       // constraint exists on the conflict target. If the DB lacks the required
       // unique constraint (Postgres 42P10), fall back to insert + re-query.
-      const conflictTarget = original_module_id ? 'original_module_id' : 'title';
+      const conflictTarget = original_module_id ? 'original_module_id,user_id' : 'title,user_id';
       let newId: string | null = null;
       const upsertRes = await supabase
         .from("processed_modules")
@@ -125,9 +129,19 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
           console.warn('[processedModulesHelper] insert fallback failed; re-querying for existing processed_module', insertRes.error);
           let requery: any;
           if (original_module_id) {
-            requery = await supabase.from('processed_modules').select('processed_module_id').eq('original_module_id', original_module_id).limit(1);
+            requery = await supabase
+              .from('processed_modules')
+              .select('processed_module_id')
+              .eq('original_module_id', original_module_id)
+              .eq('user_id', user_id)
+              .limit(1);
           } else {
-            requery = await supabase.from('processed_modules').select('processed_module_id').ilike('title', title).limit(1);
+            requery = await supabase
+              .from('processed_modules')
+              .select('processed_module_id')
+              .ilike('title', title)
+              .eq('user_id', user_id)
+              .limit(1);
           }
           if (!requery.error && Array.isArray(requery.data) && requery.data[0] && requery.data[0].processed_module_id) {
             newId = requery.data[0].processed_module_id;
@@ -140,22 +154,28 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
         console.error('[processedModulesHelper] Error inserting processed_module', upsertRes.error, insertPayload);
         continue;
       }
-      if (newId) created.push(newId);
+      if (newId) {
+        created.push(newId);
+        // Store the processed_module_id back into the plan module object so the frontend can use it
+        m.processed_module_id = newId;
+      }
 
       // Fire off content generation for this processed_module (best-effort, don't block on response)
-      try {
-        // Use relative URL - on server this should resolve; if not, consider using NEXT_PUBLIC_BASE_URL
-        fetch(`${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/api/generate-module-content`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ processed_module_ids: [newId] }),
-        }).catch((e) => console.error("[processedModulesHelper] Content generation request failed:", e));
-      } catch (e: any) {
-        console.error("[processedModulesHelper] Trigger fetch failed:", e?.message || e);
+      if (newId) {
+        try {
+          console.log('[processedModulesHelper] Triggering content generation for:', newId);
+          fetch(`${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/api/generate-module-content`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ processed_module_ids: [newId] }),
+          }).catch((e) => console.error("[processedModulesHelper] Content generation request failed:", e));
+        } catch (e: any) {
+          console.error("[processedModulesHelper] Trigger fetch failed:", e?.message || e);
+        }
       }
     }
 
-    return { createdCount: created.length, created };
+    return { createdCount: created.length, created, plan };
   } catch (err: any) {
     console.error("[processedModulesHelper] Unexpected error:", err);
     return { error: err?.message || String(err) };
