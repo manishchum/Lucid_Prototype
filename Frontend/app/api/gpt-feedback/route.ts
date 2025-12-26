@@ -7,7 +7,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    console.log('🔄 GPT Feedback API - Legacy route called, redirecting to submit-assessment:', body);
+    // console.log('🔄 GPT Feedback API - Legacy route called, redirecting to submit-assessment:', body);
 
     const { 
       user_id, 
