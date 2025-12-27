@@ -88,7 +88,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           .from('processed_modules')
           .select(selectCols)
           .eq('original_module_id', moduleId)
-          .eq('user_id',empObj?.user_id || '')
           .maybeSingle();
         
         if (origError) {
@@ -137,6 +136,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   }
 
   if (!module) {
+    console.log("Inside the !module block");
     return <div className="min-h-screen flex items-center justify-center text-red-600">Module not found.</div>;
   }
 
