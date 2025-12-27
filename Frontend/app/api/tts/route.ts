@@ -1,36 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-
-// Google TTS API imports
-// You need to install @google-cloud/text-to-speech and set up credentials
-import textToSpeech from '@google-cloud/text-to-speech';
-import os from 'os';
-import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import fetch from 'node-fetch';
+
+// Using Google Cloud Text-to-Speech REST API with service account credentials
+// Set GOOGLE_APPLICATION_CREDENTIALS to point to your service account JSON file
+// Env:
+// - GOOGLE_APPLICATION_CREDENTIALS: Path to google-tts.json service account file (required)
+// - NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY: used for storage + DB writes
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-// Decode base64 Google service account key from GOOGLE_TTS_JSON and set GOOGLE_APPLICATION_CREDENTIALS
-const base64Key = process.env.GOOGLE_TTS_JSON;
-let credentialsPath: string | undefined;
-if (base64Key) {
-  try {
-    const decoded = Buffer.from(base64Key, 'base64').toString('utf8');
-    const tempPath = os.tmpdir() + `/google-credentials-${Date.now()}.json`;
-    fs.writeFileSync(tempPath, decoded, { encoding: 'utf8' });
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = tempPath;
-    credentialsPath = tempPath;
-    console.log('[TTS API] Decoded Google credentials from GOOGLE_TTS_JSON and set GOOGLE_APPLICATION_CREDENTIALS');
-  } catch (e) {
-    console.error('[TTS API] Failed to decode/write Google credentials:', e);
-  }
-} else {
-  console.warn('[TTS API] GOOGLE_TTS_JSON not set.');
-}
 
 if (!supabaseUrl) {
   console.warn('[TTS API] NEXT_PUBLIC_SUPABASE_URL is not set');
@@ -40,9 +23,31 @@ if (!serviceKey) {
 }
 
 const admin = createClient(supabaseUrl, serviceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
-const client = new textToSpeech.TextToSpeechClient();
 
 const BUCKET = 'module_audio';
+
+function generateJWT(credentials: any): string {
+  const crypto = require('crypto');
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: credentials.client_email,
+    scope: 'https://www.googleapis.com/auth/cloud-platform',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now,
+  };
+  
+  const headerB64 = Buffer.from(JSON.stringify(header)).toString('base64').replace(/[=+/]/g, m => ({ '=': '', '+': '-', '/': '_' }[m]!));
+  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64').replace(/[=+/]/g, m => ({ '=': '', '+': '-', '/': '_' }[m]!));
+  const signature = crypto
+    .createSign('RSA-SHA256')
+    .update(`${headerB64}.${payloadB64}`)
+    .sign(credentials.private_key, 'base64')
+    .replace(/[=+/]/g, m => ({ '=': '', '+': '-', '/': '_' }[m]!));
+  
+  return `${headerB64}.${payloadB64}.${signature}`;
+}
 
 async function ensureBucketExists() {
   try {
@@ -87,8 +92,7 @@ async function synthesizeAndStore(processedModuleId: string) {
   const fullText = cleanTextForTTS(module.content || '');
   if (!fullText) return { error: 'Empty content', status: 400 } as const;
 
-  // Google TTS has limits per request (~5000 chars). Split into chunks and synthesize as LINEAR16 PCM,
-  // then concatenate PCM and wrap into a WAV container so the final audio contains the entire module.
+  // Split into chunks for Cloud TTS
   const maxChars = 4300;
 
   function splitTextIntoChunks(text: string, maxLen: number) {
@@ -135,20 +139,99 @@ async function synthesizeAndStore(processedModuleId: string) {
 
   const chunks = splitTextIntoChunks(fullText, maxChars);
   const pcmBuffers: Buffer[] = [];
-  for (const chunk of chunks) {
-    const requestTTS = {
-      input: { text: chunk },
-      voice: { languageCode: 'en-IN', voiceName: 'en-IN-Chirp3-HD-Algenib', ssmlGender: 'MALE' as const },
-      audioConfig: { audioEncoding: 'LINEAR16' as const, sampleRateHertz: 24000 },
-    };
-    const [response] = await client.synthesizeSpeech(requestTTS as any);
-    const audioContent = response.audioContent as Uint8Array | string | undefined;
-    if (!audioContent) {
-      return { error: 'TTS failed for a chunk', status: 500 } as const;
+  
+  // Get access token from service account
+  let accessToken: string | null = null;
+  try {
+    const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    if (!credPath) {
+      return { error: 'GOOGLE_APPLICATION_CREDENTIALS not set', status: 500 } as const;
     }
-    // response.audioContent may be Uint8Array or base64 string depending on client; normalize to Buffer
-    const buf = Buffer.isBuffer(audioContent) ? audioContent : Buffer.from(audioContent as any, 'base64');
-    pcmBuffers.push(buf);
+    
+    const fs = await import('fs');
+    const credContent = fs.readFileSync(credPath, 'utf8');
+    const credentials = JSON.parse(credContent);
+    
+    // Get OAuth2 access token using service account
+    const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion: generateJWT(credentials),
+      }),
+    });
+    
+    if (!tokenResp.ok) {
+      const errText = await tokenResp.text();
+      console.error('[TTS API] Failed to get access token:', errText);
+      return { error: `Failed to get Google access token: ${errText}`, status: 500 } as const;
+    }
+    
+    const tokenData = await tokenResp.json();
+    accessToken = (tokenData as any).access_token;
+    if (!accessToken) {
+      return { error: 'No access token in response', status: 500 } as const;
+    }
+  } catch (err: any) {
+    console.error('[TTS API] Error getting access token:', err);
+    return { error: `Failed to initialize TTS: ${err?.message}`, status: 500 } as const;
+  }
+  
+  for (const chunk of chunks) {
+    const requestBody = {
+      input: { text: chunk },
+      voice: { 
+        languageCode: 'en-US', 
+        name: 'en-US-Neural2-J',
+        ssmlGender: 'MALE'
+      },
+      audioConfig: { 
+        audioEncoding: 'LINEAR16',
+        sampleRateHertz: 24000
+      },
+    };
+    
+    try {
+      // Use REST API with access token from service account
+      const response = await fetch(
+        `https://texttospeech.googleapis.com/v1/text:synthesize`,
+        {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: JSON.stringify(requestBody),
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[TTS API] Google TTS REST API error:', response.status, errorText);
+        return { 
+          error: `Google TTS API failed: ${response.statusText}. ${errorText}`, 
+          status: response.status 
+        } as const;
+      }
+
+      const data = await response.json();
+      const audioContent = (data as any).audioContent;
+      
+      if (!audioContent) {
+        return { error: 'TTS returned no audio for a chunk', status: 500 } as const;
+      }
+      
+      const buf = Buffer.from(audioContent, 'base64');
+      pcmBuffers.push(buf);
+    } catch (ttsErr: any) {
+      const errMsg = ttsErr?.message || String(ttsErr);
+      console.error('[TTS API] Google Cloud TTS error:', errMsg);
+      return { 
+        error: `Google Cloud TTS failed: ${errMsg}`, 
+        status: 500 
+      } as const;
+    }
   }
 
   const pcm = Buffer.concat(pcmBuffers);
@@ -227,12 +310,14 @@ export async function GET(request: NextRequest) {
 
     const result = await synthesizeAndStore(targetId);
     if ('error' in result) {
+      console.error('[TTS API][GET] Synthesis failed:', result.error);
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
     return NextResponse.json({ audioUrl: result.audioUrl, processed_module_id: targetId });
-  } catch (err) {
-    console.error('[TTS API][GET] Error:', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch (err: any) {
+    const errMsg = err?.message || String(err);
+    console.error('[TTS API][GET] Error:', errMsg, err);
+    return NextResponse.json({ error: `TTS request failed: ${errMsg}` }, { status: 500 });
   }
 }
 
@@ -244,11 +329,13 @@ export async function POST(request: NextRequest) {
 
     const result = await synthesizeAndStore(module_id);
     if ('error' in result) {
+      console.error('[TTS API][POST] Synthesis failed:', result.error);
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
     return NextResponse.json({ audioUrl: result.audioUrl, processed_module_id: module_id });
-  } catch (err) {
-    console.error('[TTS API][POST] Error:', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch (err: any) {
+    const errMsg = err?.message || String(err);
+    console.error('[TTS API][POST] Error:', errMsg, err);
+    return NextResponse.json({ error: `TTS request failed: ${errMsg}` }, { status: 500 });
   }
 }

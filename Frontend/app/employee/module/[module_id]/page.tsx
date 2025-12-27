@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
 import { ChevronLeft } from "lucide-react";
+import clsx from "clsx";
 
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
   const moduleId = params.module_id;
@@ -15,6 +16,9 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const [loading, setLoading] = useState(true);
   const [employee, setEmployee] = useState<any>(null);
   const [learningStyle, setLearningStyle] = useState<string | null>(null);
+  const [audioExpanded, setAudioExpanded] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState("");
+  const [plainTranscript, setPlainTranscript] = useState("");
   const router = useRouter();
 
   useEffect(() => {
@@ -98,6 +102,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       console.log('[module] Fetched module data:', data);
       if (data) {
         setModule(data as any);
+        setPlainTranscript(extractPlainText(data.content || ''));
         // Log view to module_progress using processed_module_id and module_id, and started_at
         try {
           if (empObj?.user_id) {
@@ -156,26 +161,10 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                     Back
                   </Button>
                 </div>
-                {/* Title and audio area */}
+                {/* Title */}
                 <div>
                   <h2 className="text-xl font-semibold">{module.title}</h2>
                   <div className="text-sm text-gray-500">Module Content</div>
-
-                  <div className="mt-4 w-full">
-                    {/* {module.audio_url ? (
-                      <div>
-                        <AudioPlayer
-                          employeeId={employee?.user_id}
-                          processedModuleId={module.processed_module_id}
-                          moduleId={module.original_module_id}
-                          audioUrl={module.audio_url}
-                        />
-                        <div className="mt-1 h-1 bg-gray-200 rounded-full" />
-                      </div>
-                    ) : (
-                      <GenerateAudioButton moduleId={module.processed_module_id} onAudioGenerated={url => setModule((m: any) => ({ ...m, audio_url: url }))} />
-                    )} */}
-                  </div>
                 </div>
 
                 <div className="mt-6 grid grid-cols-1 gap-6">
@@ -203,6 +192,18 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                     <div className="mt-4 text-gray-700 leading-relaxed max-w-none" dangerouslySetInnerHTML={{ __html: formatContent(module.content || '') }} />
                   </div>
 
+                  {/* Audio section now sits below the content */}
+                  <AudioSection
+                    module={module}
+                    employee={employee}
+                    audioExpanded={audioExpanded}
+                    setAudioExpanded={setAudioExpanded}
+                    liveTranscript={liveTranscript}
+                    plainTranscript={plainTranscript}
+                    setLiveTranscript={setLiveTranscript}
+                    onAudioGenerated={(url) => setModule((m: any) => ({ ...m, audio_url: url }))}
+                  />
+
                   {/* Actions */}
                   {/* <div className="flex justify-end">
                     <button className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg shadow hover:bg-violet-700">Ask AI</button>
@@ -211,6 +212,105 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
               </div>
             </main>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function extractPlainText(content: string) {
+  // Basic markdown/HTML stripping for a readable transcript source
+  return content
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/[#*>`_\-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function AudioSection({
+  module,
+  employee,
+  audioExpanded,
+  setAudioExpanded,
+  liveTranscript,
+  plainTranscript,
+  setLiveTranscript,
+  onAudioGenerated,
+}: any) {
+  const hasAudio = !!module.audio_url;
+
+  const handleTimeUpdate = (current: number, duration: number) => {
+    if (!duration || !plainTranscript) return;
+    const ratio = Math.min(current / duration, 1);
+    const chars = Math.floor(plainTranscript.length * ratio);
+    setLiveTranscript(plainTranscript.slice(0, chars));
+  };
+
+  const handleResetTranscript = () => setLiveTranscript('');
+
+  return (
+    <div className="mt-6 w-full">
+      <div
+        className={clsx(
+          "w-full rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-slate-50 shadow-sm",
+          "transition-all duration-300",
+          audioExpanded ? "p-5" : "p-4"
+        )}
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="h-12 w-12 rounded-full bg-blue-600 text-white flex items-center justify-center text-lg font-semibold shadow-lg">
+                🎧
+              </div>
+              <div>
+                <div className="text-sm uppercase tracking-wide text-slate-500">Audio Preview</div>
+                <div className="text-base font-semibold text-slate-900">Listen to this module</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {hasAudio && (
+                <Button
+                  variant="default"
+                  className="rounded-full px-5 py-2 text-sm font-medium shadow-md"
+                  onClick={() => setAudioExpanded((v: boolean) => !v)}
+                >
+                  {audioExpanded ? 'Hide Player' : 'Open Audio'}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {!hasAudio && (
+            <div className="mt-2">
+              <GenerateAudioButton
+                moduleId={module.processed_module_id}
+                onAudioGenerated={onAudioGenerated}
+              />
+            </div>
+          )}
+
+          {hasAudio && audioExpanded && (
+            <div className="mt-3 grid gap-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <AudioPlayer
+                  employeeId={employee?.user_id}
+                  processedModuleId={module.processed_module_id}
+                  moduleId={module.original_module_id}
+                  audioUrl={module.audio_url}
+                  onTimeUpdate={handleTimeUpdate}
+                  onPlayExtra={handleResetTranscript}
+                  className="w-full"
+                />
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-xs font-semibold text-slate-600 mb-2">Live transcript</div>
+                <div className="min-h-[80px] whitespace-pre-wrap text-slate-800 text-sm leading-6">
+                  {liveTranscript || 'Press play to see the transcript unfold in sync.'}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
