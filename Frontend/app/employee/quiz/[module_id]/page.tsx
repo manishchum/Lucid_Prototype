@@ -28,23 +28,30 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
 
   // Handler for quiz submission
   const handleSubmit = async () => {
-    if (!quiz || !Array.isArray(quiz)) return;
+    console.log("It is submitting")
+    console.log(quiz)
+    console.log(!Array.isArray(quiz))
+    if (!quiz ) return;
     // Ensure assessmentId is set before submission
     if (!assessmentId) {
+      console.log("Inside thse !assessmentId block")
       setFeedback("Error: Could not identify assessment. Please refresh and try again.");
       return;
     }
     setSubmitted(true);
     setIsSubmitting(true);
     // Normalize answers for MCQ questions (send selected option values, not indices)
+    console.log("Outside the last return before userAnswers")
     const userAnswers = answers.map((ans, i) => {
       const q = quiz[i];
       // For MCQ questions, send the selected option text, not the index
       // If no answer selected (ans === -1), send empty string
       if (typeof ans === 'number' && ans >= 0 && ans < q.options.length) {
+        console.log("Inside the last return")
         return q.options[ans];
       }
       // No valid answer selected
+      console.log("Outside the last return")
       return '';
     });
 
@@ -135,7 +142,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resolvedModuleId, setResolvedModuleId] = useState<string | null>(null);
   const router = useRouter();
-
+  let  userId = null;
   const questionsPerPage = 10;
   const totalPages = quiz ? Math.ceil(quiz.length / questionsPerPage) : 0;
   const currentQuestions = quiz ? quiz.slice(currentPage * questionsPerPage, (currentPage + 1) * questionsPerPage) : [];
@@ -209,12 +216,16 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       
       let learningStyle: string | null = null;
       if (!authLoading && user?.email) {
+        console.log("Inside the quiz tab")
+        console.log(user.email)
         try {
           const { data: emp } = await supabase
             .from('users')
             .select('user_id')
             .eq('email', user.email)
             .single();
+            userId = emp?.user_id || null;
+            console.log(userId)
           if (emp?.user_id) {
             const { data: styleData } = await supabase
               .from('employee_learning_style')
@@ -237,12 +248,14 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       // 1. Try to fetch existing quiz for this module and learning style
       let query = supabase
         .from("assessments")
-        .select("assessment_id, questions")
+        .select("assessment_id, questions, processed_modules!inner(original_module_id,user_id)")
         .eq("type", "module")
-        .eq("processed_module_id", moduleId)
+        .eq("processed_modules.original_module_id", moduleId)
+        .eq('processed_modules.user_id', userId)
         .eq("learning_style", learningStyle);
       const { data: assessment } = await query.maybeSingle();
       console.log('[QUIZ DEBUG] Assessment fetch result:', assessment);
+      console.log(moduleId, learningStyle);
       if (assessment && assessment.questions) {
         try {
           const quizData = Array.isArray(assessment.questions) ? assessment.questions : JSON.parse(assessment.questions);
@@ -262,7 +275,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         const res = await fetch("/api/gpt-mcq-quiz", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ moduleId, learningStyle }),
+          body: JSON.stringify({ moduleId, learningStyle,userId }),
         });
         const result = await res.json();
         console.log('[QUIZ DEBUG] /api/gpt-mcq-quiz result:', result);
@@ -276,12 +289,21 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             .eq("processed_module_id", moduleId)
             .eq("learning_style", learningStyle)
             .maybeSingle();
+            console.log("This is the module id:", moduleId)
           console.log('[QUIZ DEBUG] New assessment after quiz generation:', newAssessment);
           if (newAssessment && newAssessment.assessment_id) setAssessmentId(newAssessment.assessment_id);
+       
+       
+       
         } else {
+          console.log("Inside the else statment of result.quiz")
           setQuiz(null);
           setError(result.error || "Quiz generation failed.");
         }
+
+
+
+        
       } catch (err) {
         console.log('[QUIZ DEBUG] Error during quiz generation:', err);
         setQuiz(null);

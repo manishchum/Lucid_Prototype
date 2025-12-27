@@ -56,10 +56,13 @@ export default function TrainingPlanPage() {
         .not("completed_at", "is", null);
 
       if (progressData) {
+        console.log("This is the progress data")
+        console.log(progressData)
         // Store completed processed_module_ids
         setCompletedModules(
           progressData.map((row: any) => String(row.processed_module_id))
         );
+        console.log(completedModules)
       }
     }
     fetchCompletedModules();
@@ -172,7 +175,7 @@ export default function TrainingPlanPage() {
       fetchPlan();
     }
   }, [user, authLoading]);
-
+  const moduleId = searchParams.get('module_id');
   const fetchPlan = async () => {
     setLoading(true);
     try {
@@ -202,9 +205,24 @@ export default function TrainingPlanPage() {
         if (employeeData?.company_id && employeeData?.user_id) {
           const { data: baselineDefs } = await supabase
             .from("assessments")
-            .select("assessment_id")
+            .select("assessment_id, processed_modules!inner(user_id)")
             .eq("type", "baseline")
-            .eq("company_id", employeeData.company_id);
+            .eq("company_id", employeeData.company_id)
+            .eq("processed_modules.user_id", employeeData.user_id)
+            ;
+
+
+          const {data: userBaselines, error: userBaselinesError } = await supabase
+            .from("learning_plan")
+            .select("user_id,module_id,baseline_assessment")
+            .eq("module_id",moduleId)
+            .eq("user_id", employeeData.user_id);
+            console.log(userBaselines)
+            if(userBaselines && userBaselines.length>0 && userBaselines[0].baseline_assessment==0){
+            console.log("Inside the baseline pre-check")
+            setBaselineExists(true);
+            setBaselineCompleted(true);
+          }
           if (baselineDefs && baselineDefs.length > 0) {
             setBaselineExists(true);
             const baselineIds = baselineDefs
@@ -219,17 +237,21 @@ export default function TrainingPlanPage() {
               if (userBaselines && userBaselines.length > 0) {
                 setBaselineCompleted(true);
               } else {
+                console.log("Inside the else statement of baseline pre-check")
                 setBaselineCompleted(false);
               }
             }
           }
+
         }
+        console.log(baselineCompleted)
+        console.log(baselineExists)
       } catch (e) {
         console.error("[training-plan] baseline pre-check failed", e);
       }
 
       // Extract module_id from URL parameters
-      const moduleId = searchParams.get('module_id');
+      
       
       // Call training-plan API with module_id if present
       const requestBody: any = { user_id: employeeData.user_id };
@@ -473,6 +495,7 @@ export default function TrainingPlanPage() {
 
   // Normalize module items to ensure stable unique keys/values for tabs
   const normalizedModules = (modules as any[]).map((mod: any, idx: number) => {
+    console.log('This is the normalizedModules',mod)
     // Normalize: use 'name' as 'title' if title is missing
     const normalizedMod = {
       ...mod,
@@ -499,7 +522,8 @@ export default function TrainingPlanPage() {
     ) {
       isCompleted = completedModules.includes(processedModuleId);
     }
-
+    console.log("Is Completed")
+    console.log(isCompleted);
     return { ...normalizedMod, _tabValue: tabValue, _isCompleted: isCompleted };
   });
 

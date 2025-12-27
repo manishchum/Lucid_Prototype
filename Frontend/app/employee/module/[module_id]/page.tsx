@@ -8,8 +8,10 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
 import { ChevronLeft } from "lucide-react";
+import { useAuth } from "@/contexts/auth-context";
 
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
+  const { user, loading: authLoading, logout } = useAuth()
   const moduleId = params.module_id;
   const [module, setModule] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -33,11 +35,11 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       try {
         const { data: userData } = await supabase.auth.getUser();
         const employeeEmail = userData?.user?.email || null;
-        if (employeeEmail) {
+        if (user?.email) {
           const { data: emp } = await supabase
             .from('users')
             .select('user_id')
-            .eq('email', employeeEmail)
+            .eq('email', user?.email)
             .maybeSingle();
           if (emp?.user_id) {
             empObj = emp;
@@ -54,7 +56,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             }
           }
         }
-        console.log("User Data:", userData);
+        console.log("User Data:", user);
         console.log(employeeEmail)
       } catch (e) {
         console.log('[module] employee fetch error', e);
