@@ -7,8 +7,11 @@ import ensureProcessedModulesForPlan from "@/lib/processedModulesHelper";
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 export async function POST(request: NextRequest) {
+  
   try {
+    console.log("POST Body of the training plan api route");
     const body = await request.json();
+    console.log(body)
     const { user_id, module_id } = body;
 
     if (!user_id) {
@@ -30,6 +33,39 @@ export async function POST(request: NextRequest) {
       company_id = empRecord.company_id;
     }
 
+
+    const {data: checkForBaseline, error: userError} = await supabase
+    .from('learning_plan')
+    .select('baseline_assessment')
+    .eq('user_id', user_id)
+    .eq('module_id', module_id)
+
+
+    const {data: assessmentData, error: baselineError} = await supabase
+    .from('employee_assessments ')
+    .select('assessment_id,assessments!inner(type)')
+    .eq('user_id', user_id)
+    .eq('assessments.type', 'baseline') 
+
+
+    console.log("Check for baseline assessment data")
+    console.log(assessmentData)
+    console.log(checkForBaseline)
+
+
+    if(checkForBaseline && checkForBaseline[0].baseline_assessment==1 && (!assessmentData || assessmentData.length==0)){
+      console.log("User needs to complete baseline assessment first");
+      return NextResponse.json({ error: 'BASELINE_REQUIRED', message: 'Please complete the baseline assessment first.' }, { status: 403 });
+    }
+
+
+    console.log("Baseline check data", checkForBaseline)
+
+
+
+    if (userError) {
+      console.error('📚 Error checking for baseline assessment:', userError);
+    }
     // Check if we already have a learning plan for this user and module
     if (module_id) {
       const { data: existingPlan, error: planCheckError } = await supabase
@@ -41,12 +77,15 @@ export async function POST(request: NextRequest) {
         .limit(1)
         .maybeSingle();
 
+        console.log(existingPlan)
       if (planCheckError && planCheckError.code !== 'PGRST116') {
         console.error('Error checking existing plan:', planCheckError);
       }
+      console.log("This is the module id user has requested",module_id)
 
       // If we found an existing plan, return it instead of generating a new one
       if (existingPlan && existingPlan.plan_json) {
+        console.log("This is the module id",module_id)
         console.log('📚 Found existing learning plan for user:', user_id, 'module:', module_id);
         
         let planContent;
@@ -81,7 +120,7 @@ export async function POST(request: NextRequest) {
 
     // If no existing plan found or module_id not provided, generate new plan
     console.log('📚 Generating new learning plan for user:', user_id, module_id ? `module: ${module_id}` : '(all modules)');
-
+   
     console.log("[Training Plan API] Request received");
     const module_id_query = request.nextUrl?.searchParams?.get("module_id") || null;
     console.log("[Training Plan API] user_id:", user_id);
@@ -100,6 +139,43 @@ export async function POST(request: NextRequest) {
     // Individual modules may or may not require baseline assessments
     // The frontend handles per-module baseline requirements based on module configuration
     let baselineRequired = false;
+    try {
+      const { data: baselineDefs, error: baselineDefError } = await supabase
+        .from('assessments')
+        .select('assessment_id, type, employee_assessments!inner(user_id)')
+        .eq('type', 'baseline')
+        .eq('company_id', company_id)
+        .eq('employee_assessments.user_id', user_id)
+        ;
+      if (baselineDefError) {
+        console.error('[Training Plan API] Error fetching baseline assessment definitions:', baselineDefError);
+        // don't fail here; continue — but log so we can investigate
+      } else if (baselineDefs && baselineDefs.length > 0) {
+        console.log(baselineDefs)
+        console.log("These are baseline Defs")
+        baselineRequired = true;
+        // Ensure the employee has submitted at least one employee_assessments row for these baseline assessment ids
+        const baselineIds = baselineDefs.map((b: any) => b.assessment_id).filter(Boolean);
+        if (baselineIds.length > 0) {
+          const { data: userBaselines, error: userBaselineError } = await supabase
+            .from('employee_assessments')
+            .select('assessment_id')
+            .in('assessment_id', baselineIds)
+            .eq('user_id', user_id);
+          if (userBaselineError) {
+            console.error('[Training Plan API] Error checking employee baseline submissions:', userBaselineError);
+          } else if (!userBaselines || userBaselines.length === 0) {
+            console.log('[Training Plan API] User has not completed required baseline assessment(s).');
+            return NextResponse.json({ error: 'BASELINE_REQUIRED', message: 'Please complete the baseline assessment first.' }, { status: 403 });
+          }
+        }
+      } else {
+        console.log('[Training Plan API] No baseline assessments required for this company.');
+        baselineRequired = false;
+      }
+    } catch (e) {
+      console.error('[Training Plan API] Unexpected error while enforcing baseline requirement:', e);
+    }
 
     // Fetch all assessments for this employee, including baseline
     console.log("[Training Plan API] Fetching assessments for employee...");
@@ -244,7 +320,7 @@ export async function POST(request: NextRequest) {
           console.log("[Training Plan API] No processed modules found, baseline not required - using raw training module");
           const { data: tmRows, error: tmError } = await supabase
             .from("training_modules")
-            .select("module_id, title, content, order_index, company_id")
+            .select("module_id, title, gpt_summary,  company_id")
             .eq("module_id", module_id)
             .eq("company_id", company_id);
           
@@ -255,7 +331,6 @@ export async function POST(request: NextRequest) {
               processed_module_id: m.module_id,
               title: m.title,
               content: m.content,
-              order_index: m.order_index || 0,
               original_module_id: m.module_id,
               training_modules: { company_id: m.company_id }
             }));
@@ -299,8 +374,9 @@ export async function POST(request: NextRequest) {
           console.log("[Training Plan API] No processed modules found, baseline not required - using raw training modules");
           const { data: tmRows, error: tmFallbackError } = await supabase
             .from("training_modules")
-            .select("module_id, title, content, order_index, company_id")
-            .in("module_id", tmIds);
+            .select("module_id, title, content, company_id")
+            .in("module_id", tmIds)
+            .eq("company_id", company_id);
           
           if (tmFallbackError) {
             console.error("[Training Plan API] Error fetching training modules fallback:", tmFallbackError);
@@ -309,7 +385,6 @@ export async function POST(request: NextRequest) {
               processed_module_id: m.module_id,
               title: m.title,
               content: m.content,
-              order_index: m.order_index || 0,
               original_module_id: m.module_id,
               training_modules: { company_id: m.company_id }
             }));
@@ -380,7 +455,7 @@ export async function POST(request: NextRequest) {
       "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
       "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"kpi_influence\": string,\n  \"overall_strategy\": string\n}\n" +
       "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
-    console.log("[Training Plan API] Prompt for Gemini:", prompt);
+    // console.log("[Training Plan API] Prompt for Gemini:", prompt);
 
     // Call Gemini with gemini-2.5-flash-lite model
     console.log("[Training Plan API] Calling Gemini (gemini-2.5-flash-lite)...");
@@ -390,7 +465,9 @@ export async function POST(request: NextRequest) {
       const result = await model.generateContent(prompt);
       const response = await result.response;
       planJsonRaw = response.text()?.trim() || "";
-      console.log("[Training Plan API] Gemini raw response:", planJsonRaw);
+      console.log("[Training Plan API] Gemini raw response:", response);
+      console.log("[Training Plan API] raw result:", result);
+      console.log("[Training Plan API] Plan Json Response:", planJsonRaw);
     } catch (err: any) {
       console.error("[Training Plan API] Gemini call failed:", err?.message || err);
       return NextResponse.json({ error: "Gemini call failed", details: err?.message || String(err) }, { status: 500 });
@@ -496,6 +573,7 @@ export async function POST(request: NextRequest) {
 
     // Step 3: If plan exists, update it. If not, insert new.
     let dbResult;
+    console.log(existingPlan)
     if (existingPlan) {
       console.log("[Training Plan API] Existing plan found. Updating...");
       dbResult = await supabase

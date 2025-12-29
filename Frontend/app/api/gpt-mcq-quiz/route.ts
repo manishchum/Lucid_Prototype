@@ -19,9 +19,9 @@ function normalizeModules(modules: any[]) {
     .sort((a, b) => a.title.localeCompare(b.title));
 }
 
-function areModulesEqual(modulesA: any[], modulesB: any[]) {
-  return JSON.stringify(normalizeModules(modulesA)) === JSON.stringify(normalizeModules(modulesB));
-}
+// function areModulesEqual(modulesA: any[], modulesB: any[]) {
+//   return JSON.stringify(normalizeModules(modulesA)) === JSON.stringify(normalizeModules(modulesB));
+// }
 
 // Helper to call Gemini for MCQ quiz generation
 async function generateMCQQuiz(summary: string, modules: any[], objectives: any[]): Promise<any[]> {
@@ -101,7 +101,7 @@ Objectives: ${JSON.stringify(objectives)}
         }
       }
       
-      console.log('[gpt-mcq-quiz][DEBUG] Cleaned content for parsing:', cleanedContent.slice(0, 200) + '...');
+      // console.log('[gpt-mcq-quiz][DEBUG] Cleaned content for parsing:', cleanedContent.slice(0, 200) + '...');
       
       quiz = JSON.parse(cleanedContent);
       
@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
   console.log("[gpt-mcq-quiz] POST body:", body);
   
   // Derive learning style from provided user_id when available
-  const reqUserId = body.user_id || body.userId || null;
+  const reqUserId = body.userId || body.userId || null;
   let userLearningStyle: string | null = null;
   if (reqUserId) {
     try {
@@ -179,10 +179,10 @@ export async function POST(request: NextRequest) {
         .select('processed_module_id, title, content, original_module_id, learning_style')
         .eq('processed_module_id', moduleId)
       if (pmIdErr) console.warn('[gpt-mcq-quiz] lookup processed_modules by processed_module_id warning:', pmIdErr);
-      if (pmById && pmById.processed_module_id) {
+      if (pmById && pmById[0].processed_module_id) {
         existingProcessed = pmById;
         processedModuleId = pmById.processed_module_id;
-        console.log("Inside the processed module id looking ")
+        console.log("Inside the processed module id looking 1 ")
       }
       console.log('[gpt-mcq-quiz] processed_module lookup by id result:', pmById);
     } catch (e) {
@@ -192,18 +192,34 @@ export async function POST(request: NextRequest) {
     if (!processedModuleId) {
       console.log("Inside the processed module id looking ")
       try {
+        console.log(reqUserId)
         const { data: pmByOriginal, error: pmOrigErr } = await supabase
           .from('processed_modules')
           .select('processed_module_id, title, content, original_module_id, learning_style')
-          .eq('processed_module_id', moduleId)
-        console.log(moduleId)
-        console.log(pmByOriginal)
+          .eq('original_module_id', moduleId)
+          .eq('user_id',reqUserId)
+        console.log(moduleId) 
+        // console.log(pmByOriginal)
         console.log("______________")
+        let module_idd = null;
+        if(pmByOriginal.length === 0){
+          console.log("Inside the if")
+          const { data: pmByOriginal, error: pmOrigErr } = await supabase
+          .from('processed_modules')
+          .select('processed_module_id, title, content, original_module_id, learning_style')
+          .eq('processed_module_id', moduleId)
+          .eq('user_id',reqUserId)
+
+          module_idd = pmByOriginal
+        }
+        console.log("This is the value of the module_idd",module_idd)
+        console.log(module_idd.length)
+        console.log(module_idd[0].processed_module_id)
         if (pmOrigErr) console.warn('[gpt-mcq-quiz] lookup processed_modules by original_module_id warning:', pmOrigErr);
-        if (pmByOriginal && pmByOriginal[0].processed_module_id) {
+        if (module_idd && module_idd[0].processed_module_id) {
           console.log("Inside this")
-          existingProcessed = pmByOriginal[0];
-          processedModuleId = pmByOriginal[0].processed_module_id;
+          existingProcessed = module_idd[0];
+          processedModuleId = module_idd[0].processed_module_id;
         }
         console.log("Data of the processed module by original id ",pmByOriginal)
       } catch (e) {
@@ -220,7 +236,7 @@ export async function POST(request: NextRequest) {
       try {
         const { data: trainingModule, error: tmError } = await supabase
           .from('training_modules')
-          .select('module_id, title, content, gpt_summary')
+          .select('module_id, title, gpt_summary')
           .eq('module_id', moduleId)
           .single();
         
@@ -228,6 +244,7 @@ export async function POST(request: NextRequest) {
           console.error('[gpt-mcq-quiz] Training module not found:', tmError);
           return NextResponse.json({ error: 'Module not found in training_modules or processed_modules.' }, { status: 404 });
         }
+        
         
         // Create processed_module entry from raw training_module
         console.log('[gpt-mcq-quiz] Creating processed_module entry from raw training_module');
@@ -382,7 +399,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
           }
         }
         
-        console.log('[gpt-mcq-quiz][DEBUG] Cleaned content for parsing:', cleanedContent.slice(0, 200) + '...');
+        // console.log('[gpt-mcq-quiz][DEBUG] Cleaned content for parsing:', cleanedContent.slice(0, 200) + '...');
         
         quiz = JSON.parse(cleanedContent);
       } catch (e) {
@@ -390,7 +407,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
         quiz = [];
       }
       
-      console.log('[gpt-mcq-quiz][DEBUG] Generated quiz:', quiz);
+      // console.log('[gpt-mcq-quiz][DEBUG] Generated quiz:', quiz);
       
       // Save quiz for this learning style, using a deterministic UUID to avoid race-condition duplicates
       const stableIdSeed = `module:${processedModuleId}|style:${learningStyle}`;
@@ -405,6 +422,8 @@ Objectives: ${JSON.stringify([moduleContent])}`;
           questions: JSON.stringify(quiz),
           learning_style: learningStyle
         });
+        console.log("Inserting data inside the assessment table")
+        console.log(insertResult)
       if (insertError) {
         // If another concurrent request inserted the same row, return that one
         if ((insertError as any).code === '23505' || (insertError as any).code === '409') {
