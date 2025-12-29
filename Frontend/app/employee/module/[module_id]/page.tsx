@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Info, Lightbulb, BookOpen, Zap } from "lucide-react";
 import clsx from "clsx";
 
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
@@ -150,65 +150,40 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             <main className="w-full">
               <div className="bg-white rounded-lg shadow-sm border p-12 w-full min-h-screen">
                 {/* Back button */}
-                <div className="mb-6">
+                <div className="mb-8">
                   <Button
                     variant="outline"
                     size="sm"
-                    className="flex items-center gap-2"
+                    className="flex items-center gap-2 hover:bg-gray-100"
                     onClick={() => router.back()}
                   >
                     <ChevronLeft className="w-4 h-4" />
                     Back
                   </Button>
                 </div>
-                {/* Title */}
-                <div>
-                  <h2 className="text-xl font-semibold">{module.title}</h2>
-                  <div className="text-sm text-gray-500">Module Content</div>
+
+                {/* Title Section */}
+                <div className="mb-10">
+                  <h1 className="text-4xl font-bold text-gray-900 mb-2">{module.title}</h1>
+                  <p className="text-lg text-gray-600">Professional learning content tailored for you</p>
                 </div>
 
-                <div className="mt-6 grid grid-cols-1 gap-6">
-                  {/* Question / prompt area */}
-                  <div className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-3">
-                    </div>
-
-                    {/* <div>
-                      <div className="text-xs text-gray-500 mb-2">Video</div>
-                      {module.video_url ? (
-                        <div>
-                          <video controls className="w-full rounded shadow">
-                            <source src={module.video_url} type="video/mp4" />
-                            Your browser does not support the video tag.
-                          </video>
-                          <div className="text-sm text-gray-600 mt-2 break-all">
-                          </div>
-                        </div>
-                      ) : (
-                        <GenerateVideoButton moduleId={module.processed_module_id} onVideoGenerated={url => setModule((m: any) => ({ ...m, video_url: url }))} />
-                      )}
-                    </div> */}
-
-                    <div className="mt-4 text-gray-700 leading-relaxed max-w-none" dangerouslySetInnerHTML={{ __html: formatContent(module.content || '') }} />
-                  </div>
-
-                  {/* Audio section now sits below the content */}
-                  <AudioSection
-                    module={module}
-                    employee={employee}
-                    audioExpanded={audioExpanded}
-                    setAudioExpanded={setAudioExpanded}
-                    liveTranscript={liveTranscript}
-                    plainTranscript={plainTranscript}
-                    setLiveTranscript={setLiveTranscript}
-                    onAudioGenerated={(url) => setModule((m: any) => ({ ...m, audio_url: url }))}
-                  />
-
-                  {/* Actions */}
-                  {/* <div className="flex justify-end">
-                    <button className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg shadow hover:bg-violet-700">Ask AI</button>
-                  </div> */}
+                {/* Main Content Card */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 mb-8">
+                  <div className="prose prose-sm max-w-none text-gray-800" dangerouslySetInnerHTML={{ __html: formatContent(module.content || '') }} />
                 </div>
+
+                {/* Audio section */}
+                <AudioSection
+                  module={module}
+                  employee={employee}
+                  audioExpanded={audioExpanded}
+                  setAudioExpanded={setAudioExpanded}
+                  liveTranscript={liveTranscript}
+                  plainTranscript={plainTranscript}
+                  setLiveTranscript={setLiveTranscript}
+                  onAudioGenerated={(url: string) => setModule((m: any) => ({ ...m, audio_url: url }))}
+                />
               </div>
             </main>
           </div>
@@ -317,7 +292,7 @@ function AudioSection({
   );
 }
 
-// Helper to format content (markdown to HTML)
+// Helper to format content with beautiful card-based UI
 function formatContent(content: string) {
   // If content is JSON, pretty print
   try {
@@ -327,57 +302,203 @@ function formatContent(content: string) {
     }
   } catch {}
   
-  // Convert markdown-like formatting to HTML
+  const lines = content.split('\n');
+  const htmlParts: string[] = [];
+  // If content is JSON, pretty print
+  try {
+    const parsed = JSON.parse(content);
+    if (typeof parsed === "object") {
+      return `<pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto"><code>${JSON.stringify(parsed, null, 2)}</code></pre>`;
+    }
+  } catch {}
+
+  // Lightweight markdown-like to HTML (original behavior)
+  // Remove visual divider lines made of underscores/dashes before formatting
   let formatted = content
-    // Headers (### -> h3, ## -> h2, # -> h1)
-    .replace(/^### (.*$)/gm, '<h3 class="text-lg font-semibold mt-6 mb-3 text-gray-800">$1</h3>')
-    .replace(/^## (.*$)/gm, '<h2 class="text-xl font-bold mt-8 mb-4 text-gray-900">$1</h2>')
-    .replace(/^# (.*$)/gm, '<h1 class="text-2xl font-bold mt-8 mb-6 text-gray-900">$1</h1>')
-    
-    // Bold text (**text** or __text__)
+    .replace(/^\s*[_\-—–=]{3,}\s*$/gm, '')
+    .replace(/^### (.*$)/gm, '<h3 class="text-xl font-semibold mt-6 mb-3 text-gray-800">$1</h3>')
+    .replace(/^## (.*$)/gm, '<h2 class="text-2xl font-bold mt-8 mb-4 text-gray-900">$1</h2>')
+    .replace(/^# (.*$)/gm, '<h1 class="text-3xl font-bold mt-8 mb-6 text-gray-900">$1</h1>')
     .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-gray-900">$1</strong>')
     .replace(/__(.*?)__/g, '<strong class="font-semibold text-gray-900">$1</strong>')
-    
-    // Italic text (*text* or _text_)
     .replace(/\*(.*?)\*/g, '<em class="italic text-gray-700">$1</em>')
     .replace(/_(.*?)_/g, '<em class="italic text-gray-700">$1</em>')
-    
-    // Code blocks (```code```)
     .replace(/```([\s\S]*?)```/g, '<pre class="bg-gray-100 p-4 rounded-lg my-4 overflow-x-auto"><code class="text-sm">$1</code></pre>')
-    
-    // Inline code (`code`)
     .replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-2 py-1 rounded text-sm font-mono">$1</code>')
-    
-    // Unordered lists (- item or * item)
     .replace(/^[\*\-] (.*$)/gm, '<li class="ml-4 mb-2">$1</li>')
-    
-    // Numbered lists (1. item)
-    .replace(/^\d+\. (.*$)/gm, '<li class="ml-4 mb-2 list-decimal">$1</li>')
-    
-    // Line breaks
-    .replace(/\n\n/g, '</p><p class="mb-4">')
+    .replace(/^\d+\. (.*$)/gm, '<li class="ml-4 mb-2">$1</li>')
+    .replace(/\n\n+/g, '</p><p class="mb-4">')
     .replace(/\n/g, '<br/>');
-  
-  // Wrap in paragraphs and handle lists
+
   formatted = '<p class="mb-4">' + formatted + '</p>';
-  
-  // Clean up list formatting
   formatted = formatted
-    .replace(/<p class="mb-4">(<li class="ml-4 mb-2[^>]*>.*?<\/li>(?:\s*<br\/>\s*<li class="ml-4 mb-2[^>]*>.*?<\/li>)*)<\/p>/g, '<ul class="mb-4 space-y-1">$1</ul>')
+    .replace(/<p class="mb-4">(<li class="ml-4 mb-2[^>]*>.*?(?:<\/li>(?:\s*<br\/>\s*<li|<\/li>))*<\/li>)/g, '<ul class="mb-4 space-y-1">$1</ul>')
     .replace(/<br\/>\s*(<li class="ml-4 mb-2[^>]*>)/g, '$1')
     .replace(/(<\/li>)\s*<br\/>/g, '$1');
-  
-  // Clean up empty paragraphs
+
   formatted = formatted.replace(/<p class="mb-4">\s*<\/p>/g, '');
-  
+  formatted = formatted.replace(/\b(CS|CR|AS|AR)\b(?=\W|$)/g, '');
+
+  // Wrap specific sections into callout cards (client-side safe)
+  if (typeof window !== 'undefined') {
+    const container = document.createElement('div');
+    container.innerHTML = formatted;
+
+    const wrapFollowingList = (labelRegex: RegExp, classes: string, title: string) => {
+      const paragraphs = Array.from(container.querySelectorAll('p'));
+      for (const p of paragraphs) {
+        const text = p.textContent?.trim() || '';
+        if (labelRegex.test(text)) {
+          const next = p.nextElementSibling;
+          if (next && (next.tagName === 'UL' || next.tagName === 'OL')) {
+            const wrapper = document.createElement('div');
+            wrapper.setAttribute('class', classes);
+            const header = document.createElement('h3');
+            header.setAttribute('class', 'text-lg font-bold mb-4');
+            header.textContent = title;
+            wrapper.appendChild(header);
+            wrapper.appendChild(next);
+            p.replaceWith(wrapper);
+          }
+        }
+      }
+    };
+
+    const wrapFollowingParagraph = (labelRegex: RegExp, classes: string, title: string) => {
+      const paragraphs = Array.from(container.querySelectorAll('p'));
+      for (const p of paragraphs) {
+        const text = p.textContent?.trim() || '';
+        if (labelRegex.test(text)) {
+          const next = p.nextElementSibling;
+          if (next && next.tagName === 'P') {
+            const wrapper = document.createElement('div');
+            wrapper.setAttribute('class', classes);
+            const header = document.createElement('h3');
+            header.setAttribute('class', 'text-lg font-bold mb-4');
+            header.textContent = title;
+            const body = document.createElement('p');
+            body.setAttribute('class', 'leading-relaxed');
+            body.innerHTML = next.innerHTML;
+            wrapper.appendChild(header);
+            wrapper.appendChild(body);
+            next.replaceWith(wrapper);
+            p.remove();
+          }
+        }
+      }
+    };
+
+    // Wrap Learning Objectives: find heading and following list in card
+    const allParas = Array.from(container.querySelectorAll('p, ul, ol, li, div'));
+    let i = 0;
+    while (i < allParas.length) {
+      const el = allParas[i];
+      const text = el.textContent?.trim() || '';
+      
+      if (el.tagName === 'P' && text.match(/^Learning Objectives?:/i)) {
+        // Found objectives heading; look for following list
+        let nextIdx = i + 1;
+        while (nextIdx < allParas.length) {
+          const nextEl = allParas[nextIdx];
+          // Skip divider lines
+          if (nextEl.tagName === 'P' && nextEl.textContent?.trim().match(/^[_\-—–=]{3,}$/)) {
+            nextIdx++;
+            continue;
+          }
+          // Found the list
+          if (nextEl.tagName === 'UL' || nextEl.tagName === 'OL') {
+            const wrapper = document.createElement('div');
+            wrapper.setAttribute('class', 'mb-6 rounded-lg border border-blue-200 bg-blue-50 p-6');
+            const header = document.createElement('h3');
+            header.setAttribute('class', 'text-lg font-bold mb-4 text-blue-900');
+            header.textContent = 'Learning Objectives';
+            wrapper.appendChild(header);
+            wrapper.appendChild(nextEl);
+            el.replaceWith(wrapper);
+            break;
+          }
+          nextIdx++;
+        }
+        break;
+      }
+      i++;
+    }
+
+    // Wrap main sections into standalone cards: Module Title, Objectives, Section n:
+    const isHeaderPara = (p: Element): { kind: 'module'|'objectives'|'section'|null; title: string } => {
+      const text = p.textContent?.trim() || '';
+      let m;
+      if ((m = text.match(/^Module\s*Title:\s*(.+)$/i))) {
+        return { kind: 'module', title: m[1] };
+      }
+      if ((m = text.match(/^Section\s*(\d+)\s*:\s*(.+)$/i))) {
+        return { kind: 'section', title: `Section ${m[1]}: ${m[2]}` };
+      }
+      if ((m = text.match(/^Module\s*Summary\s*and\s*Next\s*Steps$/i))) {
+        return { kind: 'section', title: 'Module Summary and Next Steps' };
+      }
+      return { kind: null, title: '' };
+    };
+
+    const paragraphs = Array.from(container.querySelectorAll('p'));
+    for (const p of paragraphs) {
+      const info = isHeaderPara(p);
+      if (!info.kind) continue;
+
+      // Create card wrapper per kind
+      const wrapper = document.createElement('div');
+      if (info.kind === 'objectives') {
+        wrapper.setAttribute('class', 'mb-8 rounded-xl border border-blue-200 bg-blue-50 p-6 shadow-sm');
+      } else {
+        wrapper.setAttribute('class', 'mb-8 rounded-xl border border-gray-200 bg-white p-6 shadow-sm');
+      }
+
+      // Create card title
+      const titleEl = document.createElement(info.kind === 'module' ? 'h1' : 'h2');
+      titleEl.setAttribute('class', info.kind === 'module' ? 'text-3xl font-bold mb-4 text-gray-900' : 'text-2xl font-bold mb-4 text-gray-900');
+      titleEl.textContent = info.kind === 'module' ? info.title : info.title;
+      wrapper.appendChild(titleEl);
+
+      // Move following siblings into the card until the next header paragraph
+      let next: Element | null = p.nextElementSibling as Element | null;
+      const isHeaderMatch = (el: Element | null) => {
+        if (!el || el.tagName !== 'P') return false;
+        const t = el.textContent?.trim() || '';
+        return /^(Module\s*Title:|Objectives:?|Section\s*\d+\s*:)/i.test(t);
+      };
+      while (next && !isHeaderMatch(next)) {
+        const move = next;
+        next = next.nextElementSibling as Element | null;
+        wrapper.appendChild(move);
+      }
+
+      // Replace the header paragraph with the card
+      p.replaceWith(wrapper);
+    }
+
+    // Remove any lingering divider lines paragraphs (just underscores/dashes/etc)
+    Array.from(container.querySelectorAll('p')).forEach(p => {
+      const t = p.textContent?.trim() || '';
+      if (/^[_\-—–=]{3,}$/.test(t)) {
+        p.remove();
+      }
+    });
+
+    // Bold sub-headings: make leading label before colon bold (e.g., "Definition:")
+    Array.from(container.querySelectorAll('p')).forEach(p => {
+      const text = p.textContent || '';
+      const match = text.match(/^([A-Z][^:]{2,}):\s*(.*)$/);
+      if (match) {
+        const label = match[1] + ':';
+        const rest = match[2] || '';
+        p.innerHTML = `<strong class="font-semibold text-gray-900">${label}</strong> ${rest}`;
+      }
+    });
+
+    formatted = container.innerHTML;
+  }
+
   return formatted;
-}
-
-// Add GenerateAudioButton component
-function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string, onAudioGenerated: (url: string) => void }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   const handleGenerate = async () => {
     setLoading(true);
     setError(null);
