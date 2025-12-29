@@ -69,13 +69,16 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       // First try: direct lookup by processed_module_id (this is what we pass from training plan)
       console.log('[module] Attempting direct fetch by processed_module_id:', moduleId);
       console.log(empObj);
-      const { data: directData, error: directError } = await supabase
+      
+      
+
+        const { data: directData, error: directError } = await supabase
         .from('processed_modules')
         .select(selectCols)
-        .eq('original_module_id', moduleId)
+        .eq('processed_module_id', moduleId)
         .eq('user_id',empObj?.user_id || '')
         .maybeSingle();
-      
+
       if (directError) {
         console.error('[module] Error fetching by processed_module_id:', directError);
       }
@@ -90,6 +93,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           .from('processed_modules')
           .select(selectCols)
           .eq('original_module_id', moduleId)
+          .eq('user_id',empObj?.user_id || '')
           .maybeSingle();
         
         if (origError) {

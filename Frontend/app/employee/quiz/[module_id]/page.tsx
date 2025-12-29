@@ -352,7 +352,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           marginLeft: 'var(--sidebar-width, 0px)',
         }}
       >
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-7xl mx-auto">
           {/* Back Button */}
           <button
             onClick={() => router.back()}
@@ -522,9 +522,9 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
               <CardTitle className="text-3xl font-bold text-gray-800 mb-2">
                 Quiz Complete! 🎉
               </CardTitle>
-              <CardDescription className="text-lg text-gray-600">
+              {/* <CardDescription className="text-lg text-gray-600">
                 Here are your results powered by Gemini AI
-              </CardDescription>
+              </CardDescription> */}
             </CardHeader>
             <CardContent className="p-8">
               <div className="text-center mb-8">
