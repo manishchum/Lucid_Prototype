@@ -101,7 +101,7 @@ Objectives: ${JSON.stringify(objectives)}
         }
       }
       
-      console.log('[gpt-mcq-quiz][DEBUG] Cleaned content for parsing:', cleanedContent.slice(0, 200) + '...');
+      // console.log('[gpt-mcq-quiz][DEBUG] Cleaned content for parsing:', cleanedContent.slice(0, 200) + '...');
       
       quiz = JSON.parse(cleanedContent);
       
@@ -179,10 +179,10 @@ export async function POST(request: NextRequest) {
         .select('processed_module_id, title, content, original_module_id, learning_style')
         .eq('processed_module_id', moduleId)
       if (pmIdErr) console.warn('[gpt-mcq-quiz] lookup processed_modules by processed_module_id warning:', pmIdErr);
-      if (pmById && pmById.processed_module_id) {
+      if (pmById && pmById[0].processed_module_id) {
         existingProcessed = pmById;
         processedModuleId = pmById.processed_module_id;
-        console.log("Inside the processed module id looking ")
+        console.log("Inside the processed module id looking 1 ")
       }
       console.log('[gpt-mcq-quiz] processed_module lookup by id result:', pmById);
     } catch (e) {
@@ -199,13 +199,27 @@ export async function POST(request: NextRequest) {
           .eq('original_module_id', moduleId)
           .eq('user_id',reqUserId)
         console.log(moduleId) 
-        console.log(pmByOriginal)
+        // console.log(pmByOriginal)
         console.log("______________")
+        let module_idd = null;
+        if(pmByOriginal.length === 0){
+          console.log("Inside the if")
+          const { data: pmByOriginal, error: pmOrigErr } = await supabase
+          .from('processed_modules')
+          .select('processed_module_id, title, content, original_module_id, learning_style')
+          .eq('processed_module_id', moduleId)
+          .eq('user_id',reqUserId)
+
+          module_idd = pmByOriginal
+        }
+        console.log("This is the value of the module_idd",module_idd)
+        console.log(module_idd.length)
+        console.log(module_idd[0].processed_module_id)
         if (pmOrigErr) console.warn('[gpt-mcq-quiz] lookup processed_modules by original_module_id warning:', pmOrigErr);
-        if (pmByOriginal && pmByOriginal[0].processed_module_id) {
+        if (module_idd && module_idd[0].processed_module_id) {
           console.log("Inside this")
-          existingProcessed = pmByOriginal[0];
-          processedModuleId = pmByOriginal[0].processed_module_id;
+          existingProcessed = module_idd[0];
+          processedModuleId = module_idd[0].processed_module_id;
         }
         console.log("Data of the processed module by original id ",pmByOriginal)
       } catch (e) {
@@ -385,7 +399,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
           }
         }
         
-        console.log('[gpt-mcq-quiz][DEBUG] Cleaned content for parsing:', cleanedContent.slice(0, 200) + '...');
+        // console.log('[gpt-mcq-quiz][DEBUG] Cleaned content for parsing:', cleanedContent.slice(0, 200) + '...');
         
         quiz = JSON.parse(cleanedContent);
       } catch (e) {
@@ -393,7 +407,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
         quiz = [];
       }
       
-      console.log('[gpt-mcq-quiz][DEBUG] Generated quiz:', quiz);
+      // console.log('[gpt-mcq-quiz][DEBUG] Generated quiz:', quiz);
       
       // Save quiz for this learning style, using a deterministic UUID to avoid race-condition duplicates
       const stableIdSeed = `module:${processedModuleId}|style:${learningStyle}`;

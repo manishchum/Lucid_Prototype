@@ -33,6 +33,39 @@ export async function POST(request: NextRequest) {
       company_id = empRecord.company_id;
     }
 
+
+    const {data: checkForBaseline, error: userError} = await supabase
+    .from('learning_plan')
+    .select('baseline_assessment')
+    .eq('user_id', user_id)
+    .eq('module_id', module_id)
+
+
+    const {data: assessmentData, error: baselineError} = await supabase
+    .from('employee_assessments ')
+    .select('assessment_id,assessments!inner(type)')
+    .eq('user_id', user_id)
+    .eq('assessments.type', 'baseline') 
+
+
+    console.log("Check for baseline assessment data")
+    console.log(assessmentData)
+    console.log(checkForBaseline)
+
+
+    if(checkForBaseline && checkForBaseline[0].baseline_assessment==1 && (!assessmentData || assessmentData.length==0)){
+      console.log("User needs to complete baseline assessment first");
+      return NextResponse.json({ error: 'BASELINE_REQUIRED', message: 'Please complete the baseline assessment first.' }, { status: 403 });
+    }
+
+
+    console.log("Baseline check data", checkForBaseline)
+
+
+
+    if (userError) {
+      console.error('📚 Error checking for baseline assessment:', userError);
+    }
     // Check if we already have a learning plan for this user and module
     if (module_id) {
       const { data: existingPlan, error: planCheckError } = await supabase
@@ -87,7 +120,7 @@ export async function POST(request: NextRequest) {
 
     // If no existing plan found or module_id not provided, generate new plan
     console.log('📚 Generating new learning plan for user:', user_id, module_id ? `module: ${module_id}` : '(all modules)');
-
+   
     console.log("[Training Plan API] Request received");
     const module_id_query = request.nextUrl?.searchParams?.get("module_id") || null;
     console.log("[Training Plan API] user_id:", user_id);
