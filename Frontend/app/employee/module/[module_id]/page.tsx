@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Info, Lightbulb, BookOpen, Zap } from "lucide-react";
+import clsx from "clsx";
 import { useAuth } from "@/contexts/auth-context";
 
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
@@ -147,10 +148,10 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         
         setModule(data as any);
         setPlainTranscript(extractPlainText(data.content || ''));
-        // Log view to module_progress using processed_module_id and module_id, and started_at
+        // Log view to module_progress - only set started_at, NOT completed_at
         try {
           if (empObj?.user_id) {
-            console.log('[module] Logging progress for employee:', empObj.user_id, 'module:', data.processed_module_id);
+            console.log('[module] Logging module view for employee:', empObj.user_id, 'module:', data.processed_module_id);
             await fetch('/api/module-progress', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -158,9 +159,9 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                 user_id: empObj.user_id,
                 processed_module_id: data.processed_module_id,
                 module_id: data.original_module_id,
-                viewed_at: new Date().toISOString(),
                 started_at: new Date().toISOString(),
                 audio_url: data.audio_url,
+                viewOnly: true,
               }),
             });
           }
