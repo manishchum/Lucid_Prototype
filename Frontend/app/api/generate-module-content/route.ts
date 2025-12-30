@@ -74,30 +74,58 @@ ${topicsText}
 ${objectivesText}
 
 Instructions:
-1. Structure the content with clear sections, logical flow, and progressive depth (from basic to advanced).
+1. Structure the content with clear sections using these EXACT section headers (use these exact labels):
+   - Start with "Learning Objectives:" followed by a numbered list
+   - Use "Section 1:", "Section 2:", "Section 3:", etc. for main content sections
+   - Use "Activity 1:", "Activity 2:", etc. for hands-on exercises
+   - End with "Module Summary:" for the conclusion
+   
 2. For each topic and objective, provide:
   - Detailed explanations
   - Practical examples and case studies
   - Step-by-step exercises and activities
   - Actionable tips and best practices
+  
 3. Ensure the module is fully self-contained: all information, context, and learning activities must be included so the learner does not need to reference any other material.
+
 4. Adapt the content for the following Gregorc learning style: ${style}
   - CS (Concrete Sequential): Use hands-on activities, clear instructions, logical sequence, deadlines, and factual information.
   - CR (Concrete Random): Encourage experimentation, discovery, trial-and-error, flexibility, and problem-solving.
   - AS (Abstract Sequential): Focus on analysis, intellectual exploration, theoretical models, and independent research.
   - AR (Abstract Random): Foster reflection, emotional connection, group harmony, open-ended activities, and personal engagement.
+  
 5. Write in a professional, engaging, and instructional tone suitable for new hires in a corporate setting.
-6. Output only the full module content, ready for direct use in training. Do not include meta commentary or instructions—just the content itself.
-7. If relevant, include section headings, subheadings, and formatting for readability.
-8. Do NOT use Markdown formatting (no # headings, no fenced code blocks, no inline code markers). If you need a visible divider between sections, use this plain-text divider on its own line:
-  ────────────────────────────────────────
-  Output plain text only.
+
+6. Format each section clearly:
+   - Use the section headers mentioned above (Learning Objectives:, Section 1:, Activity 1:, etc.)
+   - Separate each major section with a blank line
+   - Use clear paragraph breaks within sections
+   - Use bullet points (•) or numbered lists (1., 2., 3.) where appropriate
+   
+7. Do NOT use Markdown formatting (no # headings, no fenced code blocks, no inline code markers, no ** for bold).
+
+Example structure:
+Learning Objectives:
+1. [Objective 1]
+2. [Objective 2]
+
+Section 1: [Section Title]
+[Content with clear paragraphs...]
+
+Activity 1: [Activity Title]
+[Activity instructions...]
+
+Section 2: [Section Title]
+[Content...]
+
+Module Summary:
+[Summary content...]
 
 Goal: The output should be a comprehensive, ready-to-use training module that fully addresses the topics and objectives, tailored to the specified learning style, and suitable for direct delivery to learners.`;
         
         console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
         
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
         const result = await model.generateContent(stylePrompt);
         const response = await result.response;
         let aiContent = response.text();

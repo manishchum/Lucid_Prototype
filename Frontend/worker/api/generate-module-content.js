@@ -89,7 +89,8 @@ Instructions:
    - Use plain, clean text throughout - no markdown symbols, no asterisks, no hyphens for lists
    - Use numbered lists (1. 2. 3.) for step-by-step content
    - Use bullet points with simple dashes (dash space) for non-sequential items
-   - Do NOT mention or reference learning style codes (never mention CS, CR, AS, AR in the content)
+   - CRITICAL: NEVER include learning style codes (CS, CR, AS, AR) anywhere in the content - not in titles, not in parentheses, not anywhere
+   - Do not add any abbreviations or codes after activity titles or section names
    - Break content into digestible paragraphs
    - Make it engaging and consumable for busy professionals
 
@@ -104,11 +105,15 @@ Goal: The output should be a comprehensive, ready-to-use training module that fu
         max_tokens: 8000,
         temperature: 0.7,
       });
-      const aiContent = completion.choices[0]?.message?.content?.trim() || '';
+      let aiContent = completion.choices[0]?.message?.content?.trim() || '';
       if (!aiContent) {
         console.warn(`No content generated for module: ${mod.module_id} style: ${style}`);
         continue;
       }
+      
+      // Remove any learning style code references (CS, CR, AS, AR) from content
+      aiContent = aiContent.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
+      aiContent = aiContent.replace(/\b(CS|CR|AS|AR)\b/g, '');
       // Upsert the content using processed_module_id as the conflict key.
       const { data: upserted, error: updateError } = await supabase
         .from('processed_modules')

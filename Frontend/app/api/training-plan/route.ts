@@ -382,11 +382,11 @@ export async function POST(request: NextRequest) {
       "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
     console.log("[Training Plan API] Prompt for Gemini:", prompt);
 
-    // Call Gemini with gemini-2.5-flash-lite model
-    console.log("[Training Plan API] Calling Gemini (gemini-2.5-flash-lite)...");
+    // Call Gemini with gemini-2.0-flash-lite model
+    console.log("[Training Plan API] Calling Gemini (gemini-2.0-flash-lite)...");
     let planJsonRaw = "";
     try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
       const result = await model.generateContent(prompt);
       const response = await result.response;
       planJsonRaw = response.text()?.trim() || "";

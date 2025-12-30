@@ -138,6 +138,10 @@ const AssessmentPage = () => {
           });
         }
         console.log(res)
+        if (!res.ok) {
+          const errorText = await res.text();
+          throw new Error(`API returned ${res.status}: ${errorText}`);
+        }
         const d = await res.json();
         console.log('[Assessment] Baseline quiz result:', d);
         

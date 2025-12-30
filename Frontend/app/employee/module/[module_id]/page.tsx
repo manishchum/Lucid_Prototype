@@ -14,6 +14,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const moduleId = params.module_id;
   const [module, setModule] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [generatingContent, setGeneratingContent] = useState(false);
   const [employee, setEmployee] = useState<any>(null);
   const [learningStyle, setLearningStyle] = useState<string | null>(null);
   const [audioExpanded, setAudioExpanded] = useState(false);
@@ -101,6 +102,39 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       }
       console.log('[module] Fetched module data:', data);
       if (data) {
+        // Check if content is empty and trigger generation
+        if (!data.content || data.content.trim() === '') {
+          console.log('[module] Content is empty, triggering generation for:', data.processed_module_id);
+          setGeneratingContent(true);
+          try {
+            const genResponse = await fetch('/api/generate-module-content', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                moduleId: data.original_module_id
+              }),
+            });
+            if (genResponse.ok) {
+              console.log('[module] Content generation triggered successfully');
+              // Wait a moment then refetch the module to get updated content
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              const { data: refreshedData } = await supabase
+                .from('processed_modules')
+                .select(selectCols)
+                .eq('processed_module_id', moduleId)
+                .maybeSingle();
+              if (refreshedData && refreshedData.content) {
+                data = refreshedData;
+                console.log('[module] Content loaded after generation');
+              }
+            }
+          } catch (genError) {
+            console.error('[module] Error triggering content generation:', genError);
+          } finally {
+            setGeneratingContent(false);
+          }
+        }
+        
         setModule(data as any);
         setPlainTranscript(extractPlainText(data.content || ''));
         // Log view to module_progress using processed_module_id and module_id, and started_at
@@ -136,6 +170,18 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
     return <div className="min-h-screen flex items-center justify-center">Loading module content...</div>;
   }
 
+  if (generatingContent) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
+          <p className="text-lg font-semibold text-gray-700">Generating personalized content...</p>
+          <p className="text-sm text-gray-500 mt-2">This may take a few moments</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!module) {
     return <div className="min-h-screen flex items-center justify-center text-red-600">Module not found.</div>;
   }
@@ -168,13 +214,8 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                   <p className="text-lg text-gray-600">Professional learning content tailored for you</p>
                 </div>
 
-                {/* Main Content Card */}
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 mb-8">
-                  <div className="prose prose-sm max-w-none text-gray-800" dangerouslySetInnerHTML={{ __html: formatContent(module.content || '') }} />
-                </div>
-
-                {/* Audio section */}
-                <AudioSection
+                {/* Content Transformer Section - Above Content */}
+                <ContentTransformer
                   module={module}
                   employee={employee}
                   audioExpanded={audioExpanded}
@@ -184,6 +225,9 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                   setLiveTranscript={setLiveTranscript}
                   onAudioGenerated={(url: string) => setModule((m: any) => ({ ...m, audio_url: url }))}
                 />
+
+                {/* Main Content Cards */}
+                <ContentCards content={module.content || ''} />
               </div>
             </main>
           </div>
@@ -191,6 +235,152 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       </div>
     </div>
   );
+}
+
+// Component to render content in separate cards
+function ContentCards({ content }: { content: string }) {
+  const sections = parseContentIntoSections(content);
+  
+  if (sections.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-gray-500">No content available yet.</p>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="space-y-6 mb-8">
+      {sections.map((section, index) => (
+        <div 
+          key={index} 
+          className={clsx(
+            "rounded-xl border-2 shadow-md p-8 transition-all hover:shadow-lg",
+            section.type === 'objectives' ? 'bg-gradient-to-br from-blue-50 to-blue-100 border-blue-300' :
+            section.type === 'activity' ? 'bg-gradient-to-br from-green-50 to-green-100 border-green-300' :
+            section.type === 'summary' ? 'bg-gradient-to-br from-purple-50 to-purple-100 border-purple-300' :
+            section.type === 'discussion' ? 'bg-gradient-to-br from-orange-50 to-orange-100 border-orange-300' :
+            'bg-white border-gray-300'
+          )}
+        >
+          {section.title && (
+            <div className="flex items-center gap-3 mb-6">
+              {section.type === 'objectives' && <Lightbulb className="w-6 h-6 text-blue-600" />}
+              {section.type === 'activity' && <Zap className="w-6 h-6 text-green-600" />}
+              {section.type === 'summary' && <BookOpen className="w-6 h-6 text-purple-600" />}
+              {section.type === 'discussion' && <Info className="w-6 h-6 text-orange-600" />}
+              <h2 className={clsx(
+                "font-bold",
+                section.type === 'objectives' ? 'text-2xl text-blue-900' :
+                section.type === 'section' ? 'text-2xl text-gray-900' :
+                section.type === 'activity' ? 'text-xl text-green-900' :
+                section.type === 'summary' ? 'text-xl text-purple-900' :
+                section.type === 'discussion' ? 'text-xl text-orange-900' :
+                'text-xl text-gray-900'
+              )}>
+                {section.title}
+              </h2>
+            </div>
+          )}
+          <div 
+            className="prose prose-sm max-w-none text-gray-800 leading-relaxed" 
+            dangerouslySetInnerHTML={{ __html: formatContent(section.content) }} 
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Parse content into separate sections
+function parseContentIntoSections(content: string) {
+  const sections: Array<{ type: string; title: string; content: string }> = [];
+  
+  if (!content || content.trim() === '') {
+    return sections;
+  }
+  
+  // Clean up learning style codes from content first
+  content = content.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
+  content = content.replace(/\b(CS|CR|AS|AR)\b/g, '');
+  
+  // Split by major headings - more flexible patterns
+  const lines = content.split('\n');
+  let currentSection: { type: string; title: string; content: string } | null = null;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    if (!line) {
+      if (currentSection) currentSection.content += '\n';
+      continue;
+    }
+    
+    // Check for Learning Objectives
+    if (line.match(/^Learning Objectives?:/i)) {
+      if (currentSection) sections.push(currentSection);
+      currentSection = { type: 'objectives', title: 'Learning Objectives', content: '' };
+      continue;
+    }
+    
+    // Check for Section headings (Section 1:, Section 2:, etc.)
+    const sectionMatch = line.match(/^Section\s+(\d+)\s*:\s*(.+)$/i);
+    if (sectionMatch) {
+      if (currentSection) sections.push(currentSection);
+      currentSection = { 
+        type: 'section', 
+        title: line, 
+        content: '' 
+      };
+      continue;
+    }
+    
+    // Check for Activity headings (Activity 1:, Activity 2:, etc.)
+    const activityMatch = line.match(/^Activity\s+(\d+)\s*:\s*(.+)$/i);
+    if (activityMatch) {
+      if (currentSection) sections.push(currentSection);
+      currentSection = { 
+        type: 'activity', 
+        title: line, 
+        content: '' 
+      };
+      continue;
+    }
+    
+    // Check for Module Summary
+    if (line.match(/^Module Summary:/i)) {
+      if (currentSection) sections.push(currentSection);
+      currentSection = { type: 'summary', title: 'Module Summary', content: '' };
+      continue;
+    }
+    
+    // Check for Discussion Prompts
+    if (line.match(/^Discussion Prompts?:/i)) {
+      if (currentSection) sections.push(currentSection);
+      currentSection = { type: 'discussion', title: 'Discussion Prompts', content: '' };
+      continue;
+    }
+    
+    // Add content to current section
+    if (currentSection) {
+      currentSection.content += lines[i] + '\n';
+    } else {
+      // Content before first section - create intro section
+      currentSection = { type: 'intro', title: '', content: lines[i] + '\n' };
+    }
+  }
+  
+  // Push the last section
+  if (currentSection && currentSection.content.trim()) {
+    sections.push(currentSection);
+  }
+  
+  // If no sections were created, put all content in one section
+  if (sections.length === 0 && content.trim()) {
+    sections.push({ type: 'intro', title: '', content: content });
+  }
+  
+  return sections;
 }
 
 function extractPlainText(content: string) {
@@ -202,7 +392,30 @@ function extractPlainText(content: string) {
     .trim();
 }
 
-function AudioSection({
+function parseChatFromTranscript(transcript: string): Array<{ speaker: string; text: string }> {
+  // Parse the transcript to identify speakers and their messages
+  // The transcript is generated from the podcast which alternates between Sarah and Mark
+  const messages: Array<{ speaker: string; text: string }> = [];
+  
+  // Split by sentence boundaries and alternate speakers
+  const sentences = transcript.match(/[^.!?]+[.!?]+/g) || [];
+  let isSarah = false; // Start with Mark
+  
+  for (const sentence of sentences) {
+    const trimmed = sentence.trim();
+    if (trimmed) {
+      messages.push({
+        speaker: isSarah ? 'sarah' : 'mark',
+        text: trimmed
+      });
+      isSarah = !isSarah;
+    }
+  }
+  
+  return messages;
+}
+
+function ContentTransformer({
   module,
   employee,
   audioExpanded,
@@ -213,83 +426,294 @@ function AudioSection({
   onAudioGenerated,
 }: any) {
   const hasAudio = !!module.audio_url;
+  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
+  const [language, setLanguage] = useState<'en' | 'hi'>('en');
+  const [selectedOption, setSelectedOption] = useState<'audio' | 'infographic' | 'mindmap' | 'video'>('audio');
+  const [chatInput, setChatInput] = useState('');
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [audioOpen, setAudioOpen] = useState(false);
 
   const handleTimeUpdate = (current: number, duration: number) => {
     if (!duration || !plainTranscript) return;
     const ratio = Math.min(current / duration, 1);
     const chars = Math.floor(plainTranscript.length * ratio);
     setLiveTranscript(plainTranscript.slice(0, chars));
+    
+    // Parse and update chat messages based on progress
+    const messages = parseChatFromTranscript(plainTranscript);
+    const currentChars = Math.floor(plainTranscript.length * ratio);
+    const displayedMessages: Array<{ speaker: string; text: string }> = [];
+    let charCount = 0;
+    
+    for (const msg of messages) {
+      charCount += msg.text.length;
+      if (charCount <= currentChars) {
+        displayedMessages.push(msg);
+      } else {
+        break;
+      }
+    }
+    
+    setChatMessages(displayedMessages);
   };
 
-  const handleResetTranscript = () => setLiveTranscript('');
+  const handleResetTranscript = () => {
+    setLiveTranscript('');
+    setChatMessages([]);
+  };
+
+  const handleSendChat = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    // Add user message
+    setChatMessages(prev => [...prev, { speaker: 'user', text: chatInput }]);
+    setChatInput('');
+    // TODO: Send to API and get response
+  };
 
   return (
-    <div className="mt-6 w-full">
-      <div
-        className={clsx(
-          "w-full rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-slate-50 shadow-sm",
-          "transition-all duration-300",
-          audioExpanded ? "p-5" : "p-4"
-        )}
-      >
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="h-12 w-12 rounded-full bg-blue-600 text-white flex items-center justify-center text-lg font-semibold shadow-lg">
-                🎧
-              </div>
-              <div>
-                <div className="text-sm uppercase tracking-wide text-slate-500">Audio Preview</div>
-                <div className="text-base font-semibold text-slate-900">Listen to this module</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {hasAudio && (
-                <Button
-                  variant="default"
-                  className="rounded-full px-5 py-2 text-sm font-medium shadow-md"
-                  onClick={() => setAudioExpanded((v: boolean) => !v)}
-                >
-                  {audioExpanded ? 'Hide Player' : 'Open Audio'}
-                </Button>
-              )}
-            </div>
+    <div className="mb-10 w-full">
+      {/* Content Transformer Header */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-lg mb-6">
+        <div className="flex items-start gap-4 mb-8">
+          <div className="h-14 w-14 rounded-xl bg-white border-2 border-slate-300 text-slate-800 flex items-center justify-center text-2xl shadow-lg">
+            ✨
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900">AI Content Transformer</h2>
+            <p className="text-slate-600 text-sm mt-1">Convert this learning journey into your preferred format.</p>
+          </div>
+        </div>
+
+        {/* Options Grid */}
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          {/* Audio Guide */}
+          <div
+            onClick={() => {
+              if (selectedOption === 'audio') {
+                setAudioOpen((v) => !v);
+              } else {
+                setSelectedOption('audio');
+                setAudioOpen(true);
+              }
+            }}
+            className={clsx(
+              'rounded-xl p-5 cursor-pointer transition-all border-2',
+              selectedOption === 'audio'
+                ? 'bg-slate-50 border-blue-500 shadow-lg'
+                : 'bg-white border-slate-300 hover:border-slate-400'
+            )}
+          >
+            <div className="text-3xl mb-3">🎧</div>
+            <div className="font-bold text-slate-900 text-sm">Audio Guide</div>
+            <div className="text-slate-500 text-xs mt-1">Listen on the go</div>
           </div>
 
-          {!hasAudio && (
-            <div className="mt-2">
+          {/* Infographic */}
+          <div
+            onClick={() => setSelectedOption('infographic')}
+            className={clsx(
+              'rounded-xl p-5 cursor-pointer transition-all border-2',
+              selectedOption === 'infographic'
+                ? 'bg-slate-50 border-green-500 shadow-lg'
+                : 'bg-white border-slate-300 hover:border-slate-400'
+            )}
+          >
+            <div className="text-3xl mb-3">🖼️</div>
+            <div className="font-bold text-slate-900 text-sm">Infographic</div>
+            <div className="text-slate-500 text-xs mt-1">Visual summary</div>
+          </div>
+
+          {/* Mindmap */}
+          <div
+            onClick={() => setSelectedOption('mindmap')}
+            className={clsx(
+              'rounded-xl p-5 cursor-pointer transition-all border-2',
+              selectedOption === 'mindmap'
+                ? 'bg-slate-50 border-yellow-500 shadow-lg'
+                : 'bg-white border-slate-300 hover:border-slate-400'
+            )}
+          >
+            <div className="text-3xl mb-3">🗺️</div>
+            <div className="font-bold text-slate-900 text-sm">Mindmap</div>
+            <div className="text-slate-500 text-xs mt-1">Structured concepts</div>
+          </div>
+
+          {/* Explainer Video */}
+          <div
+            onClick={() => setSelectedOption('video')}
+            className={clsx(
+              'rounded-xl p-5 cursor-pointer transition-all border-2',
+              selectedOption === 'video'
+                ? 'bg-slate-50 border-red-500 shadow-lg'
+                : 'bg-white border-slate-300 hover:border-slate-400'
+            )}
+          >
+            <div className="text-3xl mb-3">🎬</div>
+            <div className="font-bold text-slate-900 text-sm">Explainer Video</div>
+            <div className="text-slate-500 text-xs mt-1">Video lesson</div>
+          </div>
+        </div>
+
+        {/* Audio Content Area */}
+        {selectedOption === 'audio' && audioOpen && (
+          <div className="space-y-3 flex flex-col">
+            {!hasAudio && (
               <GenerateAudioButton
                 moduleId={module.processed_module_id}
                 onAudioGenerated={onAudioGenerated}
               />
-            </div>
-          )}
+            )}
 
-          {hasAudio && audioExpanded && (
-            <div className="mt-3 grid gap-3">
-              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <AudioPlayer
-                  employeeId={employee?.user_id}
-                  processedModuleId={module.processed_module_id}
-                  moduleId={module.original_module_id}
-                  audioUrl={module.audio_url}
-                  onTimeUpdate={handleTimeUpdate}
-                  onPlayExtra={handleResetTranscript}
-                  className="w-full"
-                />
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <div className="text-xs font-semibold text-slate-600 mb-2">Live transcript</div>
-                <div className="min-h-[80px] whitespace-pre-wrap text-slate-800 text-sm leading-6">
-                  {liveTranscript || 'Press play to see the transcript unfold in sync.'}
+            {hasAudio && (
+              <>
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <AudioPlayer
+                    employeeId={employee?.user_id}
+                    processedModuleId={module.processed_module_id}
+                    moduleId={module.original_module_id}
+                    audioUrl={module.audio_url}
+                    onTimeUpdate={handleTimeUpdate}
+                    onPlayExtra={handleResetTranscript}
+                    className="w-full"
+                  />
                 </div>
-              </div>
+
+                {/* Language Toggle */}
+                <div className="flex gap-2 justify-end">
+                  <button
+                    onClick={async () => {
+                      setLanguage('en');
+                      const res = await fetch(`/api/tts?processed_module_id=${module.processed_module_id}&language=en`);
+                      const data = await res.json();
+                      if (res.ok && data.audioUrl) {
+                        onAudioGenerated(data.audioUrl);
+                      }
+                    }}
+                    className={clsx(
+                      'px-3 py-1 rounded text-xs font-medium transition-all',
+                      language === 'en'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                    )}
+                  >
+                    English
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setLanguage('hi');
+                      const res = await fetch(`/api/tts?processed_module_id=${module.processed_module_id}&language=hi`);
+                      const data = await res.json();
+                      if (res.ok && data.audioUrl) {
+                        onAudioGenerated(data.audioUrl);
+                      }
+                    }}
+                    className={clsx(
+                      'px-3 py-1 rounded text-xs font-medium transition-all',
+                      language === 'hi'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                    )}
+                  >
+                    हिंदी
+                  </button>
+                </div>
+
+                {/* Live Transcript (collapsible) */}
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setTranscriptOpen((v) => !v)}
+                    className="flex items-center justify-between w-full text-xs font-semibold text-slate-600"
+                  >
+                    <span>Live transcript</span>
+                    <span
+                      className={clsx(
+                        'transition-transform',
+                        transcriptOpen ? 'rotate-180' : 'rotate-0'
+                      )}
+                      aria-hidden
+                    >
+                      ▾
+                    </span>
+                  </button>
+
+                  {transcriptOpen && (
+                    <div className="mt-3 h-96 overflow-y-auto space-y-3 flex flex-col px-3">
+                      {chatMessages.length > 0 ? (
+                        chatMessages.map((msg, idx) => (
+                          <div
+                            key={idx}
+                            className={clsx(
+                              'flex',
+                              msg.speaker === 'sarah' ? 'justify-start' : 'justify-end'
+                            )}
+                          >
+                            <div
+                              className={clsx(
+                                'rounded-lg px-4 py-2',
+                                msg.speaker === 'sarah'
+                                  ? 'bg-blue-100 text-blue-900 rounded-bl-none max-w-2xl'
+                                  : 'bg-green-100 text-green-900 rounded-br-none max-w-2xl'
+                              )}
+                            >
+                              <div className="font-semibold text-xs mb-2 opacity-75">
+                                {msg.speaker === 'sarah' ? 'Sarah' : 'Mark'}
+                              </div>
+                              <p className="whitespace-normal break-words leading-relaxed text-base">{msg.text}</p>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                          Press play to see the conversation unfold
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Placeholder for other options */}
+        {selectedOption !== 'audio' && (
+          <div className="rounded-xl border border-slate-200 bg-white p-12 text-center">
+            <div className="text-slate-600 text-sm">
+              {selectedOption === 'infographic' && '📊 Infographic generation coming soon...'}
+              {selectedOption === 'mindmap' && '🗺️ Mindmap generation coming soon...'}
+              {selectedOption === 'video' && '🎬 Video generation coming soon...'}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+      </div>
+
+      {/* Chat Bar */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-lg">
+        <form onSubmit={handleSendChat} className="flex gap-3">
+          <button type="button" className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-600">
+            📎
+          </button>
+          <input
+            type="text"
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            placeholder="Ask for coaching, upload work, or chat..."
+            className="flex-1 outline-none text-slate-700 placeholder-slate-400"
+          />
+          <button type="button" className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-600">
+            🎤
+          </button>
+        </form>
       </div>
     </div>
   );
+}
+
+// Keep old AudioSection as alias for backward compatibility
+function AudioSection(props: any) {
+  return <ContentTransformer {...props} />;
 }
 
 // Helper to format content with beautiful card-based UI
@@ -301,18 +725,8 @@ function formatContent(content: string) {
       return `<pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto"><code>${JSON.stringify(parsed, null, 2)}</code></pre>`;
     }
   } catch {}
-  
-  const lines = content.split('\n');
-  const htmlParts: string[] = [];
-  // If content is JSON, pretty print
-  try {
-    const parsed = JSON.parse(content);
-    if (typeof parsed === "object") {
-      return `<pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto"><code>${JSON.stringify(parsed, null, 2)}</code></pre>`;
-    }
-  } catch {}
 
-  // Lightweight markdown-like to HTML (original behavior)
+  // Lightweight markdown-like to HTML - enhanced for plain text
   // Remove visual divider lines made of underscores/dashes before formatting
   let formatted = content
     .replace(/^\s*[_\-—–=]{3,}\s*$/gm, '')
@@ -325,18 +739,26 @@ function formatContent(content: string) {
     .replace(/_(.*?)_/g, '<em class="italic text-gray-700">$1</em>')
     .replace(/```([\s\S]*?)```/g, '<pre class="bg-gray-100 p-4 rounded-lg my-4 overflow-x-auto"><code class="text-sm">$1</code></pre>')
     .replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-2 py-1 rounded text-sm font-mono">$1</code>')
-    .replace(/^[\*\-] (.*$)/gm, '<li class="ml-4 mb-2">$1</li>')
-    .replace(/^\d+\. (.*$)/gm, '<li class="ml-4 mb-2">$1</li>')
-    .replace(/\n\n+/g, '</p><p class="mb-4">')
+    // Enhanced bullet point handling - support both • and - and *
+    .replace(/^[•\-\*] (.*$)/gm, '<li class="ml-6 mb-2 list-disc">$1</li>')
+    .replace(/^\d+\.\s+(.*$)/gm, '<li class="ml-6 mb-2 list-decimal">$1</li>')
+    .replace(/\n\n+/g, '</p><p class="mb-4 text-gray-700 leading-relaxed">')
     .replace(/\n/g, '<br/>');
 
-  formatted = '<p class="mb-4">' + formatted + '</p>';
+  formatted = '<p class="mb-4 text-gray-700 leading-relaxed">' + formatted + '</p>';
+  
+  // Group list items into proper ul/ol tags
   formatted = formatted
-    .replace(/<p class="mb-4">(<li class="ml-4 mb-2[^>]*>.*?(?:<\/li>(?:\s*<br\/>\s*<li|<\/li>))*<\/li>)/g, '<ul class="mb-4 space-y-1">$1</ul>')
-    .replace(/<br\/>\s*(<li class="ml-4 mb-2[^>]*>)/g, '$1')
+    .replace(/<p class="mb-4 text-gray-700 leading-relaxed">(<li class="ml-6 mb-2 list-disc[^>]*>.*?(?:<\/li>(?:\s*<br\/>\s*<li|<\/li>))*<\/li>)/g, '<ul class="mb-4 space-y-2 list-disc ml-6">$1</ul>')
+    .replace(/<p class="mb-4 text-gray-700 leading-relaxed">(<li class="ml-6 mb-2 list-decimal[^>]*>.*?(?:<\/li>(?:\s*<br\/>\s*<li|<\/li>))*<\/li>)/g, '<ol class="mb-4 space-y-2 list-decimal ml-6">$1</ol>')
+    .replace(/<br\/>\s*(<li class="ml-6 mb-2[^>]*>)/g, '$1')
     .replace(/(<\/li>)\s*<br\/>/g, '$1');
 
-  formatted = formatted.replace(/<p class="mb-4">\s*<\/p>/g, '');
+  // Clean up empty paragraphs
+  formatted = formatted.replace(/<p class="mb-4 text-gray-700 leading-relaxed">\s*<\/p>/g, '');
+  
+  // Remove learning style codes (CS, CR, AS, AR) from content
+  formatted = formatted.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
   formatted = formatted.replace(/\b(CS|CR|AS|AR)\b(?=\W|$)/g, '');
 
   // Wrap specific sections into callout cards (client-side safe)
@@ -499,6 +921,13 @@ function formatContent(content: string) {
   }
 
   return formatted;
+}
+
+// Add GenerateAudioButton component
+function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string, onAudioGenerated: (url: string) => void }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const handleGenerate = async () => {
     setLoading(true);
     setError(null);
