@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AudioPlayer from "./AudioPlayer";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -20,6 +20,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const [audioExpanded, setAudioExpanded] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
   const [plainTranscript, setPlainTranscript] = useState("");
+  const [hasVideo, setHasVideo] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -224,6 +225,12 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                   plainTranscript={plainTranscript}
                   setLiveTranscript={setLiveTranscript}
                   onAudioGenerated={(url: string) => setModule((m: any) => ({ ...m, audio_url: url }))}
+                  hasVideo={hasVideo}
+                  setHasVideo={setHasVideo}
+                  onVideoGenerated={(url: string) => {
+                    setModule((m: any) => ({ ...m, video_url: url }));
+                    setHasVideo(true);
+                  }}
                 />
 
                 {/* Main Content Cards */}
@@ -240,6 +247,16 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
 // Component to render content in separate cards
 function ContentCards({ content }: { content: string }) {
   const sections = parseContentIntoSections(content);
+  const tabGroups = useMemo(() => groupSectionsForTabs(sections), [sections]);
+  const [activeTab, setActiveTab] = useState(tabGroups[0]?.key || '');
+
+  useEffect(() => {
+    if (tabGroups.length === 0) return;
+    const hasActive = tabGroups.some((group) => group.key === activeTab);
+    if (!hasActive) {
+      setActiveTab(tabGroups[0].key);
+    }
+  }, [tabGroups, activeTab]);
   
   if (sections.length === 0) {
     return (
@@ -248,10 +265,29 @@ function ContentCards({ content }: { content: string }) {
       </div>
     );
   }
-  
+
+  const activeGroup = tabGroups.find((group) => group.key === activeTab);
+
   return (
     <div className="space-y-6 mb-8">
-      {sections.map((section, index) => (
+      <div className="flex flex-wrap gap-6 mb-4 border-b border-gray-200 pb-2">
+        {tabGroups.map((group) => (
+          <button
+            key={group.key}
+            onClick={() => setActiveTab(group.key)}
+            className={clsx(
+              'px-1 pb-2 text-sm font-semibold transition-all border-b-2',
+              activeTab === group.key
+                ? 'text-blue-700 border-blue-600'
+                : 'text-gray-500 border-transparent hover:text-gray-800 hover:border-gray-300'
+            )}
+          >
+            {group.label}
+          </button>
+        ))}
+      </div>
+
+      {activeGroup?.items.map((section, index) => (
         <div 
           key={index} 
           className={clsx(
@@ -383,6 +419,50 @@ function parseContentIntoSections(content: string) {
   return sections;
 }
 
+type SectionBlock = { type: string; title: string; content: string };
+type TabGroup = { key: string; label: string; items: SectionBlock[] };
+
+function groupSectionsForTabs(sections: SectionBlock[]): TabGroup[] {
+  const groups: TabGroup[] = [];
+
+  const ensureGroup = (key: string, label: string) => {
+    let group = groups.find((g) => g.key === key);
+    if (!group) {
+      group = { key, label, items: [] };
+      groups.push(group);
+    }
+    return group;
+  };
+
+  let sectionCounter = 0;
+  let currentKey = 'overview';
+  ensureGroup(currentKey, 'Overview');
+
+  sections.forEach((section) => {
+    if (section.type === 'section') {
+      sectionCounter += 1;
+      currentKey = `section-${sectionCounter}`;
+      const label = `Section ${sectionCounter}`;
+      ensureGroup(currentKey, label).items.push(section);
+      return;
+    }
+
+    if (section.type === 'summary') {
+      ensureGroup('conclusion', 'Conclusion').items.push(section);
+      return;
+    }
+
+    if (section.type === 'activity') {
+      ensureGroup(currentKey, currentKey.startsWith('section-') ? currentKey.replace('section-', 'Section ') : 'Overview').items.push(section);
+      return;
+    }
+
+    ensureGroup(currentKey, currentKey === 'overview' ? 'Overview' : currentKey.replace('section-', 'Section ')).items.push(section);
+  });
+
+  return groups;
+}
+
 function extractPlainText(content: string) {
   // Basic markdown/HTML stripping for a readable transcript source
   return content
@@ -424,6 +504,9 @@ function ContentTransformer({
   plainTranscript,
   setLiveTranscript,
   onAudioGenerated,
+  hasVideo,
+  setHasVideo,
+  onVideoGenerated,
 }: any) {
   const hasAudio = !!module.audio_url;
   const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
@@ -509,19 +592,19 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Listen on the go</div>
           </div>
 
-          {/* Infographic */}
+          {/* Explainer Video */}
           <div
-            onClick={() => setSelectedOption('infographic')}
+            onClick={() => setSelectedOption('video')}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
-              selectedOption === 'infographic'
-                ? 'bg-slate-50 border-green-500 shadow-lg'
+              selectedOption === 'video'
+                ? 'bg-slate-50 border-red-500 shadow-lg'
                 : 'bg-white border-slate-300 hover:border-slate-400'
             )}
           >
-            <div className="text-3xl mb-3">🖼️</div>
-            <div className="font-bold text-slate-900 text-sm">Infographic</div>
-            <div className="text-slate-500 text-xs mt-1">Visual summary</div>
+            <div className="text-3xl mb-3">🎬</div>
+            <div className="font-bold text-slate-900 text-sm">Explainer Video</div>
+            <div className="text-slate-500 text-xs mt-1">Video lesson</div>
           </div>
 
           {/* Mindmap */}
@@ -539,19 +622,19 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Structured concepts</div>
           </div>
 
-          {/* Explainer Video */}
+          {/* Infographic */}
           <div
-            onClick={() => setSelectedOption('video')}
+            onClick={() => setSelectedOption('infographic')}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
-              selectedOption === 'video'
-                ? 'bg-slate-50 border-red-500 shadow-lg'
+              selectedOption === 'infographic'
+                ? 'bg-slate-50 border-green-500 shadow-lg'
                 : 'bg-white border-slate-300 hover:border-slate-400'
             )}
           >
-            <div className="text-3xl mb-3">🎬</div>
-            <div className="font-bold text-slate-900 text-sm">Explainer Video</div>
-            <div className="text-slate-500 text-xs mt-1">Video lesson</div>
+            <div className="text-3xl mb-3">🖼️</div>
+            <div className="font-bold text-slate-900 text-sm">Infographic</div>
+            <div className="text-slate-500 text-xs mt-1">Visual summary</div>
           </div>
         </div>
 
@@ -677,13 +760,33 @@ function ContentTransformer({
           </div>
         )}
 
+        {/* Video Content Area */}
+        {selectedOption === 'video' && (
+          <div className="space-y-3 flex flex-col">
+            {!hasVideo && (
+              <GenerateVideoButton
+                moduleId={module.processed_module_id}
+                onVideoGenerated={onVideoGenerated}
+              />
+            )}
+
+            {hasVideo && module.video_url && (
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <video controls className="w-full rounded-lg">
+                  <source src={module.video_url} type="video/mp4" />
+                  Your browser does not support video playback.
+                </video>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Placeholder for other options */}
-        {selectedOption !== 'audio' && (
+        {selectedOption !== 'audio' && selectedOption !== 'video' && (
           <div className="rounded-xl border border-slate-200 bg-white p-12 text-center">
             <div className="text-slate-600 text-sm">
               {selectedOption === 'infographic' && '📊 Infographic generation coming soon...'}
               {selectedOption === 'mindmap' && '🗺️ Mindmap generation coming soon...'}
-              {selectedOption === 'video' && '🎬 Video generation coming soon...'}
             </div>
           </div>
         )}
@@ -973,7 +1076,11 @@ function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string,
       // keep the old call commented below for reference.
       // const res = await fetch(`/api/video-generation?processed_module_id=${moduleId}`);
 
-      const res = await fetch(`/api/gpt-video-generation?processed_module_id=${moduleId}`);
+      const res = await fetch(`/api/veo-video`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ processed_module_id: moduleId }),
+      });
       const data = await res.json();
       if (res.ok && data.videoUrl) {
         onVideoGenerated(data.videoUrl);

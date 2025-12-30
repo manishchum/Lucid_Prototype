@@ -175,6 +175,89 @@ async function createVideoFromImages(imagePaths: string[], outPath: string, dura
   });
 }
 
+async function generateExplanationScript(title: string, content: string) {
+  const vertexApiKey = process.env.VERTEX_API_KEY;
+  if (!vertexApiKey) {
+    throw new Error('VERTEX_API_KEY not configured');
+  }
+
+  const prompt = `You are an expert educator creating an engaging video script. 
+
+Based on this learning module:
+Title: ${title}
+Content: ${content.substring(0, 2000)}
+
+Create a natural, conversational 60-90 second video narration script that:
+- Explains the key concepts in an engaging way (don't just read the content)
+- Uses simple language and real-world examples
+- Has a clear beginning, middle, and end
+- Sounds natural when spoken aloud
+- Is informative and educational
+
+Return ONLY the narration script text, no meta-commentary.`;
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${vertexApiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+      }),
+    }
+  );
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(`Gemini API error: ${data?.error?.message || 'Unknown error'}`);
+  }
+
+  const script = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  return script.trim();
+}
+
+async function generateTTSAudio(script: string, outputPath: string) {
+  const vertexApiKey = process.env.VERTEX_API_KEY;
+  if (!vertexApiKey) {
+    throw new Error('VERTEX_API_KEY not configured');
+  }
+
+  // Use Google Cloud TTS via the same API key
+  const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${vertexApiKey}`;
+  
+  const response = await fetch(ttsUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      input: { text: script },
+      voice: {
+        languageCode: 'en-US',
+        name: 'en-US-Neural2-J', // Professional male voice
+        ssmlGender: 'MALE',
+      },
+      audioConfig: {
+        audioEncoding: 'MP3',
+        speakingRate: 0.95,
+        pitch: 0,
+      },
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(`TTS API error: ${data?.error?.message || 'Unknown error'}`);
+  }
+
+  const audioContent = data.audioContent;
+  if (!audioContent) {
+    throw new Error('No audio content returned from TTS');
+  }
+
+  // Write audio to file
+  await fsPromises.writeFile(outputPath, Buffer.from(audioContent, 'base64'));
+  return outputPath;
+}
+
 async function synthesizeAndStore(processedModuleId: string) {
   console.log('[VIDEO API] synthesizeAndStore start for', processedModuleId);
   // Fetch module content from processed_modules
@@ -191,7 +274,11 @@ async function synthesizeAndStore(processedModuleId: string) {
   const fullText = cleanTextForVideo(module.content || '');
   if (!fullText) return { error: 'Empty content', status: 400 } as const;
 
-  const chunks = splitTextIntoChunks(fullText, 700);
+  console.log('[VIDEO API] Generating explanation script...');
+  const script = await generateExplanationScript(title, fullText);
+  console.log('[VIDEO API] Script generated:', script.substring(0, 100) + '...');
+
+  const chunks = splitTextIntoChunks(script, 600);
 
   console.log('[VIDEO API] chunk count:', chunks.length);
 
@@ -199,11 +286,37 @@ async function synthesizeAndStore(processedModuleId: string) {
   console.log('[VIDEO API] tmpDir:', tmpDir);
   await fsPromises.mkdir(tmpDir, { recursive: true });
   try {
+    // Generate TTS audio from script
+    console.log('[VIDEO API] Generating TTS audio...');
+    const audioPath = path.join(tmpDir, 'narration.mp3');
+    await generateTTSAudio(script, audioPath);
+    console.log('[VIDEO API] Audio generated');
+
     const images = await captureScreenshots(title, chunks, tmpDir);
     console.log('[VIDEO API] captured images count:', images.length);
 
+    const silentVideoPath = path.join(tmpDir, 'silent_video.mp4');
+    await createVideoFromImages(images, silentVideoPath, 4);
+
+    // Combine video with audio
+    console.log('[VIDEO API] Combining video with audio...');
     const outFile = path.join(tmpDir, `${uuidv4()}.mp4`);
-    await createVideoFromImages(images, outFile, 4);
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg()
+        .input(silentVideoPath)
+        .input(audioPath)
+        .outputOptions([
+          '-c:v copy',
+          '-c:a aac',
+          '-b:a 192k',
+          '-shortest', // End video when audio ends
+        ])
+        .output(outFile)
+        .on('end', () => resolve())
+        .on('error', (err: any) => reject(err))
+        .run();
+    });
+    console.log('[VIDEO API] Video with audio created');
 
     // Ensure bucket exists
     const ensured = await ensureBucketExists();
