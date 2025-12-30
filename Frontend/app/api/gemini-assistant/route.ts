@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     const sourceParts = matches.map(m => `Title: ${m.title || 'unknown'}\n\n${excerptFromContent(m.content || '', 1200)}`).join('\n\n---\n\n')
 
     // hardcoded Gemini model
-    const geminiModel = 'gemini-2.5-flash-lite'
+    const geminiModel = 'gemini-2.0-flash-lite'
     if (!process.env.GEMINI_API_KEY) {
       const fallback = excerptFromContent(sourceParts || '')
       return NextResponse.json({ answer: fallback || `No content found for "${query}".`, llm_model_used: null, llm_error: [{ model: 'gemini', error: 'no_gemini_key' }] })

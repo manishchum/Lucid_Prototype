@@ -35,9 +35,11 @@ export default function TrainingPlanPage() {
   const [baselineNavLoading, setBaselineNavLoading] = useState(false);
   const [contentLoadingModuleId, setContentLoadingModuleId] = useState<string | null>(null);
   const [quizLoadingModuleId, setQuizLoadingModuleId] = useState<string | null>(null);
+  const [moduleBaselineStatus, setModuleBaselineStatus] = useState<Map<string, boolean>>(new Map());
 
   // Fetch completed modules from Supabase (same logic as employee/welcome)
   useEffect(() => {
+    console.log("[training-plan] Fetching completed modules for user:", user?.email);
     async function fetchCompletedModules() {
       if (!user?.email) return;
       // Get employee id
@@ -177,6 +179,7 @@ export default function TrainingPlanPage() {
   }, [user, authLoading]);
   const moduleId = searchParams.get('module_id');
   const fetchPlan = async () => {
+    console.log("[training-plan] Fetching training plan...");
     setLoading(true);
     try {
       // Get employee id from Supabase
@@ -197,6 +200,40 @@ export default function TrainingPlanPage() {
       }
       // Store the actual user_id for use in resolveModuleId
       setActualUserId(employeeData.user_id);
+      
+      // Fetch module-specific baseline requirements AND user's completion status
+      try {
+        const { data: modules } = await supabase
+          .from("training_modules")
+          .select("module_id, baseline_assessment_id")
+          .eq("company_id", employeeData.company_id);
+        
+        // Get all baseline assessments this user has completed
+        const { data: userCompletedBaselines } = await supabase
+          .from("employee_assessments")
+          .select("assessment_id")
+          .eq("user_id", employeeData.user_id);
+        
+        const completedBaselineIds = new Set(
+          (userCompletedBaselines || []).map((ub: any) => ub.assessment_id)
+        );
+        
+        const statusMap = new Map<string, boolean>();
+        if (modules) {
+          modules.forEach((mod: any) => {
+            // Check if module requires baseline AND user hasn't completed it
+            const requiresBaseline = !!mod.baseline_assessment_id;
+            const userCompletedIt = mod.baseline_assessment_id && 
+                                   completedBaselineIds.has(mod.baseline_assessment_id);
+            // Store true only if baseline is required AND user hasn't completed it
+            statusMap.set(mod.module_id, requiresBaseline && !userCompletedIt);
+          });
+        }
+        setModuleBaselineStatus(statusMap);
+        console.log("[training-plan] Module baseline status map:", statusMap);
+      } catch (e) {
+        console.error("[training-plan] Error fetching module baseline requirements:", e);
+      }
       
       // Pre-check: detect if company has baseline definitions and whether user completed one
       try {
@@ -258,13 +295,15 @@ export default function TrainingPlanPage() {
       if (moduleId) {
         requestBody.module_id = moduleId;
       }
-
+      console.log("[training-plan] Fetching plan with body:", requestBody);
       const res = await fetch("/api/training-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
       });
       const result = await res.json();
+
+      console.log("[training-plan] Fetched plan result:", result);
       // If API indicates baseline is required, show a clear prompt
       if (result?.error === "BASELINE_REQUIRED") {
         setBaselineRequired(true);
@@ -319,6 +358,16 @@ export default function TrainingPlanPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper: check if a module requires baseline AND user hasn't completed it
+  const moduleRequiresBaseline = (mod: any): boolean => {
+    const moduleId = mod?.original_module_id || mod?.module_id;
+    if (!moduleId) return false;
+    // Map stores true only if baseline is required AND user hasn't completed it
+    const needsBaseline = moduleBaselineStatus.get(moduleId) === true;
+    console.log(`[moduleRequiresBaseline] Module ${moduleId} needs baseline:`, needsBaseline);
+    return needsBaseline;
   };
 
   // Helper: resolve a usable processed_modules.processed_module_id for navigation
@@ -644,7 +693,7 @@ export default function TrainingPlanPage() {
                               {mod.title}
                             </div>
                             <div className="text-sm text-gray-500">
-                              {mod.objectives?.length || 0} objectives • {mod.recommended_time || 0} hours
+                              {mod.recommended_time || 0} hours
                             </div>
                           </div>
                           {mod._isCompleted && (
@@ -686,14 +735,7 @@ export default function TrainingPlanPage() {
                             {mod.recommended_time} hours
                           </div>
                         </div>
-                        <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
-                          <div className="text-sm font-semibold text-purple-800 mb-1">
-                            Learning Objectives
-                          </div>
-                          <div className="text-2xl font-bold text-purple-900">
-                            {mod.objectives?.length || 0} objectives
-                          </div>
-                        </div>
+
                       </div>
                       {/* Tips */}
                       <div className="bg-amber-50 rounded-lg p-5 border border-amber-200 mb-6">
@@ -716,90 +758,6 @@ export default function TrainingPlanPage() {
                         ) : (
                           <div className="text-amber-700">{mod.tips}</div>
                         )}
-                      </div>
-                      {/* Objectives */}
-                      <div className="mb-8">
-                        <div className="font-semibold text-lg mb-4 text-gray-900 flex items-center gap-2">
-                          {/* <span className="text-2xl">🎯</span> */}
-                          Learning Objectives
-                        </div>
-                        <div className="bg-gray-50 rounded-lg p-5 border">
-                          {Array.isArray(mod.objectives) ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {mod.objectives.map((obj: any, idx: number) =>
-                                typeof obj === "string" ||
-                                typeof obj === "number" ? (
-                                  <div
-                                    key={`${mod._tabValue}-obj-${idx}`}
-                                    className="flex items-start gap-3 p-3 bg-white rounded-lg border"
-                                  >
-                                    <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">
-                                      {idx + 1}
-                                    </div>
-                                    <div className="text-gray-700 flex-1">
-                                      {obj}
-                                    </div>
-                                  </div>
-                                ) : typeof obj === "object" && obj !== null ? (
-                                  <div
-                                    key={`${mod._tabValue}-obj-${idx}`}
-                                    className="flex items-start gap-3 p-3 bg-white rounded-lg border"
-                                  >
-                                    <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">
-                                      {idx + 1}
-                                    </div>
-                                    <div className="flex-1">
-                                      {Object.entries(obj).map(([k, v], i) => (
-                                        <div key={i} className="text-gray-700">
-                                          <span className="font-semibold">
-                                            {k}:
-                                          </span>{" "}
-                                          {typeof v === "string" ||
-                                          typeof v === "number"
-                                            ? v
-                                            : JSON.stringify(v)}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ) : null
-                              )}
-                            </div>
-                          ) : mod.objectives &&
-                            typeof mod.objectives === "object" ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {Object.entries(mod.objectives).map(
-                                ([k, v], i) => (
-                                  <div
-                                    key={`${mod._tabValue}-obj-single-${i}`}
-                                    className="flex items-start gap-3 p-3 bg-white rounded-lg border"
-                                  >
-                                    <div className="w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold shrink-0">
-                                      {i + 1}
-                                    </div>
-                                    <div className="text-gray-700 flex-1">
-                                      <span className="font-semibold">
-                                        {k}:
-                                      </span>{" "}
-                                      {typeof v === "string" ||
-                                      typeof v === "number"
-                                        ? v
-                                        : JSON.stringify(v)}
-                                    </div>
-                                  </div>
-                                )
-                              )}
-                            </div>
-                          ) : mod.objectives ? (
-                            <div className="text-gray-700 p-3 bg-white rounded-lg border">
-                              {mod.objectives}
-                            </div>
-                          ) : (
-                            <div className="text-gray-400 italic p-3 bg-white rounded-lg border">
-                              No objectives listed.
-                            </div>
-                          )}
-                        </div>
                       </div>
                       {/* Actions */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -828,13 +786,13 @@ export default function TrainingPlanPage() {
                           }}
                           disabled={
                             mod._isCompleted ||
-                            (baselineExists && !baselineCompleted) ||
+                            moduleRequiresBaseline(mod) ||
                             contentLoadingModuleId === mod.processed_module_id ||
                             quizLoadingModuleId === mod.processed_module_id
                           }
                           className={`w-full py-3 text-base font-semibold border-2 transition-all duration-200 ${
                             mod._isCompleted ||
-                            (baselineExists && !baselineCompleted) ||
+                            moduleRequiresBaseline(mod) ||
                             contentLoadingModuleId === mod.processed_module_id ||
                             quizLoadingModuleId === mod.processed_module_id
                               ? "bg-gray-100 text-gray-500 cursor-not-allowed"
@@ -875,13 +833,13 @@ export default function TrainingPlanPage() {
                           }}
                           disabled={
                             mod._isCompleted ||
-                            (baselineExists && !baselineCompleted) ||
+                            moduleRequiresBaseline(mod) ||
                             contentLoadingModuleId === mod.processed_module_id ||
                             quizLoadingModuleId === mod.processed_module_id
                           }
                           className={`w-full py-3 text-base font-semibold transition-all duration-200 ${
                             mod._isCompleted ||
-                            (baselineExists && !baselineCompleted) ||
+                            moduleRequiresBaseline(mod) ||
                             contentLoadingModuleId === mod.processed_module_id ||
                             quizLoadingModuleId === mod.processed_module_id
                               ? "bg-gray-100 text-gray-500 cursor-not-allowed border-2"

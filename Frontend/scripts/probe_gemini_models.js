@@ -51,11 +51,11 @@ async function probe() {
 
   // Probe only the preferred model to reduce noise and speed up checks
   const models = [
-    'gemini-2.5-flash-lite'
+    'gemini-2.0-flash-lite'
   ];
 
   // Hardcode the probe URL to the preferred model
-  const probeModel = 'gemini-2.5-flash-lite'
+  const probeModel = 'gemini-2.0-flash-lite'
   for (const model of models) {
     const url = `https://generativelanguage.googleapis.com/v1/models/${probeModel}:generateContent?key=${key}`;
     const body = {

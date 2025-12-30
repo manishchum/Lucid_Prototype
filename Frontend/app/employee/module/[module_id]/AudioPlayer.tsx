@@ -5,12 +5,16 @@ interface AudioPlayerProps {
   processedModuleId: string;
   moduleId: string;
   audioUrl: string;
+  onTimeUpdate?: (current: number, duration: number) => void;
+  onPlayExtra?: () => void;
+  className?: string;
 }
 
-export default function AudioPlayer({ employeeId, processedModuleId, moduleId, audioUrl }: AudioPlayerProps) {
+export default function AudioPlayer({ employeeId, processedModuleId, moduleId, audioUrl, onTimeUpdate, onPlayExtra, className }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
 
   const handlePlay = async () => {
+    if (onPlayExtra) onPlayExtra();
     await fetch('/api/module-progress', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -41,9 +45,13 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
     <audio
       controls
       src={audioUrl}
-      className="w-full"
+      className={className || "w-full"}
       ref={audioRef}
       onPlay={handlePlay}
+      onTimeUpdate={() => {
+        if (!audioRef.current) return;
+        onTimeUpdate?.(audioRef.current.currentTime, audioRef.current.duration || 0);
+      }}
       onEnded={handleEnded}
     >
       Your browser does not support the audio element.

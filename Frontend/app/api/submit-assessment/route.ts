@@ -164,7 +164,7 @@ Keep the feedback constructive, specific, and encouraging. Format it as a struct
 
 IMPORTANT: Use this EXACT format with these headings. Do not add extra sections or change the structure.`;
 
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
         const result = await model.generateContent(feedbackPrompt);
         const response = await result.response;
         let rawFeedback = response.text();

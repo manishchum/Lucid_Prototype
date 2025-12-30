@@ -85,9 +85,42 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
         console.error("[processedModulesHelper] Error checking existing processed_modules:", exErr);
         continue;
       }
+      
+      // If already exists, check if it has content
       if (existing && existing.length > 0) {
-        // Already exists — skip
-        continue;
+        const existingId = existing[0].processed_module_id;
+        m.processed_module_id = existingId; // Store the ID in the plan
+        
+        // Check if this processed_module needs content generation
+        const { data: moduleData } = await supabase
+          .from("processed_modules")
+          .select("content, original_module_id")
+          .eq("processed_module_id", existingId)
+          .single();
+        
+        // If content is empty and we have an original_module_id, trigger content generation
+        if (moduleData && original_module_id && (!moduleData.content || moduleData.content.trim() === '')) {
+          try {
+            console.log('[processedModulesHelper] Existing module has no content, generating for:', existingId);
+            const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+            const contentResponse = await fetch(`${baseUrl}/api/generate-module-content`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ moduleId: original_module_id }),
+            });
+            
+            if (!contentResponse.ok) {
+              const errorText = await contentResponse.text();
+              console.error(`[processedModulesHelper] Content generation failed for existing ${existingId}:`, errorText);
+            } else {
+              const result = await contentResponse.json();
+              console.log('[processedModulesHelper] Content generation completed for existing module:', result);
+            }
+          } catch (e: any) {
+            console.error("[processedModulesHelper] Content generation fetch failed:", e?.message || e);
+          }
+        }
+        continue; // Skip to next module since this one already exists
       }
 
       // Insert processed_module row with basic fields
@@ -160,17 +193,26 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
         m.processed_module_id = newId;
       }
 
-      // Fire off content generation for this processed_module (best-effort, don't block on response)
-      if (newId) {
+      // Generate content SYNCHRONOUSLY (wait for it to complete before moving to next module)
+      if (newId && original_module_id) {
         try {
-          console.log('[processedModulesHelper] Triggering content generation for:', newId);
-          fetch(`${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/api/generate-module-content`, {
+          console.log('[processedModulesHelper] Generating content for processed_module_id:', newId, 'original_module_id:', original_module_id);
+          const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+          const contentResponse = await fetch(`${baseUrl}/api/generate-module-content`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ processed_module_ids: [newId] }),
-          }).catch((e) => console.error("[processedModulesHelper] Content generation request failed:", e));
+            body: JSON.stringify({ moduleId: original_module_id }),
+          });
+          
+          if (!contentResponse.ok) {
+            const errorText = await contentResponse.text();
+            console.error(`[processedModulesHelper] Content generation failed for ${newId}:`, errorText);
+          } else {
+            const result = await contentResponse.json();
+            console.log('[processedModulesHelper] Content generation completed:', result);
+          }
         } catch (e: any) {
-          console.error("[processedModulesHelper] Trigger fetch failed:", e?.message || e);
+          console.error("[processedModulesHelper] Content generation fetch failed:", e?.message || e);
         }
       }
     }
