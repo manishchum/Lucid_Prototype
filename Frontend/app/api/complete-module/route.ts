@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    console.log('📚 DEBUG: Complete module request body:', body)
+    // console.log('📚 DEBUG: Complete module request body:', body)
     
     const { 
       employeeId, 
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
       progressData = data
     }
 
-    console.log('📚 DEBUG: Module completion recorded successfully:', progressData)
+    // console.log('📚 DEBUG: Module completion recorded successfully:', progressData)
 
     // Only send admin notification if this is a new completion (not an update)
     const isNewCompletion = !existingProgress?.completed_at

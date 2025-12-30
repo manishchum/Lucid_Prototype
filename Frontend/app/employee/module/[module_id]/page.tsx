@@ -7,10 +7,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
-import { ChevronLeft, Info, Lightbulb, BookOpen, Zap } from "lucide-react";
-import clsx from "clsx";
+import { ChevronLeft } from "lucide-react";
+import { useAuth } from "@/contexts/auth-context";
 
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
+  const { user, loading: authLoading, logout } = useAuth()
   const moduleId = params.module_id;
   const [module, setModule] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -39,11 +40,11 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       try {
         const { data: userData } = await supabase.auth.getUser();
         const employeeEmail = userData?.user?.email || null;
-        if (employeeEmail) {
+        if (user?.email) {
           const { data: emp } = await supabase
             .from('users')
             .select('user_id')
-            .eq('email', employeeEmail)
+            .eq('email', user?.email)
             .maybeSingle();
           if (emp?.user_id) {
             empObj = emp;
@@ -60,6 +61,8 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             }
           }
         }
+        console.log("User Data:", user);
+        console.log(employeeEmail)
       } catch (e) {
         console.log('[module] employee fetch error', e);
       }
@@ -70,12 +73,17 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       
       // First try: direct lookup by processed_module_id (this is what we pass from training plan)
       console.log('[module] Attempting direct fetch by processed_module_id:', moduleId);
-      const { data: directData, error: directError } = await supabase
+      console.log(empObj);
+      
+      
+
+        const { data: directData, error: directError } = await supabase
         .from('processed_modules')
         .select(selectCols)
         .eq('processed_module_id', moduleId)
+        .eq('user_id',empObj?.user_id || '')
         .maybeSingle();
-      
+
       if (directError) {
         console.error('[module] Error fetching by processed_module_id:', directError);
       }
@@ -90,6 +98,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           .from('processed_modules')
           .select(selectCols)
           .eq('original_module_id', moduleId)
+          .eq('user_id',empObj?.user_id || '')
           .maybeSingle();
         
         if (origError) {
@@ -184,6 +193,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   }
 
   if (!module) {
+    console.log("Inside the !module block");
     return <div className="min-h-screen flex items-center justify-center text-red-600">Module not found.</div>;
   }
 
