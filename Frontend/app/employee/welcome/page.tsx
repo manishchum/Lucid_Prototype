@@ -813,14 +813,30 @@ export default function EmployeeWelcome() {
     return { disabled: false, text: 'Take Baseline Assessment', variant: 'default' as const }
   }
 
+  // After baseline assessment, refresh assigned modules and baseline status
   const handleBaselineClick = async (moduleId: string) => {
     if (baselineLoadingId) return
     setBaselineLoadingId(moduleId)
     setIsNavOverlay(true)
     try {
+      // Go to assessment page, wait for completion, then refresh modules
       await Promise.resolve(router.push(`/employee/assessment?moduleId=${moduleId}`))
+      // After returning from assessment, reload assigned modules and status
+      // This assumes the user returns to this page after assessment
+      // You may want to trigger this in a useEffect or on route change as well
+      if (employee) {
+        // Fetch assigned plans for this employee
+        const { data: assignedPlans } = await supabase
+          .from('learning_plan')
+          .select('*')
+          .eq('user_id', employee.user_id)
+        if (assignedPlans) {
+          await loadAssignedModulesWithBaselineStatus(employee, assignedPlans)
+        }
+      }
     } catch (e) {
       console.error('Error navigating to baseline assessment', e)
+    } finally {
       setIsNavOverlay(false)
       setBaselineLoadingId(null)
     }
