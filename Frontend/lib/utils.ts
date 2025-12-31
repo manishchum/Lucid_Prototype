@@ -20,7 +20,7 @@ export function formatBytes(bytes: number, decimals = 2) {
 // Helper function to notify admins when a module is completed
 export async function notifyAdminOfCompletion(employeeId: string, moduleId: string) {
   try {
-    console.log("📧 DEBUG: Triggering admin notification for module completion");
+    // console.log("📧 DEBUG: Triggering admin notification for module completion");
     const res = await fetch("/api/notify-admin-completion", {
       method: "POST",
       headers: {
@@ -40,7 +40,7 @@ export async function notifyAdminOfCompletion(employeeId: string, moduleId: stri
     }
 
     const data = await res.json();
-    console.log("📧 DEBUG: Admin notification sent successfully:", data);
+    // console.log("📧 DEBUG: Admin notification sent successfully:", data);
     return data;
   } catch (error) {
     console.error("📧 DEBUG: Error sending admin notification:", error);

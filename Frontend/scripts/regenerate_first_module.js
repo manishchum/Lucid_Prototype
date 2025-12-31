@@ -9,7 +9,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function findAndRegenerateNullModules() {
   try {
-    console.log('Finding modules with NULL content...');
+    // console.log('Finding modules with NULL content...');
     
     // Find modules with NULL content
     const { data: nullModules, error } = await supabase
@@ -24,7 +24,7 @@ async function findAndRegenerateNullModules() {
     }
     
     if (!nullModules || nullModules.length === 0) {
-      console.log('✓ No modules with NULL content found!');
+      // console.log('✓ No modules with NULL content found!');
       
       // Check for empty string content too
       const { data: emptyModules } = await supabase
@@ -34,18 +34,18 @@ async function findAndRegenerateNullModules() {
         .limit(10);
       
       if (emptyModules && emptyModules.length > 0) {
-        console.log(`Found ${emptyModules.length} modules with empty content:`, emptyModules.map(m => m.title));
+        // console.log(`Found ${emptyModules.length} modules with empty content:`, emptyModules.map(m => m.title));
       }
       
       return;
     }
     
-    console.log(`Found ${nullModules.length} modules with NULL content:`);
+    // console.log(`Found ${nullModules.length} modules with NULL content:`);
     nullModules.forEach(m => {
-      console.log(`  - ${m.title} (ID: ${m.processed_module_id}, Original: ${m.original_module_id})`);
+      // console.log(`  - ${m.title} (ID: ${m.processed_module_id}, Original: ${m.original_module_id})`);
     });
     
-    console.log('\nRegenerating content via API...');
+    // console.log('\nRegenerating content via API...');
     
     const response = await fetch('http://localhost:3000/api/generate-module-content', {
       method: 'POST',
@@ -54,16 +54,16 @@ async function findAndRegenerateNullModules() {
     });
     
     const data = await response.json();
-    console.log('\nResponse status:', response.status);
-    console.log('Response data:', JSON.stringify(data, null, 2));
+    // console.log('\nResponse status:', response.status);
+    // console.log('Response data:', JSON.stringify(data, null, 2));
     
     if (!response.ok) {
       console.error('❌ Error:', data);
     } else {
-      console.log('✓ Content regeneration complete!');
+      // console.log('✓ Content regeneration complete!');
       
       // Verify the first module now has content
-      console.log('\nVerifying first module...');
+      // console.log('\nVerifying first module...');
       const { data: firstModule } = await supabase
         .from('processed_modules')
         .select('processed_module_id, title, content')
@@ -71,9 +71,9 @@ async function findAndRegenerateNullModules() {
         .single();
       
       if (firstModule && firstModule.content) {
-        console.log('✓ First module now has content! Length:', firstModule.content.length);
+        // console.log('✓ First module now has content! Length:', firstModule.content.length);
       } else {
-        console.log('❌ First module still has no content');
+        // console.log('❌ First module still has no content');
       }
     }
   } catch (error) {

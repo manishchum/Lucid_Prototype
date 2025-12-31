@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '../../../lib/supabase'
-import { callGemini } from '../../../lib/gemini-client'
+import { callGemini } from '../../../lib/gemini-helper'
 
 // Simple intent detection heuristics
 function detectIntent(q: string, mode?: string) {
@@ -92,9 +92,9 @@ export async function POST(req: NextRequest) {
     }
 
     // call Gemini (single model preference)
-    const gResp = await callGemini(geminiModel, `${system}\n\n${userPrompt}`, 1200)
-    if (!gResp || gResp.error || !gResp.data) {
-      const err = (gResp && gResp.error) || 'unknown_gemini_error'
+    const gResp = await callGemini(geminiModel, )
+    if (!gResp || !gResp.ok || !gResp.data) {
+      const err = (gResp && !gResp?.ok) || 'unknown_gemini_error'
       console.error('[gemini-assistant] gemini error', err)
       const fallback = excerptFromContent(sourceParts || '')
       // save fallback if it's a doubt

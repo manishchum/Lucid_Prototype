@@ -312,14 +312,14 @@ export default function KPIIntelligencePage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Sparkles className="w-5 h-5 text-purple-600" />
-                    AI Analysis Results
+                   Analysis Results
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <Tabs defaultValue="indicators" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2">
+                    <TabsList className="grid w-full grid-cols-1">
                       <TabsTrigger value="indicators">Indicators</TabsTrigger>
-                      <TabsTrigger value="strategies">Strategies</TabsTrigger>
+                      {/* <TabsTrigger value="strategies">Strategies</TabsTrigger> */}
                     </TabsList>
                     
                     <TabsContent value="indicators" className="space-y-6 mt-4">
@@ -400,9 +400,9 @@ export default function KPIIntelligencePage() {
                       </div>
                     </TabsContent>
 
-                    <TabsContent value="strategies" className="space-y-4 mt-4">
+                    {/* <TabsContent value="strategies" className="space-y-4 mt-4"> */}
                       {/* Learning Strategy */}
-                      <div className="space-y-3">
+                      {/* <div className="space-y-3">
                         <div className="flex items-center gap-2 mb-2">
                           <BookOpen className="w-5 h-5 text-purple-600" />
                           <h3 className="font-semibold text-gray-900">Learning Strategy</h3>
@@ -410,10 +410,10 @@ export default function KPIIntelligencePage() {
                         <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
                           <p className="text-sm text-gray-800 whitespace-pre-line">{parsedData.learningStrategy}</p>
                         </div>
-                      </div>
+                      </div> */}
 
                       {/* Data Strategy */}
-                      <div className="space-y-3">
+                      {/* <div className="space-y-3">
                         <div className="flex items-center gap-2 mb-2">
                           <Database className="w-5 h-5 text-orange-600" />
                           <h3 className="font-semibold text-gray-900">Data Strategy</h3>
@@ -422,15 +422,15 @@ export default function KPIIntelligencePage() {
                           <p className="text-sm text-gray-800 whitespace-pre-line">{parsedData.dataStrategy}</p>
                         </div>
                       </div>
-                    </TabsContent>
+                    </TabsContent> */}
                   </Tabs>
                 </CardContent>
               </Card>
 
               {/* Module Suggestions Section */}
               <ModuleSuggestions
-                leadIndicators={parsedData.leadIndicators.map(ind => ind.name)}
-                lagIndicators={parsedData.lagIndicators.map(ind => ind.name)}
+                leadIndicators={parsedData?.leadIndicators.map(ind => ind.name)}
+                lagIndicators={parsedData?.lagIndicators.map(ind => ind.name)}
                 roleName={roleName}
               />
 

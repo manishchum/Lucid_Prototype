@@ -503,10 +503,10 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
   };
 
   const calculateLearningStyleStatistics = (data: any[]) => {
-    console.log('Calculating learning style statistics for:', data);
+    // console.log('Calculating learning style statistics for:', data);
     
     if (!data || data.length === 0) {
-      console.log('No learning style data available');
+      // console.log('No learning style data available');
       setLearningStyleStats([]);
       return;
     }
@@ -535,7 +535,7 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
       percentage: Math.round((count / data.length) * 100)
     }));
 
-    console.log('Learning style stats calculated:', learningStyleStatsArray);
+    // console.log('Learning style stats calculated:', learningStyleStatsArray);
     setLearningStyleStats(learningStyleStatsArray);
   };
 

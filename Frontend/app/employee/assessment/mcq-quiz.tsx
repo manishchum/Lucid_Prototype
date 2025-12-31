@@ -74,7 +74,7 @@ const MCQQuiz: React.FC<MCQQuizProps> = ({ questions, onSubmit }) => {
     setFeedback(fb);
     setSubmitted(true);
     onSubmit({ score: sc, answers: selected as number[], feedback: fb });
-    console.log("Quiz submitted with score:", sc, "/", questions.length);
+    // console.log("Quiz submitted with score:", sc, "/", questions.length);
   };
 
   const getScoreMessage = (score: number, total: number) => {
