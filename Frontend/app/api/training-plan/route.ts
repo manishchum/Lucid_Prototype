@@ -68,6 +68,8 @@ export async function POST(request: NextRequest) {
     }
     // Check if we already have a learning plan for this user and module
     if (module_id) {
+      console.log("This is the module id inside the training plan api route")
+      console.log(module_id)
       const { data: existingPlan, error: planCheckError } = await supabase
         .from('learning_plan')
         .select('learning_plan_id, plan_json, status, reasoning')
@@ -102,6 +104,8 @@ export async function POST(request: NextRequest) {
         if (planContent) {
           // Ensure processed modules exist for the existing plan (use resolved company_id)
           try {
+            console.log("Plan Content")
+            console.log(planContent)
             await ensureProcessedModulesForPlan(user_id, company_id, planContent);
           } catch (e) {
             console.error('📚 Error ensuring processed modules for existing plan:', e);
@@ -135,7 +139,9 @@ export async function POST(request: NextRequest) {
     }
     // company_id already resolved above
 
-    // If this company has baseline assessment(s) defined, require the user to complete them first
+    // Note: Baseline requirement check removed from here as it's module-specific, not company-wide
+    // Individual modules may or may not require baseline assessments
+    // The frontend handles per-module baseline requirements based on module configuration
     let baselineRequired = false;
     try {
       const { data: baselineDefs, error: baselineDefError } = await supabase
@@ -267,7 +273,7 @@ export async function POST(request: NextRequest) {
         console.error("[Training Plan API] ensureProcessedModulesForPlan failed on existing plan:", e);
       }
       
-      return NextResponse.json({ 
+      return NextResponse.json({
         plan: existingPlan.plan_json, 
         reasoning: existingPlan.reasoning,
         message: "Using existing stable learning plan"
@@ -431,15 +437,24 @@ export async function POST(request: NextRequest) {
       (kpiText ? kpiText + "\n\n" : "") +
       "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n" +
       "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
-      "STRICT CONSTRAINTS:\n" +
-      "- The number of modules and total study hours must decrease as the employee's score increases.\n" +
-      "- For scores above 80% of the maximum, recommend only essential modules and minimize study hours (max 1 hours per module).\n" +
-      "- For scores below 40% of the maximum, recommend more modules and study hours as needed, but justify each.\n" +
-      "- For scores in between, recommend a moderate number of modules and study hours, proportional to weaknesses.\n" +
-      "- For each module, provide a clear justification for its inclusion and the recommended study time, based on the employee's weaknesses and learning style.\n" +
-      "- Do not recommend unnecessary modules or excessive study time for high performers.\n" +
-      "- The plan must be efficient and fair: high performers should not be overburdened, and weaker performers should get enough support.\n\n" +
-      "The plan should:\n- Identify weak areas based on scores, benchmarks, datatypes, and feedback\n- Match module objectives to weaknesses\n- Specify what to study, in what order, and how much time for each\n- Output a JSON object with: modules (ordered), objectives, recommended time (hours), and any tips or recommendations\n- Ensure all recommendations and tips are personalized to the employee's learning style\n\n" +
+      "CRITICAL MODULE SELECTION REQUIREMENTS - MUST FOLLOW:\n" +
+      "- For scores 0-30%: YOU MUST recommend MINIMUM 4-5 modules, NO EXCEPTIONS. Allocate 5-6 hours per module.\n" +
+      "- For scores 31-50%: YOU MUST recommend MINIMUM 3-4 modules. Allocate 4-5 hours per module.\n" +
+      "- For scores 51-70%: Recommend 3 modules minimum. Allocate 3-4 hours per module.\n" +
+      "- For scores 71-85%: Recommend 2-3 modules. Allocate 2-3 hours per module.\n" +
+      "- For scores 86-100%: Recommend 1-2 modules. Allocate 2 hours per module.\n" +
+      "- SELECT modules from the Available Modules list that match the employee's weak areas.\n" +
+      "- NEVER recommend only 1 module for low scores (below 50%). This is MANDATORY.\n" +
+      "- Each module must include: title (or name), recommended_time (in hours), and order.\n" +
+      "- Prioritize modules addressing the most critical skill gaps shown in the assessment.\n\n" +
+      "The plan should:\n" +
+      "- Identify weak areas based on scores, benchmarks, datatypes, and feedback\n" +
+      "- Select MULTIPLE modules from the Available Modules list (minimum based on score ranges above)\n" +
+      "- Map each selected module to specific weaknesses\n" +
+      "- Specify study order, recommended time per module (in hours)\n" +
+      "- Include actionable tips and recommendations\n" +
+      "- Ensure all recommendations align with the employee's learning style\n" +
+      "- IMPORTANT: For scores below 30%, you MUST include at least 4 modules in the plan.modules array.\n\n" +
       "KPI Comparison Instructions:\n" +
       "- For each KPI, compare the employee's score to the benchmark using the provided datatype.\n" +
       "- If datatype is 'percentage', treat both score and benchmark as percentages out of 100.\n" +
@@ -449,13 +464,28 @@ export async function POST(request: NextRequest) {
       "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, learning style, and KPI factors (including benchmark and datatype) influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, learning style, and KPIs (including benchmark and datatype)\n- Explicitly explain how the score, benchmark, and datatype influenced the number of modules and total study hours.\n\n" +
     "Assessment Results (baseline only, percentage-based):\n" + JSON.stringify(baselinePercentAssessments, null, 2) + "\n\n" +
       "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
+      "REMEMBER: Based on the assessment score percentage, you MUST include the minimum number of modules specified above. For a score of 23%, you MUST include at least 4-5 modules.\n\n" +
       "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n" +
+      "The 'plan' object MUST contain a 'modules' array with AT LEAST the minimum number of modules based on the score.\n" +
+      "Example plan structure:\n" +
+      "{\n" +
+      "  \"plan\": {\n" +
+      "    \"modules\": [\n" +
+      "      { \"title\": \"Module Name\", \"recommended_time\": 5, \"order\": 1 },\n" +
+      "      { \"title\": \"Module Name 2\", \"recommended_time\": 5, \"order\": 2 },\n" +
+      "      { \"title\": \"Module Name 3\", \"recommended_time\": 5, \"order\": 3 },\n" +
+      "      { \"title\": \"Module Name 4\", \"recommended_time\": 5, \"order\": 4 }\n" +
+      "    ],\n" +
+      "    \"tips\": \"...\"\n" +
+      "  },\n" +
+      "  \"reasoning\": { ... }\n" +
+      "}\n" +
       "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
       "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"kpi_influence\": string,\n  \"overall_strategy\": string\n}\n" +
       "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
     // console.log("[Training Plan API] Prompt for Gemini:", prompt);
 
-    // Call Gemini with gemini-2.5-flash-lite model
+    // Call Gemini with gemini-2.5flash-lite model
     console.log("[Training Plan API] Calling Gemini (gemini-2.5-flash-lite)...");
     let planJsonRaw = "";
     try {
@@ -555,16 +585,10 @@ export async function POST(request: NextRequest) {
     const sanitizePlan = (p: any) => {
       if (!p) return p;
       if (Array.isArray(p.modules)) {
-        p.modules = p.modules.map((m: any) => ({
-          ...m,
-          objectives: Array.isArray(m.objectives)
-            ? m.objectives.map((obj: any) =>
-                typeof obj === "object" && obj !== null ? JSON.stringify(obj) : obj
-              )
-            : typeof m.objectives === "object" && m.objectives !== null
-            ? [JSON.stringify(m.objectives)]
-            : m.objectives,
-        }));
+        p.modules = p.modules.map((m: any) => {
+          const { objectives, ...rest } = m || {};
+          return rest; // drop objectives entirely
+        });
       }
       return p;
     };

@@ -1,36 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-
-// Google TTS API imports
-// You need to install @google-cloud/text-to-speech and set up credentials
-import textToSpeech from '@google-cloud/text-to-speech';
-import os from 'os';
-import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import fetch from 'node-fetch';
+
+// Using Google Cloud Text-to-Speech REST API with service account credentials
+// Set GOOGLE_APPLICATION_CREDENTIALS to point to your service account JSON file
+// Env:
+// - GOOGLE_APPLICATION_CREDENTIALS: Path to google-tts.json service account file (required)
+// - NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY: used for storage + DB writes
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-// Decode base64 Google service account key from GOOGLE_TTS_JSON and set GOOGLE_APPLICATION_CREDENTIALS
-const base64Key = process.env.GOOGLE_TTS_JSON;
-let credentialsPath: string | undefined;
-if (base64Key) {
-  try {
-    const decoded = Buffer.from(base64Key, 'base64').toString('utf8');
-    const tempPath = os.tmpdir() + `/google-credentials-${Date.now()}.json`;
-    fs.writeFileSync(tempPath, decoded, { encoding: 'utf8' });
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = tempPath;
-    credentialsPath = tempPath;
-    console.log('[TTS API] Decoded Google credentials from GOOGLE_TTS_JSON and set GOOGLE_APPLICATION_CREDENTIALS');
-  } catch (e) {
-    console.error('[TTS API] Failed to decode/write Google credentials:', e);
-  }
-} else {
-  console.warn('[TTS API] GOOGLE_TTS_JSON not set.');
-}
 
 if (!supabaseUrl) {
   console.warn('[TTS API] NEXT_PUBLIC_SUPABASE_URL is not set');
@@ -40,9 +23,31 @@ if (!serviceKey) {
 }
 
 const admin = createClient(supabaseUrl, serviceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
-const client = new textToSpeech.TextToSpeechClient();
 
 const BUCKET = 'module_audio';
+
+function generateJWT(credentials: any): string {
+  const crypto = require('crypto');
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: credentials.client_email,
+    scope: 'https://www.googleapis.com/auth/cloud-platform',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now,
+  };
+  
+  const headerB64 = Buffer.from(JSON.stringify(header)).toString('base64').replace(/[=+/]/g, (m: string) => ({ '=': '', '+': '-', '/': '_' }[m as '=' | '+' | '/'] || ''));
+  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64').replace(/[=+/]/g, (m: string) => ({ '=': '', '+': '-', '/': '_' }[m as '=' | '+' | '/'] || ''));
+  const signature = crypto
+    .createSign('RSA-SHA256')
+    .update(`${headerB64}.${payloadB64}`)
+    .sign(credentials.private_key, 'base64')
+    .replace(/[=+/]/g, (m: string) => ({ '=': '', '+': '-', '/': '_' }[m as '=' | '+' | '/'] || ''));
+  
+  return `${headerB64}.${payloadB64}.${signature}`;
+}
 
 async function ensureBucketExists() {
   try {
@@ -72,6 +77,168 @@ function cleanTextForTTS(text: string) {
     .trim();
 }
 
+function generatePodcastScript(moduleContent: string, moduleTitle: string): Array<{ speaker: string; text: string }> {
+  const dialogue: Array<{ speaker: string; text: string }> = [];
+  
+  // Introduction - more casual
+  dialogue.push({
+    speaker: 'sarah',
+    text: `Hey everyone, welcome back. So today we're diving into ${moduleTitle}. Mark, this is actually pretty relevant to what we do here, right?`
+  });
+  
+  dialogue.push({
+    speaker: 'mark',
+    text: 'Absolutely, Sarah. You know, this stuff applies to our daily work. Let me break down what this is really about.'
+  });
+  
+  // Parse content into sections and exclude activities
+  const lines = moduleContent.split('\n');
+  let currentSection = '';
+  let sectionContent: string[] = [];
+  let skipSection = false;
+  let speakerToggle = false; // false = mark, true = sarah
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    
+    // Check if it's a section header
+    const headerMatch = trimmed.match(/^(Learning Objectives?|Part \d+|Activity|Discussion Prompts?|Instructions?:|Module Summary|What is|Why is|How to|The Six Stages)/i);
+    
+    if (headerMatch) {
+      // Add previous section content if not skipped
+      if (!skipSection && sectionContent.length > 0) {
+        const content = sectionContent.join(' ').trim();
+        if (content) {
+          // Split into smaller chunks for conversation
+          const chunks = splitIntoConversationalChunks(content, 150);
+          // Only take first 2 chunks per section to keep it brief
+          chunks.slice(0, 2).forEach((chunk, idx) => {
+            if (idx === 0 && currentSection) {
+              // More natural transition
+              const transitions = [
+                `So, let's talk about ${currentSection}. What should people know?`,
+                `Right, so ${currentSection} is something we should understand. Can you explain it?`,
+                `Okay, and when it comes to ${currentSection}, how does that work in practice?`,
+                `Got it. So what's the deal with ${currentSection}?`
+              ];
+              const transition = transitions[Math.floor(Math.random() * transitions.length)];
+              dialogue.push({
+                speaker: 'sarah',
+                text: transition
+              });
+            }
+            dialogue.push({
+              speaker: speakerToggle ? 'sarah' : 'mark',
+              text: chunk
+            });
+            speakerToggle = !speakerToggle;
+          });
+        }
+        sectionContent = [];
+      }
+      
+      // Check if this is an activity or instruction section (skip it)
+      skipSection = /^(Activity|Instructions?:|Discussion Prompts?)/i.test(trimmed);
+      currentSection = trimmed;
+      speakerToggle = false;
+      
+      // Skip activities completely
+      if (skipSection) {
+        sectionContent = [];
+        continue;
+      }
+    } else if (!skipSection) {
+      // Only add content if we're not in a skipped section
+      sectionContent.push(trimmed);
+    }
+  }
+  
+  // Add final section if not skipped
+  if (!skipSection && sectionContent.length > 0) {
+    const content = sectionContent.join(' ').trim();
+    if (content) {
+      const chunks = splitIntoConversationalChunks(content, 150);
+      // Only take first 2 chunks
+      chunks.slice(0, 2).forEach((chunk, idx) => {
+        if (idx === 0) {
+          dialogue.push({
+            speaker: 'sarah',
+            text: "Okay, and what about this part? How does it fit in?"
+          });
+        }
+        dialogue.push({
+          speaker: speakerToggle ? 'sarah' : 'mark',
+          text: chunk
+        });
+        speakerToggle = !speakerToggle;
+      });
+    }
+  }
+  
+  // Closing - more natural and conversational
+  dialogue.push({
+    speaker: 'sarah',
+    text: "That's really helpful, Mark. So basically, the key takeaway is to apply this in our day-to-day work."
+  });
+  
+  dialogue.push({
+    speaker: 'mark',
+    text: "Exactly. Just remember these principles when you're working through challenges, and you'll see the difference."
+  });
+  
+  dialogue.push({
+    speaker: 'sarah',
+    text: "Great, thanks for walking us through this. Really useful stuff."
+  });
+  
+  // Clean the text for TTS and limit total dialogue to 30 segments max
+  const cleanedDialogue = dialogue.map(d => ({
+    ...d,
+    text: cleanTextForTTS(d.text)
+  }));
+  
+  // Return limited dialogue to prevent size issues
+  return cleanedDialogue.slice(0, 30);
+}
+
+function splitIntoConversationalChunks(text: string, maxWords: number): string[] {
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+  const chunks: string[] = [];
+  let currentChunk = '';
+  let wordCount = 0;
+  
+  for (const sentence of sentences) {
+    const trimmedSentence = sentence.trim();
+    if (!trimmedSentence) continue;
+    
+    const words = trimmedSentence.split(/\s+/).length;
+    
+    if (wordCount + words > maxWords && currentChunk) {
+      chunks.push(currentChunk.trim());
+      currentChunk = trimmedSentence;
+      wordCount = words;
+    } else {
+      currentChunk += (currentChunk ? ' ' : '') + trimmedSentence;
+      wordCount += words;
+    }
+    
+    // Limit each chunk to avoid too long segments
+    if (wordCount >= maxWords) {
+      chunks.push(currentChunk.trim());
+      currentChunk = '';
+      wordCount = 0;
+    }
+  }
+  
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk.trim());
+  }
+  
+  // Limit to 3 chunks max per section
+  return chunks.slice(0, 3).filter(c => c.length > 0);
+}
+
 async function synthesizeAndStore(processedModuleId: string) {
   // Fetch module content from processed_modules
   const { data: module, error: moduleError } = await admin
@@ -83,36 +250,19 @@ async function synthesizeAndStore(processedModuleId: string) {
     return { error: moduleError?.message || 'Module not found', status: 404 } as const;
   }
 
-  // Prepare full cleaned text
-  const fullText = cleanTextForTTS(module.content || '');
-  if (!fullText) return { error: 'Empty content', status: 400 } as const;
+  const fullContent = module.content || '';
+  if (!fullContent) return { error: 'Empty content', status: 400 } as const;
 
-  // Google TTS has limits per request (~5000 chars). Split into chunks and synthesize as LINEAR16 PCM,
-  // then concatenate PCM and wrap into a WAV container so the final audio contains the entire module.
-  const maxChars = 4300;
-
-  function splitTextIntoChunks(text: string, maxLen: number) {
-    const chunks: string[] = [];
-    let start = 0;
-    while (start < text.length) {
-      let end = Math.min(start + maxLen, text.length);
-      if (end < text.length) {
-        const slice = text.slice(start, end);
-        const lastPunct = Math.max(slice.lastIndexOf('.'), slice.lastIndexOf('!'), slice.lastIndexOf('?'));
-        const lastSpace = slice.lastIndexOf(' ');
-        if (lastPunct > Math.floor(maxLen * 0.6)) {
-          end = start + lastPunct + 1;
-        } else if (lastSpace > Math.floor(maxLen * 0.6)) {
-          end = start + lastSpace;
-        }
-      }
-      const chunk = text.slice(start, end).trim();
-      if (chunk) chunks.push(chunk);
-      start = end;
-    }
-    return chunks;
+  // Generate podcast script (no OpenAI needed)
+  console.log('[TTS] Generating podcast script...');
+  const dialogue = generatePodcastScript(fullContent, module.title);
+  
+  if (dialogue.length === 0) {
+    return { error: 'No dialogue generated from script', status: 500 } as const;
   }
 
+  console.log(`[TTS] Generated ${dialogue.length} dialogue segments`);
+  
   function createWavBuffer(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1, bytesPerSample = 2) {
     const blockAlign = numChannels * bytesPerSample;
     const byteRate = sampleRate * blockAlign;
@@ -121,8 +271,8 @@ async function synthesizeAndStore(processedModuleId: string) {
     header.writeUInt32LE(36 + pcmBuffer.length, 4);
     header.write('WAVE', 8);
     header.write('fmt ', 12);
-    header.writeUInt32LE(16, 16); // Subchunk1Size
-    header.writeUInt16LE(1, 20); // PCM format
+    header.writeUInt32LE(16, 16);
+    header.writeUInt16LE(1, 20);
     header.writeUInt16LE(numChannels, 22);
     header.writeUInt32LE(sampleRate, 24);
     header.writeUInt32LE(byteRate, 28);
@@ -132,25 +282,116 @@ async function synthesizeAndStore(processedModuleId: string) {
     header.writeUInt32LE(pcmBuffer.length, 40);
     return Buffer.concat([header, pcmBuffer]);
   }
-
-  const chunks = splitTextIntoChunks(fullText, maxChars);
+  
   const pcmBuffers: Buffer[] = [];
-  for (const chunk of chunks) {
-    const requestTTS = {
-      input: { text: chunk },
-      voice: { languageCode: 'en-IN', voiceName: 'en-IN-Chirp3-HD-Algenib', ssmlGender: 'MALE' as const },
-      audioConfig: { audioEncoding: 'LINEAR16' as const, sampleRateHertz: 24000 },
-    };
-    const [response] = await client.synthesizeSpeech(requestTTS as any);
-    const audioContent = response.audioContent as Uint8Array | string | undefined;
-    if (!audioContent) {
-      return { error: 'TTS failed for a chunk', status: 500 } as const;
+  
+  // Get access token from service account
+  let accessToken: string | null = null;
+  try {
+    const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    if (!credPath) {
+      return { error: 'GOOGLE_APPLICATION_CREDENTIALS not set', status: 500 } as const;
     }
-    // response.audioContent may be Uint8Array or base64 string depending on client; normalize to Buffer
-    const buf = Buffer.isBuffer(audioContent) ? audioContent : Buffer.from(audioContent as any, 'base64');
-    pcmBuffers.push(buf);
+    
+    const fs = await import('fs');
+    const credContent = fs.readFileSync(credPath, 'utf8');
+    const credentials = JSON.parse(credContent);
+    
+    const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion: generateJWT(credentials),
+      }),
+    });
+    
+    if (!tokenResp.ok) {
+      const errText = await tokenResp.text();
+      console.error('[TTS API] Failed to get access token:', errText);
+      return { error: `Failed to get Google access token: ${errText}`, status: 500 } as const;
+    }
+    
+    const tokenData = await tokenResp.json();
+    accessToken = (tokenData as any).access_token;
+    if (!accessToken) {
+      return { error: 'No access token in response', status: 500 } as const;
+    }
+  } catch (err: any) {
+    console.error('[TTS API] Error getting access token:', err);
+    return { error: `Failed to initialize TTS: ${err?.message}`, status: 500 } as const;
+  }
+  
+  // Generate audio for each dialogue segment with appropriate voice
+  for (let i = 0; i < dialogue.length; i++) {
+    const segment = dialogue[i];
+    
+    // Choose voice based on speaker
+    const voice = segment.speaker === 'sarah' 
+      ? { languageCode: 'en-US', name: 'en-US-Neural2-F', ssmlGender: 'FEMALE' }  // Sarah - female voice
+      : { languageCode: 'en-US', name: 'en-US-Neural2-J', ssmlGender: 'MALE' };   // Mark - male voice
+    
+    const requestBody = {
+      input: { text: segment.text },
+      voice: voice,
+      audioConfig: { 
+        audioEncoding: 'LINEAR16',
+        sampleRateHertz: 24000,
+        speakingRate: 1.0,
+        pitch: 0.0
+      },
+    };
+    
+    try {
+      console.log(`[TTS] Synthesizing segment ${i + 1}/${dialogue.length} (${segment.speaker})...`);
+      const response = await fetch(
+        `https://texttospeech.googleapis.com/v1/text:synthesize`,
+        {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: JSON.stringify(requestBody),
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[TTS API] Google TTS REST API error:', response.status, errorText);
+        return { 
+          error: `Google TTS API failed: ${response.statusText}. ${errorText}`, 
+          status: response.status 
+        } as const;
+      }
+
+      const data = await response.json();
+      const audioContent = (data as any).audioContent;
+      
+      if (!audioContent) {
+        return { error: 'TTS returned no audio for a segment', status: 500 } as const;
+      }
+      
+      const buf = Buffer.from(audioContent, 'base64');
+      pcmBuffers.push(buf);
+      
+      // Add a small pause between speakers (0.5 second silence at 24kHz, 16-bit mono)
+      if (i < dialogue.length - 1) {
+        const pauseSamples = 12000; // 0.5 seconds at 24kHz
+        const pauseBuffer = Buffer.alloc(pauseSamples * 2); // 2 bytes per sample
+        pcmBuffers.push(pauseBuffer);
+      }
+    } catch (ttsErr: any) {
+      const errMsg = ttsErr?.message || String(ttsErr);
+      console.error('[TTS API] Google Cloud TTS error:', errMsg);
+      return { 
+        error: `Google Cloud TTS failed: ${errMsg}`, 
+        status: 500 
+      } as const;
+    }
   }
 
+  console.log('[TTS] All segments synthesized, creating final audio file...');
   const pcm = Buffer.concat(pcmBuffers);
   const wavBuffer = createWavBuffer(pcm, 24000, 1, 2);
 
@@ -227,12 +468,14 @@ export async function GET(request: NextRequest) {
 
     const result = await synthesizeAndStore(targetId);
     if ('error' in result) {
+      console.error('[TTS API][GET] Synthesis failed:', result.error);
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
     return NextResponse.json({ audioUrl: result.audioUrl, processed_module_id: targetId });
-  } catch (err) {
-    console.error('[TTS API][GET] Error:', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch (err: any) {
+    const errMsg = err?.message || String(err);
+    console.error('[TTS API][GET] Error:', errMsg, err);
+    return NextResponse.json({ error: `TTS request failed: ${errMsg}` }, { status: 500 });
   }
 }
 
@@ -244,11 +487,13 @@ export async function POST(request: NextRequest) {
 
     const result = await synthesizeAndStore(module_id);
     if ('error' in result) {
+      console.error('[TTS API][POST] Synthesis failed:', result.error);
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
     return NextResponse.json({ audioUrl: result.audioUrl, processed_module_id: module_id });
-  } catch (err) {
-    console.error('[TTS API][POST] Error:', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch (err: any) {
+    const errMsg = err?.message || String(err);
+    console.error('[TTS API][POST] Error:', errMsg, err);
+    return NextResponse.json({ error: `TTS request failed: ${errMsg}` }, { status: 500 });
   }
 }

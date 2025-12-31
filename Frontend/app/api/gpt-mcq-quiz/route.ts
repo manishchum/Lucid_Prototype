@@ -3,6 +3,11 @@ import { supabase } from '@/lib/supabase';
 import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+// Verify GEMINI_API_KEY is loaded
+if (!process.env.GEMINI_API_KEY) {
+  console.error('[gpt-mcq-quiz] CRITICAL: GEMINI_API_KEY is not set in environment variables!');
+}
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 // Deep comparison helpers for modules
@@ -79,6 +84,11 @@ Objectives: ${JSON.stringify(objectives)}
     const response = await result.response;
     const content = response.text();
     
+    if (!content) {
+      console.error('[gpt-mcq-quiz][ERROR] Gemini returned empty response');
+      return [];
+    }
+    
     // console.log('[gpt-mcq-quiz][DEBUG] Raw Gemini response:', JSON.stringify(content, null, 2));
     
     let quiz;
@@ -114,9 +124,17 @@ Objectives: ${JSON.stringify(objectives)}
       console.error('[gpt-mcq-quiz][ERROR] Content that failed to parse:', content);
       quiz = [];
     }
+    
+    if (!Array.isArray(quiz) || quiz.length === 0) {
+      console.error('[gpt-mcq-quiz][ERROR] No valid questions generated');
+    }
+    
     return quiz;
   } catch (error) {
     console.error('Error calling Gemini API:', error);
+    if (error instanceof Error) {
+      console.error('Error details:', error.message, error.stack);
+    }
     throw error;
   }
 }
@@ -461,8 +479,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
   // Baseline (multi-module) quiz generation with modules_snapshot logic
   console.log('[gpt-mcq-quiz] Processing baseline assessment request');
   const { moduleIds, companyId,assessmentType,isBaseline,user_id } = body;
-  console.log(moduleIds)
-  console.log(companyId)
+  console.log('[gpt-mcq-quiz] Request params:', { moduleIds, companyId, assessmentType, isBaseline, user_id });
   if (!moduleIds  || moduleIds.length === 0) {
     return NextResponse.json({ error: 'moduleIds (array) required' }, { status: 400 });
   }
@@ -529,7 +546,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
       .upsert(inserts, { onConflict: 'original_module_id' })
       .select('processed_module_id, original_module_id');
     insData = upsertRes.data; insErr = upsertRes.error;
-
+    console.log("This is upsert res ",upsertRes)
     if (insErr) {
       // If the error indicates no matching unique constraint for ON CONFLICT,
       // fall back to a plain insert and then re-query existing rows.
@@ -685,14 +702,11 @@ Objectives: ${JSON.stringify([moduleContent])}`;
     questions,
     company_id,
     modules_snapshot,
-    processed_modules!inner (
-      user_id
-    )
+    processed_module_id
   `)
   .eq('type', 'baseline')
   .eq('company_id', companyId)
-  .eq('processed_modules.user_id', user_id)
-  .eq('processed_modules.original_module_id', moduleIds)
+  .in('processed_module_id', processedIds)
   .order('created_at', { ascending: false })
   .limit(1)
   .maybeSingle();
@@ -720,15 +734,27 @@ Objectives: ${JSON.stringify([moduleContent])}`;
   }
   // 4. Generate new quiz and update or insert assessment
   const combinedSummary = data.map((mod: any) => mod.gpt_summary).filter(Boolean).join('\n');
-  const combinedObjectives = data.flatMap((mod: any) => mod.ai_objectives ? JSON.parse(mod.ai_objectives) : []);     
+  const combinedObjectives = data.flatMap((mod: any) => mod.ai_objectives ? JSON.parse(mod.ai_objectives) : []);
+  
+  console.log('[gpt-mcq-quiz] Generating quiz with Gemini...');
+  console.log('[gpt-mcq-quiz] Combined summary length:', combinedSummary.length);
+  console.log('[gpt-mcq-quiz] Module count:', currentModules.length);
+  
   const quiz = await generateMCQQuiz(
     combinedSummary,
     currentModules,
     combinedObjectives
   );
+  
+  console.log('[gpt-mcq-quiz] Generated quiz result:', Array.isArray(quiz) ? `${quiz.length} questions` : 'invalid');
+  
   if (!Array.isArray(quiz) || quiz.length === 0) {
     console.error('[gpt-mcq-quiz][ERROR] Quiz array is empty or invalid. Not storing.');
-    return NextResponse.json({ error: 'Quiz generation failed or returned empty array.', rawResponse: quiz }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Quiz generation failed or returned empty array.',
+      details: 'The AI model did not generate any valid questions. Please try again.',
+      rawResponse: quiz 
+    }, { status: 500 });
   }
   if (existingAssessment && existingAssessment.assessment_id) {
 
