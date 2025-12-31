@@ -46,7 +46,7 @@ function ContentUpload({
     setUploading(true);
     try {
       // Simple file upload placeholder
-      console.log('Uploading content:', { title, description, file });
+      // console.log('Uploading content:', { title, description, file });
       // In a real implementation, this would upload to storage and create training module
       onUploadComplete();
     } catch (error) {

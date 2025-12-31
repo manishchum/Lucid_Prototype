@@ -40,12 +40,12 @@ Responses to analyze:
 ${answersText}`;
 
     try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
       const result = await model.generateContent(prompt);
       const response = await result.response;
       const content = response.text();
 
-      console.log('[learning-style] Raw Gemini response:', content);
+      // console.log('[learning-style] Raw Gemini response:', content);
 
       let analysisResult;
       try {
@@ -53,9 +53,9 @@ ${answersText}`;
         const cleanedContent = content.replace(/```json\n?|\n?```/g, '').trim();
         analysisResult = JSON.parse(cleanedContent);
       } catch (parseError) {
-        console.log("--------------------------------")
-        console.log("Error inside the gpt-learning-style")
-        console.error('[learning-style] Failed to parse Gemini response:', parseError);
+        // console.log("--------------------------------")
+        // console.log("Error inside the gpt-learning-style")
+        // console.error('[learning-style] Failed to parse Gemini response:', parseError);
         // Fallback analysis
         analysisResult = {
           learning_style: "Visual",

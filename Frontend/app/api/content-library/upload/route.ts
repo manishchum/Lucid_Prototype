@@ -17,17 +17,17 @@ const supabaseService = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
 });
 
 export async function POST(req: Request) {
-  console.log('Upload route invoked');
+  // console.log('Upload route invoked');
   try {
     const form = await req.formData();
-    console.log('Upload route received form data');
-    console.log(form);
+    // console.log('Upload route received form data');
+    // console.log(form);
     // Log all form entries to help debug which fields the client actually sent
     for (const entry of form.entries()) {
       try {
-        console.log('form entry:', entry[0], entry[1]);
+        // console.log('form entry:', entry[0], entry[1]);
       } catch (e) {
-        console.log('form entry (binary):', entry[0]);
+        // console.log('form entry (binary):', entry[0]);
       }
     }
 
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
 
     const groupTitle = (form.get('groupTitle') as string) || (form.get('title') as string) || '';
     const description = (form.get('description') as string) || '';
-    console.log('Upload route received groupTitle=', groupTitle, 'description=', description);
+    // console.log('Upload route received groupTitle=', groupTitle, 'description=', description);
     // Accept multiple possible field names for category to be defensive
     const categoryIdRaw = (form.get('category_id') ?? form.get('categoryId') ?? form.get('category')) as string | number | null;
     // Robust coercion: accept numeric strings and numbers; treat empty strings as null
@@ -54,7 +54,7 @@ export async function POST(req: Request) {
       }
     }
 
-    console.log('Upload route received category_id raw=', categoryIdRaw, 'coerced=', category_id);
+    // console.log('Upload route received category_id raw=', categoryIdRaw, 'coerced=', category_id);
 
     if (!files || files.length === 0) {
       return NextResponse.json({ error: 'No files provided' }, { status: 400 });

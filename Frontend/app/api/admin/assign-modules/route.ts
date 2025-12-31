@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 // Helper to get user id from request header and validate admin role
 async function getAdminUser(req: Request): Promise<{ user_id: string; company_id: string } | null> {
   const userId = req.headers.get("x-admin-id");
-  console.log("User ID from header:", userId);
+  // console.log("User ID from header:", userId);
   
   if (!userId) return null;
 
@@ -18,7 +18,7 @@ async function getAdminUser(req: Request): Promise<{ user_id: string; company_id
       .single();
 
     if (userError || !userData) {
-      console.log("User not found or inactive:", userError);
+      // console.log("User not found or inactive:", userError);
       return null;
     }
 
@@ -35,7 +35,7 @@ async function getAdminUser(req: Request): Promise<{ user_id: string; company_id
       .eq("scope_id", userData.company_id);
 
     if (roleError || !roleData || roleData.length === 0) {
-      console.log("No active roles found for user:", roleError);
+      // console.log("No active roles found for user:", roleError);
       return null;
     }
 
@@ -45,7 +45,7 @@ async function getAdminUser(req: Request): Promise<{ user_id: string; company_id
     );
 
     if (!hasAdminRole) {
-      console.log("User does not have admin role");
+      // console.log("User does not have admin role");
       return null;
     }
 
@@ -108,8 +108,8 @@ export async function POST(req: Request) {
       assigned_on: new Date().toISOString(),
     }));
 
-    console.log("CHECK 1 : user_id:", user_id);
-    console.log("CHECK 2 : mods:", mods);
+    // console.log("CHECK 1 : user_id:", user_id);
+    // console.log("CHECK 2 : mods:", mods);
 
     // Avoid inserting duplicates: fetch existing assigned module rows for this employee
     const { data: existingRows, error: existingErr } = await supabase
@@ -134,14 +134,14 @@ export async function POST(req: Request) {
     .insert(filteredRows)
     .select();
     
-    console.log(insertData)
+    // console.log(insertData)
     if (insertErr) {
       return NextResponse.json({ error: insertErr.message || 'DB insert error' }, { status: 500 });
     }
 
     // Generate baseline assessment for newly assigned modules
     try {
-      console.log("Generating baseline assessment...");
+      // console.log("Generating baseline assessment...");
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
       // Call the MCQ quiz generator to create/return a baseline for these modules
       const baselineRes = await fetch(`${baseUrl}/api/gpt-mcq-quiz`, {
@@ -160,7 +160,7 @@ export async function POST(req: Request) {
       }
 
       const baselineData = await baselineRes.json();
-      console.log("Baseline assessment returned from gpt-mcq-quiz:", baselineData);
+      // console.log("Baseline assessment returned from gpt-mcq-quiz:", baselineData);
 
       // Assessment will be fetched by module_id when needed (no schema change required)
       const assessmentId = baselineData.assessmentId || baselineData.id || null;
@@ -184,7 +184,7 @@ export async function POST(req: Request) {
       });
     }
   } catch (err: any) {
-    console.log("Error in the last")
+    // console.log("Error in the last")
     return NextResponse.json({ error: "Server error", detail: String(err) }, { status: 500 });
   }
 }

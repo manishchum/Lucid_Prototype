@@ -28,7 +28,9 @@ try {
   try {
     const ffmpegStatic = req('ffmpeg-static');
     if (ffmpegStatic) {
-      try { ffmpeg.setFfmpegPath(ffmpegStatic as string); console.log('[VIDEO API] set ffmpeg path to', ffmpegStatic); } catch (e) { console.warn('[VIDEO API] Could not set ffmpeg path', e); }
+      try { ffmpeg.setFfmpegPath(ffmpegStatic as string);
+         // console.log('[VIDEO API] set ffmpeg path to', ffmpegStatic); 
+        } catch (e) { console.warn('[VIDEO API] Could not set ffmpeg path', e); }
     }
   } catch (e) {
     // ffmpeg-static not installed — ok, ffmpeg may be available in PATH
@@ -37,7 +39,9 @@ try {
   try {
     const ffprobeStatic = req('ffprobe-static');
     if (ffprobeStatic && ffprobeStatic.path) {
-      try { ffmpeg.setFfprobePath(ffprobeStatic.path); console.log('[VIDEO API] set ffprobe path to', ffprobeStatic.path); } catch (e) { console.warn('[VIDEO API] Could not set ffprobe path', e); }
+      try { ffmpeg.setFfprobePath(ffprobeStatic.path); 
+        // console.log('[VIDEO API] set ffprobe path to', ffprobeStatic.path);
+       } catch (e) { console.warn('[VIDEO API] Could not set ffprobe path', e); }
     }
   } catch (e) {
     // ffprobe-static not installed — ok, ffprobe may be available in PATH
@@ -259,7 +263,7 @@ async function generateTTSAudio(script: string, outputPath: string) {
 }
 
 async function synthesizeAndStore(processedModuleId: string) {
-  console.log('[VIDEO API] synthesizeAndStore start for', processedModuleId);
+  // console.log('[VIDEO API] synthesizeAndStore start for', processedModuleId);
   // Fetch module content from processed_modules
   const { data: module, error: moduleError } = await admin
     .from('processed_modules')
@@ -274,32 +278,32 @@ async function synthesizeAndStore(processedModuleId: string) {
   const fullText = cleanTextForVideo(module.content || '');
   if (!fullText) return { error: 'Empty content', status: 400 } as const;
 
-  console.log('[VIDEO API] Generating explanation script...');
+  // console.log('[VIDEO API] Generating explanation script...');
   const script = await generateExplanationScript(title, fullText);
-  console.log('[VIDEO API] Script generated:', script.substring(0, 100) + '...');
+  // console.log('[VIDEO API] Script generated:', script.substring(0, 100) + '...');
 
   const chunks = splitTextIntoChunks(script, 600);
 
-  console.log('[VIDEO API] chunk count:', chunks.length);
+  // console.log('[VIDEO API] chunk count:', chunks.length);
 
   const tmpDir = path.join(os.tmpdir(), `module-video-${processedModuleId}-${Date.now()}`);
-  console.log('[VIDEO API] tmpDir:', tmpDir);
+  // console.log('[VIDEO API] tmpDir:', tmpDir);
   await fsPromises.mkdir(tmpDir, { recursive: true });
   try {
     // Generate TTS audio from script
-    console.log('[VIDEO API] Generating TTS audio...');
+    // console.log('[VIDEO API] Generating TTS audio...');
     const audioPath = path.join(tmpDir, 'narration.mp3');
     await generateTTSAudio(script, audioPath);
-    console.log('[VIDEO API] Audio generated');
+    // console.log('[VIDEO API] Audio generated');
 
     const images = await captureScreenshots(title, chunks, tmpDir);
-    console.log('[VIDEO API] captured images count:', images.length);
+    // console.log('[VIDEO API] captured images count:', images.length);
 
     const silentVideoPath = path.join(tmpDir, 'silent_video.mp4');
     await createVideoFromImages(images, silentVideoPath, 4);
 
     // Combine video with audio
-    console.log('[VIDEO API] Combining video with audio...');
+    // console.log('[VIDEO API] Combining video with audio...');
     const outFile = path.join(tmpDir, `${uuidv4()}.mp4`);
     await new Promise<void>((resolve, reject) => {
       ffmpeg()
@@ -316,7 +320,7 @@ async function synthesizeAndStore(processedModuleId: string) {
         .on('error', (err: any) => reject(err))
         .run();
     });
-    console.log('[VIDEO API] Video with audio created');
+    // console.log('[VIDEO API] Video with audio created');
 
     // Ensure bucket exists
     const ensured = await ensureBucketExists();

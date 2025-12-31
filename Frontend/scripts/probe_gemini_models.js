@@ -39,23 +39,29 @@ async function probe() {
 
   // Try listing available models for this key (may return 403/404 if not permitted)
   try {
-    console.log('\n--- listing available models (may require permission) ---');
+    // console.log('\n--- listing available models (may require permission) ---');
     const listUrl = `https://generativelanguage.googleapis.com/v1/models?key=${key}`;
     const listResp = await fetch(listUrl, { method: 'GET' });
     const listText = await listResp.text();
-    console.log('models list status', listResp.status);
-    try { console.log('models list body', JSON.stringify(JSON.parse(listText), null, 2)); } catch (e) { console.log('models list raw:', listText.slice(0,2000)); }
+    // console.log('models list status', listResp.status);
+    try { // console.log('models list body', JSON.stringify(JSON.parse(listText), null, 2));
+      
+     }
+    
+     catch (e) { // console.log('models list raw:', listText.slice(0,2000)); 
+
+     }
   } catch (e) {
     console.warn('models list error', e && e.message ? e.message : e);
   }
 
   // Probe only the preferred model to reduce noise and speed up checks
   const models = [
-    'gemini-2.0-flash-lite'
+    'gemini-2.5-flash-lite'
   ];
 
   // Hardcode the probe URL to the preferred model
-  const probeModel = 'gemini-2.0-flash-lite'
+  const probeModel = 'gemini-2.5-flash-lite'
   for (const model of models) {
     const url = `https://generativelanguage.googleapis.com/v1/models/${probeModel}:generateContent?key=${key}`;
     const body = {
@@ -64,15 +70,15 @@ async function probe() {
       maxOutputTokens: 128,
       candidateCount: 1
     };
-    console.log('\n--- probing model', model, '---');
+    // console.log('\n--- probing model', model, '---');
     try {
       const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const text = await resp.text();
-      console.log('status', resp.status);
+      // console.log('status', resp.status);
       try {
-        console.log('body', JSON.stringify(JSON.parse(text), null, 2));
+        // console.log('body', JSON.stringify(JSON.parse(text), null, 2));
       } catch (e) {
-        console.log('body (raw):', text.slice(0, 2000));
+        // console.log('body (raw):', text.slice(0, 2000));
       }
     } catch (err) {
       console.error('network error', err && err.message ? err.message : err);

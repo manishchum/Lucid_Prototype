@@ -112,20 +112,20 @@ const Quiz: React.FC<QuizProps> = ({
     setIsSubmitting(true);
 
     try {
-      console.log('🧪 Submitting quiz:', { 
-        user_id: user.uid, 
-        assessment_id: assessmentId, 
-        answers: finalAnswers,
-        totalQuestions: quiz.length 
-      });
+      // console.log('🧪 Submitting quiz:', { 
+      //   user_id: user.uid, 
+      //   assessment_id: assessmentId, 
+      //   answers: finalAnswers,
+      //   totalQuestions: quiz.length 
+      // });
 
       // Log the answers being sent for debugging
-      console.log('🔍 Final answers being submitted:', finalAnswers.map((answer, index) => ({
-        questionIndex: index,
-        selectedOptionIndex: answer,
-        selectedOptionText: quiz[index]?.options[answer] || 'No answer',
-        correctIndex: quiz[index]?.correctIndex
-      })));
+      // console.log('🔍 Final answers being submitted:', finalAnswers.map((answer, index) => ({
+      //   questionIndex: index,
+      //   selectedOptionIndex: answer,
+      //   selectedOptionText: quiz[index]?.options[answer] || 'No answer',
+      //   correctIndex: quiz[index]?.correctIndex
+      // })));
 
       const response = await fetch('/api/submit-assessment', {
         method: 'POST',
@@ -146,7 +146,7 @@ const Quiz: React.FC<QuizProps> = ({
       }
 
       const result: QuizResult = await response.json();
-      console.log('✅ Quiz submitted successfully:', result);
+      // console.log('✅ Quiz submitted successfully:', result);
 
       setQuizResult(result);
       setShowResults(true);

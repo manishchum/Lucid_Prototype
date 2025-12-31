@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '../../../lib/supabase'
-import { callGemini } from '../../../lib/gemini-client'
+import { callGemini } from '../../../lib/gemini-helper'
 
 // Simple intent detection heuristics
 function detectIntent(q: string, mode?: string) {
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     const sourceParts = matches.map(m => `Title: ${m.title || 'unknown'}\n\n${excerptFromContent(m.content || '', 1200)}`).join('\n\n---\n\n')
 
     // hardcoded Gemini model
-    const geminiModel = 'gemini-2.0-flash-lite'
+    const geminiModel = 'gemini-2.5-flash-lite'
     if (!process.env.GEMINI_API_KEY) {
       const fallback = excerptFromContent(sourceParts || '')
       return NextResponse.json({ answer: fallback || `No content found for "${query}".`, llm_model_used: null, llm_error: [{ model: 'gemini', error: 'no_gemini_key' }] })
@@ -92,9 +92,9 @@ export async function POST(req: NextRequest) {
     }
 
     // call Gemini (single model preference)
-    const gResp = await callGemini(geminiModel, `${system}\n\n${userPrompt}`, 1200)
-    if (!gResp || gResp.error || !gResp.data) {
-      const err = (gResp && gResp.error) || 'unknown_gemini_error'
+    const gResp = await callGemini(geminiModel, )
+    if (!gResp || !gResp.ok || !gResp.data) {
+      const err = (gResp && !gResp?.ok) || 'unknown_gemini_error'
       console.error('[gemini-assistant] gemini error', err)
       const fallback = excerptFromContent(sourceParts || '')
       // save fallback if it's a doubt

@@ -33,13 +33,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('📚 DEBUG: Processing module completion:', { 
-      userId, 
-      processedModuleId, 
-      score, 
-      maximum, 
-      feedback: feedback ? 'present' : 'missing' 
-    })
+    // console.log('📚 DEBUG: Processing module completion:', { 
+    //   userId, 
+    //   processedModuleId, 
+    //   score, 
+    //   maximum, 
+    //   feedback: feedback ? 'present' : 'missing' 
+    // })
 
     // Check if there's already a progress record for this user and processed module
     const { data: existingProgress, error: checkError } = await supabase
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     const completionTime = new Date().toISOString()
 
     if (existingProgress) {
-      console.log('📚 DEBUG: Updating existing progress record:', existingProgress.module_progress_id)
+      // console.log('📚 DEBUG: Updating existing progress record:', existingProgress.module_progress_id)
       
       // Update existing progress record - only update columns that exist in the schema
       const updateData: any = {
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
       }
       progressData = data
     } else {
-      console.log('📚 DEBUG: Creating new progress record')
+      // console.log('📚 DEBUG: Creating new progress record')
       
       // Create new progress record - only include columns that exist in the schema
       const insertData: any = {
@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
     const isNewCompletion = !existingProgress?.completed_at
     if (isNewCompletion) {
       try {
-        console.log('📧 DEBUG: Triggering admin notification for new completion')
+        // console.log('📧 DEBUG: Triggering admin notification for new completion')
         
         // Call the admin notification API
         const notificationResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/notify-admin-completion`, {
@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
           console.error('📧 DEBUG: Admin notification failed:', await notificationResponse.text())
         } else {
           const notificationData = await notificationResponse.json()
-          console.log('📧 DEBUG: Admin notification sent successfully:', notificationData.message)
+          // console.log('📧 DEBUG: Admin notification sent successfully:', notificationData.message)
         }
       } catch (notificationError) {
         console.error('📧 DEBUG: Error sending admin notification:', notificationError)

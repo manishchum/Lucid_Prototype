@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
 
     // Diagnostic: log whether provider keys exist (do not print actual keys)
     try {
-      console.log('[assistant] env flags:', { hasGemini: Boolean(process.env.GEMINI_API_KEY), hasOpenAI: Boolean(process.env.OPENAI_API_KEY) })
+      // console.log('[assistant] env flags:', { hasGemini: Boolean(process.env.GEMINI_API_KEY), hasOpenAI: Boolean(process.env.OPENAI_API_KEY) })
     } catch (e) {
       // ignore logging errors
     }
@@ -36,7 +36,8 @@ export async function POST(request: NextRequest) {
           if (upsertErr) {
             console.warn('[assistant] fallback upsert error', { user: uid, upsertErr })
           } else {
-            try { console.log('[assistant] fallback upsert ok', { user: uid, upsertRows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
+            try { 
+              // console.log('[assistant] fallback upsert ok', { user: uid, upsertRows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
           }
         }
       } catch (e) {
@@ -61,7 +62,8 @@ export async function POST(request: NextRequest) {
         arr.push(item)
         const { data: upsertData, error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, summarize: arr, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
         if (upsertErr) console.warn('[assistant] saveSummarize upsert error', { user: uid, upsertErr })
-        else try { console.log('[assistant] saveSummarize ok', { user: uid, rows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
+        else try {
+      //  console.log('[assistant] saveSummarize ok', { user: uid, rows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
       } catch (e) {
         console.warn('[assistant] saveSummarize failed', e)
       }
@@ -312,7 +314,7 @@ export async function POST(request: NextRequest) {
         const extracted = (pdfRes && pdfRes.text) ? String(pdfRes.text) : ''
         sourceParts = cleanFormatting(removeCitationArtifacts(extracted || ''))
         _pdfUsed = true
-        console.log('[assistant] using uploaded PDF as grounding, length:', sourceParts.length)
+        // console.log('[assistant] using uploaded PDF as grounding, length:', sourceParts.length)
       } catch (e) {
         console.warn('[assistant] pdf extraction failed, falling back to normal grounding', e)
       }
@@ -384,7 +386,7 @@ export async function POST(request: NextRequest) {
         // call Gemini via helper
         const practiceResp = await (async () => {
           try {
-            const r = await libCallGemini(practicePromptUser, { candidateModels: ['gemini-2.0-flash-lite'], maxOutputTokens: maxTokensForPractice, temperature: 0.25 })
+            const r = await libCallGemini(practicePromptUser, { candidateModels: ['gemini-2.5-flash-lite'], maxOutputTokens: maxTokensForPractice, temperature: 0.25 })
             return r
           } catch (e) { return { data: null, ok: false, text: String(e) } }
         })()
@@ -405,7 +407,8 @@ export async function POST(request: NextRequest) {
             arr.push(item)
             const { data: upsertData, error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, practise_ques: arr, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
             if (upsertErr) console.warn('[assistant] savePracticeQues upsert error (practise_ques)', { user: uid, upsertErr })
-            else try { console.log('[assistant] savePracticeQues ok (practise_ques)', { user: uid, rows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
+            else try { 
+          // console.log('[assistant] savePracticeQues ok (practise_ques)', { user: uid, rows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
           } catch (e) {
             console.warn('[assistant] savePracticeQues failed', e)
           }
@@ -420,7 +423,7 @@ export async function POST(request: NextRequest) {
             }
             // Return the generated practice questions
             const finalAnswer = cleanFormatting(practiceText)
-            return NextResponse.json({ answer: finalAnswer, llm_model_used: 'gemini-2.0-flash-lite' })
+            return NextResponse.json({ answer: finalAnswer, llm_model_used: 'gemini-2.5-flash-lite' })
           }
         }
       } catch (e) {
@@ -523,18 +526,19 @@ export async function POST(request: NextRequest) {
       ]
 
       // Use Gemini exclusively for the assistant when configured.
-      const geminiModel = 'gemini-2.0-flash-lite'
+      const geminiModel = 'gemini-2.5-flash-lite'
       if (process.env.GEMINI_API_KEY) {
         const synthMaxTokens = mode === 'summarize' ? 2500 : 1500
         const gResp = await callGemini(geminiModel, synthUser, synthMaxTokens)
-        try { console.log('[assistant] gemini raw response', { model: geminiModel, gRespPreview: JSON.stringify(gResp).slice(0,2000) }) } catch(e) {}
+        try { 
+          // console.log('[assistant] gemini raw response', { model: geminiModel, gRespPreview: JSON.stringify(gResp).slice(0,2000) }) } catch(e) {}
         if (gResp && gResp.data && !gResp.error) {
           // Prefer helper-normalized `.text` when present, else fall back to candidate shapes
           const cand = gResp.data.text || gResp.data.candidates?.[0]?.content || gResp.data.candidates?.[0]?.output || gResp.data.output?.[0]?.content || ''
           synthData = { choices: [{ message: { content: cand } }] }
           usedModel = `gemini:${geminiModel}`
           try {
-            console.log('[assistant] gemini synth success', { model: usedModel, preview: (cand || '').slice(0, 400) })
+            // console.log('[assistant] gemini synth success', { model: usedModel, preview: (cand || '').slice(0, 400) })
           } catch (e) {
             // ignore logging errors
           }
@@ -543,7 +547,7 @@ export async function POST(request: NextRequest) {
           modelErrors.push({ model: `gemini:${geminiModel}`, error: errText })
           console.error('[assistant] gemini failed for synth pass', errText, { gResp })
           try {
-            console.log('[assistant] returning grounded fallback (gemini failed)', { fallbackPreview: cleanFormatting(sourceParts).slice(0, 400) })
+            // console.log('[assistant] returning grounded fallback (gemini failed)', { fallbackPreview: cleanFormatting(sourceParts).slice(0, 400) })
           } catch (e) {}
           // Return grounded fallback so the user still receives content rather than attempting OpenAI
           const fallbackAnswer = cleanFormatting(sourceParts)
@@ -595,7 +599,7 @@ export async function POST(request: NextRequest) {
                   let finalAnswer = cleanFormatting(paraText)
                   finalAnswer = formatModuleHeadings(finalAnswer)
                   try {
-                    console.log('[assistant] returning paraphrased answer from gemini', { preview: finalAnswer.slice(0,400), usedModel: usedModel })
+                    // console.log('[assistant] returning paraphrased answer from gemini', { preview: finalAnswer.slice(0,400), usedModel: usedModel })
                   } catch (e) {}
                   // persist assistant reply
                   try { await saveChatMessage(userId, { role: 'assistant', text: finalAnswer, llm_model_used: usedModel, intent: summarizeIntent || null, created_at: new Date().toISOString() }) } catch (e) {}
@@ -612,7 +616,7 @@ export async function POST(request: NextRequest) {
           let finalAnswer = cleanFormatting(synthText)
           finalAnswer = formatModuleHeadings(finalAnswer)
           try {
-            console.log('[assistant] returning synth answer from gemini', { preview: finalAnswer.slice(0,400), usedModel: usedModel })
+            // console.log('[assistant] returning synth answer from gemini', { preview: finalAnswer.slice(0,400), usedModel: usedModel })
           } catch (e) {}
           // persist assistant reply
           try { await saveChatMessage(userId, { role: 'assistant', text: finalAnswer, llm_model_used: usedModel, intent: summarizeIntent || null, created_at: new Date().toISOString() }) } catch (e) {}
@@ -637,7 +641,7 @@ export async function POST(request: NextRequest) {
         : 'No matching content found for your query. Try rephrasing the question or enable ungrounded generation to get a direct answer.'
     }
     try {
-      console.log('[assistant] returning final fallback from sourceParts', { preview: fallbackAnswer.slice(0,400), modelErrors: modelErrors })
+      // console.log('[assistant] returning final fallback from sourceParts', { preview: fallbackAnswer.slice(0,400), modelErrors: modelErrors })
     } catch (e) {}
     // format module headings for fallback answer as well
     fallbackAnswer = formatModuleHeadings(fallbackAnswer)

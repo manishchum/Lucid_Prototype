@@ -157,7 +157,7 @@ async function main() {
   }
 
   try {
-    console.log('Querying processed_modules missing audio...');
+    // console.log('Querying processed_modules missing audio...');
     const { data: rows, error } = await admin
       .from('processed_modules')
       .select('processed_module_id')
@@ -165,23 +165,23 @@ async function main() {
       .limit(100);
     if (error) throw error;
     if (!rows || rows.length === 0) {
-      console.log('No modules found without audio.');
+      // console.log('No modules found without audio.');
       return;
     }
 
-    console.log(`Found ${rows.length} modules without audio. Starting synthesis...`);
+    // console.log(`Found ${rows.length} modules without audio. Starting synthesis...`);
     for (const r of rows) {
       const id = r.processed_module_id;
       try {
-        console.log('Synthesizing:', id);
+        // console.log('Synthesizing:', id);
         const url = await synthesizeAndStore(id);
-        console.log('Generated audio URL:', url);
+        // console.log('Generated audio URL:', url);
       } catch (e) {
         console.error('Failed for', id, e.message || e);
       }
     }
 
-    console.log('Done.');
+    // console.log('Done.');
   } finally {
     try { fs.unlinkSync(tempPath); } catch (e) {}
   }
