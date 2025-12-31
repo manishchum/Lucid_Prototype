@@ -154,7 +154,7 @@ IMPORTANT: Create AT LEAST 2-3 full sections with corresponding activities. Make
         
         console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
         
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
         const result = await model.generateContent(stylePrompt);
         const response = await result.response;
         let aiContent = response.text();

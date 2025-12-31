@@ -384,7 +384,7 @@ export async function POST(request: NextRequest) {
         // call Gemini via helper
         const practiceResp = await (async () => {
           try {
-            const r = await libCallGemini(practicePromptUser, { candidateModels: ['gemini-2.0-flash-lite'], maxOutputTokens: maxTokensForPractice, temperature: 0.25 })
+            const r = await libCallGemini(practicePromptUser, { candidateModels: ['gemini-2.5-flash-lite'], maxOutputTokens: maxTokensForPractice, temperature: 0.25 })
             return r
           } catch (e) { return { data: null, ok: false, text: String(e) } }
         })()
@@ -420,7 +420,7 @@ export async function POST(request: NextRequest) {
             }
             // Return the generated practice questions
             const finalAnswer = cleanFormatting(practiceText)
-            return NextResponse.json({ answer: finalAnswer, llm_model_used: 'gemini-2.0-flash-lite' })
+            return NextResponse.json({ answer: finalAnswer, llm_model_used: 'gemini-2.5-flash-lite' })
           }
         }
       } catch (e) {
@@ -523,7 +523,7 @@ export async function POST(request: NextRequest) {
       ]
 
       // Use Gemini exclusively for the assistant when configured.
-      const geminiModel = 'gemini-2.0-flash-lite'
+      const geminiModel = 'gemini-2.5-flash-lite'
       if (process.env.GEMINI_API_KEY) {
         const synthMaxTokens = mode === 'summarize' ? 2500 : 1500
         const gResp = await callGemini(geminiModel, synthUser, synthMaxTokens)

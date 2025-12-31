@@ -79,7 +79,7 @@ Objectives: ${JSON.stringify(objectives)}
   // console.log("[gpt-mcq-quiz] Calling Gemini with prompt:", prompt.slice(0, 500));
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const content = response.text();
@@ -390,7 +390,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
     console.log(`[gpt-mcq-quiz] Calling Gemini for moduleId: ${moduleId} with learning style: ${learningStyle}`);
     
     try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
       const result = await model.generateContent(prompt);
       const response = await result.response;
       const content = response.text();

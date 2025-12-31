@@ -1,4 +1,4 @@
-export const COMMON_GEMINI_MODELS = ['gemini-2.0-flash-lite'];
+export const COMMON_GEMINI_MODELS = ['gemini-2.5-flash-lite'];
 
 /**
  * Call Gemini, trying multiple models and both v1beta and v1 endpoints.

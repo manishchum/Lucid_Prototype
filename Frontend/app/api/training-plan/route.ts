@@ -68,6 +68,8 @@ export async function POST(request: NextRequest) {
     }
     // Check if we already have a learning plan for this user and module
     if (module_id) {
+      console.log("This is the module id inside the training plan api route")
+      console.log(module_id)
       const { data: existingPlan, error: planCheckError } = await supabase
         .from('learning_plan')
         .select('learning_plan_id, plan_json, status, reasoning')
@@ -102,6 +104,8 @@ export async function POST(request: NextRequest) {
         if (planContent) {
           // Ensure processed modules exist for the existing plan (use resolved company_id)
           try {
+            console.log("Plan Content")
+            console.log(planContent)
             await ensureProcessedModulesForPlan(user_id, company_id, planContent);
           } catch (e) {
             console.error('📚 Error ensuring processed modules for existing plan:', e);
@@ -481,11 +485,11 @@ export async function POST(request: NextRequest) {
       "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
     // console.log("[Training Plan API] Prompt for Gemini:", prompt);
 
-    // Call Gemini with gemini-2.0-flash-lite model
-    console.log("[Training Plan API] Calling Gemini (gemini-2.0-flash-lite)...");
+    // Call Gemini with gemini-2.5flash-lite model
+    console.log("[Training Plan API] Calling Gemini (gemini-2.5-flash-lite)...");
     let planJsonRaw = "";
     try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
       const result = await model.generateContent(prompt);
       const response = await result.response;
       planJsonRaw = response.text()?.trim() || "";
