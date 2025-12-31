@@ -126,8 +126,9 @@ export default function LoginPage() {
       // Set user in auth context
       await login(userForContext)
 
-      // Redirect all users to the employee dashboard
-      router.push('/employee/welcome')
+  // Redirect all users to the employee dashboard
+  try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
+  router.push('/employee/welcome')
     } catch (error: any) {
       setError(error.message)
       try {
@@ -170,8 +171,9 @@ export default function LoginPage() {
       // Set user in auth context (Google sign-in should automatically do this via Firebase)
       await login(result.user)
 
-      // Redirect all users to the employee dashboard
-      router.push('/employee/welcome')
+  // Redirect all users to the employee dashboard
+  try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
+  router.push('/employee/welcome')
     } catch (error: any) {
       if (error.message.includes("Access denied")) {
         setError("Access denied. Your Google account email is not in the allowed users list.")

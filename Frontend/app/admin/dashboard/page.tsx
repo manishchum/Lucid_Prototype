@@ -4149,7 +4149,7 @@ function ModuleAssignmentModal({
                     {modules.map(module => (
                       <label
                         key={module.module_id}
-                        className="flex items-start space-x-3 p-3 hover:bg-gray-50 rounded cursor-pointer border border-gray-100"
+                        className="submodule-card submodule-card--compact cursor-pointer"
                       >
                         <input
                           type="checkbox"
