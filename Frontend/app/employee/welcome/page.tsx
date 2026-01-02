@@ -70,7 +70,7 @@ import EmployeeNavigation from "@/components/employee-navigation"
 import { SidebarProvider, useSidebar } from "@/contexts/sidebar-context"
 
 interface Employee {
-  id: string
+  user_id: string
   email: string
   name: string | null
   joined_at: string
@@ -1068,7 +1068,7 @@ export default function EmployeeWelcome() {
                               <Button onClick={async () => {
                                 setIsNavOverlay(true);
                                 try {
-                                  if (!employee?.id) {
+                                  if (!employee?.user_id) {
                                     setIsNavOverlay(false);
                                     alert('Could not determine employee. Please reload or login again.');
                                     return;
@@ -1077,7 +1077,7 @@ export default function EmployeeWelcome() {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ 
-                                      user_id: employee.id,
+                                      user_id: employee.user_id,
                                       module_id: m.id 
                                     }),
                                   });
