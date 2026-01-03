@@ -588,7 +588,7 @@ export default function TrainingPlanPage() {
   const totalModulesCount = normalizedModules.length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <EmployeeNavigation showBack={false} showForward={false} />
       {/* Main content area that adapts to sidebar */}
       <div
@@ -641,7 +641,7 @@ export default function TrainingPlanPage() {
                 Learning Plan which works for you
               </CardDescription>
               {/* Progress Summary */}
-              <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-green-50 rounded-lg">
+              <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 via-white to-purple-50 rounded-lg">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-gray-700">
                     Progress Overview

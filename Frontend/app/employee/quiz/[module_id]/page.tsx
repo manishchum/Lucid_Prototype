@@ -339,7 +339,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <EmployeeNavigation 
         customBackPath={`/employee/module/${params.module_id}`}
         showForward={false}
@@ -365,8 +365,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         {!submitted ? (
           <>
             {/* Progress Header */}
-            <Card className="mb-6 shadow-lg border-t-4 border-t-blue-500">
-              <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50">
+            <Card className="mb-6 shadow-lg border-t-4 border-t-transparent">
+              <CardHeader className="bg-gradient-to-r from-blue-50 via-white to-purple-50">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <CardTitle className="text-2xl font-bold text-gray-800">Test your Understanding: {moduleName}</CardTitle>

@@ -21,7 +21,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-  <body className="antialiased bg-white">
+  <body className="antialiased bg-gradient-to-br from-blue-50 via-white to-purple-50">
         <AuthProvider>
           <ErrorReporterInit />
           <LucidAssistant />
