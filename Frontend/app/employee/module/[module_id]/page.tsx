@@ -874,6 +874,220 @@ function ContentTransformer({
     </div>
   );
 }
+// Keep old AudioSection as alias for backward compatibility
+function AudioSection(props: any) {
+  return <ContentTransformer {...props} />;
+}
+
+// Helper to format content with beautiful card-based UI
+function formatContent(content: string) {
+  // If content is JSON, pretty print
+  try {
+    const parsed = JSON.parse(content);
+    if (typeof parsed === "object") {
+      return `<pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto"><code>${JSON.stringify(parsed, null, 2)}</code></pre>`;
+    }
+  } catch {}
+
+  // Lightweight markdown-like to HTML - enhanced for plain text
+  // Remove visual divider lines made of underscores/dashes before formatting
+  let formatted = content
+    .replace(/^\s*[_\-—–=]{3,}\s*$/gm, '')
+    .replace(/^### (.*$)/gm, '<h3 class="text-xl font-semibold mt-6 mb-3 text-gray-800">$1</h3>')
+    .replace(/^## (.*$)/gm, '<h2 class="text-2xl font-bold mt-8 mb-4 text-gray-900">$1</h2>')
+    .replace(/^# (.*$)/gm, '<h1 class="text-3xl font-bold mt-8 mb-6 text-gray-900">$1</h1>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-gray-900">$1</strong>')
+    .replace(/__(.*?)__/g, '<strong class="font-semibold text-gray-900">$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em class="italic text-gray-700">$1</em>')
+    .replace(/_(.*?)_/g, '<em class="italic text-gray-700">$1</em>')
+    .replace(/```([\s\S]*?)```/g, '<pre class="bg-gray-100 p-4 rounded-lg my-4 overflow-x-auto"><code class="text-sm">$1</code></pre>')
+    .replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-2 py-1 rounded text-sm font-mono">$1</code>')
+    // Enhanced bullet point handling - support both • and - and *
+    .replace(/^[•\-\*] (.*$)/gm, '<li class="ml-6 mb-2 list-disc">$1</li>')
+    .replace(/^\d+\.\s+(.*$)/gm, '<li class="ml-6 mb-2 list-decimal">$1</li>')
+    .replace(/\n\n+/g, '</p><p class="mb-4 text-gray-700 leading-relaxed">')
+    .replace(/\n/g, '<br/>');
+
+  formatted = '<p class="mb-4 text-gray-700 leading-relaxed">' + formatted + '</p>';
+  
+  // Group list items into proper ul/ol tags
+  formatted = formatted
+    .replace(/<p class="mb-4 text-gray-700 leading-relaxed">(<li class="ml-6 mb-2 list-disc[^>]*>.*?(?:<\/li>(?:\s*<br\/>\s*<li|<\/li>))*<\/li>)/g, '<ul class="mb-4 space-y-2 list-disc ml-6">$1</ul>')
+    .replace(/<p class="mb-4 text-gray-700 leading-relaxed">(<li class="ml-6 mb-2 list-decimal[^>]*>.*?(?:<\/li>(?:\s*<br\/>\s*<li|<\/li>))*<\/li>)/g, '<ol class="mb-4 space-y-2 list-decimal ml-6">$1</ol>')
+    .replace(/<br\/>\s*(<li class="ml-6 mb-2[^>]*>)/g, '$1')
+    .replace(/(<\/li>)\s*<br\/>/g, '$1');
+
+  // Clean up empty paragraphs
+  formatted = formatted.replace(/<p class="mb-4 text-gray-700 leading-relaxed">\s*<\/p>/g, '');
+  
+  // Remove learning style codes (CS, CR, AS, AR) from content
+  formatted = formatted.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
+  formatted = formatted.replace(/\b(CS|CR|AS|AR)\b(?=\W|$)/g, '');
+
+  // Wrap specific sections into callout cards (client-side safe)
+  if (typeof window !== 'undefined') {
+    const container = document.createElement('div');
+    container.innerHTML = formatted;
+
+    const wrapFollowingList = (labelRegex: RegExp, classes: string, title: string) => {
+      const paragraphs = Array.from(container.querySelectorAll('p'));
+      for (const p of paragraphs) {
+        const text = p.textContent?.trim() || '';
+        if (labelRegex.test(text)) {
+          const next = p.nextElementSibling;
+          if (next && (next.tagName === 'UL' || next.tagName === 'OL')) {
+            const wrapper = document.createElement('div');
+            wrapper.setAttribute('class', classes);
+            const header = document.createElement('h3');
+            header.setAttribute('class', 'text-lg font-bold mb-4');
+            header.textContent = title;
+            wrapper.appendChild(header);
+            wrapper.appendChild(next);
+            p.replaceWith(wrapper);
+          }
+        }
+      }
+    };
+
+    const wrapFollowingParagraph = (labelRegex: RegExp, classes: string, title: string) => {
+      const paragraphs = Array.from(container.querySelectorAll('p'));
+      for (const p of paragraphs) {
+        const text = p.textContent?.trim() || '';
+        if (labelRegex.test(text)) {
+          const next = p.nextElementSibling;
+          if (next && next.tagName === 'P') {
+            const wrapper = document.createElement('div');
+            wrapper.setAttribute('class', classes);
+            const header = document.createElement('h3');
+            header.setAttribute('class', 'text-lg font-bold mb-4');
+            header.textContent = title;
+            const body = document.createElement('p');
+            body.setAttribute('class', 'leading-relaxed');
+            body.innerHTML = next.innerHTML;
+            wrapper.appendChild(header);
+            wrapper.appendChild(body);
+            next.replaceWith(wrapper);
+            p.remove();
+          }
+        }
+      }
+    };
+
+    // Wrap Learning Objectives: find heading and following list in card
+    const allParas = Array.from(container.querySelectorAll('p, ul, ol, li, div'));
+    let i = 0;
+    while (i < allParas.length) {
+      const el = allParas[i];
+      const text = el.textContent?.trim() || '';
+      
+      if (el.tagName === 'P' && text.match(/^Learning Objectives?:/i)) {
+        // Found objectives heading; look for following list
+        let nextIdx = i + 1;
+        while (nextIdx < allParas.length) {
+          const nextEl = allParas[nextIdx];
+          // Skip divider lines
+          if (nextEl.tagName === 'P' && nextEl.textContent?.trim().match(/^[_\-—–=]{3,}$/)) {
+            nextIdx++;
+            continue;
+          }
+          // Found the list
+          if (nextEl.tagName === 'UL' || nextEl.tagName === 'OL') {
+            const wrapper = document.createElement('div');
+            wrapper.setAttribute('class', 'mb-6 rounded-lg border border-blue-200 bg-blue-50 p-6');
+            const header = document.createElement('h3');
+            header.setAttribute('class', 'text-lg font-bold mb-4 text-blue-900');
+            header.textContent = 'Learning Objectives';
+            wrapper.appendChild(header);
+            wrapper.appendChild(nextEl);
+            el.replaceWith(wrapper);
+            break;
+          }
+          nextIdx++;
+        }
+        break;
+      }
+      i++;
+    }
+
+    // Wrap main sections into standalone cards: Module Title, Objectives, Section n:
+    const isHeaderPara = (p: Element): { kind: 'module'|'objectives'|'section'|null; title: string } => {
+      const text = p.textContent?.trim() || '';
+      let m;
+      if ((m = text.match(/^Module\s*Title:\s*(.+)$/i))) {
+        return { kind: 'module', title: m[1] };
+      }
+      if ((m = text.match(/^Section\s*(\d+)\s*:\s*(.+)$/i))) {
+        return { kind: 'section', title: `Section ${m[1]}: ${m[2]}` };
+      }
+      if ((m = text.match(/^Module\s*Summary\s*and\s*Next\s*Steps$/i))) {
+        return { kind: 'section', title: 'Module Summary and Next Steps' };
+      }
+      return { kind: null, title: '' };
+    };
+
+    const paragraphs = Array.from(container.querySelectorAll('p'));
+    for (const p of paragraphs) {
+      const info = isHeaderPara(p);
+      if (!info.kind) continue;
+
+      // Create card wrapper per kind
+      const wrapper = document.createElement('div');
+      if (info.kind === 'objectives') {
+        wrapper.setAttribute('class', 'mb-8 rounded-xl border border-blue-200 bg-blue-50 p-6 shadow-sm');
+      } else {
+        wrapper.setAttribute('class', 'mb-8 rounded-xl border border-gray-200 bg-white p-6 shadow-sm');
+      }
+
+      // Create card title
+      const titleEl = document.createElement(info.kind === 'module' ? 'h1' : 'h2');
+      titleEl.setAttribute('class', info.kind === 'module' ? 'text-3xl font-bold mb-4 text-gray-900' : 'text-2xl font-bold mb-4 text-gray-900');
+      titleEl.textContent = info.kind === 'module' ? info.title : info.title;
+      wrapper.appendChild(titleEl);
+
+      // Move following siblings into the card until the next header paragraph
+      let next: Element | null = p.nextElementSibling as Element | null;
+      const isHeaderMatch = (el: Element | null) => {
+        if (!el || el.tagName !== 'P') return false;
+        const t = el.textContent?.trim() || '';
+        return /^(Module\s*Title:|Objectives:?|Section\s*\d+\s*:)/i.test(t);
+      };
+      while (next && !isHeaderMatch(next)) {
+        const move = next;
+        next = next.nextElementSibling as Element | null;
+        wrapper.appendChild(move);
+      }
+
+      // Replace the header paragraph with the card
+      p.replaceWith(wrapper);
+    }
+
+    // Remove any lingering divider lines paragraphs (just underscores/dashes/etc)
+    Array.from(container.querySelectorAll('p')).forEach(p => {
+      const t = p.textContent?.trim() || '';
+      if (/^[_\-—–=]{3,}$/.test(t)) {
+        p.remove();
+      }
+    });
+
+    // Bold sub-headings: make leading label before colon bold (e.g., "Definition:")
+    Array.from(container.querySelectorAll('p')).forEach(p => {
+      const text = p.textContent || '';
+      const match = text.match(/^([A-Z][^:]{2,}):\s*(.*)$/);
+      if (match) {
+        const label = match[1] + ':';
+        const rest = match[2] || '';
+        p.innerHTML = `<strong class="font-semibold text-gray-900">${label}</strong> ${rest}`;
+      }
+    });
+
+    formatted = container.innerHTML;
+  }
+
+  return formatted;
+}
+
+// Add GenerateAudioButton component
+
 
 function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string, onAudioGenerated: (url: string) => void }) {
   const [loading, setLoading] = useState(false);
