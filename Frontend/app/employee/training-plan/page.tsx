@@ -407,7 +407,7 @@ export default function TrainingPlanPage() {
 
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading training plan...</p>
@@ -419,7 +419,7 @@ export default function TrainingPlanPage() {
   // If baseline is required, show a clear CTA to take the baseline assessment
   if (baselineRequired) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+      <div className="min-h-screen">
         <EmployeeNavigation showForward={false} />
         <div
           className="transition-all duration-300 ease-in-out px-4 py-8"
@@ -506,7 +506,7 @@ export default function TrainingPlanPage() {
   if (!plan || !modules || !Array.isArray(modules)) {
     // Only show raw JSON if plan is missing or modules cannot be parsed as an array
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 px-4 py-8">
+      <div className="min-h-screen px-4 py-8">
         <div className="max-w-3xl mx-auto">
           <Card className="mb-8">
             <CardHeader>

@@ -38,6 +38,7 @@ const EmployeeNavigation = ({
   const [userRoles, setUserRoles] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
+  const [showReportToast, setShowReportToast] = useState(false);
 
   const displayUser = providedUser || employee;
 
@@ -76,7 +77,7 @@ const EmployeeNavigation = ({
 
             if (roleData) {
               const roles = roleData.map((ra: any) => ra.roles?.name);
-              setIsAdmin(roles.some(r => ['ADMIN', 'SUPER_ADMIN', 'Admin'].includes(r)));
+              setIsAdmin(roles.some((r: string | undefined) => ['ADMIN', 'SUPER_ADMIN', 'Admin'].includes(String(r))));
             }
           }
         } catch (e) { console.error(e); }
@@ -87,6 +88,23 @@ const EmployeeNavigation = ({
 
   useEffect(() => {
     setIsNavigating(false);
+  }, [pathname]);
+
+  // Read one-shot toast flag set when an assessment/quiz result is shown
+  useEffect(() => {
+    try {
+      const v = sessionStorage.getItem('show_report_toast');
+      if (v === '1') {
+        setShowReportToast(true);
+        // remove the flag so it doesn't show repeatedly
+        sessionStorage.removeItem('show_report_toast');
+        // auto-hide after a few seconds
+        const t = setTimeout(() => setShowReportToast(false), 6000);
+        return () => clearTimeout(t);
+      }
+    } catch (e) {
+      // ignore (SSR or privacy)
+    }
   }, [pathname]);
 
   // Sync Side-bar Width CSS Variable
@@ -234,6 +252,20 @@ const EmployeeNavigation = ({
               {!isCollapsed && <span className="text-[15px]">Reports</span>}
             </button>
             {isCollapsed && <NavTooltip label="Reports" />}
+            {/* One-shot toast shown to the right of Reports when an assessment/quiz result was just produced */}
+            {!isCollapsed && showReportToast && (
+              <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 z-[60]">
+                <div
+                  className="flex items-center gap-3 bg-[#111827] text-white text-sm font-medium px-3 py-2 rounded-lg shadow-lg cursor-pointer select-none"
+                  onClick={() => { setShowReportToast(false); handleNavigate('/employee/score-history'); }}
+                >
+                  <span>Click for detailed report</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Admin Panel */}
@@ -270,6 +302,7 @@ const EmployeeNavigation = ({
                     ))}
                   </div>
                 )}
+                
               </div>
             </>
           )}

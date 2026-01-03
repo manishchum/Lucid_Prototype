@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { FileText, Video, Music, File, Trash2, ExternalLink, Brain, Clock, CheckCircle, XCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
-import { toast } from "react-hot-toast"
+import { toast as shadcnToast } from '@/hooks/use-toast'
 import { AIAnalysisView } from "./ai-analysis-view"
 import { ProcessingStatusComponent } from "./processing-status"
 
@@ -80,10 +80,10 @@ export function UploadedFilesList({ modules, onModuleDeleted }: UploadedFilesLis
       const { error: dbError } = await supabase.from("training_modules").delete().eq("module_id", moduleId)
       if (dbError) throw dbError
 
-      toast.success("Module deleted successfully!")
+  shadcnToast({ title: 'Module deleted successfully!', duration: 7000 })
       onModuleDeleted() // Notify parent to refresh list
     } catch (error: any) {
-      toast.error(`Failed to delete module: ${error.message}`)
+      shadcnToast({ title: `Failed to delete module`, description: error.message || '', duration: 7000 })
     }
   }
 

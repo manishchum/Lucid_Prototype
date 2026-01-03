@@ -461,7 +461,7 @@ export default function LearningStyleSurvey() {
   // Intro page
   if (page === 'intro') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+      <div className="min-h-screen">
         <EmployeeNavigation showForward={false} />
         
         {/* Main content area that adapts to sidebar */}
@@ -626,7 +626,7 @@ export default function LearningStyleSurvey() {
     const accordionSections = buildAccordionSections(reportText, learningStyleResult.description)
     
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+      <div className="min-h-screen">
         <EmployeeNavigation showForward={false} />
         
         {/* Main content area that adapts to sidebar */}
@@ -739,7 +739,7 @@ export default function LearningStyleSurvey() {
 
   if (page === 'survey') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+      <div className="min-h-screen">
         <EmployeeNavigation showForward={false} />
         {/* Main content area that adapts to sidebar */}
         <div 

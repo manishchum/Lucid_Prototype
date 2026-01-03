@@ -112,15 +112,36 @@ export default function EmployeeWelcome() {
       setBaselineRequired(requiresBaseline);
 
       const assignedPlans = planRows?.filter((p: any) => p.status === 'ASSIGNED') || [];
+      // TEMP LOGS: inspect returned learning_plan rows and assigned plans
+      try {
+        console.log('[debug] learning_plan rows:', planRows);
+        console.log('[debug] assignedPlans:', assignedPlans);
+      } catch (e) {
+        /* ignore console errors */
+      }
       const mIds = assignedPlans.map((p: any) => p.module_id).filter(Boolean);
       
       // Calculate Progress and resolve module titles
       if (mIds.length > 0) {
         // Fetch processed modules (we need title and mapping to original module id)
-        const { data: pMods } = await supabase
+        // Try to fetch processed_modules rows where either the original_module_id or the processed_module_id
+        // matches any of the module ids we have. Some rows store IDs under processed_module_id instead.
+        const { data: pModsByOriginal } = await supabase
           .from('processed_modules')
           .select('processed_module_id, title, original_module_id')
           .in('original_module_id', mIds);
+
+        const { data: pModsByProcessed } = await supabase
+          .from('processed_modules')
+          .select('processed_module_id, title, original_module_id')
+          .in('processed_module_id', mIds);
+
+        const pMods = Array.from(new Map([...(pModsByOriginal || []), ...(pModsByProcessed || [])].map((r: any) => [r.processed_module_id || r.original_module_id || JSON.stringify(r), r])).values());
+
+        // TEMP LOG: inspect processed_modules rows
+        try {
+          console.log('[debug] processed_modules (pMods combined):', pMods);
+        } catch (e) { /* ignore */ }
 
         const pIds = pMods?.map((m: any) => m.processed_module_id) || [];
         const { data: pProg } = await supabase
@@ -129,22 +150,53 @@ export default function EmployeeWelcome() {
           .eq('user_id', employeeData.user_id)
           .in('processed_module_id', pIds);
 
+        // TEMP LOG: inspect module_progress rows
+        try {
+          console.log('[debug] module_progress (pProg):', pProg);
+        } catch (e) { /* ignore */ }
+
         const completedCount = pProg?.filter((p: any) => p.completed_at).length || 0;
         const prog = mIds.length > 0 ? Math.round((completedCount / mIds.length) * 100) : 0;
         setProgressPercentage(prog);
         if (employeeData.company_id) await fetchCompanyStats(employeeData.company_id, employeeData.user_id, prog);
 
-        // Build a lookup of original_module_id -> title so assigned modules show proper names
+        // Build lookups so assigned modules show proper names.
+        // processed_modules may reference the original_module_id or have a processed_module_id that
+        // matches the learning_plan.module_id depending on how data was stored — build both maps.
         const titleByOriginal: Record<string, string> = {};
+        const titleByProcessedId: Record<string, string> = {};
         (pMods || []).forEach((pm: any) => {
-          if (pm && pm.original_module_id) {
-            titleByOriginal[pm.original_module_id] = pm.title || `Module ${pm.original_module_id}`;
+          if (pm) {
+            if (pm.original_module_id) {
+              titleByOriginal[pm.original_module_id] = pm.title || `Module ${pm.original_module_id}`;
+            }
+            if (pm.processed_module_id) {
+              titleByProcessedId[pm.processed_module_id] = pm.title || `Module ${pm.processed_module_id}`;
+            }
           }
         });
 
-        setAssignedModules(
-          assignedPlans.map((p: any) => ({ id: p.module_id, title: titleByOriginal[p.module_id] || `Module ${p.module_id}` }))
-        );
+        const mappedAssigned = assignedPlans.map((p: any) => {
+          const adminName = p.module_name || p.module_title || p.title || (p.module && (p.module.name || p.module.title)) || null;
+          const resolvedTitle =
+            titleByOriginal[p.module_id] ||
+            titleByProcessedId[p.module_id] ||
+            // also try matching by processed_module_id lookup using module_id as processed id
+            titleByProcessedId[p.module_id] ||
+            adminName ||
+            `Module ${p.module_id}`;
+
+          return {
+            id: p.module_id,
+            title: resolvedTitle,
+            moduleName: adminName,
+          };
+        });
+
+        // TEMP LOG: mapped assigned modules
+        try { console.log('[debug] mappedAssignedModules:', mappedAssigned); } catch (e) {}
+
+        setAssignedModules(mappedAssigned);
       }
 
       const { data: progressData } = await supabase.from("module_progress").select("*, processed_modules(title)").eq("user_id", employeeData.user_id);
@@ -171,14 +223,14 @@ export default function EmployeeWelcome() {
 
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC]">
+    <div className="min-h-screen">
       <EmployeeNavigation showBack={false} showForward={false} />
 
       {/* Login Success Toast */}
@@ -362,21 +414,29 @@ export default function EmployeeWelcome() {
                 ) : (
                   <div className="divide-y divide-slate-50">
                     {assignedModules.map((m) => (
-               <div key={m.id} className="submodule-card">
-                 <div className="flex items-center gap-4 flex-1 min-w-0">
-                   <div className="w-12 h-12 bg-white border-4 border-slate-50 rounded-full flex items-center justify-center text-xs font-black text-slate-400">0%</div>
-                   <div className="min-w-0">
-                    <p className="submodule-card__title truncate">{m.title || `Module ${m.id}`}</p>
-                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-0.5">Baseline Pending</p>
-                   </div>
-                 </div>
-                 <div className="ml-auto flex gap-3">
-                          <Button variant="outline" className="rounded-lg font-bold text-slate-600" onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)}>
+                      <div key={m.id} className="flex items-center gap-6 p-6 bg-white">
+                        <div className="flex items-center gap-4 min-w-0">
+                          <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
+                            0%
+                          </div>
+
+                          <div className="min-w-0">
+                            <p className="text-lg font-extrabold text-slate-900 truncate max-w-[70vw] md:max-w-[40vw]">{m.title || `Module ${m.id}`}</p>
+                            {m.moduleName && (
+                              <div className="text-sm text-slate-500 truncate mt-1">{m.moduleName}</div>
+                            )}
+                            <p className="text-xs font-black text-blue-600 uppercase tracking-wide mt-1">Baseline Pending</p>
+                          </div>
+                        </div>
+
+                        <div className="ml-auto flex items-center gap-3">
+                          <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-4 py-2 rounded-md border border-slate-200 text-sm font-bold text-slate-700 bg-white hover:bg-slate-50">
                             Baseline
-                          </Button>
-                          <Button className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold px-6" onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)}>
+                          </button>
+
+                          <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-5 py-2 rounded-md bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
                             Learning Plan
-                          </Button>
+                          </button>
                         </div>
                       </div>
                     ))}

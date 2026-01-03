@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { FileText, Video, Music, File, UploadCloud, XCircle, CheckCircle, Table, Presentation } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { formatBytes } from "@/lib/utils"
-import { toast } from "react-hot-toast"
+import { toast as shadcnToast } from '@/hooks/use-toast'
 
 interface ContentUploadProps {
   companyId: string
@@ -295,7 +295,7 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
         console.error("Database error:", dbError)
         setError(dbError.message)
       } else {
-        toast.success("File uploaded successfully! Starting content extraction...")
+    shadcnToast({ title: 'File uploaded successfully! Starting content extraction...', duration: 7000 })
         
         // 4. Trigger content extraction via API
         console.log("🔍 DEBUG: Starting content extraction...");
@@ -350,13 +350,13 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
           console.log("🔍 DEBUG: Extracted text length:", extractedText?.length);
           console.log("🔍 DEBUG: Extracted text preview:", extractedText?.substring(0, 200) + "...");
           
-          toast.success("Content extraction completed!")
+    shadcnToast({ title: 'Content extraction completed!', duration: 7000 })
           
           // Send email notifications to allowed employees
           try {
             console.log("📧 DEBUG: Starting email notification process...");
             await sendEmailNotifications(moduleData.module_id, title.trim() || file.name, companyId);
-            toast.success("Email notifications sent to employees!");
+            shadcnToast({ title: 'Email notifications sent to employees!', duration: 7000 });
           } catch (emailError) {
             console.error("📧 DEBUG: Email notification error:", emailError);
             toast.error("Content uploaded successfully, but failed to send email notifications.");
@@ -380,7 +380,7 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
             }
             
             setOpenaiResult(result);
-            toast.success("OpenAI processing complete!");
+            shadcnToast({ title: 'OpenAI processing complete!', duration: 7000 });
             
             // The backend worker will automatically handle subsequent processing
           } catch (err) {
@@ -519,7 +519,7 @@ export function ContentUpload({ companyId, onUploadSuccess }: ContentUploadProps
               try {
                 const result = await uploadToOpenAIAssistant(file, moduleId);
                 setOpenaiResult(result);
-                toast.success("OpenAI Assistants API processing complete!");
+                shadcnToast({ title: 'OpenAI Assistants API processing complete!', duration: 7000 });
               } catch (err) {
                 toast.error("OpenAI Assistants API failed. See console for details.");
               } finally {

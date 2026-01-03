@@ -562,7 +562,7 @@ const buildLearningSections = (gptAnalysis: string, fallbackDescription: string)
 }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+    <div className="min-h-screen">
       <EmployeeNavigation showForward={false} />
       
       {/* Main content area that adapts to sidebar */}
@@ -572,16 +572,16 @@ const buildLearningSections = (gptAnalysis: string, fallbackDescription: string)
           marginLeft: 'var(--sidebar-width, 0px)',
         }}
       >
-        {/* Header */}
-        <div className="bg-white shadow-sm border-b" onClick={(e) => e.stopPropagation()}>
+        {/* Header as single flat banner */}
+        <div className="bg-sky-50 border border-sky-200 rounded-xl shadow-sm mb-6" onClick={(e) => e.stopPropagation()}>
           <div className="max-w-10xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center py-4">
+            <div className="flex justify-between items-center py-8">
               <div className="flex items-center">
                 <div className="w-8 h-8 text-green-600 mr-3 flex items-center justify-center">
                   📊
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">Your Learning Journey: Style & Scores</h1>
+                  <h1 className="text-2xl font-bold text-sky-800">Your Learning Journey: Style & Scores</h1>
                 </div>
               </div>
             </div>
@@ -594,7 +594,7 @@ const buildLearningSections = (gptAnalysis: string, fallbackDescription: string)
         {/* Learning Style Section */}
         {learningStyleData ? (
           <Card className="mb-8 shadow-md">
-            <CardHeader className="bg-gradient-to-r from-sky-50 to-blue-50 rounded-t-xl py-5 px-6 border-b-2 border-sky-200">
+            <CardHeader className="bg-sky-50 rounded-t-xl py-5 px-6 border-b-2 border-sky-200">
               <CardTitle className="text-2xl font-bold text-sky-700">Discover how you learn best</CardTitle>
               <CardDescription className="text-sm mt-1 text-sky-600">
                 Understand your learning DNA to achieve outcomes faster
@@ -643,7 +643,7 @@ const buildLearningSections = (gptAnalysis: string, fallbackDescription: string)
                         ))
                       }
                       return (
-                        <Card key={section.id} className={`bg-gradient-to-br ${section.accent} border-2 shadow-sm`}>
+                        <Card key={section.id} className={`bg-sky-50 border-2 border-sky-200 shadow-sm`}>
                           <CardHeader className="cursor-pointer" onClick={toggle}>
                             <CardTitle className="flex items-center justify-between text-lg sm:text-xl font-semibold text-gray-900">
                               <span>{section.title}</span>
@@ -710,7 +710,7 @@ const buildLearningSections = (gptAnalysis: string, fallbackDescription: string)
         
         {/* Assessment History Section */}
         <Card className="mb-12 shadow-md">
-          <CardHeader className="bg-gradient-to-r from-sky-50 to-blue-50 rounded-t-xl py-5 px-6 border-b-2 border-sky-200">
+          <CardHeader className="bg-sky-50 rounded-t-xl py-5 px-6 border-b-2 border-sky-200">
             <CardTitle className="text-2xl font-bold text-sky-700">Your Growth Record
 </CardTitle>
             <CardDescription className="text-sm mt-1 text-sky-600">Review your scores & track growth
@@ -731,7 +731,7 @@ const buildLearningSections = (gptAnalysis: string, fallbackDescription: string)
                   // If expanded, make the tile span all columns and increase padding/font
                   if (isExpanded) {
                     return (
-                      <div key={idx} className={`col-span-1 sm:col-span-2 lg:col-span-3 border-2 border-sky-200 rounded-lg p-6 flex flex-col h-full bg-gradient-to-br from-sky-50 to-white transition-all duration-200 shadow-md z-10 relative`}>
+                      <div key={idx} className={`col-span-1 sm:col-span-2 lg:col-span-3 border-2 border-sky-200 rounded-lg p-6 flex flex-col h-full bg-sky-50 transition-all duration-200 shadow-md z-10 relative`}>
                         <div className="flex items-center justify-between mb-4 cursor-pointer" onClick={() => toggleExpand(idx)}>
                           <div className="flex flex-col gap-2 flex-1">
                             <span className={`text-xl font-bold text-sky-900`}>
@@ -773,7 +773,7 @@ const buildLearningSections = (gptAnalysis: string, fallbackDescription: string)
                   }
                   // Collapsed tile (grid)
                   return (
-                    <div key={idx} className={`border-2 border-sky-200 rounded-lg p-4 flex flex-col h-full bg-gradient-to-br from-sky-50 to-white transition-all duration-200 hover:shadow-md cursor-pointer`} onClick={() => toggleExpand(idx)}>
+                    <div key={idx} className={`border-2 border-sky-200 rounded-lg p-4 flex flex-col h-full bg-sky-50 transition-all duration-200 hover:shadow-md cursor-pointer`} onClick={() => toggleExpand(idx)}>
                       <span className={`text-lg font-bold mb-2 text-sky-900`}>{isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}</span>
                       <div className="flex items-center gap-2 text-sm mb-2">
                         <span className="text-sky-700 font-semibold">Score:</span>

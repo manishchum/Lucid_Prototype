@@ -1111,7 +1111,6 @@ import { supabase } from "@/lib/supabase";
 import { Building2, Users, Plus, Trash2, LogOut, Edit, BarChart3, Badge, BookOpen, CheckCircle, TrendingUp, User, AlertCircle } from "lucide-react";
 import { ContentUpload } from "./content-upload";
 import { UploadedFilesList } from "./uploaded-files-list";
-import { Toaster } from "react-hot-toast";
 import UpdateEmployeeModal from "./update-employee-modal"; // Import UpdateEmployeeModal
 import { useCallback, useEffect, useState } from "react";
 

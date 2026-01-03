@@ -199,7 +199,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+    <div className="min-h-screen">
       <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} />
 
       <div className="transition-all duration-300 ease-in-out px-12 py-8" style={{ marginLeft: 'var(--sidebar-width, 0px)' }}>

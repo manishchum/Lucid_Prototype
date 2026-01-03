@@ -320,6 +320,13 @@ const AssessmentPage = () => {
         bloomLevel: q.bloomLevel || 'Unknown'
       }));
       setCorrectAnswers(answersData);
+      // Notify the navigation to show a one-time "click for detailed report" toast
+      try {
+        // Set a session flag so the sidebar can show the toast once
+        sessionStorage.setItem('show_report_toast', '1');
+      } catch (e) {
+        // ignore in server or privacy-restricted contexts
+      }
       
     } catch (err: any) {
       setFeedback("Could not generate feedback.");
@@ -329,7 +336,7 @@ const AssessmentPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 w-full">
+    <div className="min-h-screen w-full">
       <EmployeeNavigation showBack={true} showForward={false} />
       
       <div 
