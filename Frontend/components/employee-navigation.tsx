@@ -306,6 +306,41 @@ const EmployeeNavigation = ({
               </div>
             </>
           )}
+
+          {/* KPI Panel */}
+          {!isCollapsed && <div className="pt-8 pb-2 px-4 text-[10px] font-black text-[#1E293B] uppercase tracking-[0.2em] opacity-60">KPI</div>}
+          <div className="relative group">
+            <button 
+              onClick={() => isCollapsed ? handleNavigate('/kpi') : setKpiDropdownOpen(!kpiDropdownOpen)} 
+              className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
+            >
+              <div className="flex items-center gap-3.5">
+                <TrendingUp size={20} className="shrink-0" />
+                {!isCollapsed && <span className="text-[15px] font-medium">KPI</span>}
+              </div>
+              {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${kpiDropdownOpen ? '' : '-rotate-90'}`} />}
+            </button>
+            {isCollapsed && <NavTooltip label="KPI" />}
+            {kpiDropdownOpen && !isCollapsed && (
+              <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
+                {[
+                    { href: "/kpi/intelligence", label: "KPI Intelligence", icon: TrendingUp },
+                    { href: "/kpi/configuration", label: "KPI Configuration", icon: SettingsIcon },
+                    { href: "/kpi/turbocharge", label: "KPI TurboCharge", icon: Zap },
+                    { href: "/kpi/workforce-overview", label: "Workforce Overview", icon: UsersRound },
+                ].map((item) => (
+                    <button
+                        key={item.label}
+                        onClick={() => handleNavigate(item.href)}
+                        className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                    >
+                        <item.icon size={18} className="shrink-0" />
+                        <span className="truncate">{item.label}</span>
+                    </button>
+                ))}
+              </div>
+            )}
+          </div>
         </nav>
 
         {/* Logout */}
