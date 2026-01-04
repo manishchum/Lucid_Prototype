@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
 import { ChevronLeft, Info, Lightbulb, BookOpen, Zap } from "lucide-react";
+import InfographicCards from '@/components/InfographicCards'
 import clsx from "clsx";
 import { useAuth } from "@/contexts/auth-context";
 
@@ -526,6 +527,8 @@ function ContentTransformer({
   const [chatInput, setChatInput] = useState('');
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [audioOpen, setAudioOpen] = useState(false);
+  const [infographicSections, setInfographicSections] = useState<any[] | null>(null);
+  const [infographicLoading, setInfographicLoading] = useState(false);
 
   const handleTimeUpdate = (current: number, duration: number) => {
     if (!duration || !plainTranscript) return;
@@ -635,7 +638,63 @@ function ContentTransformer({
 
           {/* Infographic */}
           <div
-            onClick={() => setSelectedOption('infographic')}
+            onClick={async () => {
+              // If already generated, just open the view
+              if (infographicSections && infographicSections.length > 0) {
+                setSelectedOption('infographic');
+                return;
+              }
+
+              try {
+                setInfographicLoading(true);
+                const studyText = plainTranscript || module.content || '';
+                console.log('[infographic] starting fetch, studyText length:', (studyText || '').length);
+                const res = await fetch('/api/generate-infographic-gemini', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ content: studyText }),
+                });
+
+                // Read raw text for debugging first, then attempt to parse JSON
+                const raw = await res.clone().text();
+                console.log('[infographic] fetch status:', res.status, 'raw preview:', raw.slice(0, 400));
+
+                let data: any = null;
+                try {
+                  data = await res.json();
+                } catch (parseErr) {
+                  console.error('[infographic] failed to parse JSON from response, parseErr:', parseErr);
+                  // fallback: try to parse raw substring
+                  try {
+                    data = JSON.parse(raw);
+                  } catch (e2) {
+                    data = { raw };
+                  }
+                }
+
+                console.log('[infographic] parsed response:', data);
+
+                if (res.ok) {
+                  // Expecting an array of { heading, points }
+                  if (Array.isArray(data)) {
+                    setInfographicSections(data);
+                  } else if (data && data.error) {
+                    setInfographicSections([{ heading: 'Infographic generation failed', points: [data.error || data.detail || 'See console for details'] }]);
+                  } else {
+                    setInfographicSections([{ heading: 'Infographic: unexpected response', points: [JSON.stringify(data).slice(0, 300)] }]);
+                  }
+                } else {
+                  // Surface error to the UI so the user sees feedback instead of a silent failure
+                  setInfographicSections([{ heading: 'Infographic generation failed', points: [data?.error || data?.detail || 'See console for details'] }]);
+                  console.error('Infographic generation failed', data);
+                }
+              } catch (e) {
+                console.error('Error generating infographic', e);
+              } finally {
+                setInfographicLoading(false);
+                setSelectedOption('infographic');
+              }
+            }}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
               selectedOption === 'infographic'
@@ -792,11 +851,25 @@ function ContentTransformer({
           </div>
         )}
 
-        {/* Placeholder for other options */}
+        {/* Placeholder / generated output for other options */}
         {selectedOption !== 'audio' && selectedOption !== 'video' && (
           <div className="rounded-xl border border-slate-200 bg-white p-12 text-center">
             <div className="text-slate-600 text-sm">
-              {selectedOption === 'infographic' && '📊 Infographic generation coming soon...'}
+                  {selectedOption === 'infographic' && (
+                    <div>
+                      {infographicLoading && (
+                        <div className="flex flex-col items-center">
+                          <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
+                          <div>Generating infographic...</div>
+                        </div>
+                      )}
+
+                      {!infographicLoading && (
+                        <InfographicCards sections={infographicSections} />
+                      )}
+                    </div>
+                  )}
+
               {selectedOption === 'mindmap' && '🗺️ Mindmap generation coming soon...'}
             </div>
           </div>
