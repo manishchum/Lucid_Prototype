@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    console.log(`Fetched ${modules?.length || 0} modules for content generation.`);
+    // console.log(`Fetched ${modules?.length || 0} modules for content generation.`);
 
     let updated = 0;
     for (const mod of modules || []) {
@@ -152,7 +152,7 @@ Module Summary:
 
 IMPORTANT: Create AT LEAST 2-3 full sections with corresponding activities. Make the content rich, practical, and workplace-relevant.`;
         
-        console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
+        // console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
         
         const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
         const result = await model.generateContent(stylePrompt);
@@ -212,7 +212,7 @@ IMPORTANT: Create AT LEAST 2-3 full sections with corresponding activities. Make
           console.error(`Failed to update content for module ${mod.processed_module_id} style ${style}:`, updateError);
         } else {
           updated++;
-          console.log(`Updated module ${mod.processed_module_id} with AI content for style ${style}.`);
+          // console.log(`Updated module ${mod.processed_module_id} with AI content for style ${style}.`);
         }
       } catch (err) {
         console.error(`Error processing module ${mod.processed_module_id}:`, err);

@@ -254,14 +254,14 @@ async function synthesizeAndStore(processedModuleId: string) {
   if (!fullContent) return { error: 'Empty content', status: 400 } as const;
 
   // Generate podcast script (no OpenAI needed)
-  console.log('[TTS] Generating podcast script...');
+  // console.log('[TTS] Generating podcast script...');
   const dialogue = generatePodcastScript(fullContent, module.title);
   
   if (dialogue.length === 0) {
     return { error: 'No dialogue generated from script', status: 500 } as const;
   }
 
-  console.log(`[TTS] Generated ${dialogue.length} dialogue segments`);
+  // console.log(`[TTS] Generated ${dialogue.length} dialogue segments`);
   
   function createWavBuffer(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1, bytesPerSample = 2) {
     const blockAlign = numChannels * bytesPerSample;
@@ -343,7 +343,7 @@ async function synthesizeAndStore(processedModuleId: string) {
     };
     
     try {
-      console.log(`[TTS] Synthesizing segment ${i + 1}/${dialogue.length} (${segment.speaker})...`);
+      // console.log(`[TTS] Synthesizing segment ${i + 1}/${dialogue.length} (${segment.speaker})...`);
       const response = await fetch(
         `https://texttospeech.googleapis.com/v1/text:synthesize`,
         {
@@ -391,7 +391,7 @@ async function synthesizeAndStore(processedModuleId: string) {
     }
   }
 
-  console.log('[TTS] All segments synthesized, creating final audio file...');
+  // console.log('[TTS] All segments synthesized, creating final audio file...');
   const pcm = Buffer.concat(pcmBuffers);
   const wavBuffer = createWavBuffer(pcm, 24000, 1, 2);
 

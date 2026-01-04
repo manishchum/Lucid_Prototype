@@ -27,7 +27,11 @@ try {
   try {
     const ffmpegStatic = req('ffmpeg-static');
     if (ffmpegStatic) {
-      try { ffmpeg.setFfmpegPath(ffmpegStatic as string); console.log('[gpt-video-gen] set ffmpeg path to', ffmpegStatic); } catch (e) { console.warn('[gpt-video-gen] Could not set ffmpeg path', e); }
+      try { ffmpeg.setFfmpegPath(ffmpegStatic as string); 
+        
+        // console.log('[gpt-video-gen] set ffmpeg path to', ffmpegStatic); 
+      } 
+        catch (e) { console.warn('[gpt-video-gen] Could not set ffmpeg path', e); }
     }
   } catch (e) {
     // ffmpeg-static not installed — ok
@@ -36,7 +40,11 @@ try {
   try {
     const ffprobeStatic = req('ffprobe-static');
     if (ffprobeStatic && ffprobeStatic.path) {
-      try { ffmpeg.setFfprobePath(ffprobeStatic.path); console.log('[gpt-video-gen] set ffprobe path to', ffprobeStatic.path); } catch (e) { console.warn('[gpt-video-gen] Could not set ffprobe path', e); }
+      try { ffmpeg.setFfprobePath(ffprobeStatic.path); 
+        // console.log('[gpt-video-gen] set ffprobe path to', ffprobeStatic.path);
+
+       } catch (e) { console.warn('[gpt-video-gen] Could not set ffprobe path', e); }
+
     }
   } catch (e) {
     // ffprobe-static not installed — ok
@@ -217,7 +225,7 @@ async function downloadToFile(url: string, dest: string) {
 }
 
 async function synthesizeAndStore(processedModuleId: string) {
-  console.log('[gpt-video-gen] start for', processedModuleId);
+  // console.log('[gpt-video-gen] start for', processedModuleId);
   const { data: module, error: moduleError } = await admin
     .from('processed_modules')
     .select('processed_module_id, title, content, audio_url')
@@ -237,7 +245,7 @@ async function synthesizeAndStore(processedModuleId: string) {
 
     // Try Gemini if configured, otherwise fallback to screenshots
     const useGemini = !!process.env.GEMINI_API_KEY && !!process.env.GEMINI_IMAGE_ENDPOINT;
-    console.log('[gpt-video-gen] useGemini=', useGemini, 'GEMINI_API_KEY set=', !!process.env.GEMINI_API_KEY, 'GEMINI_IMAGE_ENDPOINT set=', !!process.env.GEMINI_IMAGE_ENDPOINT);
+    // console.log('[gpt-video-gen] useGemini=', useGemini, 'GEMINI_API_KEY set=', !!process.env.GEMINI_API_KEY, 'GEMINI_IMAGE_ENDPOINT set=', !!process.env.GEMINI_IMAGE_ENDPOINT);
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
       const imagePath = path.join(tmpDir, `frame-${i.toString().padStart(3, '0')}.png`);
@@ -251,7 +259,7 @@ async function synthesizeAndStore(processedModuleId: string) {
             try {
               await fsPromises.writeFile(img1, buf1);
               images.push(img1);
-              console.log('[gpt-video-gen] wrote gemini img1', img1);
+              // console.log('[gpt-video-gen] wrote gemini img1', img1);
             } catch (wfErr) {
               console.warn('[gpt-video-gen] failed to write gemini img1 to disk', img1, wfErr);
             }
@@ -264,7 +272,7 @@ async function synthesizeAndStore(processedModuleId: string) {
             try {
               await fsPromises.writeFile(img2, buf2);
               images.push(img2);
-              console.log('[gpt-video-gen] wrote gemini img2', img2);
+              // console.log('[gpt-video-gen] wrote gemini img2', img2);
             } catch (wfErr) {
               console.warn('[gpt-video-gen] failed to write gemini img2 to disk', img2, wfErr);
             }
@@ -275,7 +283,7 @@ async function synthesizeAndStore(processedModuleId: string) {
           const snaps = await captureScreenshots(title, [chunk], tmpDir, images.length);
           if (snaps.length > 0) {
             images.push(snaps[0]);
-            console.log('[gpt-video-gen] wrote screenshot for chunk', i, snaps[0]);
+            // console.log('[gpt-video-gen] wrote screenshot for chunk', i, snaps[0]);
           } else {
             console.warn('[gpt-video-gen] no screenshot created for chunk', i);
           }
@@ -289,19 +297,19 @@ async function synthesizeAndStore(processedModuleId: string) {
       const snaps = await captureScreenshots(title, [chunk], tmpDir, images.length);
       if (snaps.length > 0) {
         images.push(snaps[0]);
-        console.log('[gpt-video-gen] wrote screenshot fallback for chunk', i, snaps[0]);
+        // console.log('[gpt-video-gen] wrote screenshot fallback for chunk', i, snaps[0]);
       } else {
         console.warn('[gpt-video-gen] no screenshot fallback for chunk', i);
       }
     }
 
-    console.log('[gpt-video-gen] total images collected:', images.length);
+    // console.log('[gpt-video-gen] total images collected:', images.length);
     if (images.length === 0) {
       try {
         const dirFiles = await fsPromises.readdir(tmpDir);
-        console.log('[gpt-video-gen] tmpDir contents:', tmpDir, dirFiles);
+        // console.log('[gpt-video-gen] tmpDir contents:', tmpDir, dirFiles);
       } catch (e) {
-        console.warn('[gpt-video-gen] could not list tmpDir contents', e);
+        // console.warn('[gpt-video-gen] could not list tmpDir contents', e);
       }
       return { error: 'No images generated', status: 500 } as const;
     }

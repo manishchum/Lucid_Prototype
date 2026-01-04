@@ -50,7 +50,7 @@ export default function AdminLoginForm() {
   }, [searchParams])
 
   const checkAdminAccess = async (userEmail: string) => {
-    console.log("Not a valid admin login page")
+    // console.log("Not a valid admin login page")
 
   }
 

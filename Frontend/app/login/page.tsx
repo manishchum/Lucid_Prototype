@@ -52,7 +52,7 @@ export default function LoginPage() {
       .select("user_id")
       .eq("email", userEmail)
       .maybeSingle()
-    console.log(userData)
+    // console.log(userData)
     if (userError || !userData) {
       throw new Error("Access denied. Your email is not in the allowed users list.")
     }
@@ -68,8 +68,8 @@ export default function LoginPage() {
       `)
       .eq("user_id", userData.user_id)
 
-      console.log("Role Data ")
-      console.log(roleData)
+      // console.log("Role Data ")
+      // console.log(roleData)
     if (roleError || !roleData || roleData.length === 0) {
       throw new Error("Access denied. No roles assigned to this user.")
     }
@@ -157,15 +157,15 @@ export default function LoginPage() {
   const handleGoogleSignIn = async () => {
     setLoading(true)
     setError("")
-
+    let result = null
     try {
-      const result = await signInWithPopup(auth, googleProvider)
-    console.log(result)
+      result = await signInWithPopup(auth, googleProvider)
+    // console.log(result)
       
       // Check user access and get roles
       const userData = await checkUserAccess(result.user.email!)
 
-    console.log(userData)
+    // console.log(userData)
       
       // Set user in auth context (Google sign-in should automatically do this via Firebase)
       await login(result.user)

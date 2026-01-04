@@ -86,7 +86,7 @@ export default function KPIConfigurationPage() {
 
   useEffect(() => {
     setTimeout(() => {
-    console.log(user)
+    // console.log(user)
     if (!user) {
       router.push("/")
       return
@@ -399,8 +399,8 @@ export default function KPIConfigurationPage() {
       'Function': kpi.function?.function_name || '-',
       'Sub Function': kpi.sub_function?.sub_function_name || '-',
       'Title': kpi.titles?.title_name || '-',
-      'Data Type': kpi.datatype || 'percentage',
-      'Created At': new Date(kpi.created_at).toLocaleDateString()
+      'Data Type':  'percentage',
+      'Created At': new Date().toLocaleDateString()
     }));
 
     // Create summary data
@@ -414,15 +414,15 @@ export default function KPIConfigurationPage() {
     const wb = XLSX.utils.book_new();
     const wsKPIs = XLSX.utils.json_to_sheet(exportData);
     XLSX.utils.book_append_sheet(wb, wsKPIs, 'KPIs');
-    console.log(XLSX)
+    // console.log(XLSX)
     // Add Summary sheet
     const wsSummary = XLSX.utils.json_to_sheet(summaryData);
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
-    console.log(wsSummary)
+    // console.log(wsSummary)
     // Add KPIs sheet
     
-    console.log("This is the data in the KPI sheet:")
-    console.log(wsKPIs)
+    // console.log("This is the data in the KPI sheet:")
+    // console.log(wsKPIs)
     // Generate filename
     const filename = `KPI_Configuration_Export_${new Date().toISOString().split('T')[0]}.xlsx`;
 

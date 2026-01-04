@@ -7,8 +7,8 @@
       body: JSON.stringify(body),
     })
     const text = await res.text()
-    console.log('STATUS', res.status)
-    console.log('BODY', text)
+    // console.log('STATUS', res.status)
+    // console.log('BODY', text)
   } catch (e) {
     console.error('ERROR', e)
     process.exit(1)

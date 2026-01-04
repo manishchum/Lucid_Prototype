@@ -28,7 +28,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   useEffect(() => {
     const fetchModule = async () => {
       setLoading(true);
-      console.log('[module] Fetching module with id:', moduleId);
+      // console.log('[module] Fetching module with id:', moduleId);
       // Validate incoming module id
       if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
         console.error('[module] Invalid module id:', moduleId);
@@ -62,10 +62,10 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             }
           }
         }
-        console.log("User Data:", user);
-        console.log(employeeEmail)
+        // console.log("User Data:", user);
+        // console.log(employeeEmail)
       } catch (e) {
-        console.log('[module] employee fetch error', e);
+        // console.log('[module] employee fetch error', e);
       }
       // Fetch module info from processed_modules - try direct lookup first, then fallbacks
       const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style, user_id";
@@ -73,8 +73,8 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       let data: any = null;
       
       // First try: direct lookup by processed_module_id (this is what we pass from training plan)
-      console.log('[module] Attempting direct fetch by processed_module_id:', moduleId);
-      console.log(empObj);
+      // console.log('[module] Attempting direct fetch by processed_module_id:', moduleId);
+      // console.log(empObj);
       
       
 
@@ -90,11 +90,11 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       }
       
       if (directData) {
-        console.log('[module] Found module by processed_module_id:', directData.processed_module_id);
+        // console.log('[module] Found module by processed_module_id:', directData.processed_module_id);
         data = directData;
       } else {
         // Fallback: try by original_module_id
-        console.log('[module] No direct match, trying by original_module_id');
+        // console.log('[module] No direct match, trying by original_module_id');
         const { data: origData, error: origError } = await supabase
           .from('processed_modules')
           .select(selectCols)
@@ -107,15 +107,15 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         }
         
         if (origData) {
-          console.log('[module] Found module by original_module_id:', origData.processed_module_id);
+          // console.log('[module] Found module by original_module_id:', origData.processed_module_id);
           data = origData;
         }
       }
-      console.log('[module] Fetched module data:', data);
+      // console.log('[module] Fetched module data:', data);
       if (data) {
         // Check if content is empty and trigger generation
         if (!data.content || data.content.trim() === '') {
-          console.log('[module] Content is empty, triggering generation for:', data.processed_module_id);
+          // console.log('[module] Content is empty, triggering generation for:', data.processed_module_id);
           setGeneratingContent(true);
           try {
             const genResponse = await fetch('/api/generate-module-content', {
@@ -126,7 +126,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
               }),
             });
             if (genResponse.ok) {
-              console.log('[module] Content generation triggered successfully');
+              // console.log('[module] Content generation triggered successfully');
               // Wait a moment then refetch the module to get updated content
               await new Promise(resolve => setTimeout(resolve, 2000));
               const { data: refreshedData } = await supabase
@@ -136,7 +136,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                 .maybeSingle();
               if (refreshedData && refreshedData.content) {
                 data = refreshedData;
-                console.log('[module] Content loaded after generation');
+                // console.log('[module] Content loaded after generation');
               }
             }
           } catch (genError) {
@@ -151,7 +151,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         // Log view to module_progress - only set started_at, NOT completed_at
         try {
           if (empObj?.user_id) {
-            console.log('[module] Logging module view for employee:', empObj.user_id, 'module:', data.processed_module_id);
+            // console.log('[module] Logging module view for employee:', empObj.user_id, 'module:', data.processed_module_id);
             await fetch('/api/module-progress', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -166,7 +166,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             });
           }
         } catch (e) {
-          console.log('[module] progress log error', e);
+          // console.log('[module] progress log error', e);
         }
       } else {
         console.error('[module] No module data found for id:', moduleId);
@@ -194,7 +194,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   }
 
   if (!module) {
-    console.log("Inside the !module block");
+    // console.log("Inside the !module block");
     return <div className="min-h-screen flex items-center justify-center text-red-600">Module not found.</div>;
   }
 

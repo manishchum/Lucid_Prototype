@@ -21,12 +21,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('[module-progress] Recording progress:', { 
-      user_id, 
-      processed_module_id, 
-      quiz_score, 
-      max_score 
-    })
+    // console.log('[module-progress] Recording progress:', { 
+    //   user_id, 
+    //   processed_module_id, 
+    //   quiz_score, 
+    //   max_score 
+    // })
 
     // Check if progress record already exists
     const { data: existingProgress, error: checkError } = await supabase
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
       result = data
     }
 
-    console.log('[module-progress] Progress recorded successfully:', result?.module_progress_id)
+    // console.log('[module-progress] Progress recorded successfully:', result?.module_progress_id)
 
     return NextResponse.json({
       success: true,

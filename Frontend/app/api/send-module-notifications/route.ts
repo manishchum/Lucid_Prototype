@@ -19,7 +19,7 @@ const createTransporter = async () => {
 
       // Test the connection
       await gmailTransporter.verify()
-      console.log('📧 DEBUG: Gmail SMTP connection verified successfully')
+      // console.log('📧 DEBUG: Gmail SMTP connection verified successfully')
       return gmailTransporter
     } catch (error) {
       console.error('📧 DEBUG: Gmail SMTP failed, falling back to test service:', error)
@@ -27,7 +27,7 @@ const createTransporter = async () => {
   }
 
   // Fallback to Ethereal Email for testing
-  console.log('📧 DEBUG: Creating Ethereal test account for email testing...')
+  // console.log('📧 DEBUG: Creating Ethereal test account for email testing...')
   const testAccount = await nodemailer.createTestAccount()
   
   const testTransporter = nodemailer.createTransport({
@@ -40,8 +40,8 @@ const createTransporter = async () => {
     },
   })
 
-  console.log('📧 DEBUG: Using Ethereal test email service')
-  console.log(`📧 DEBUG: Preview emails at: https://ethereal.email/`)
+  // console.log('📧 DEBUG: Using Ethereal test email service')
+  // console.log(`📧 DEBUG: Preview emails at: https://ethereal.email/`)
   return testTransporter
 }
 
@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('📧 DEBUG: Processing email notifications for:', { moduleId, moduleTitle, companyId })
+    // console.log('📧 DEBUG: Processing email notifications for:', { moduleId, moduleTitle, companyId })
 
     // Get company details
     const { data: companyData, error: companyError } = await supabase
@@ -171,14 +171,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (!employees || employees.length === 0) {
-      console.log('📧 DEBUG: No employees found for company:', companyId)
+      // console.log('📧 DEBUG: No employees found for company:', companyId)
       return NextResponse.json(
         { message: 'No employees found to notify' },
         { status: 200 }
       )
     }
 
-    console.log(`📧 DEBUG: Found ${employees.length} employees to notify`)
+    // console.log(`📧 DEBUG: Found ${employees.length} employees to notify`)
 
     // Create email transporter
     const transporter = await createTransporter()
@@ -189,7 +189,7 @@ export async function POST(request: NextRequest) {
       const emailTemplate = generateEmailTemplate(employeeName, moduleTitle, companyData.name)
 
       try {
-        console.log("📧 DEBUG: Sending email to:", employee.email)
+        // console.log("📧 DEBUG: Sending email to:", employee.email)
         await transporter.sendMail({
           from: `"Lucid Learning" <${process.env.SMTP_USER || 'no-reply@ethereal.email'}>`,
           to: employee.email,
@@ -198,7 +198,7 @@ export async function POST(request: NextRequest) {
           text: emailTemplate.text,
         })
 
-        console.log(`📧 DEBUG: Email sent successfully to ${employee.email}`)
+        // console.log(`📧 DEBUG: Email sent successfully to ${employee.email}`)
         return { 
           success: true, 
           email: employee.email, 
@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
       .map((result) => result.status === 'fulfilled' ? result.value : null)
       .filter(Boolean)
 
-    console.log(`📧 DEBUG: Email notifications completed - ${successfulEmails.length} successful, ${failedEmails.length} failed`)
+    // console.log(`📧 DEBUG: Email notifications completed - ${successfulEmails.length} successful, ${failedEmails.length} failed`)
 
     return NextResponse.json({
       success: true,

@@ -60,7 +60,7 @@ Ensure all formulas are practical and measurable. Make sure all JSON strings are
     const response = await result.response;
     let text = response.text();
 
-    console.log('Raw AI Response:', text);
+    // console.log('Raw AI Response:', text);
 
     // Clean the response
     // Remove markdown code blocks if present
@@ -85,7 +85,7 @@ Ensure all formulas are practical and measurable. Make sure all JSON strings are
     // Fix potential trailing commas
     jsonString = jsonString.replace(/,(\s*[}\]])/g, '$1');
 
-    console.log('Cleaned JSON:', jsonString);
+    // console.log('Cleaned JSON:', jsonString);
 
     try {
       const parsedData = JSON.parse(jsonString);

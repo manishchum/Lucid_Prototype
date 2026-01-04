@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     
     // If learning style and analysis already exist, just update answers and return existing data
     if (existing && existing.learning_style && existing.gpt_analysis) {
-      console.log('[LearningStyle] Learning style already determined, updating answers only:', existing.learning_style)
+      // console.log('[LearningStyle] Learning style already determined, updating answers only:', existing.learning_style)
       
       // Update only the answers to keep record of latest submission
       const { error: updateError } = await adminClient
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
       if (fallbackErr) {
         console.error('[LearningStyle] Failed to save fallback learning style', fallbackErr)
       } else {
-        console.log('[LearningStyle] Saved fallback learning style:', fallbackStyle)
+        // console.log('[Le//arningStyle] Saved fallback learning style:', fallbackStyle)
       }
     } catch (e) {
       console.error('[LearningStyle] Fallback computation error', e)
@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
       ];
       // Pair each question with its answer
       let qaPairs = questions.map((q, i) => `Q${i+1}: ${q}\nA${i+1}: ${answers[i] || ""}`).join("\n");
-  console.log("[LearningStyle] QA Pairs:", qaPairs);
+  // console.log("[LearningStyle] QA Pairs:", qaPairs);
   // Current (active) prompt: legacy-style narrative, but with strict section formatting for the UI parser
   const prompt = `You are an expert educational psychologist specializing in learning style models. Your goal is to administer the Gregorc Learning Style Delineator, analyze the user's responses, calculate their scores, and generate a detailed and empathetic report on their dominant learning style(s).
 
@@ -225,14 +225,14 @@ ${qaPairs}`;
   /* Structured JSON-only prompt (kept for reference, not active)
   const prompt = `...structured schema version...`
   */
-      console.log("[LearningStyle] Gemini prompt:", prompt)
+      // console.log("[LearningStyle] Gemini prompt:", prompt)
       
       const result = await model.generateContent(prompt)
       const response = await result.response
       const gptText = response.text()
       rawGPTText = gptText
 
-      console.log("[LearningStyle] Gemini raw response:", gptText)
+      // console.log("[LearningStyle] Gemini raw response:", gptText)
 
       // Try to parse JSON if the model returned it
       let analysisText: string | null = null
@@ -279,10 +279,10 @@ ${qaPairs}`;
         if (saveErr) {
           console.error('[LearningStyle] Failed to save GPT analysis', saveErr)
         } else {
-          console.log('[LearningStyle] GPT analysis & learning_style saved for', user_id, 'finalStyle=', finalStyle)
+          // console.log('[LearningStyle] GPT analysis & learning_style saved for', user_id, 'finalStyle=', finalStyle)
         }
       } else {
-        console.log('[LearningStyle] No GPT-derived learning_style or analysis to save (kept fallback)')
+        // console.log('[LearningStyle] No GPT-derived learning_style or analysis to save (kept fallback)')
       }
 
       // Ensure the response contains the same dominant_style the DB now has

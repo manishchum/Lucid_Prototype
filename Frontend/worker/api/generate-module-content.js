@@ -21,7 +21,7 @@ async function generateModuleContent() {
     throw new Error(error.message);
   }
 
-  console.log(`Fetched ${modules?.length || 0} modules for content generation.`);
+  // console.log(`Fetched ${modules?.length || 0} modules for content generation.`);
 
   let updated = 0;
   for (const mod of modules || []) {
@@ -95,7 +95,7 @@ Instructions:
    - Make it engaging and consumable for busy professionals
 
 Goal: The output should be a comprehensive, ready-to-use training module that fully addresses the topics and objectives, tailored to the specified learning style, and suitable for direct delivery to learners with clean, professional formatting.`;
-      console.log(`Calling OpenAI for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
+      // console.log(`Calling OpenAI for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
       const completion = await openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [
@@ -123,7 +123,7 @@ Goal: The output should be a comprehensive, ready-to-use training module that fu
         console.error(`Failed to upsert content for processed_module ${mod.processed_module_id} style ${style}:`, updateError);
       } else {
         updated++;
-        console.log(`Upserted content for processed_module ${mod.processed_module_id} with AI content for style ${style}.`);
+        // console.log(`Upserted content for processed_module ${mod.processed_module_id} with AI content for style ${style}.`);
       }
     } catch (err) {
       console.error(`Error processing module ${mod.module_id}:`, err);

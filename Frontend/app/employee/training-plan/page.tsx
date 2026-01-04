@@ -39,7 +39,7 @@ export default function TrainingPlanPage() {
 
   // Fetch completed modules from Supabase (same logic as employee/welcome)
   useEffect(() => {
-    console.log("[training-plan] Fetching completed modules for user:", user?.email);
+    // console.log("[training-plan] Fetching completed modules for user:", user?.email);
     async function fetchCompletedModules() {
       if (!user?.email) return;
       // Get employee id
@@ -58,13 +58,13 @@ export default function TrainingPlanPage() {
         .not("completed_at", "is", null);
 
       if (progressData) {
-        console.log("This is the progress data")
-        console.log(progressData)
+        // console.log("This is the progress data")
+        // console.log(progressData)
         // Store completed processed_module_ids
         setCompletedModules(
           progressData.map((row: any) => String(row.processed_module_id))
         );
-        console.log(completedModules)
+        // console.log(completedModules)
       }
     }
     fetchCompletedModules();
@@ -179,7 +179,7 @@ export default function TrainingPlanPage() {
   }, [user, authLoading]);
   const moduleId = searchParams.get('module_id');
   const fetchPlan = async () => {
-    console.log("[training-plan] Fetching training plan...");
+    // console.log("[training-plan] Fetching training plan...");
     setLoading(true);
     try {
       // Get employee id from Supabase
@@ -230,7 +230,7 @@ export default function TrainingPlanPage() {
           });
         }
         setModuleBaselineStatus(statusMap);
-        console.log("[training-plan] Module baseline status map:", statusMap);
+        // console.log("[training-plan] Module baseline status map:", statusMap);
       } catch (e) {
         console.error("[training-plan] Error fetching module baseline requirements:", e);
       }
@@ -254,9 +254,9 @@ export default function TrainingPlanPage() {
             .select("user_id,module_id,baseline_assessment")
             .eq("module_id",moduleId)
             .eq("user_id", employeeData.user_id);
-            console.log(userBaselines)
+            // console.log(userBaselines)
             if(userBaselines && userBaselines.length>0 && userBaselines[0].baseline_assessment==0){
-            console.log("Inside the baseline pre-check")
+            // console.log("Inside the baseline pre-check")
             setBaselineExists(true);
             setBaselineCompleted(true);
           }
@@ -274,15 +274,15 @@ export default function TrainingPlanPage() {
               if (userBaselines && userBaselines.length > 0) {
                 setBaselineCompleted(true);
               } else {
-                console.log("Inside the else statement of baseline pre-check")
+                // console.log("Inside the else statement of baseline pre-check")
                 setBaselineCompleted(false);
               }
             }
           }
 
         }
-        console.log(baselineCompleted)
-        console.log(baselineExists)
+        // console.log(baselineCompleted)
+        // console.log(baselineExists)
       } catch (e) {
         console.error("[training-plan] baseline pre-check failed", e);
       }
@@ -295,7 +295,7 @@ export default function TrainingPlanPage() {
       if (moduleId) {
         requestBody.module_id = moduleId;
       }
-      console.log("[training-plan] Fetching plan with body:", requestBody);
+      // console.log("[training-plan] Fetching plan with body:", requestBody);
       const res = await fetch("/api/training-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -303,7 +303,7 @@ export default function TrainingPlanPage() {
       });
       const result = await res.json();
 
-      console.log("[training-plan] Fetched plan result:", result);
+      // console.log("[training-plan] Fetched plan result:", result);
       // If API indicates baseline is required, show a clear prompt
       if (result?.error === "BASELINE_REQUIRED") {
         setBaselineRequired(true);
@@ -366,25 +366,25 @@ export default function TrainingPlanPage() {
     if (!moduleId) return false;
     // Map stores true only if baseline is required AND user hasn't completed it
     const needsBaseline = moduleBaselineStatus.get(moduleId) === true;
-    console.log(`[moduleRequiresBaseline] Module ${moduleId} needs baseline:`, needsBaseline);
+    // console.log(`[moduleRequiresBaseline] Module ${moduleId} needs baseline:`, needsBaseline);
     return needsBaseline;
   };
 
   // Helper: resolve a usable processed_modules.processed_module_id for navigation
   const resolveModuleId = async (mod: any): Promise<string | null> => {
     try {
-      console.log("[resolveModuleId] Input module:", mod);
+      // console.log("[resolveModuleId] Input module:", mod);
 
       // 1) If the module already carries a processed_module_id, use it
       if (mod?.processed_module_id) {
-        console.log("[resolveModuleId] Using processed_module_id:", mod.processed_module_id);
+        // console.log("[resolveModuleId] Using processed_module_id:", mod.processed_module_id);
         return String(mod.processed_module_id);
       }
 
       // 2) Otherwise, search processed_modules by title (for plan-only modules)
       const moduleName = mod?.title || mod?.name;
       if (moduleName && actualUserId) {
-        console.log("[resolveModuleId] Searching by title:", moduleName);
+        // console.log("[resolveModuleId] Searching by title:", moduleName);
         const { data: pmByTitle } = await supabase
           .from("processed_modules")
           .select("processed_module_id")
@@ -393,7 +393,7 @@ export default function TrainingPlanPage() {
           .limit(1)
           .maybeSingle();
         if (pmByTitle?.processed_module_id) {
-          console.log("[resolveModuleId] Found by title:", pmByTitle.processed_module_id);
+          // console.log("[resolveModuleId] Found by title:", pmByTitle.processed_module_id);
           return pmByTitle.processed_module_id;
         }
       }
@@ -544,7 +544,7 @@ export default function TrainingPlanPage() {
 
   // Normalize module items to ensure stable unique keys/values for tabs
   const normalizedModules = (modules as any[]).map((mod: any, idx: number) => {
-    console.log('This is the normalizedModules',mod)
+    // console.log('This is the normalizedModules',mod)
     // Normalize: use 'name' as 'title' if title is missing
     const normalizedMod = {
       ...mod,
@@ -571,8 +571,8 @@ export default function TrainingPlanPage() {
     ) {
       isCompleted = completedModules.includes(processedModuleId);
     }
-    console.log("Is Completed")
-    console.log(isCompleted);
+    // console.log("Is Completed")
+    // console.log(isCompleted);
     return { ...normalizedMod, _tabValue: tabValue, _isCompleted: isCompleted };
   });
 
@@ -765,16 +765,16 @@ export default function TrainingPlanPage() {
                           variant="outline"
                           size="lg"
                           onClick={async () => {
-                            console.log(
-                              "[training-plan] View Content clicked for module:",
-                              mod
-                            );
+                            // console.log(
+                            //   "[training-plan] View Content clicked for module:",
+                            //   mod
+                            // );
                             setContentLoadingModuleId(mod.processed_module_id);
                             const navId = await resolveModuleId(mod);
-                            console.log(
-                              "[training-plan] Resolved module id:",
-                              navId
-                            );
+                            // console.log(
+                            //   "[training-plan] Resolved module id:",
+                            //   navId
+                            // );
                             if (navId) {
                               router.push(`/employee/module/${navId}`);
                             } else {
@@ -812,16 +812,16 @@ export default function TrainingPlanPage() {
                           variant={mod._isCompleted ? "outline" : "default"}
                           size="lg"
                           onClick={async () => {
-                            console.log(
-                              "[training-plan] Quiz clicked for module:",
-                              mod
-                            );
+                            // console.log(
+                            //   "[training-plan] Quiz clicked for module:",
+                            //   mod
+                            // );
                             setQuizLoadingModuleId(mod.processed_module_id);
                             const navId = await resolveModuleId(mod);
-                            console.log(
-                              "[training-plan] Resolved module id:",
-                              navId
-                            );
+                            // console.log(
+                            //   "[training-plan] Resolved module id:",
+                            //   navId
+                            // );
                             if (navId) {
                               router.push(`/employee/quiz/${navId}`);
                             } else {
