@@ -192,7 +192,13 @@ export async function POST(request: NextRequest) {
   }));
 
 
+<<<<<<< HEAD
   // console.log("Error inside the insrtion block:", rowsToInsert);
+=======
+
+  // console.log("Error inside the insrtion block:", rowsToInsert);
+  console.log("Error inside the insrtion block:", rowsToInsert);
+>>>>>>> ac1719f66f579502494c6978aa9a7a7fd072549a
 
   const { data: insertData, error: insertError } = await supabase
     .from('assessments')
