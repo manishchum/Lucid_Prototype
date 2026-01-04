@@ -30,7 +30,7 @@ interface FeedbackSection {
 
 const AIFeedbackSections: React.FC<AIFeedbackSectionsProps> = ({ feedback }) => {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['opening']));
-  console.log('Feedback received:', feedback);
+  // console.log('Feedback received:', feedback);
   const toggleSection = (sectionKey: string) => {
     const newExpanded = new Set(expandedSections);
     if (newExpanded.has(sectionKey)) {
@@ -113,15 +113,15 @@ const AIFeedbackSections: React.FC<AIFeedbackSectionsProps> = ({ feedback }) => 
       const line = lines[i].trim();
       
       // Check if this line starts a new section
-      console.log("Line value:", line, typeof line);
+      // console.log("Line value:", line, typeof line);
       const matchedPattern = sectionPatterns.find(p => p.pattern.test(line));
       
-      console.log(sectionPatterns)
+      // console.log(sectionPatterns)
 
-      console.log("------------")
+      // console.log("------------")
       if (matchedPattern) {
-        console.log("+++++++++++")
-        console.log(matchedPattern)
+        // console.log("+++++++++++")
+        // console.log(matchedPattern)
         // Save previous section
         if (currentSection) {
           sections.push({

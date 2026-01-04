@@ -60,7 +60,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
   const [filterCategory, setFilterCategory] = useState<string>('');
 
   const triggerUpload = () => { 
-    console.log(selectedCategory)
+    // console.log(selectedCategory)
     // Prevent creating/uploading a module with a duplicate title (case-insensitive)
     const title = (moduleName || '').toString().trim();
     if (!title) {
@@ -79,28 +79,28 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
     // Resolve category id robustly from the dropdown value (which might be numeric string or name)
     let catId: number = 0;
     const tryNum = Number(selectedCategory);
-    console.log(tryNum);
+    // console.log(tryNum);
     if (!Number.isNaN(tryNum)) catId = tryNum;
     else {
-      console.log('--- IGNORE ---');
-      console.log(categories);
-      console.log(selectedCategory);
+      // console.log('--- IGNORE ---');
+      // console.log(categories);
+      // console.log(selectedCategory);
       const byName = categories.find(c =>( (c.category_id || '').toString().toLowerCase() )=== (selectedCategory || '').toString().toLowerCase());
-      console.log(byName);
+      // console.log(byName);
       if (byName) {
         catId = byName.category_id;
-        console.log(byName);
+        // console.log(byName);
       }
-      console.log(catId);
+      // console.log(catId);
     }
     const metaObj = { category_id: catId, moduleName, moduleDescription };
     uploadMetaRef.current = metaObj;
     setUploadMeta(metaObj);
-    console.log('--- IGNORE ---');
-    console.log(metaObj);
-    console.log(uploadMetaRef.current);
+    // console.log('--- IGNORE ---');
+    // console.log(metaObj);
+    // console.log(uploadMetaRef.current);
     setShowUploadModal(false);
-    console.log('triggerUpload: selectedCategory=', selectedCategory, 'metaObj=', metaObj, 'categories length=', categories.length);
+    // console.log('triggerUpload: selectedCategory=', selectedCategory, 'metaObj=', metaObj, 'categories length=', categories.length);
     // give the browser a short delay to update UI and ensure ref/state are set, then open file dialog
     setTimeout(() => fileInputRef.current?.click(), 150);
   };
@@ -174,10 +174,10 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
       try {
         const { data: dbCourses } = await supabase.from('courses').select('*');
         const existingCount = (dbCourses || []).length;
-        console.log('Seeding static courses, existingCount=', existingCount);
+        // console.log('Seeding static courses, existingCount=', existingCount);
        
-          console.log(staticCourses)
-          console.log(allCategories)
+          // console.log(staticCourses)
+          // console.log(allCategories)
           
           const toInsert = staticCourses.map(sc => {
             const match = (allCategories || []).find((ac: any) => (ac.name || '').toLowerCase() === (sc.category || '').toLowerCase());
@@ -191,7 +191,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
             };
           });
           if (toInsert.length > 0) {
-            console.log('Inserting courses:', toInsert);
+            // console.log('Inserting courses:', toInsert);
             await supabase.from('courses').insert(toInsert);
           }
         
@@ -223,7 +223,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
 
   const callSetFilterCategory=(val:string)=>{
     
-    console.log('Setting filter category to:', val);
+    // console.log('Setting filter category to:', val);
     setFilterCategory(val);
 
   }
@@ -241,7 +241,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
           
           
         }else{
-          console.log('No filter category set');
+          // console.log('No filter category set');
         }
         // fallback: fetch all
         const { data, error } = await supabase.from('courses').select('*').order('created_at', { ascending: false });
@@ -305,7 +305,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
     try {
       const form = new FormData();
       for (let i = 0; i < files.length; i++) {
-        form.append('file', files[i]);
+        form.append('file', files[i] as Blob);
       }
       // send a group title (used to create parent course if not provided)
       const groupTitle = (uploadMetaRef.current?.moduleName) || moduleName || '';
@@ -317,10 +317,10 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
       const finalCat = resolveCategoryId();
       if (finalCat !== null && finalCat !== undefined) form.append('category_id', String(finalCat));
 
-      console.log('Uploading batch of', files.length, 'files, category=', finalCat, 'groupTitle=', groupTitle);
+      // console.log('Uploading batch of', files.length, 'files, category=', finalCat, 'groupTitle=', groupTitle);
       const res = await fetch('/api/content-library/upload', { method: 'POST', body: form });
       const json = await res.json();
-      console.log('Batch upload response', json);
+      // console.log('Batch upload response', json);
 
       if (!res.ok || json.error) {
         console.error('Batch upload failed', json);
@@ -445,7 +445,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
       // append static ones that are not present in DB
       ...staticCourses.filter(sc => !dbTitles.has((sc.title || '').toLowerCase()))
     ];
-    console.log(deduped);
+    // console.log(deduped);
     // Only show one entry per module group. If a parent_course exists
     // (we inserted a parent row when multiple files were uploaded), show
     // the parent row only. Otherwise show standalone rows (legacy single-file uploads).
@@ -468,10 +468,10 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
       (course.category || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    console.log('--- IGNORE ---');
-    console.log(searched);
-    console.log(courses);
-    console.log(categories);
+    // console.log('--- IGNORE ---');
+    // console.log(searched);
+    // console.log(courses);
+    // console.log(categories);
     // If a category filter is selected, sort so matching-category courses come first
     if (filterCategory && filterCategory !== '') {
       const num = Number(filterCategory);

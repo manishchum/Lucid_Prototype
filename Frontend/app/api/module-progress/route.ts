@@ -10,7 +10,8 @@ export async function POST(request: NextRequest) {
       quiz_score, 
       max_score, 
       quiz_feedback, 
-      completed_at 
+      completed_at,
+      viewOnly
     } = body
 
     if (!user_id || !processed_module_id) {
@@ -20,12 +21,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('[module-progress] Recording progress:', { 
-      user_id, 
-      processed_module_id, 
-      quiz_score, 
-      max_score 
-    })
+    // console.log('[module-progress] Recording progress:', { 
+    //   user_id, 
+    //   processed_module_id, 
+    //   quiz_score, 
+    //   max_score 
+    // })
 
     // Check if progress record already exists
     const { data: existingProgress, error: checkError } = await supabase
@@ -49,19 +50,29 @@ export async function POST(request: NextRequest) {
       processed_module_id,
       quiz_score: quiz_score || null,
       quiz_feedback: quiz_feedback || null,
-      completed_at: completed_at || new Date().toISOString(),
+      completed_at: completed_at || null,
       started_at: existingProgress?.completed_at ? undefined : new Date().toISOString()
     }
 
     if (existingProgress) {
-      // Update existing progress
+      // If viewOnly, don't update - just return success
+      if (viewOnly) {
+        return NextResponse.json({
+          success: true,
+          message: 'Module view logged (already started)',
+          data: existingProgress
+        })
+      }
+      
+      // Update existing progress with quiz/completion data
+      const updateData: any = {}
+      if (quiz_score !== undefined) updateData.quiz_score = progressData.quiz_score
+      if (quiz_feedback !== undefined) updateData.quiz_feedback = progressData.quiz_feedback
+      if (completed_at) updateData.completed_at = progressData.completed_at
+      
       const { data, error } = await supabase
         .from('module_progress')
-        .update({
-          quiz_score: progressData.quiz_score,
-          quiz_feedback: progressData.quiz_feedback,
-          completed_at: progressData.completed_at
-        })
+        .update(updateData)
         .eq('module_progress_id', existingProgress.module_progress_id)
         .select()
         .single()
@@ -92,7 +103,7 @@ export async function POST(request: NextRequest) {
       result = data
     }
 
-    console.log('[module-progress] Progress recorded successfully:', result?.module_progress_id)
+    // console.log('[module-progress] Progress recorded successfully:', result?.module_progress_id)
 
     return NextResponse.json({
       success: true,

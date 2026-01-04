@@ -45,7 +45,7 @@ export default function LandingPage() {
           <div className="flex justify-center mb-16">
             <Card className="group relative overflow-hidden border border-gray-200 bg-white hover:shadow-lg transition-all duration-300 hover:scale-105 max-w-md w-full">
               <CardHeader className="text-center">
-                <CardTitle className="text-3xl text-gray-600 mb-6 text-base">
+                <CardTitle className="text-3xl text-gray-600 mb-6 ">
                   Discover Your Limitless Potential Today
                 </CardTitle>
                 

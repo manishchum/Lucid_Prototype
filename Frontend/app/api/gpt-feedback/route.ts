@@ -7,7 +7,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    console.log('🔄 GPT Feedback API - Legacy route called, redirecting to submit-assessment:', body);
+    // console.log('🔄 GPT Feedback API - Legacy route called, redirecting to submit-assessment:', body);
 
     const { 
       user_id, 
@@ -34,13 +34,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('🔄 Calling submit-assessment API with normalized data:', {
-      user_id: normalizedUserId,
-      assessment_id: normalizedAssessmentId,
-      answers: normalizedAnswers,
-      type: (moduleId || processedModuleId) ? 'module' : 'baseline',
-      module_id: moduleId || processedModuleId // Pass module_id for training-plan calls
-    });
+    // console.log('🔄 Calling submit-assessment API with normalized data:', {
+    //   user_id: normalizedUserId,
+    //   assessment_id: normalizedAssessmentId,
+    //   answers: normalizedAnswers,
+    //   type: (moduleId || processedModuleId) ? 'module' : 'baseline',
+    //   module_id: moduleId || processedModuleId // Pass module_id for training-plan calls
+    // });
 
     // Call the new submit-assessment API internally
     const submitAssessmentResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/submit-assessment`, {

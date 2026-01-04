@@ -70,7 +70,7 @@ import EmployeeNavigation from "@/components/employee-navigation"
 import { SidebarProvider, useSidebar } from "@/contexts/sidebar-context"
 
 interface Employee {
-  id: string
+  user_id: string
   email: string
   name: string | null
   joined_at: string
@@ -126,38 +126,38 @@ export default function EmployeeWelcome() {
   
   // Add debugging for nudge component
   useEffect(() => {
-    console.log('[DEBUG] Nudge state changed:', {
-      nudgeMessage,
-      progressPercentage,
-      companyStats,
-      assignedModules: assignedModules.length
-    });
+    // console.log('[DEBUG] Nudge state changed:', {
+    //   nudgeMessage,
+    //   progressPercentage,
+    //   companyStats,
+    //   assignedModules: assignedModules.length
+    // });
   }, [nudgeMessage, progressPercentage, companyStats, assignedModules]);
 
   // LOG: Initial state
-  console.log("[EmployeeWelcome] Initial user:", user)
-  console.log("[EmployeeWelcome] Initial moduleProgress:", moduleProgress)
+  // console.log("[EmployeeWelcome] Initial user:", user)
+  // console.log("[EmployeeWelcome] Initial moduleProgress:", moduleProgress)
 
   useEffect(() => {
-    console.log("[EmployeeWelcome] useEffect fired. authLoading:", authLoading, "user:", user)
+    // console.log("[EmployeeWelcome] useEffect fired. authLoading:", authLoading, "user:", user)
     if (!authLoading) {
       if (!user) {
-        console.log("[EmployeeWelcome] No user, redirecting to login.")
+        // console.log("[EmployeeWelcome] No user, redirecting to login.")
         router.push("/login")
       } else {
-        console.log("[EmployeeWelcome] User found, calling checkEmployeeAccess().")
+        // console.log("[EmployeeWelcome] User found, calling checkEmployeeAccess().")
         checkEmployeeAccess()
       }
     }
   }, [user, authLoading, router])
 
   const checkEmployeeAccess = async () => {
-    console.log("Inside the checkEmployeeAccess function")
+    // console.log("Inside the checkEmployeeAccess function")
     if (!user?.email) return
 
     try {
       // LOG: Fetching employee data
-      console.log("[EmployeeWelcome] Fetching employee data for email:", user.email)
+      // console.log("[EmployeeWelcome] Fetching employee data for email:", user.email)
       const { data: employeeData, error: employeeError } = await supabase
         .from("users")
         .select("*")
@@ -171,7 +171,7 @@ export default function EmployeeWelcome() {
       }
 
       setEmployee(employeeData)
-      console.log("[EmployeeWelcome] Employee data:", employeeData)
+      // console.log("[EmployeeWelcome] Employee data:", employeeData)
 
       // Fetch employee learning style
       try {
@@ -200,7 +200,7 @@ export default function EmployeeWelcome() {
         .eq("user_id", employeeData.user_id)
         .order("employee_assessment_id", { ascending: false })
       setScoreHistory(assessments || [])
-      console.log("[EmployeeWelcome] Assessment history:", assessments)
+      // console.log("[EmployeeWelcome] Assessment history:", assessments)
 
       // Determine baseline completion by checking the company's baseline assessment ID
       try {
@@ -284,7 +284,7 @@ export default function EmployeeWelcome() {
         setBaselineMaxScore(100);
       }
 
-      console.log("Plan Rows", planRows);
+      // console.log("Plan Rows", planRows);
       
       // Get assigned plans and calculate completion
       const assignedPlans = planRows?.filter((plan: any) => plan.status === 'ASSIGNED') || []
@@ -292,14 +292,14 @@ export default function EmployeeWelcome() {
       let completedModules = 0
       let totalModules = 0
       
-      console.log("Assigned Plans", assignedPlans);
+      // console.log("Assigned Plans", assignedPlans);
       
       if (assignedPlans.length > 0) {
         totalModules = assignedPlans.length
         const moduleIds = assignedPlans.map((plan: any) => plan.module_id).filter(Boolean)
         
         if (moduleIds.length > 0) {
-          console.log("Module IDs to check:", moduleIds);
+          // console.log("Module IDs to check:", moduleIds);
           
           // Get processed modules for the training modules
           const { data: processedModules } = await supabase
@@ -307,10 +307,10 @@ export default function EmployeeWelcome() {
             .select('processed_module_id, original_module_id')
             .in('original_module_id', moduleIds)
           
-          console.log("Processed modules data:", processedModules);
+          // console.log("Processed modules data:", processedModules);
           
           if (processedModules && processedModules.length > 0) {
-            const processedModuleIds = processedModules.map(pm => pm.processed_module_id).filter(Boolean)
+            const processedModuleIds = processedModules.map((pm: { processed_module_id: string }) => pm.processed_module_id).filter(Boolean)
             
             // Check completion status using processed_module_ids
             const { data: moduleProgressData } = await supabase
@@ -319,7 +319,7 @@ export default function EmployeeWelcome() {
               .eq('user_id', employeeData.user_id)
               .in('processed_module_id', processedModuleIds)
             
-            console.log("Module progress data:", moduleProgressData);
+            // console.log("Module progress data:", moduleProgressData);
             
             // Count completed modules
             const completedSet = new Set(
@@ -330,25 +330,25 @@ export default function EmployeeWelcome() {
             
             // Map back to count how many of our original modules are completed
             const completedTrainingModules = new Set()
-            processedModules.forEach(pm => {
+            processedModules.forEach((pm: { processed_module_id: string; original_module_id: string }) => {
               if (completedSet.has(String(pm.processed_module_id))) {
-                completedTrainingModules.add(String(pm.original_module_id))
+              completedTrainingModules.add(String(pm.original_module_id));
               }
-            })
+            });
             
             completedModules = completedTrainingModules.size
             completed = completedModules >= totalModules
             
-            console.log("Completion status:", { 
-              totalModules, 
-              completedModules, 
-              completed, 
-              processedModuleIds,
-              completedProcessedModuleIds: Array.from(completedSet),
-              completedTrainingModuleIds: Array.from(completedTrainingModules)
-            });
+            // console.log("Completion status:", { 
+            //   totalModules, 
+            //   completedModules, 
+            //   completed, 
+            //   processedModuleIds,
+            //   completedProcessedModuleIds: Array.from(completedSet),
+            //   completedTrainingModuleIds: Array.from(completedTrainingModules)
+            // });
           } else {
-            console.log("No processed modules found for the assigned module IDs");
+            // console.log("No processed modules found for the assigned module IDs");
             completedModules = 0
             completed = false
           }
@@ -356,7 +356,7 @@ export default function EmployeeWelcome() {
       }
 
       setAllAssignedCompleted(completed)
-      console.log("Module completion check result:", completed, completedModules, totalModules)
+      // console.log("Module completion check result:", completed, completedModules, totalModules)
       
       // Calculate progress percentage
       const progress = totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0
@@ -364,10 +364,10 @@ export default function EmployeeWelcome() {
 
       // Fetch company statistics for nudges
       if (employeeData.company_id) {
-        console.log('[DEBUG] Employee has company_id, calling fetchCompanyStats:', employeeData.company_id);
+        // console.log('[DEBUG] Employee has company_id, calling fetchCompanyStats:', employeeData.company_id);
         await fetchCompanyStats(employeeData.company_id, employeeData.user_id, progress)
       } else {
-        console.log('[DEBUG] No company_id found for employee, nudges disabled:', employeeData);
+        // console.log('[DEBUG] No company_id found for employee, nudges disabled:', employeeData);
       }
 
       // Extract assigned modules and check their baseline assessment status
@@ -381,7 +381,7 @@ export default function EmployeeWelcome() {
       if (progressError) {
         console.error("[EmployeeWelcome] module_progress fetch error:", progressError)
       }
-      console.log("[EmployeeWelcome] module_progress data:", progressData)
+      // console.log("[EmployeeWelcome] module_progress data:", progressData)
       const progressRows = progressData || []
       setModuleProgress(progressRows)
 
@@ -444,7 +444,7 @@ export default function EmployeeWelcome() {
       const assessmentStatusMap = new Map<string, ModuleAssessmentStatus>()
       
       if (assignedPlans && assignedPlans.length > 0) {
-        console.log("Inside the loadAssignedModulesWithBaselineStatus function")
+        // console.log("Inside the loadAssignedModulesWithBaselineStatus function")
         const explicitModuleIds = Array.from(new Set(assignedPlans.map((p: any) => p.module_id).filter(Boolean))).map(String)
         
         if (explicitModuleIds.length > 0) {
@@ -485,7 +485,7 @@ export default function EmployeeWelcome() {
 
           // Check baseline assessment status for each module using the learning_plan table
           for (const moduleId of explicitModuleIds) {
-            console.log(`[DEBUG] Checking baseline status for module ${moduleId}`);
+            // console.log(`[DEBUG] Checking baseline status for module ${moduleId}`);
             
             // Check if baseline is assigned in learning_plan
             const { data: learningPlan } = await supabase
@@ -502,7 +502,7 @@ export default function EmployeeWelcome() {
             
             if (learningPlan && learningPlan.baseline_assessment === 1) {
               hasBaseline = true
-              console.log(`[DEBUG] Module ${moduleId} has baseline assignment`);
+              // console.log(`[DEBUG] Module ${moduleId} has baseline assignment`);
               
               // Get the processed_module_id for this specific training module
               const { data: rawprocessedModuleForBaseline } = await supabase
@@ -510,13 +510,13 @@ export default function EmployeeWelcome() {
                 .select('processed_module_id,user_id,original_module_id')
                 .eq('original_module_id', moduleId)
                 
-                console.log(rawprocessedModuleForBaseline)
-                const processedModuleForBaseline = rawprocessedModuleForBaseline.find((pm) => pm.user_id === employeeData.user_id)
-              console.log("___________________")
-              console.log("It is  able to fetch the data from processed_modules table",processedModuleForBaseline)
+                // console.log(rawprocessedModuleForBaseline)
+                const processedModuleForBaseline = rawprocessedModuleForBaseline.find((pm: { processed_module_id: string; user_id: string; original_module_id: string }) => pm.user_id === employeeData.user_id)
+              // console.log("___________________")
+              // console.log("It is  able to fetch the data from processed_modules table",processedModuleForBaseline)
               
               if (processedModuleForBaseline?.processed_module_id) {
-                console.log(`[DEBUG] Found processed_module_id ${processedModuleForBaseline.processed_module_id} for module ${moduleId}`);
+                // console.log(`[DEBUG] Found processed_module_id ${processedModuleForBaseline.processed_module_id} for module ${moduleId}`);
                 
                 // Check for baseline assessments specific to this processed_module_id
                 const { data: baselineAssessments } = await supabase
@@ -526,11 +526,11 @@ export default function EmployeeWelcome() {
                   .eq('processed_module_id', processedModuleForBaseline.processed_module_id)
                   .eq('company_id', employeeData.company_id)
                 
-                console.log(`[DEBUG] Found baseline assessments for processed_module_id ${processedModuleForBaseline.processed_module_id}:`, baselineAssessments);
+                // console.log(`[DEBUG] Found baseline assessments for processed_module_id ${processedModuleForBaseline.processed_module_id}:`, baselineAssessments);
                 
                 if (baselineAssessments && baselineAssessments.length > 0) {
                   // Check if any of these baseline assessments are completed by the user
-                  const assessmentIds = baselineAssessments.map(a => a.assessment_id)
+                    const assessmentIds: string[] = baselineAssessments.map((a: { assessment_id: string }) => a.assessment_id)
                   
                   const { data: completedBaseline } = await supabase
                     .from('employee_assessments')
@@ -541,19 +541,19 @@ export default function EmployeeWelcome() {
                     .order('completed_at', { ascending: false })
                     .limit(1)
                   
-                  console.log(`[DEBUG] Completed baseline for module ${moduleId}:`, completedBaseline);
+                  // console.log(`[DEBUG] Completed baseline for module ${moduleId}:`, completedBaseline);
                   
                   if (completedBaseline && completedBaseline.length > 0) {
                     baselineCompleted = true
                     baselineScore = completedBaseline[0].score
                     baselineMaxScore = completedBaseline[0].max_score
-                    console.log(`[DEBUG] Module ${moduleId} baseline completed with score:`, baselineScore);
+                    // console.log(`[DEBUG] Module ${moduleId} baseline completed with score:`, baselineScore);
                   }
                 } else {
-                  console.log(`[DEBUG] No baseline assessments found for processed_module_id ${processedModuleForBaseline.processed_module_id}`);
+                  // console.log(`[DEBUG] No baseline assessments found for processed_module_id ${processedModuleForBaseline.processed_module_id}`);
                 }
               } else {
-                console.log(`[DEBUG] No processed_module found for training module ${moduleId}`);
+                // console.log(`[DEBUG] No processed_module found for training module ${moduleId}`);
               }
             }
             
@@ -565,11 +565,11 @@ export default function EmployeeWelcome() {
               baselineMaxScore
             })
             
-            console.log(`[DEBUG] Module ${moduleId} status:`, {
-              hasBaseline,
-              baselineCompleted,
-              baselineScore
-            });
+            // console.log(`[DEBUG] Module ${moduleId} status:`, {
+            //   hasBaseline,
+            //   baselineCompleted,
+            //   baselineScore
+            // });
           }
         }
       }
@@ -585,8 +585,8 @@ export default function EmployeeWelcome() {
       setAssignedModules(dedup)
       setModuleAssessmentStatus(assessmentStatusMap)
       
-      console.log('[DEBUG] Final assigned modules:', dedup)
-      console.log('[DEBUG] Final assessment status map:', assessmentStatusMap)
+      // console.log('[DEBUG] Final assigned modules:', dedup)
+      // console.log('[DEBUG] Final assessment status map:', assessmentStatusMap)
       
     } catch (e) {
       console.warn('[EmployeeWelcome] extracting assigned modules with baseline status failed:', e)
@@ -596,7 +596,7 @@ export default function EmployeeWelcome() {
   }
 
   const fetchCompanyStats = async (companyId: string, userId: string, userProgress: number) => {
-    console.log('[DEBUG] fetchCompanyStats called with:', { companyId, userId, userProgress });
+    // console.log('[DEBUG] fetchCompanyStats called with:', { companyId, userId, userProgress });
     
     try {
       // Get all employees in the company
@@ -605,15 +605,15 @@ export default function EmployeeWelcome() {
         .select('user_id')
         .eq('company_id', companyId)
 
-      console.log('[DEBUG] Company employees query result:', { companyEmployees, employeesError });
+      // console.log('[DEBUG] Company employees query result:', { companyEmployees, employeesError });
 
       if (employeesError || !companyEmployees) {
-        console.log('[DEBUG] Early return due to employees error or no data');
+        // console.log('[DEBUG] Early return due to employees error or no data');
         return;
       }
 
       const totalEmployees = companyEmployees.length
-      console.log('[DEBUG] Total employees in company:', totalEmployees);
+      // console.log('[DEBUG] Total employees in company:', totalEmployees);
 
       // Get learning plan assignments for all company employees
       const employeeIds = companyEmployees.map((emp: any) => emp.user_id)
@@ -623,7 +623,7 @@ export default function EmployeeWelcome() {
         .in('user_id', employeeIds)
         .eq('status', 'ASSIGNED')
 
-      console.log('[DEBUG] All plans for company:', allPlans);
+      // console.log('[DEBUG] All plans for company:', allPlans);
 
       let completedEmployees = 0
       let userRank = null
@@ -631,23 +631,23 @@ export default function EmployeeWelcome() {
 
       // Calculate completion for each employee using the same logic as Track Your Progress
       for (const empUserId of employeeIds) {
-        console.log('[DEBUG] Processing employee:', empUserId);
+        // console.log('[DEBUG] Processing employee:', empUserId);
         
         // Get assigned plans for this employee
-        const employeePlans = (allPlans || []).filter(plan => plan.user_id === empUserId)
-        console.log('[DEBUG] Employee plans for', empUserId, ':', employeePlans);
+        const employeePlans = (allPlans || []).filter((plan: { user_id: string; module_id: string; status: string }) => plan.user_id === empUserId)
+        // console.log('[DEBUG] Employee plans for', empUserId, ':', employeePlans);
         
         if (employeePlans.length === 0) {
           employeeProgressMap.set(empUserId, 0)
-          console.log('[DEBUG] No plans for employee', empUserId, ', setting progress to 0');
+          // console.log('[DEBUG] No plans for employee', empUserId, ', setting progress to 0');
           continue
         }
 
-        const moduleIds = employeePlans.map(plan => plan.module_id).filter(Boolean)
+        const moduleIds = employeePlans.map((plan: { module_id: string }) => plan.module_id).filter(Boolean)
         let completedModules = 0
         let totalModules = employeePlans.length
 
-        console.log('[DEBUG] Module IDs for employee', empUserId, ':', moduleIds);
+        // console.log('[DEBUG] Module IDs for employee', empUserId, ':', moduleIds);
 
         if (moduleIds.length > 0) {
           // Get processed modules for the assigned training modules (same as Track Your Progress logic)
@@ -656,10 +656,10 @@ export default function EmployeeWelcome() {
             .select('processed_module_id, original_module_id')
             .in('original_module_id', moduleIds)
           
-          console.log('[DEBUG] Processed modules for employee', empUserId, ':', processedModules);
+          // console.log('[DEBUG] Processed modules for employee', empUserId, ':', processedModules);
           
           if (processedModules && processedModules.length > 0) {
-            const processedModuleIds = processedModules.map(pm => pm.processed_module_id).filter(Boolean)
+            const processedModuleIds = processedModules.map((pm: { processed_module_id: string }) => pm.processed_module_id).filter(Boolean)
             
             // Check completion status using processed_module_ids (same as Track Your Progress logic)
             const { data: moduleProgressData } = await supabase
@@ -668,7 +668,7 @@ export default function EmployeeWelcome() {
               .eq('user_id', empUserId)
               .in('processed_module_id', processedModuleIds)
             
-            console.log('[DEBUG] Module progress data for employee', empUserId, ':', moduleProgressData);
+            // console.log('[DEBUG] Module progress data for employee', empUserId, ':', moduleProgressData);
             
             // Count completed modules (same logic as Track Your Progress)
             const completedSet = new Set(
@@ -677,21 +677,21 @@ export default function EmployeeWelcome() {
                 .map((progress: any) => String(progress.processed_module_id))
             )
             
-            console.log('[DEBUG] Completed processed module IDs for employee', empUserId, ':', Array.from(completedSet));
+            // console.log('[DEBUG] Completed processed module IDs for employee', empUserId, ':', Array.from(completedSet));
             
             // Map back to count how many of our original modules are completed
             const completedTrainingModules = new Set()
-            processedModules.forEach(pm => {
+            processedModules.forEach((pm: { processed_module_id: string; original_module_id: string }) => {
               if (completedSet.has(String(pm.processed_module_id))) {
                 completedTrainingModules.add(String(pm.original_module_id))
               }
             })
             
             completedModules = completedTrainingModules.size
-            console.log('[DEBUG] Completed training modules for employee', empUserId, ':', completedModules, 'out of', totalModules);
+            // console.log('[DEBUG] Completed training modules for employee', empUserId, ':', completedModules, 'out of', totalModules);
           } else {
             completedModules = 0
-            console.log('[DEBUG] No processed modules found for employee', empUserId);
+            // console.log('[DEBUG] No processed modules found for employee', empUserId);
           }
         }
 
@@ -699,38 +699,38 @@ export default function EmployeeWelcome() {
         const progress = totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0
         employeeProgressMap.set(empUserId, progress)
         
-        console.log('[DEBUG] Final progress for employee', empUserId, ':', progress, '%');
+        // console.log('[DEBUG] Final progress for employee', empUserId, ':', progress, '%');
         
         // Count as completed employee if 100% (same as Track Your Progress logic)
         if (progress === 100) {
           completedEmployees++
-          console.log('[DEBUG] Employee', empUserId, 'marked as completed (100%)');
+          // console.log('[DEBUG] Employee', empUserId, 'marked as completed (100%)');
         }
       }
 
-      console.log('[DEBUG] Employee progress map:', Object.fromEntries(employeeProgressMap));
-      console.log('[DEBUG] Completed employees count:', completedEmployees);
+      // console.log('[DEBUG] Employee progress map:', Object.fromEntries(employeeProgressMap));
+      // console.log('[DEBUG] Completed employees count:', completedEmployees);
 
       // Calculate user rank
       const progressValues = Array.from(employeeProgressMap.values()).sort((a, b) => b - a)
-      console.log('[DEBUG] All progress values (sorted):', progressValues);
+      // console.log('[DEBUG] All progress values (sorted):', progressValues);
       
       const userProgressIndex = progressValues.findIndex(p => p <= userProgress)
       if (userProgressIndex !== -1) {
         userRank = userProgressIndex + 1
       }
 
-      console.log('[DEBUG] User progress:', userProgress, '%, rank:', userRank);
+      // console.log('[DEBUG] User progress:', userProgress, '%, rank:', userRank);
 
       const topPercentile = totalEmployees > 0 ? Math.round(((totalEmployees - (userRank || totalEmployees)) / totalEmployees) * 100) : 0
 
-      console.log('[DEBUG] Calculated stats:', { 
-        totalEmployees, 
-        completedEmployees, 
-        userRank, 
-        topPercentile,
-        userProgress 
-      });
+      // console.log('[DEBUG] Calculated stats:', { 
+      //   totalEmployees, 
+      //   completedEmployees, 
+      //   userRank, 
+      //   topPercentile,
+      //   userProgress 
+      // });
 
       // Force update the state even if values are the same
       const newStats = {
@@ -741,10 +741,10 @@ export default function EmployeeWelcome() {
       }
       
       setCompanyStats(newStats)
-      console.log('[DEBUG] Set company stats:', newStats);
+      // console.log('[DEBUG] Set company stats:', newStats);
 
       // Generate nudge message with additional debugging
-      console.log('[DEBUG] Calling generateNudgeMessage with:', { userProgress, userRank, totalEmployees, topPercentile, completedEmployees });
+      // console.log('[DEBUG] Calling generateNudgeMessage with:', { userProgress, userRank, totalEmployees, topPercentile, completedEmployees });
       generateNudgeMessage(userProgress, userRank, totalEmployees, topPercentile, completedEmployees)
 
     } catch (error) {
@@ -753,11 +753,11 @@ export default function EmployeeWelcome() {
   }
 
   const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
-    console.log('[DEBUG] generateNudgeMessage called with:', { progress, rank, total, percentile, completed });
+    // console.log('[DEBUG] generateNudgeMessage called with:', { progress, rank, total, percentile, completed });
     
     if (progress === 100) {
       const message = "🎉 Congratulations! You've completed your learning plan and earned the SME (Subject Matter Expert) tag!";
-      console.log('[DEBUG] Setting nudge message (100% complete):', message);
+      // console.log('[DEBUG] Setting nudge message (100% complete):', message);
       setNudgeMessage(message);
       return;
     }
@@ -783,7 +783,7 @@ export default function EmployeeWelcome() {
       message = `🎯 Start your learning journey! Join ${completed} colleagues who have already completed their training and earned SME status in your company of ${total} employees!`;
     }
     
-    console.log('[DEBUG] Setting nudge message:', message);
+    // console.log('[DEBUG] Setting nudge message:', message);
     setNudgeMessage(message);
   }
 
@@ -813,14 +813,30 @@ export default function EmployeeWelcome() {
     return { disabled: false, text: 'Take Baseline Assessment', variant: 'default' as const }
   }
 
+  // After baseline assessment, refresh assigned modules and baseline status
   const handleBaselineClick = async (moduleId: string) => {
     if (baselineLoadingId) return
     setBaselineLoadingId(moduleId)
     setIsNavOverlay(true)
     try {
+      // Go to assessment page, wait for completion, then refresh modules
       await Promise.resolve(router.push(`/employee/assessment?moduleId=${moduleId}`))
+      // After returning from assessment, reload assigned modules and status
+      // This assumes the user returns to this page after assessment
+      // You may want to trigger this in a useEffect or on route change as well
+      if (employee) {
+        // Fetch assigned plans for this employee
+        const { data: assignedPlans } = await supabase
+          .from('learning_plan')
+          .select('*')
+          .eq('user_id', employee.user_id)
+        if (assignedPlans) {
+          await loadAssignedModulesWithBaselineStatus(employee, assignedPlans)
+        }
+      }
     } catch (e) {
       console.error('Error navigating to baseline assessment', e)
+    } finally {
       setIsNavOverlay(false)
       setBaselineLoadingId(null)
     }
@@ -1023,8 +1039,8 @@ export default function EmployeeWelcome() {
 
                             <div className="flex items-center gap-3">
                               {(() => {
-                                console.log("[EmployeeWelcome] Rendering progress for module:", m.id);
-                                console.log(m.id);
+                                // console.log("[EmployeeWelcome] Rendering progress for module:", m.id);
+                                // console.log(m.id);
                                 const completion = moduleCompletion[String(m.id)]
                                 const percent = completion?.percent ?? 0
                                 const completed = completion?.completed ?? 0
@@ -1128,7 +1144,7 @@ export default function EmployeeWelcome() {
                     )
                   ) : (
                     uniqueModuleProgress.map((mod, idx) => {
-                      console.log(`[EmployeeWelcome] Rendering moduleProgress[${idx}]:`, mod)
+                      // console.log(`[EmployeeWelcome] Rendering moduleProgress[${idx}]:`, mod)
                       return (
                         <div key={mod.processed_module_id} className={`flex items-center justify-between p-3 rounded-lg ${mod.completed_at ? "bg-blue-50" : "bg-gray-50"}`}>
                           <span className={`font-medium ${mod.completed_at ? "text-blue-800" : "text-gray-700"}`}>{mod.processed_modules?.title || `Module ${mod.processed_module_id}`}</span>

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
@@ -37,6 +37,7 @@ const EmployeeNavigation = ({
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [coursesOpen, setCoursesOpen] = useState(false);
   const [adminDropdownOpen, setAdminDropdownOpen] = useState(false);
+  const [kpiDropdownOpen, setKpiDropdownOpen] = useState(false);
   const [userRoles, setUserRoles] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -54,6 +55,10 @@ const EmployeeNavigation = ({
 
     if (pathname && pathname.startsWith("/admin/dashboard")) {
       setAdminDropdownOpen(true);
+    }
+
+    if (pathname && pathname.startsWith("/kpi")) {
+      setKpiDropdownOpen(true);
     }
 
     if (!providedUser && authUser?.email) {
@@ -365,94 +370,190 @@ const EmployeeNavigation = ({
             })}
 
             {isAdmin && (
-              <div className="flex flex-col">
-                <div
-                  className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors cursor-pointer ${
-                    isActiveRoute("/admin/dashboard")
-                      ? "text-blue-600 bg-blue-50"
-                      : "text-gray-700 hover:bg-gray-100"
-                  }`}
-                  onClick={() => {
-                    if (isCollapsed) {
-                      handleNavigate("/admin/dashboard/analytics");
-                    } else {
-                      setAdminDropdownOpen(!adminDropdownOpen);
-                    }
-                  }}
-                >
+              <>
+                <div className="flex flex-col">
                   <div
-                    className={`icon-box rounded-lg transition-colors border ${
+                    className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors cursor-pointer ${
                       isActiveRoute("/admin/dashboard")
-                        ? "bg-blue-50 border-blue-100 text-blue-600"
-                        : "border-transparent text-gray-500 hover:border-gray-200 hover:bg-gray-50"
+                        ? "text-blue-600 bg-blue-50"
+                        : "text-gray-700 hover:bg-gray-100"
                     }`}
+                    onClick={() => {
+                      if (isCollapsed) {
+                        handleNavigate("/admin/dashboard/analytics");
+                      } else {
+                        setAdminDropdownOpen(!adminDropdownOpen);
+                      }
+                    }}
                   >
-                    {renderIcon(<Shield className="w-5 h-5" />)}
+                    <div
+                      className={`icon-box rounded-lg transition-colors border ${
+                        isActiveRoute("/admin/dashboard")
+                          ? "bg-blue-50 border-blue-100 text-blue-600"
+                          : "border-transparent text-gray-500 hover:border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      {renderIcon(<Shield className="w-5 h-5" />)}
+                    </div>
+                    {!isCollapsed && (
+                      <>
+                        <span className="flex-1">Admin Panel</span>
+                        <ChevronDown
+                          className={`w-4 h-4 transition-transform ${
+                            adminDropdownOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </>
+                    )}
                   </div>
+
                   {!isCollapsed && (
-                    <>
-                      <span className="flex-1">Admin Panel</span>
-                      <ChevronDown
-                        className={`w-4 h-4 transition-transform ${
-                          adminDropdownOpen ? "rotate-180" : ""
-                        }`}
-                      />
-                    </>
+                    <div
+                      className={`admin-dropdown ${
+                        adminDropdownOpen ? "open" : "closed"
+                      } pl-14 pr-4`}
+                    >
+                      <div className="py-2 space-y-1">
+                        {[
+                          {
+                            href: "/admin/dashboard/analytics",
+                            icon: <BarChart3 className="w-4 h-4" />,
+                            label: "Analytics & Reports",
+                          },
+                          {
+                            href: "/admin/dashboard/employees",
+                            icon: <Users className="w-4 h-4" />,
+                            label: "Employee Management",
+                          },
+                          {
+                            href: "/admin/dashboard/uploads",
+                            icon: <Upload className="w-4 h-4" />,
+                            label: "KPI & Content Uploads",
+                          },
+                        ].map((subItem) => (
+                          <button
+                            key={subItem.href}
+                            onClick={() => handleNavigate(subItem.href)}
+                            className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors w-full text-left ${
+                              isActiveRoute(subItem.href)
+                                ? "text-blue-600 bg-blue-50 border-r-2 border-blue-600"
+                                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                            }`}
+                          >
+                            <div className="relative flex items-center">
+                              <span
+                                className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${
+                                  isActiveRoute(subItem.href)
+                                    ? "bg-blue-500"
+                                    : "border border-gray-300 bg-transparent"
+                                }`}
+                              />
+                              <div className="flex items-center gap-2">
+                                {renderIcon(subItem.icon)}
+                                <span>{subItem.label}</span>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
 
-                {!isCollapsed && (
+                <div className="flex flex-col">
                   <div
-                    className={`admin-dropdown ${
-                      adminDropdownOpen ? "open" : "closed"
-                    } pl-14 pr-4`}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors cursor-pointer ${
+                      isActiveRoute("/kpi")
+                        ? "text-green-600 bg-green-50"
+                        : "text-gray-700 hover:bg-gray-100"
+                    }`}
+                    onClick={() => {
+                      if (isCollapsed) {
+                        handleNavigate("/kpi/intelligence");
+                      } else {
+                        setKpiDropdownOpen(!kpiDropdownOpen);
+                      }
+                    }}
                   >
-                    <div className="py-2 space-y-1">
-                      {[
-                        {
-                          href: "/admin/dashboard/analytics",
-                          icon: <BarChart3 className="w-4 h-4" />,
-                          label: "Analytics & Reports",
-                        },
-                        {
-                          href: "/admin/dashboard/employees",
-                          icon: <Users className="w-4 h-4" />,
-                          label: "Employee Management",
-                        },
-                        {
-                          href: "/admin/dashboard/uploads",
-                          icon: <Upload className="w-4 h-4" />,
-                          label: "KPI & Content Uploads",
-                        },
-                      ].map((subItem) => (
-                        <button
-                          key={subItem.href}
-                          onClick={() => handleNavigate(subItem.href)}
-                          className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors w-full text-left ${
-                            isActiveRoute(subItem.href)
-                              ? "text-blue-600 bg-blue-50 border-r-2 border-blue-600"
-                              : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                          }`}
-                        >
-                          <div className="relative flex items-center">
-                            <span
-                              className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${
-                                isActiveRoute(subItem.href)
-                                  ? "bg-blue-500"
-                                  : "border border-gray-300 bg-transparent"
-                              }`}
-                            />
-                            <div className="flex items-center gap-2">
-                              {renderIcon(subItem.icon)}
-                              <span>{subItem.label}</span>
-                            </div>
-                          </div>
-                        </button>
-                      ))}
+                    <div
+                      className={`icon-box rounded-lg transition-colors border ${
+                        isActiveRoute("/kpi")
+                          ? "bg-green-50 border-green-100 text-green-600"
+                          : "border-transparent text-gray-500 hover:border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      {renderIcon(<TrendingUp className="w-5 h-5" />)}
                     </div>
+                    {!isCollapsed && (
+                      <>
+                        <span className="flex-1">KPI</span>
+                        <ChevronDown
+                          className={`w-4 h-4 transition-transform ${
+                            kpiDropdownOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </>
+                    )}
                   </div>
-                )}
-              </div>
+
+                  {!isCollapsed && (
+                    <div
+                      className={`admin-dropdown ${
+                        kpiDropdownOpen ? "open" : "closed"
+                      } pl-14 pr-4`}
+                    >
+                      <div className="py-2 space-y-1">
+                        {[
+                          {
+                            href: "/kpi/intelligence",
+                            icon: <TrendingUp className="w-4 h-4" />,
+                            label: "KPI Intelligence",
+                          },
+                          {
+                            href: "/kpi/configuration",
+                            icon: <SettingsIcon className="w-4 h-4" />,
+                            label: "KPI Configuration",
+                          },
+                          {
+                            href: "/kpi/turbocharge",
+                            icon: <Zap className="w-4 h-4" />,
+                            label: "KPI TurboCharge",
+                          },
+                          {
+                            href: "/kpi/workforce-overview",
+                            icon: <UsersRound className="w-4 h-4" />,
+                            label: "Workforce Overview",
+                          },
+                        ].map((subItem) => (
+                          <button
+                            key={subItem.href}
+                            onClick={() => handleNavigate(subItem.href)}
+                            className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors w-full text-left ${
+                              isActiveRoute(subItem.href)
+                                ? "text-green-600 bg-green-50 border-r-2 border-green-600"
+                                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                            }`}
+                          >
+                            <div className="relative flex items-center">
+                              <span
+                                className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${
+                                  isActiveRoute(subItem.href)
+                                    ? "bg-green-500"
+                                    : "border border-gray-300 bg-transparent"
+                                }`}
+                              />
+                              <div className="flex items-center gap-2">
+                                {renderIcon(subItem.icon)}
+                                <span>{subItem.label}</span>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </nav>
 

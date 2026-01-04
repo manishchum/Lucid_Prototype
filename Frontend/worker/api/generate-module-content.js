@@ -21,7 +21,7 @@ async function generateModuleContent() {
     throw new Error(error.message);
   }
 
-  console.log(`Fetched ${modules?.length || 0} modules for content generation.`);
+  // console.log(`Fetched ${modules?.length || 0} modules for content generation.`);
 
   let updated = 0;
   for (const mod of modules || []) {
@@ -76,17 +76,26 @@ Instructions:
   - Step-by-step exercises and activities
   - Actionable tips and best practices
 3. Ensure the module is fully self-contained: all information, context, and learning activities must be included so the learner does not need to reference any other material.
-4. Adapt the content for the following Gregorc learning style: ${style}
-  - CS (Concrete Sequential): Use hands-on activities, clear instructions, logical sequence, deadlines, and factual information.
-  - CR (Concrete Random): Encourage experimentation, discovery, trial-and-error, flexibility, and problem-solving.
-  - AS (Abstract Sequential): Focus on analysis, intellectual exploration, theoretical models, and independent research.
-  - AR (Abstract Random): Foster reflection, emotional connection, group harmony, open-ended activities, and personal engagement.
+4. Adapt the content for the following learning style: ${style}
+  - If style is "CS": Use hands-on activities, clear instructions, logical sequence, deadlines, and factual information.
+  - If style is "CR": Encourage experimentation, discovery, trial-and-error, flexibility, and problem-solving.
+  - If style is "AS": Focus on analysis, intellectual exploration, theoretical models, and independent research.
+  - If style is "AR": Foster reflection, emotional connection, group harmony, open-ended activities, and personal engagement.
 5. Write in a professional, engaging, and instructional tone suitable for new hires in a corporate setting.
 6. Output only the full module content, ready for direct use in training. Do not include meta commentary or instructions—just the content itself.
-7. If relevant, include section headings, subheadings, and formatting for readability.
+7. IMPORTANT FORMATTING REQUIREMENTS:
+   - Use clear section headers with actual bold text (do NOT use markdown like **text** or ## symbols)
+   - Format headers as: [HEADER TEXT IN CAPITAL OR TITLE CASE] followed by a new line
+   - Use plain, clean text throughout - no markdown symbols, no asterisks, no hyphens for lists
+   - Use numbered lists (1. 2. 3.) for step-by-step content
+   - Use bullet points with simple dashes (dash space) for non-sequential items
+   - CRITICAL: NEVER include learning style codes (CS, CR, AS, AR) anywhere in the content - not in titles, not in parentheses, not anywhere
+   - Do not add any abbreviations or codes after activity titles or section names
+   - Break content into digestible paragraphs
+   - Make it engaging and consumable for busy professionals
 
-Goal: The output should be a comprehensive, ready-to-use training module that fully addresses the topics and objectives, tailored to the specified learning style, and suitable for direct delivery to learners.`;
-      console.log(`Calling OpenAI for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
+Goal: The output should be a comprehensive, ready-to-use training module that fully addresses the topics and objectives, tailored to the specified learning style, and suitable for direct delivery to learners with clean, professional formatting.`;
+      // console.log(`Calling OpenAI for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
       const completion = await openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [
@@ -96,11 +105,15 @@ Goal: The output should be a comprehensive, ready-to-use training module that fu
         max_tokens: 8000,
         temperature: 0.7,
       });
-      const aiContent = completion.choices[0]?.message?.content?.trim() || '';
+      let aiContent = completion.choices[0]?.message?.content?.trim() || '';
       if (!aiContent) {
         console.warn(`No content generated for module: ${mod.module_id} style: ${style}`);
         continue;
       }
+      
+      // Remove any learning style code references (CS, CR, AS, AR) from content
+      aiContent = aiContent.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
+      aiContent = aiContent.replace(/\b(CS|CR|AS|AR)\b/g, '');
       // Upsert the content using processed_module_id as the conflict key.
       const { data: upserted, error: updateError } = await supabase
         .from('processed_modules')
@@ -110,7 +123,7 @@ Goal: The output should be a comprehensive, ready-to-use training module that fu
         console.error(`Failed to upsert content for processed_module ${mod.processed_module_id} style ${style}:`, updateError);
       } else {
         updated++;
-        console.log(`Upserted content for processed_module ${mod.processed_module_id} with AI content for style ${style}.`);
+        // console.log(`Upserted content for processed_module ${mod.processed_module_id} with AI content for style ${style}.`);
       }
     } catch (err) {
       console.error(`Error processing module ${mod.module_id}:`, err);

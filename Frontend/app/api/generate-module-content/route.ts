@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    console.log(`Fetched ${modules?.length || 0} modules for content generation.`);
+    // console.log(`Fetched ${modules?.length || 0} modules for content generation.`);
 
     let updated = 0;
     for (const mod of modules || []) {
@@ -74,28 +74,85 @@ ${topicsText}
 ${objectivesText}
 
 Instructions:
-1. Structure the content with clear sections, logical flow, and progressive depth (from basic to advanced).
-2. For each topic and objective, provide:
-  - Detailed explanations
-  - Practical examples and case studies
-  - Step-by-step exercises and activities
-  - Actionable tips and best practices
-3. Ensure the module is fully self-contained: all information, context, and learning activities must be included so the learner does not need to reference any other material.
-4. Adapt the content for the following Gregorc learning style: ${style}
-  - CS (Concrete Sequential): Use hands-on activities, clear instructions, logical sequence, deadlines, and factual information.
-  - CR (Concrete Random): Encourage experimentation, discovery, trial-and-error, flexibility, and problem-solving.
-  - AS (Abstract Sequential): Focus on analysis, intellectual exploration, theoretical models, and independent research.
-  - AR (Abstract Random): Foster reflection, emotional connection, group harmony, open-ended activities, and personal engagement.
-5. Write in a professional, engaging, and instructional tone suitable for new hires in a corporate setting.
-6. Output only the full module content, ready for direct use in training. Do not include meta commentary or instructions—just the content itself.
-7. If relevant, include section headings, subheadings, and formatting for readability.
-8. Do NOT use Markdown formatting (no # headings, no fenced code blocks, no inline code markers). If you need a visible divider between sections, use this plain-text divider on its own line:
-  ────────────────────────────────────────
-  Output plain text only.
+1. Structure the content with clear sections using these EXACT section headers (use these exact labels):
+   - Start with "Learning Objectives:" followed by a numbered list of 3-5 objectives
+   - Create AT LEAST 2-3 main content sections using "Section 1: [descriptive title]", "Section 2: [descriptive title]", etc.
+   - After EACH section, include a corresponding activity: "Activity 1: [descriptive title]", "Activity 2: [descriptive title]", etc.
+   - End with "Module Summary:" for the conclusion
+   
+2. For EACH section, provide:
+   - Detailed explanations (2-4 paragraphs minimum)
+   - Practical examples and real-world scenarios
+   - Key concepts and frameworks
+   - Best practices and tips
+   
+3. For EACH activity, provide:
+   - Clear objectives for the activity
+   - Step-by-step instructions (numbered steps)
+   - Expected outcomes
+   - Reflection questions or discussion prompts
+   - Estimated time to complete (e.g., "Time: 15 minutes")
+   
+4. Ensure comprehensive coverage:
+   - Each section should be substantial (300-500 words)
+   - Activities should be practical and hands-on
+   - Connect each section to real workplace scenarios
+   - Use concrete examples from business settings
 
-Goal: The output should be a comprehensive, ready-to-use training module that fully addresses the topics and objectives, tailored to the specified learning style, and suitable for direct delivery to learners.`;
+5. Adapt the content for the following Gregorc learning style: ${style}
+  - CS (Concrete Sequential): Use hands-on activities, clear instructions, logical sequence, deadlines, and factual information with checklists.
+  - CR (Concrete Random): Encourage experimentation, discovery, trial-and-error, flexibility, and problem-solving with open-ended tasks.
+  - AS (Abstract Sequential): Focus on analysis, intellectual exploration, theoretical models, research, and analytical activities.
+  - AR (Abstract Random): Foster reflection, emotional connection, group discussion, collaborative activities, and personal engagement.
+  
+6. Format each section clearly:
+   - Use the section headers mentioned above (Learning Objectives:, Section 1:, Activity 1:, etc.)
+   - Separate each major section with a blank line
+   - Use clear paragraph breaks within sections
+   - Use bullet points (•) or numbered lists (1., 2., 3.) where appropriate
+   - NEVER use Markdown formatting (no # headings, no **, no backticks)
+   - NEVER include learning style codes (CS, CR, AS, AR) in the content
+
+EXAMPLE STRUCTURE (follow this pattern):
+
+Learning Objectives:
+1. [First objective]
+2. [Second objective]
+3. [Third objective]
+
+Section 1: Introduction to [Topic]
+[Detailed explanation paragraph 1...]
+[Detailed explanation paragraph 2...]
+[Examples and scenarios...]
+[Key takeaways...]
+
+Activity 1: [Activity Name]
+Objective: [What learners will achieve]
+Time: 20 minutes
+Instructions:
+1. [Step 1]
+2. [Step 2]
+3. [Step 3]
+Reflection: [Questions for thinking]
+
+Section 2: [Next Major Topic]
+[Detailed content...]
+
+Activity 2: [Next Activity]
+[Activity content...]
+
+Section 3: [Advanced Concepts]
+[Detailed content...]
+
+Activity 3: [Practical Application]
+[Activity content...]
+
+Module Summary:
+[Comprehensive summary of all key points...]
+
+IMPORTANT: Create AT LEAST 2-3 full sections with corresponding activities. Make the content rich, practical, and workplace-relevant.`;
         
-        console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
+        // console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
         
         const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
         const result = await model.generateContent(stylePrompt);
@@ -155,7 +212,7 @@ Goal: The output should be a comprehensive, ready-to-use training module that fu
           console.error(`Failed to update content for module ${mod.processed_module_id} style ${style}:`, updateError);
         } else {
           updated++;
-          console.log(`Updated module ${mod.processed_module_id} with AI content for style ${style}.`);
+          // console.log(`Updated module ${mod.processed_module_id} with AI content for style ${style}.`);
         }
       } catch (err) {
         console.error(`Error processing module ${mod.processed_module_id}:`, err);

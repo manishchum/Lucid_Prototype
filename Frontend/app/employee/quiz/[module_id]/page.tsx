@@ -28,28 +28,35 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
 
   // Handler for quiz submission
   const handleSubmit = async () => {
-    if (!quiz || !Array.isArray(quiz)) return;
+    // console.log("It is submitting")
+    // console.log(quiz)
+    // console.log(!Array.isArray(quiz))
+    if (!quiz ) return;
     // Ensure assessmentId is set before submission
     if (!assessmentId) {
+      // console.log("Inside thse !assessmentId block")
       setFeedback("Error: Could not identify assessment. Please refresh and try again.");
       return;
     }
     setSubmitted(true);
     setIsSubmitting(true);
     // Normalize answers for MCQ questions (send selected option values, not indices)
+    // console.log("Outside the last return before userAnswers")
     const userAnswers = answers.map((ans, i) => {
       const q = quiz[i];
       // For MCQ questions, send the selected option text, not the index
       // If no answer selected (ans === -1), send empty string
       if (typeof ans === 'number' && ans >= 0 && ans < q.options.length) {
+        // console.log("Inside the last return")
         return q.options[ans];
       }
       // No valid answer selected
+      // console.log("Outside the last return")
       return '';
     });
 
-    console.log('[QUIZ] Raw answers:', answers);
-    console.log('[QUIZ] Converted userAnswers:', userAnswers);
+    // console.log('[QUIZ] Raw answers:', answers);
+    // console.log('[QUIZ] Converted userAnswers:', userAnswers);
     // Always fetch user info before API call
     let employeeId: string | null = null;
     let employeeName: string | null = null;
@@ -63,7 +70,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         employeeId = emp?.user_id || null;
   employeeName = (user as any)?.displayName || user.email || null;
       } catch (err) {
-        console.log('[QUIZ] Error fetching employee record:', err);
+        // console.log('[QUIZ] Error fetching employee record:', err);
       }
     }
     if (!employeeId) {
@@ -86,8 +93,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      console.log(payload);
-      console.log(res);
+      // console.log(payload);
+      // console.log(res);
       const result = await res.json();
       feedbackText = result.feedback || "";
       if (typeof result.score === 'number') setScore(result.score);
@@ -95,7 +102,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       setFeedback(feedbackText);
       // Log quiz taken into module_progress
       try {
-        console.log(result);
+        // console.log(result);
         await fetch('/api/module-progress', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -109,7 +116,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           }),
         });
       } catch (e) {
-        console.log('[QUIZ] progress log error', e);
+        // console.log('[QUIZ] progress log error', e);
       }
     } catch (err) {
       feedbackText = "Could not generate feedback.";
@@ -135,7 +142,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resolvedModuleId, setResolvedModuleId] = useState<string | null>(null);
   const router = useRouter();
-
+  let  userId:any = null;
   const questionsPerPage = 10;
   const totalPages = quiz ? Math.ceil(quiz.length / questionsPerPage) : 0;
   const currentQuestions = quiz ? quiz.slice(currentPage * questionsPerPage, (currentPage + 1) * questionsPerPage) : [];
@@ -204,17 +211,21 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           if (moduleData.processed_module_id) setResolvedModuleId(String(moduleData.processed_module_id));
         }
       } catch (e) {
-        console.log('[quiz] module metadata fetch error', e);
+        // console.log('[quiz] module metadata fetch error', e);
       }
       
       let learningStyle: string | null = null;
       if (!authLoading && user?.email) {
+        // console.log("Inside the quiz tab")
+        // console.log(user.email)
         try {
           const { data: emp } = await supabase
             .from('users')
             .select('user_id')
             .eq('email', user.email)
             .single();
+            userId = emp?.user_id || null;
+            // console.log(userId)
           if (emp?.user_id) {
             const { data: styleData } = await supabase
               .from('employee_learning_style')
@@ -226,7 +237,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             }
           }
         } catch (e) {
-          console.log('[quiz] employee fetch error', e);
+          // console.log('[quiz] employee fetch error', e);
         }
       }
       if (!learningStyle) {
@@ -237,21 +248,23 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       // 1. Try to fetch existing quiz for this module and learning style
       let query = supabase
         .from("assessments")
-        .select("assessment_id, questions")
+        .select("assessment_id, questions, processed_modules!inner(original_module_id,user_id)")
         .eq("type", "module")
-        .eq("processed_module_id", moduleId)
+        .eq("processed_modules.original_module_id", moduleId)
+        .eq('processed_modules.user_id', userId)
         .eq("learning_style", learningStyle);
       const { data: assessment } = await query.maybeSingle();
-      console.log('[QUIZ DEBUG] Assessment fetch result:', assessment);
+      // console.log('[QUIZ DEBUG] Assessment fetch result:', assessment);
+      // console.log(moduleId, learningStyle);
       if (assessment && assessment.questions) {
         try {
           const quizData = Array.isArray(assessment.questions) ? assessment.questions : JSON.parse(assessment.questions);
-          console.log('[QUIZ DEBUG] Parsed quizData from assessment:', quizData);
+          // console.log('[QUIZ DEBUG] Parsed quizData from assessment:', quizData);
           setQuiz(quizData);
           setAnswers(new Array(quizData.length).fill(-1));
           setAssessmentId(assessment.assessment_id);
         } catch (e) {
-          console.log('[QUIZ DEBUG] Failed to parse quiz data:', e, assessment.questions);
+          // console.log('[QUIZ DEBUG] Failed to parse quiz data:', e, assessment.questions);
           setQuiz(null);
           setError("Failed to parse quiz data.");
         }
@@ -262,10 +275,10 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         const res = await fetch("/api/gpt-mcq-quiz", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ moduleId, learningStyle }),
+          body: JSON.stringify({ moduleId, learningStyle, userId }),
         });
         const result = await res.json();
-        console.log('[QUIZ DEBUG] /api/gpt-mcq-quiz result:', result);
+        // console.log('[QUIZ DEBUG] /api/gpt-mcq-quiz result:', result);
         if (result.quiz) {
           setQuiz(result.quiz);
           setAnswers(new Array(result.quiz.length).fill(-1));
@@ -276,14 +289,23 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             .eq("processed_module_id", moduleId)
             .eq("learning_style", learningStyle)
             .maybeSingle();
-          console.log('[QUIZ DEBUG] New assessment after quiz generation:', newAssessment);
+            // console.log("This is the module id:", moduleId)
+          // console.log('[QUIZ DEBUG] New assessment after quiz generation:', newAssessment);
           if (newAssessment && newAssessment.assessment_id) setAssessmentId(newAssessment.assessment_id);
+       
+       
+       
         } else {
+          // console.log("Inside the else statment of result.quiz")
           setQuiz(null);
           setError(result.error || "Quiz generation failed.");
         }
+
+
+
+        
       } catch (err) {
-        console.log('[QUIZ DEBUG] Error during quiz generation:', err);
+        // console.log('[QUIZ DEBUG] Error during quiz generation:', err);
         setQuiz(null);
         setError("Quiz generation failed.");
       }
@@ -330,7 +352,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           marginLeft: 'var(--sidebar-width, 0px)',
         }}
       >
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-7xl mx-auto">
           {/* Back Button */}
           <button
             onClick={() => router.back()}
@@ -500,9 +522,9 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
               <CardTitle className="text-3xl font-bold text-gray-800 mb-2">
                 Quiz Complete! 🎉
               </CardTitle>
-              <CardDescription className="text-lg text-gray-600">
+              {/* <CardDescription className="text-lg text-gray-600">
                 Here are your results powered by Gemini AI
-              </CardDescription>
+              </CardDescription> */}
             </CardHeader>
             <CardContent className="p-8">
               <div className="text-center mb-8">
