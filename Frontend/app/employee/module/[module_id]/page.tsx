@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
 import { ChevronLeft, Info, Lightbulb, BookOpen, Zap } from "lucide-react";
 import InfographicCards from '@/components/InfographicCards'
+import MindmapViewer from '@/components/MindmapViewer'
 import clsx from "clsx";
 import { useAuth } from "@/contexts/auth-context";
 
@@ -529,6 +530,8 @@ function ContentTransformer({
   const [audioOpen, setAudioOpen] = useState(false);
   const [infographicSections, setInfographicSections] = useState<any[] | null>(null);
   const [infographicLoading, setInfographicLoading] = useState(false);
+  const [mindmapData, setMindmapData] = useState<any | null>(null);
+  const [mindmapLoading, setMindmapLoading] = useState(false);
 
   const handleTimeUpdate = (current: number, duration: number) => {
     if (!duration || !plainTranscript) return;
@@ -623,7 +626,39 @@ function ContentTransformer({
 
           {/* Mindmap */}
           <div
-            onClick={() => setSelectedOption('mindmap')}
+            onClick={async () => {
+              setSelectedOption('mindmap');
+              setMindmapData(null);
+              setMindmapLoading(true);
+              try {
+                const studyText = plainTranscript || module.content || '';
+                const res = await fetch('/api/generate-mindmap', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ content: studyText, title: module.title }),
+                });
+                let data: any = null;
+                try {
+                  data = await res.json();
+                } catch (err) {
+                  const raw = await res.clone().text();
+                  console.error('[mindmap] parse error, raw:', raw.slice(0, 400));
+                  data = null;
+                }
+
+                if (res.ok && data && data.nodes && data.edges) {
+                  setMindmapData(data);
+                } else {
+                  console.error('[mindmap] generation failed', data);
+                  setMindmapData(null);
+                }
+              } catch (e) {
+                console.error('Error generating mindmap', e);
+                setMindmapData(null);
+              } finally {
+                setMindmapLoading(false);
+              }
+            }}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
               selectedOption === 'mindmap'
@@ -870,7 +905,31 @@ function ContentTransformer({
                     </div>
                   )}
 
-              {selectedOption === 'mindmap' && '🗺️ Mindmap generation coming soon...'}
+              {selectedOption === 'mindmap' && (
+                <div>
+                  {mindmapLoading && (
+                    <div className="flex flex-col items-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
+                      <div>Generating mindmap...</div>
+                    </div>
+                  )}
+
+                  {!mindmapLoading && mindmapData && (
+                    <div className="w-full h-[60vh] rounded-lg border p-2 bg-white overflow-auto">
+                      <MindmapViewer data={mindmapData} source={module.content || ''} />
+                    </div>
+                  )}
+
+                  {!mindmapLoading && !mindmapData && (
+                    <div className="text-sm text-gray-500">Click the Mindmap tile to generate and view the mindmap.</div>
+                  )}
+
+                  {/* Debug: show module.content length and preview */}
+                  <div className="mt-4 text-sm text-gray-500">
+                    <DebugContentPreview content={module.content || ''} />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -901,6 +960,37 @@ function ContentTransformer({
 // Keep old AudioSection as alias for backward compatibility
 function AudioSection(props: any) {
   return <ContentTransformer {...props} />;
+}
+
+// Simple debug preview component to verify module.content is populated
+function DebugContentPreview({ content }: { content: string }) {
+  const [open, setOpen] = useState(false);
+  const preview = content ? content.slice(0, 2000) : '(empty)';
+  const decodedPreview = typeof document !== 'undefined' ? (() => {
+    try {
+      const t = document.createElement('textarea');
+      t.innerHTML = preview;
+      return t.value;
+    } catch (e) {
+      return preview;
+    }
+  })() : preview;
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((s) => !s)}
+        className="text-xs text-gray-600 hover:underline"
+      >
+        {open ? 'Hide debug content' : `Debug content (${content ? content.length : 0} chars)`}
+      </button>
+      {open && (
+        <div className="mt-2 p-3 border rounded bg-white text-xs text-gray-700 max-h-64 overflow-auto">
+          <pre className="whitespace-pre-wrap">{decodedPreview}</pre>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Helper to format content with beautiful card-based UI
