@@ -69,26 +69,26 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       }
       // Fetch module info from processed_modules - try direct lookup first, then fallbacks
       const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style, user_id";
-      
+
       let data: any = null;
-      
+
       // First try: direct lookup by processed_module_id (this is what we pass from training plan)
       // console.log('[module] Attempting direct fetch by processed_module_id:', moduleId);
       // console.log(empObj);
-      
-      
 
-        const { data: directData, error: directError } = await supabase
+
+
+      const { data: directData, error: directError } = await supabase
         .from('processed_modules')
         .select(selectCols)
         .eq('processed_module_id', moduleId)
-        .eq('user_id',empObj?.user_id || '')
+        .eq('user_id', empObj?.user_id || '')
         .maybeSingle();
 
       if (directError) {
         console.error('[module] Error fetching by processed_module_id:', directError);
       }
-      
+
       if (directData) {
         // console.log('[module] Found module by processed_module_id:', directData.processed_module_id);
         data = directData;
@@ -99,13 +99,13 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           .from('processed_modules')
           .select(selectCols)
           .eq('original_module_id', moduleId)
-          .eq('user_id',empObj?.user_id || '')
+          .eq('user_id', empObj?.user_id || '')
           .maybeSingle();
-        
+
         if (origError) {
           console.error('[module] Error fetching by original_module_id:', origError);
         }
-        
+
         if (origData) {
           // console.log('[module] Found module by original_module_id:', origData.processed_module_id);
           data = origData;
@@ -145,7 +145,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             setGeneratingContent(false);
           }
         }
-        
+
         setModule(data as any);
         setPlainTranscript(extractPlainText(data.content || ''));
         // Log view to module_progress - only set started_at, NOT completed_at
@@ -268,7 +268,7 @@ function ContentCards({ content }: { content: string }) {
       setActiveTab(tabGroups[0].key);
     }
   }, [tabGroups, activeTab]);
-  
+
   if (sections.length === 0) {
     return (
       <div className="text-center py-12">
@@ -299,15 +299,15 @@ function ContentCards({ content }: { content: string }) {
       </div>
 
       {activeGroup?.items.map((section, index) => (
-        <div 
-          key={index} 
+        <div
+          key={index}
           className={clsx(
             "rounded-xl border-2 shadow-md p-8 transition-all hover:shadow-lg",
             section.type === 'objectives' ? 'bg-gradient-to-br from-blue-50 to-blue-100 border-blue-300' :
-            section.type === 'activity' ? 'bg-gradient-to-br from-green-50 to-green-100 border-green-300' :
-            section.type === 'summary' ? 'bg-gradient-to-br from-purple-50 to-purple-100 border-purple-300' :
-            section.type === 'discussion' ? 'bg-gradient-to-br from-orange-50 to-orange-100 border-orange-300' :
-            'bg-white border-gray-300'
+              section.type === 'activity' ? 'bg-gradient-to-br from-green-50 to-green-100 border-green-300' :
+                section.type === 'summary' ? 'bg-gradient-to-br from-purple-50 to-purple-100 border-purple-300' :
+                  section.type === 'discussion' ? 'bg-gradient-to-br from-orange-50 to-orange-100 border-orange-300' :
+                    'bg-white border-gray-300'
           )}
         >
           {section.title && (
@@ -319,19 +319,19 @@ function ContentCards({ content }: { content: string }) {
               <h2 className={clsx(
                 "font-bold",
                 section.type === 'objectives' ? 'text-2xl text-blue-900' :
-                section.type === 'section' ? 'text-2xl text-gray-900' :
-                section.type === 'activity' ? 'text-xl text-green-900' :
-                section.type === 'summary' ? 'text-xl text-purple-900' :
-                section.type === 'discussion' ? 'text-xl text-orange-900' :
-                'text-xl text-gray-900'
+                  section.type === 'section' ? 'text-2xl text-gray-900' :
+                    section.type === 'activity' ? 'text-xl text-green-900' :
+                      section.type === 'summary' ? 'text-xl text-purple-900' :
+                        section.type === 'discussion' ? 'text-xl text-orange-900' :
+                          'text-xl text-gray-900'
               )}>
                 {section.title}
               </h2>
             </div>
           )}
-          <div 
-            className="prose prose-sm max-w-none text-gray-800 leading-relaxed" 
-            dangerouslySetInnerHTML={{ __html: formatContent(section.content) }} 
+          <div
+            className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
+            dangerouslySetInnerHTML={{ __html: formatContent(section.content) }}
           />
         </div>
       ))}
@@ -342,72 +342,72 @@ function ContentCards({ content }: { content: string }) {
 // Parse content into separate sections
 function parseContentIntoSections(content: string) {
   const sections: Array<{ type: string; title: string; content: string }> = [];
-  
+
   if (!content || content.trim() === '') {
     return sections;
   }
-  
+
   // Clean up learning style codes from content first
   content = content.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
   content = content.replace(/\b(CS|CR|AS|AR)\b/g, '');
-  
+
   // Split by major headings - more flexible patterns
   const lines = content.split('\n');
   let currentSection: { type: string; title: string; content: string } | null = null;
-  
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    
+
     if (!line) {
       if (currentSection) currentSection.content += '\n';
       continue;
     }
-    
+
     // Check for Learning Objectives
     if (line.match(/^Learning Objectives?:/i)) {
       if (currentSection) sections.push(currentSection);
       currentSection = { type: 'objectives', title: 'Learning Objectives', content: '' };
       continue;
     }
-    
+
     // Check for Section headings (Section 1:, Section 2:, etc.)
     const sectionMatch = line.match(/^Section\s+(\d+)\s*:\s*(.+)$/i);
     if (sectionMatch) {
       if (currentSection) sections.push(currentSection);
-      currentSection = { 
-        type: 'section', 
-        title: line, 
-        content: '' 
+      currentSection = {
+        type: 'section',
+        title: line,
+        content: ''
       };
       continue;
     }
-    
+
     // Check for Activity headings (Activity 1:, Activity 2:, etc.)
     const activityMatch = line.match(/^Activity\s+(\d+)\s*:\s*(.+)$/i);
     if (activityMatch) {
       if (currentSection) sections.push(currentSection);
-      currentSection = { 
-        type: 'activity', 
-        title: line, 
-        content: '' 
+      currentSection = {
+        type: 'activity',
+        title: line,
+        content: ''
       };
       continue;
     }
-    
+
     // Check for Module Summary
     if (line.match(/^Module Summary:/i)) {
       if (currentSection) sections.push(currentSection);
       currentSection = { type: 'summary', title: 'Module Summary', content: '' };
       continue;
     }
-    
+
     // Check for Discussion Prompts
     if (line.match(/^Discussion Prompts?:/i)) {
       if (currentSection) sections.push(currentSection);
       currentSection = { type: 'discussion', title: 'Discussion Prompts', content: '' };
       continue;
     }
-    
+
     // Add content to current section
     if (currentSection) {
       currentSection.content += lines[i] + '\n';
@@ -416,17 +416,17 @@ function parseContentIntoSections(content: string) {
       currentSection = { type: 'intro', title: '', content: lines[i] + '\n' };
     }
   }
-  
+
   // Push the last section
   if (currentSection && currentSection.content.trim()) {
     sections.push(currentSection);
   }
-  
+
   // If no sections were created, put all content in one section
   if (sections.length === 0 && content.trim()) {
     sections.push({ type: 'intro', title: '', content: content });
   }
-  
+
   return sections;
 }
 
@@ -487,11 +487,11 @@ function parseChatFromTranscript(transcript: string): Array<{ speaker: string; t
   // Parse the transcript to identify speakers and their messages
   // The transcript is generated from the podcast which alternates between Sarah and Mark
   const messages: Array<{ speaker: string; text: string }> = [];
-  
+
   // Split by sentence boundaries and alternate speakers
   const sentences = transcript.match(/[^.!?]+[.!?]+/g) || [];
-  let isSarah = false; // Start with Mark
-  
+  let isSarah = true; // Start with Sarah to match TTS API
+
   for (const sentence of sentences) {
     const trimmed = sentence.trim();
     if (trimmed) {
@@ -502,7 +502,7 @@ function parseChatFromTranscript(transcript: string): Array<{ speaker: string; t
       isSarah = !isSarah;
     }
   }
-  
+
   return messages;
 }
 
@@ -520,7 +520,7 @@ function ContentTransformer({
   onVideoGenerated,
 }: any) {
   const hasAudio = !!module.audio_url;
-  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
+  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]);
   const [language, setLanguage] = useState<'en' | 'hi'>('en');
   const [selectedOption, setSelectedOption] = useState<'audio' | 'infographic' | 'mindmap' | 'video'>('audio');
   const [chatInput, setChatInput] = useState('');
@@ -532,13 +532,13 @@ function ContentTransformer({
     const ratio = Math.min(current / duration, 1);
     const chars = Math.floor(plainTranscript.length * ratio);
     setLiveTranscript(plainTranscript.slice(0, chars));
-    
+
     // Parse and update chat messages based on progress
     const messages = parseChatFromTranscript(plainTranscript);
     const currentChars = Math.floor(plainTranscript.length * ratio);
     const displayedMessages: Array<{ speaker: string; text: string }> = [];
     let charCount = 0;
-    
+
     for (const msg of messages) {
       charCount += msg.text.length;
       if (charCount <= currentChars) {
@@ -547,7 +547,7 @@ function ContentTransformer({
         break;
       }
     }
-    
+
     setChatMessages(displayedMessages);
   };
 
@@ -735,29 +735,45 @@ function ContentTransformer({
                   {transcriptOpen && (
                     <div className="mt-3 h-96 overflow-y-auto space-y-3 flex flex-col px-3">
                       {chatMessages.length > 0 ? (
-                        chatMessages.map((msg, idx) => (
-                          <div
-                            key={idx}
-                            className={clsx(
-                              'flex',
-                              msg.speaker === 'sarah' ? 'justify-start' : 'justify-end'
-                            )}
-                          >
+                        chatMessages.map((msg, idx) => {
+                          const isLatest = idx === chatMessages.length - 1;
+                          const isSarah = msg.speaker === 'sarah';
+
+                          return (
                             <div
+                              key={idx}
                               className={clsx(
-                                'rounded-lg px-4 py-2',
-                                msg.speaker === 'sarah'
-                                  ? 'bg-blue-100 text-blue-900 rounded-bl-none max-w-2xl'
-                                  : 'bg-green-100 text-green-900 rounded-br-none max-w-2xl'
+                                'flex transition-all duration-300',
+                                isSarah ? 'justify-start' : 'justify-end',
+                                isLatest ? 'scale-[1.02] transform' : 'opacity-80'
                               )}
                             >
-                              <div className="font-semibold text-xs mb-2 opacity-75">
-                                {msg.speaker === 'sarah' ? 'Sarah' : 'Mark'}
+                              <div
+                                className={clsx(
+                                  'rounded-2xl px-5 py-3 shadow-sm border-2 max-w-2xl',
+                                  isSarah
+                                    ? 'bg-blue-50 border-blue-200 text-blue-900 rounded-bl-none border-l-blue-500'
+                                    : 'bg-green-50 border-green-200 text-green-900 rounded-br-none border-r-green-500',
+                                  isLatest && (isSarah ? 'shadow-blue-200 shadow-lg ring-1 ring-blue-400' : 'shadow-green-200 shadow-lg ring-1 ring-green-400')
+                                )}
+                              >
+                                <div className={clsx(
+                                  "font-bold text-xs mb-1 uppercase tracking-wider flex items-center gap-2",
+                                  isSarah ? 'text-blue-600' : 'text-green-600'
+                                )}>
+                                  <span>{isSarah ? 'Sarah' : 'Mark'}</span>
+                                  {isLatest && <span className="flex h-2 w-2 rounded-full bg-current animate-pulse"></span>}
+                                </div>
+                                <p className={clsx(
+                                  "whitespace-normal break-words leading-relaxed text-base",
+                                  isSarah ? 'text-blue-800' : 'text-green-800'
+                                )}>
+                                  {msg.text}
+                                </p>
                               </div>
-                              <p className="whitespace-normal break-words leading-relaxed text-base">{msg.text}</p>
                             </div>
-                          </div>
-                        ))
+                          );
+                        })
                       ) : (
                         <div className="flex items-center justify-center h-full text-slate-500 text-sm">
                           Press play to see the conversation unfold
@@ -838,7 +854,7 @@ function formatContent(content: string) {
     if (typeof parsed === "object") {
       return `<pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto"><code>${JSON.stringify(parsed, null, 2)}</code></pre>`;
     }
-  } catch {}
+  } catch { }
 
   // Lightweight markdown-like to HTML - enhanced for plain text
   // Remove visual divider lines made of underscores/dashes before formatting
@@ -860,7 +876,7 @@ function formatContent(content: string) {
     .replace(/\n/g, '<br/>');
 
   formatted = '<p class="mb-4 text-gray-700 leading-relaxed">' + formatted + '</p>';
-  
+
   // Group list items into proper ul/ol tags
   formatted = formatted
     .replace(/<p class="mb-4 text-gray-700 leading-relaxed">(<li class="ml-6 mb-2 list-disc[^>]*>.*?(?:<\/li>(?:\s*<br\/>\s*<li|<\/li>))*<\/li>)/g, '<ul class="mb-4 space-y-2 list-disc ml-6">$1</ul>')
@@ -870,7 +886,7 @@ function formatContent(content: string) {
 
   // Clean up empty paragraphs
   formatted = formatted.replace(/<p class="mb-4 text-gray-700 leading-relaxed">\s*<\/p>/g, '');
-  
+
   // Remove learning style codes (CS, CR, AS, AR) from content
   formatted = formatted.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
   formatted = formatted.replace(/\b(CS|CR|AS|AR)\b(?=\W|$)/g, '');
@@ -930,7 +946,7 @@ function formatContent(content: string) {
     while (i < allParas.length) {
       const el = allParas[i];
       const text = el.textContent?.trim() || '';
-      
+
       if (el.tagName === 'P' && text.match(/^Learning Objectives?:/i)) {
         // Found objectives heading; look for following list
         let nextIdx = i + 1;
@@ -961,7 +977,7 @@ function formatContent(content: string) {
     }
 
     // Wrap main sections into standalone cards: Module Title, Objectives, Section n:
-    const isHeaderPara = (p: Element): { kind: 'module'|'objectives'|'section'|null; title: string } => {
+    const isHeaderPara = (p: Element): { kind: 'module' | 'objectives' | 'section' | null; title: string } => {
       const text = p.textContent?.trim() || '';
       let m;
       if ((m = text.match(/^Module\s*Title:\s*(.+)$/i))) {
