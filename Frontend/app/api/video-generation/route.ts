@@ -180,9 +180,9 @@ async function createVideoFromImages(imagePaths: string[], outPath: string, dura
 }
 
 async function generateExplanationScript(title: string, content: string) {
-  const vertexApiKey = process.env.VERTEX_API_KEY;
-  if (!vertexApiKey) {
-    throw new Error('VERTEX_API_KEY not configured');
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey) {
+    throw new Error('GEMINI_API_KEY not configured');
   }
 
   const prompt = `You are an expert educator creating an engaging video script. 
@@ -201,7 +201,7 @@ Create a natural, conversational 60-90 second video narration script that:
 Return ONLY the narration script text, no meta-commentary.`;
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${vertexApiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiApiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -221,13 +221,13 @@ Return ONLY the narration script text, no meta-commentary.`;
 }
 
 async function generateTTSAudio(script: string, outputPath: string) {
-  const vertexApiKey = process.env.VERTEX_API_KEY;
-  if (!vertexApiKey) {
-    throw new Error('VERTEX_API_KEY not configured');
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey) {
+    throw new Error('GEMINI_API_KEY not configured');
   }
 
-  // Use Google Cloud TTS via the same API key
-  const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${vertexApiKey}`;
+  // Use Google Cloud TTS with the Gemini API key
+  const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${geminiApiKey}`;
   
   const response = await fetch(ttsUrl, {
     method: 'POST',
