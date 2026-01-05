@@ -638,6 +638,20 @@ function ContentTransformer({
             <div className="font-bold text-slate-900 text-sm">Infographic</div>
             <div className="text-slate-500 text-xs mt-1">Visual summary</div>
           </div>
+
+          <div
+            onClick={() => setSelectedOption('Role-playing Exercise')}
+            className={clsx(
+              'rounded-xl p-5 cursor-pointer transition-all border-2',
+              selectedOption === 'Role-playing Exercise'
+                ? 'bg-slate-50 border-green-500 shadow-lg'
+                : 'bg-white border-slate-300 hover:border-slate-400'
+            )}
+          >
+            <div className="text-3xl mb-3">🎭</div>
+            <div className="font-bold text-slate-900 text-sm">Role-playing Exercise</div>
+            <div className="text-slate-500 text-xs mt-1">Role Play</div>
+          </div>
         </div>
 
         {selectedOption === 'audio' && audioOpen && (
