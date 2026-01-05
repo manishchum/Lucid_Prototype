@@ -6,6 +6,25 @@
   .text-balance {
     text-wrap: balance;
   }
+  /* Utility to hide native scrollbars for overflow containers */
+  .no-scrollbar {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+
+  /* Stronger, scroller-specific rule for the infographic scroller to ensure scrollbars are hidden */
+  .infographic-scroller {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .infographic-scroller::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+  }
 }
 
 @layer base {
@@ -86,5 +105,23 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  /* Shared submodule card used across Learning Plan and Admin panels
+     Keeps padding, border, radius and layout consistent */
+  .submodule-card {
+    /* Full width row layout that wraps on very small screens but keeps buttons anchored to right */
+    @apply w-full bg-white border border-slate-50 rounded-lg p-4 md:p-6 flex flex-row flex-wrap md:flex-nowrap items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors;
+  }
+  .submodule-card--compact {
+    @apply p-3 md:p-4;
+  }
+  .submodule-card__title {
+    @apply font-bold text-slate-900;
+  }
+  .submodule-card__meta {
+    @apply text-xs text-slate-500;
   }
 }
