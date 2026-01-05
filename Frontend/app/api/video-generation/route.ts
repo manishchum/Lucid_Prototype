@@ -7,6 +7,8 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import puppeteer from 'puppeteer';
 import ffmpeg from 'fluent-ffmpeg';
+import textToSpeech from "@google-cloud/text-to-speech";
+
 // Do not import ffmpeg-static at module scope (Next bundler may package binary incorrectly).
 
 export const runtime = 'nodejs';
@@ -227,38 +229,65 @@ async function generateTTSAudio(script: string, outputPath: string) {
   }
 
   // Use Google Cloud TTS with the Gemini API key
-  const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${geminiApiKey}`;
+  // const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${geminiApiKey}`;
   
-  const response = await fetch(ttsUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      input: { text: script },
-      voice: {
-        languageCode: 'en-US',
-        name: 'en-US-Neural2-J', // Professional male voice
-        ssmlGender: 'MALE',
-      },
-      audioConfig: {
-        audioEncoding: 'MP3',
-        speakingRate: 0.95,
-        pitch: 0,
-      },
-    }),
+  // const response = await fetch(ttsUrl, {
+  //   method: 'POST',
+  //   headers: { 'Content-Type': 'application/json' },
+  //   body: JSON.stringify({
+  //     input: { text: script },
+  //     voice: {
+  //       languageCode: 'en-US',
+  //       name: 'en-US-Neural2-J', // Professional male voice
+  //       ssmlGender: 'MALE',
+  //     },
+  //     audioConfig: {
+  //       audioEncoding: 'MP3',
+  //       speakingRate: 0.95,
+  //       pitch: 0,
+  //     },
+  //   }),
+  // });
+
+
+  const ttsClient = new textToSpeech.TextToSpeechClient({
+    keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS || './secrets/google-credentials.json',
+  });
+async function generateTTSAudio(script: string, outputPath: string) {
+  const [response] = await ttsClient.synthesizeSpeech({
+    input: { text: script },
+    voice: {
+      languageCode: "en-US",
+      name: "en-US-Neural2-J",
+    },
+    audioConfig: {
+      audioEncoding: "MP3",
+      speakingRate: 0.95,
+    },
   });
 
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(`TTS API error: ${data?.error?.message || 'Unknown error'}`);
+  if (!response.audioContent) {
+    throw new Error("No audio content returned from TTS");
   }
 
-  const audioContent = data.audioContent;
-  if (!audioContent) {
-    throw new Error('No audio content returned from TTS');
-  }
+  await fsPromises.writeFile(
+    outputPath,
+    response.audioContent as Buffer
+  );
+}
+generateTTSAudio(script, outputPath);
+  // const data = await response.json();
+  // if (!response.ok) {
+  //   throw new Error(`TTS API error: ${data?.error?.message || 'Unknown error'}`);
+  // }
 
-  // Write audio to file
-  await fsPromises.writeFile(outputPath, Buffer.from(audioContent, 'base64'));
+  // const audioContent = data.audioContent;
+  // if (!audioContent) {
+  //   throw new Error('No audio content returned from TTS');
+  // }
+
+  // // Write audio to file
+  // await fsPromises.writeFile(outputPath, Buffer.from(audioContent, 'base64'));
   return outputPath;
 }
 
