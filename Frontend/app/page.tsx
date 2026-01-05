@@ -13,11 +13,8 @@ import {
   TrendingUp, 
   UserCheck, 
   ShieldCheck, 
-  Fingerprint, 
-  ChevronRight
+  Fingerprint 
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 
 export default function LandingPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -95,43 +92,17 @@ export default function LandingPage() {
       <div className="flex-1 flex flex-col items-center justify-center px-8 relative z-10 pb-4">
         <div className="max-w-6xl w-full text-center space-y-6">
           
-          {/* Description */}
-          <p className="text-xl text-gray-600 mb-12 max-w-2xl mx-auto leading-relaxed">
-            Lucid - Your learning companion which aligns learning with how you learn best and guides you through a clear & personalized path
-            <br />
-            Lucid helps you learn the way you were meant to.
-          </p>
-
-          {/* Single Login Card */}
-          <div className="flex justify-center mb-16">
-            <Card className="group relative overflow-hidden border border-gray-200 bg-white hover:shadow-lg transition-all duration-300 hover:scale-105 max-w-md w-full">
-              <CardHeader className="text-center">
-                <CardTitle className="text-3xl text-gray-600 mb-6 ">
-                  Discover Your Limitless Potential Today
-                </CardTitle>
-                
-                {/* Feature Tags */}
-                <div className="flex flex-wrap justify-center gap-2 mb-6">
-                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-50 text-blue-700">
-                    ✓ AI-Powered Learning
-                  </span>
-                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-gray-100 text-gray-700">
-                    ✓ Progress Tracking
-                  </span>
-                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-50 text-blue-700">
-                    ✓ Engaging Experience
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent className="text-center">
-                <Link href="/login">
-                  <Button size="lg" className="w-full bg-blue-600 hover:bg-blue-700 text-white group text-lg py-4">
-                    Start Your Journey
-                    <ChevronRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
+          {/* Adjusted Heading Sizes for better fit */}
+          <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-700">
+            <h1 className="text-5xl md:text-7xl lg:text-[88px] font-black tracking-tighter leading-[0.85] text-[#0F172A]">
+              Accelerate Your <br /> Workforce <br />
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-[#2563EB] via-[#6366F1] to-[#9333EA]">
+                For Peak Performance
+              </span>
+            </h1>
+            <p className="max-w-2xl mx-auto text-slate-500 text-base md:text-lg font-medium leading-relaxed">
+              The enterprise AI platform that accelerates workforce readiness at the speed of business.
+            </p>
           </div>
 
           {/* Feature Card (Optimized padding and spacing) */}

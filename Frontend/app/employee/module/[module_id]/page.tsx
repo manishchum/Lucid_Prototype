@@ -729,7 +729,7 @@ function ContentTransformer({
                 : 'bg-white border-slate-300 hover:border-slate-400'
             )}
           >
-            <div className="text-3xl mb-3">�</div>
+            <div className="text-3xl mb-3">🃏</div>
             <div className="font-bold text-slate-900 text-sm">Flash cards</div>
             <div className="text-slate-500 text-xs mt-1">Visual summary</div>
           </div>
@@ -747,7 +747,7 @@ function ContentTransformer({
                 : 'bg-white border-slate-300 hover:border-slate-400'
             )}
           >
-            <div className="text-3xl mb-3">�️</div>
+            <div className="text-3xl mb-3">📊</div>
             <div className="font-bold text-slate-900 text-sm">Infographics</div>
             <div className="text-slate-500 text-xs mt-1">Coming soon</div>
           </div>
