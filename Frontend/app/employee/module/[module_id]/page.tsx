@@ -30,8 +30,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   useEffect(() => {
     const fetchModule = async () => {
       setLoading(true);
-      console.log('[module] Fetching module with id:', moduleId);
-      // Validate incoming module id
       if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
         console.error('[module] Invalid module id:', moduleId);
         setModule(null);
@@ -52,7 +50,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           if (emp?.user_id) {
             empObj = emp;
             setEmployee(emp);
-            // Fetch learning style for employee
             const { data: styleData } = await supabase
               .from('employee_learning_style')
               .select('learning_style')
@@ -64,60 +61,42 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             }
           }
         }
-        console.log("User Data:", user);
-        console.log(employeeEmail)
       } catch (e) {
-        console.log('[module] employee fetch error', e);
+        console.error('[module] employee fetch error', e);
       }
-      // Fetch module info from processed_modules - try direct lookup first, then fallbacks
       const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style, user_id";
-      
       let data: any = null;
-      
-      // First try: direct lookup by processed_module_id (this is what we pass from training plan)
-      console.log('[module] Attempting direct fetch by processed_module_id:', moduleId);
-      console.log(empObj);
-      
-      
-
-        const { data: directData, error: directError } = await supabase
+      const { data: directData, error: directError } = await supabase
         .from('processed_modules')
         .select(selectCols)
         .eq('processed_module_id', moduleId)
-        .eq('user_id',empObj?.user_id || '')
+        .eq('user_id', empObj?.user_id || '')
         .maybeSingle();
 
       if (directError) {
         console.error('[module] Error fetching by processed_module_id:', directError);
       }
-      
+
       if (directData) {
-        console.log('[module] Found module by processed_module_id:', directData.processed_module_id);
         data = directData;
       } else {
-        // Fallback: try by original_module_id
-        console.log('[module] No direct match, trying by original_module_id');
         const { data: origData, error: origError } = await supabase
           .from('processed_modules')
           .select(selectCols)
           .eq('original_module_id', moduleId)
-          .eq('user_id',empObj?.user_id || '')
+          .eq('user_id', empObj?.user_id || '')
           .maybeSingle();
-        
+
         if (origError) {
           console.error('[module] Error fetching by original_module_id:', origError);
         }
-        
+
         if (origData) {
-          console.log('[module] Found module by original_module_id:', origData.processed_module_id);
           data = origData;
         }
       }
-      console.log('[module] Fetched module data:', data);
       if (data) {
-        // Check if content is empty and trigger generation
         if (!data.content || data.content.trim() === '') {
-          console.log('[module] Content is empty, triggering generation for:', data.processed_module_id);
           setGeneratingContent(true);
           try {
             const genResponse = await fetch('/api/generate-module-content', {
@@ -128,8 +107,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
               }),
             });
             if (genResponse.ok) {
-              console.log('[module] Content generation triggered successfully');
-              // Wait a moment then refetch the module to get updated content
               await new Promise(resolve => setTimeout(resolve, 2000));
               const { data: refreshedData } = await supabase
                 .from('processed_modules')
@@ -138,7 +115,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                 .maybeSingle();
               if (refreshedData && refreshedData.content) {
                 data = refreshedData;
-                console.log('[module] Content loaded after generation');
               }
             }
           } catch (genError) {
@@ -147,13 +123,11 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             setGeneratingContent(false);
           }
         }
-        
+
         setModule(data as any);
         setPlainTranscript(extractPlainText(data.content || ''));
-        // Log view to module_progress - only set started_at, NOT completed_at
         try {
           if (empObj?.user_id) {
-            console.log('[module] Logging module view for employee:', empObj.user_id, 'module:', data.processed_module_id);
             await fetch('/api/module-progress', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -168,7 +142,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             });
           }
         } catch (e) {
-          console.log('[module] progress log error', e);
+          console.error('[module] progress log error', e);
         }
       } else {
         console.error('[module] No module data found for id:', moduleId);
@@ -196,7 +170,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   }
 
   if (!module) {
-    console.log("Inside the !module block");
     return <div className="min-h-screen flex items-center justify-center text-red-600">Module not found.</div>;
   }
 
@@ -209,7 +182,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           <div>
             <main className="w-full">
               <div className="bg-white rounded-lg shadow-sm border p-12 w-full min-h-screen">
-                {/* Back button */}
                 <div className="mb-8">
                   <Button
                     variant="outline"
@@ -222,13 +194,11 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                   </Button>
                 </div>
 
-                {/* Title Section */}
                 <div className="mb-10">
                   <h1 className="text-4xl font-bold text-gray-900 mb-2">{module.title}</h1>
                   <p className="text-lg text-gray-600">Professional learning content tailored for you</p>
                 </div>
 
-                {/* Content Transformer Section - Above Content */}
                 <ContentTransformer
                   module={module}
                   employee={employee}
@@ -246,7 +216,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                   }}
                 />
 
-                {/* Main Content Cards */}
                 <ContentCards content={module.content || ''} />
               </div>
             </main>
@@ -257,7 +226,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   );
 }
 
-// Component to render content in separate cards
 function ContentCards({ content }: { content: string }) {
   const sections = parseContentIntoSections(content);
   const tabGroups = useMemo(() => groupSectionsForTabs(sections), [sections]);
@@ -270,7 +238,7 @@ function ContentCards({ content }: { content: string }) {
       setActiveTab(tabGroups[0].key);
     }
   }, [tabGroups, activeTab]);
-  
+
   if (sections.length === 0) {
     return (
       <div className="text-center py-12">
@@ -280,6 +248,17 @@ function ContentCards({ content }: { content: string }) {
   }
 
   const activeGroup = tabGroups.find((group) => group.key === activeTab);
+
+  function formatContent(content: string): string {
+    // Sanitize and format the content to ensure safe rendering
+    const sanitizedContent = content
+      .replace(/<script[^>]*?>.*?<\/script>/gi, "") // Remove any script tags
+      .replace(/<style[^>]*?>.*?<\/style>/gi, "") // Remove any style tags
+      .replace(/on\w+="[^"]*"/gi, "") // Remove inline event handlers
+      .replace(/javascript:/gi, ""); // Remove javascript: URLs
+
+    return sanitizedContent;
+  }
 
   return (
     <div className="space-y-6 mb-8">
@@ -341,7 +320,6 @@ function ContentCards({ content }: { content: string }) {
   );
 }
 
-// Parse content into separate sections
 function parseContentIntoSections(content: string) {
   const sections: Array<{ type: string; title: string; content: string }> = [];
   
@@ -349,11 +327,9 @@ function parseContentIntoSections(content: string) {
     return sections;
   }
   
-  // Clean up learning style codes from content first
   content = content.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
   content = content.replace(/\b(CS|CR|AS|AR)\b/g, '');
   
-  // Split by major headings - more flexible patterns
   const lines = content.split('\n');
   let currentSection: { type: string; title: string; content: string } | null = null;
   
@@ -365,14 +341,12 @@ function parseContentIntoSections(content: string) {
       continue;
     }
     
-    // Check for Learning Objectives
     if (line.match(/^Learning Objectives?:/i)) {
       if (currentSection) sections.push(currentSection);
       currentSection = { type: 'objectives', title: 'Learning Objectives', content: '' };
       continue;
     }
     
-    // Check for Section headings (Section 1:, Section 2:, etc.)
     const sectionMatch = line.match(/^Section\s+(\d+)\s*:\s*(.+)$/i);
     if (sectionMatch) {
       if (currentSection) sections.push(currentSection);
@@ -384,7 +358,6 @@ function parseContentIntoSections(content: string) {
       continue;
     }
     
-    // Check for Activity headings (Activity 1:, Activity 2:, etc.)
     const activityMatch = line.match(/^Activity\s+(\d+)\s*:\s*(.+)$/i);
     if (activityMatch) {
       if (currentSection) sections.push(currentSection);
@@ -396,35 +369,29 @@ function parseContentIntoSections(content: string) {
       continue;
     }
     
-    // Check for Module Summary
     if (line.match(/^Module Summary:/i)) {
       if (currentSection) sections.push(currentSection);
       currentSection = { type: 'summary', title: 'Module Summary', content: '' };
       continue;
     }
     
-    // Check for Discussion Prompts
     if (line.match(/^Discussion Prompts?:/i)) {
       if (currentSection) sections.push(currentSection);
       currentSection = { type: 'discussion', title: 'Discussion Prompts', content: '' };
       continue;
     }
     
-    // Add content to current section
     if (currentSection) {
       currentSection.content += lines[i] + '\n';
     } else {
-      // Content before first section - create intro section
       currentSection = { type: 'intro', title: '', content: lines[i] + '\n' };
     }
   }
   
-  // Push the last section
   if (currentSection && currentSection.content.trim()) {
     sections.push(currentSection);
   }
   
-  // If no sections were created, put all content in one section
   if (sections.length === 0 && content.trim()) {
     sections.push({ type: 'intro', title: '', content: content });
   }
@@ -477,7 +444,6 @@ function groupSectionsForTabs(sections: SectionBlock[]): TabGroup[] {
 }
 
 function extractPlainText(content: string) {
-  // Basic markdown/HTML stripping for a readable transcript source
   return content
     .replace(/<[^>]+>/g, ' ')
     .replace(/[#*>`_\-]/g, ' ')
@@ -486,13 +452,9 @@ function extractPlainText(content: string) {
 }
 
 function parseChatFromTranscript(transcript: string): Array<{ speaker: string; text: string }> {
-  // Parse the transcript to identify speakers and their messages
-  // The transcript is generated from the podcast which alternates between Sarah and Mark
   const messages: Array<{ speaker: string; text: string }> = [];
-  
-  // Split by sentence boundaries and alternate speakers
   const sentences = transcript.match(/[^.!?]+[.!?]+/g) || [];
-  let isSarah = false; // Start with Mark
+  let isSarah = false;
   
   for (const sentence of sentences) {
     const trimmed = sentence.trim();
@@ -532,6 +494,8 @@ function ContentTransformer({
   const [infographicLoading, setInfographicLoading] = useState(false);
   const [mindmapData, setMindmapData] = useState<any | null>(null);
   const [mindmapLoading, setMindmapLoading] = useState(false);
+  const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [chatLoading, setChatLoading] = useState(false);
 
   const handleTimeUpdate = (current: number, duration: number) => {
     if (!duration || !plainTranscript) return;
@@ -539,7 +503,6 @@ function ContentTransformer({
     const chars = Math.floor(plainTranscript.length * ratio);
     setLiveTranscript(plainTranscript.slice(0, chars));
     
-    // Parse and update chat messages based on progress
     const messages = parseChatFromTranscript(plainTranscript);
     const currentChars = Math.floor(plainTranscript.length * ratio);
     const displayedMessages: Array<{ speaker: string; text: string }> = [];
@@ -562,18 +525,51 @@ function ContentTransformer({
     setChatMessages([]);
   };
 
-  const handleSendChat = (e: React.FormEvent) => {
+  const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatInput.trim()) return;
-    // Add user message
-    setChatMessages(prev => [...prev, { speaker: 'user', text: chatInput }]);
+    if (!chatInput.trim() || chatLoading) return;
+    
+    const userMessage = chatInput.trim();
     setChatInput('');
-    // TODO: Send to API and get response
+    
+    const newUserMessage = { role: 'user' as const, content: userMessage };
+    setUserChatHistory(prev => [...prev, newUserMessage]);
+    setChatLoading(true);
+    
+    try {
+      const response = await fetch('/api/module-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          processed_module_id: module.processed_module_id,
+          user_message: userMessage,
+          chat_history: userChatHistory,
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.message) {
+        setUserChatHistory(prev => [...prev, { role: 'assistant', content: data.message }]);
+      } else {
+        setUserChatHistory(prev => [...prev, { 
+          role: 'assistant', 
+          content: 'Sorry, I encountered an error. Please try again.' 
+        }]);
+      }
+    } catch (error) {
+      console.error('Chat error:', error);
+      setUserChatHistory(prev => [...prev, { 
+        role: 'assistant', 
+        content: 'Sorry, I encountered an error. Please try again.' 
+      }]);
+    } finally {
+      setChatLoading(false);
+    }
   };
 
   return (
     <div className="mb-10 w-full">
-      {/* Content Transformer Header */}
       <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-lg mb-6">
         <div className="flex items-start gap-4 mb-8">
           <div className="h-14 w-14 rounded-xl bg-white border-2 border-slate-300 text-slate-800 flex items-center justify-center text-2xl shadow-lg">
@@ -585,9 +581,7 @@ function ContentTransformer({
           </div>
         </div>
 
-        {/* Options Grid */}
         <div className="grid grid-cols-4 gap-4 mb-6">
-          {/* Audio Guide */}
           <div
             onClick={() => {
               if (selectedOption === 'audio') {
@@ -609,7 +603,6 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Listen on the go</div>
           </div>
 
-          {/* Explainer Video */}
           <div
             onClick={() => setSelectedOption('video')}
             className={clsx(
@@ -624,7 +617,6 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Video lesson</div>
           </div>
 
-          {/* Mindmap */}
           <div
             onClick={async () => {
               setSelectedOption('mindmap');
@@ -761,7 +753,6 @@ function ContentTransformer({
           </div>
         </div>
 
-        {/* Audio Content Area */}
         {selectedOption === 'audio' && audioOpen && (
           <div className="space-y-3 flex flex-col">
             {!hasAudio && (
@@ -785,7 +776,6 @@ function ContentTransformer({
                   />
                 </div>
 
-                {/* Language Toggle */}
                 <div className="flex gap-2 justify-end">
                   <button
                     onClick={async () => {
@@ -825,7 +815,6 @@ function ContentTransformer({
                   </button>
                 </div>
 
-                {/* Live Transcript (collapsible) */}
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                   <button
                     type="button"
@@ -883,7 +872,6 @@ function ContentTransformer({
           </div>
         )}
 
-        {/* Video Content Area */}
         {selectedOption === 'video' && (
           <div className="space-y-3 flex flex-col">
             {!hasVideo && (
@@ -958,28 +946,91 @@ function ContentTransformer({
         )}
       </div>
 
-      {/* Chat Bar */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-lg">
-        <form onSubmit={handleSendChat} className="flex gap-3">
-          <button type="button" className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-600">
-            📎
-          </button>
-          <input
-            type="text"
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            placeholder="Ask for coaching, upload work, or chat..."
-            className="flex-1 outline-none text-slate-700 placeholder-slate-400"
-          />
-          <button type="button" className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-600">
-            🎤
-          </button>
-        </form>
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden">
+        <div className="p-6 h-96 overflow-y-auto bg-gray-50">
+          {userChatHistory.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center">
+              <div className="text-6xl mb-4">💬</div>
+              <h3 className="text-lg font-semibold text-gray-700 mb-2">Ask me anything about this module!</h3>
+              <p className="text-sm text-gray-500">I can help clarify concepts, provide examples, or answer questions.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {userChatHistory.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={clsx(
+                    'flex',
+                    msg.role === 'user' ? 'justify-end' : 'justify-start'
+                  )}
+                >
+                  <div
+                    className={clsx(
+                      'rounded-lg px-4 py-3 max-w-3xl',
+                      msg.role === 'user'
+                        ? 'bg-blue-600 text-white rounded-br-none'
+                        : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
+                    )}
+                  >
+                    {msg.role === 'assistant' && (
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
+                          AI
+                        </div>
+                        <span className="text-xs font-semibold text-gray-600">Learning Assistant</span>
+                      </div>
+                    )}
+                    <p className="whitespace-pre-wrap break-words leading-relaxed text-sm">
+                      {msg.content}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {chatLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 rounded-bl-none">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-slate-200 bg-white p-6">
+          <form onSubmit={handleSendChat} className="flex gap-3">
+            <button 
+              type="button" 
+              className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-600 disabled:opacity-50"
+              disabled={chatLoading}
+            >
+              📎
+            </button>
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder="Ask for coaching, upload work, or chat..."
+              className="flex-1 outline-none text-slate-700 placeholder-slate-400 bg-gray-50 rounded-lg px-4 py-3 border border-gray-200 focus:border-blue-500 focus:bg-white transition-all"
+              disabled={chatLoading}
+            />
+            <button 
+              type="submit" 
+              className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={chatLoading || !chatInput.trim()}
+            >
+              {chatLoading ? 'Sending...' : 'Send'}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );
 }
-
 // Keep old AudioSection as alias for backward compatibility
 function AudioSection(props: any) {
   return <ContentTransformer {...props} />;
@@ -1195,6 +1246,8 @@ function formatContent(content: string) {
 }
 
 // Add GenerateAudioButton component
+
+
 function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string, onAudioGenerated: (url: string) => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1230,7 +1283,6 @@ function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string,
   );
 }
 
-// Add GenerateVideoButton component
 function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string, onVideoGenerated: (url: string) => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1239,11 +1291,6 @@ function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string,
     setLoading(true);
     setError(null);
     try {
-      // Use the new GPT-based video generation route. Previously we called `/api/video-generation` which
-      // generated images/screenshots directly inside this page's flow. That approach is now deprecated here —
-      // keep the old call commented below for reference.
-      // const res = await fetch(`/api/video-generation?processed_module_id=${moduleId}`);
-
       const res = await fetch(`/api/veo-video`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

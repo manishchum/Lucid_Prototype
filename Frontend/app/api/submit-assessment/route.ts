@@ -7,7 +7,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    console.log('🧪 Assessment submission received:', body);
+    // console.log('🧪 Assessment submission received:', body);
 
     const { user_id, assessment_id, answers, type } = body;
 
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     const correctAnswers = [];
     const userAnswers = Array.isArray(answers) ? answers : [];
 
-    console.log('🧪 Processing', questions.length, 'questions with', userAnswers.length, 'user answers');
+    // console.log('🧪 Processing', questions.length, 'questions with', userAnswers.length, 'user answers');
 
     // Score each question
     for (let i = 0; i < questions.length; i++) {
@@ -91,12 +91,12 @@ export async function POST(request: NextRequest) {
         isCorrect = false;
       }
 
-      // console.log('📝 Question', i + 1, ':', question.question);
-      // console.log('📋 Options:', options);
-      // console.log('✅ Correct answer:', correctAnswerText, `(index: ${correctIndex})`);
-      // console.log('👤 User answer:', userAnswerText);
-      // console.log('✓ Is correct:', isCorrect);
-      // console.log('---');
+      // // console.log('📝 Question', i + 1, ':', question.question);
+      // // console.log('📋 Options:', options);
+      // // console.log('✅ Correct answer:', correctAnswerText, `(index: ${correctIndex})`);
+      // // console.log('👤 User answer:', userAnswerText);
+      // // console.log('✓ Is correct:', isCorrect);
+      // // console.log('---');
 
       if (isCorrect) {
         score++;
@@ -124,12 +124,12 @@ export async function POST(request: NextRequest) {
 
     const scorePercentage = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
 
-    console.log('🧪 Quiz scored:', { 
-      score, 
-      maxScore, 
-      percentage: scorePercentage,
-      type: assessment.type 
-    });
+    // console.log('🧪 Quiz scored:', { 
+    //   score, 
+    //   maxScore, 
+    //   percentage: scorePercentage,
+    //   type: assessment.type 
+    // });
 
     // Generate AI feedback using Gemini
     let aiFeedback = null;
@@ -179,7 +179,7 @@ IMPORTANT: Use this EXACT format with these headings. Do not add extra sections 
           rawFeedback = rawFeedback.replace(/\n{3,}/g, '\n\n');
           aiFeedback = rawFeedback.trim();
         }
-        console.log('🤖 AI feedback generated successfully');
+        // console.log('🤖 AI feedback generated successfully');
       }
     } catch (feedbackError) {
       console.error('🤖 Error generating AI feedback:', feedbackError);
@@ -200,7 +200,7 @@ Review the questions you missed and study the related concepts to improve your u
     }
 
     // Save the assessment result
-    console.log('💾 Saving assessment result to database for user_id:', user_id, 'assessment_id:', assessment_id);
+    // console.log('💾 Saving assessment result to database for user_id:', user_id, 'assessment_id:', assessment_id);
     const { data: savedResult, error: saveError } = await supabase
       .from('employee_assessments')
       .upsert({
@@ -221,12 +221,12 @@ Review the questions you missed and study the related concepts to improve your u
       return NextResponse.json({ error: 'Failed to save assessment result' }, { status: 500 });
     }
 
-    console.log('✅ Assessment result saved successfully');
+    // console.log('✅ Assessment result saved successfully');
 
     // If this is a module assessment, update module progress
     if (assessment.type === 'module' && assessment.processed_module_id) {
       try {
-        console.log('📚 Updating module progress for processed_module_id:', assessment.processed_module_id);
+        // console.log('📚 Updating module progress for processed_module_id:', assessment.processed_module_id);
         
         const moduleCompletionResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/complete-module`, {
           method: 'POST',
@@ -247,7 +247,7 @@ Review the questions you missed and study the related concepts to improve your u
           console.error('📚 Module completion failed:', errorText);
         } else {
           const completionResult = await moduleCompletionResponse.json();
-          console.log('📚 Module completion updated:', completionResult.message);
+          // console.log('📚 Module completion updated:', completionResult.message);
         }
       } catch (moduleError) {
         console.error('📚 Error updating module completion:', moduleError);

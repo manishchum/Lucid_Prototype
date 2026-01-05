@@ -23,38 +23,38 @@ const { createClient } = require('@supabase/supabase-js');
     // Use Buffer for Node uploads to avoid undici "duplex" stream issue
     const fileBuffer = fs.readFileSync(tmpFile);
 
-    console.log('Uploading to storage (buffer)...', { bucket, destPath });
+    // console.log('Uploading to storage (buffer)...', { bucket, destPath });
     let { data: storageData, error: storageError } = await supabase.storage.from(bucket).upload(destPath, fileBuffer, { upsert: true });
     if (storageError) {
       console.error('Storage upload error:', storageError);
       // If bucket not found, attempt to create it (requires service_role key)
       const status = storageError.status || storageError.statusCode || null;
       if (status === 404 || status === '404' || status === 400) {
-        console.log(`Bucket '${bucket}' not found — attempting to create it as public.`);
+        // console.log(`Bucket '${bucket}' not found — attempting to create it as public.`);
         try {
           const { data: cbData, error: cbErr } = await supabase.storage.createBucket(bucket, { public: true });
           if (cbErr) {
             console.error('Create bucket error:', cbErr);
           } else {
-            console.log('Bucket created:', cbData);
+            // console.log('Bucket created:', cbData);
             // retry upload
             const retry = await supabase.storage.from(bucket).upload(destPath, fileBuffer, { upsert: true });
             storageData = retry.data;
             storageError = retry.error;
             if (storageError) console.error('Retry upload error:', storageError);
-            else console.log('Retry upload success:', storageData);
+            else{} // console.log('Retry upload success:', storageData);
           }
         } catch (cbCatch) {
           console.error('Create bucket failed', cbCatch);
         }
       }
     } else {
-      console.log('Storage upload result:', storageData);
+      // console.log('Storage upload result:', storageData);
     }
 
     const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(destPath);
     const publicUrl = publicData?.publicUrl || null;
-    console.log('Public URL:', publicUrl);
+    // console.log('Public URL:', publicUrl);
 
     const payload = {
       title: `Test Course ${Date.now()}`,
@@ -64,12 +64,12 @@ const { createClient } = require('@supabase/supabase-js');
       module: publicUrl || destPath,
     };
 
-    console.log('Inserting course row...', payload);
+    // console.log('Inserting course row...', payload);
     const { data: inserted, error: insertError } = await supabase.from('courses').insert([payload]).select();
     if (insertError) {
       console.error('Insert error:', insertError);
     } else {
-      console.log('Insert success:', inserted);
+      // console.log('Insert success:', inserted);
     }
 
     // cleanup temp file

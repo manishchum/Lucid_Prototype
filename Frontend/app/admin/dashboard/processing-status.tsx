@@ -44,7 +44,7 @@ export function ProcessingStatusComponent({ moduleId, initialStatus, onStatusCha
           onStatusChange?.(currentStatus)
         }
       } catch (error) {
-        console.error('Failed to get processing status:', error)
+        // console.error('Failed to get processing status:', error)
         // Don't stop polling on error, just log it
       }
     }

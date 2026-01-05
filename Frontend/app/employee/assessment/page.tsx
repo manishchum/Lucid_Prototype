@@ -1,4 +1,5 @@
 "use client";
+export const dynamic = "force-dynamic";
 
 import React, { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -96,7 +97,7 @@ const AssessmentPage = () => {
         
         // If a moduleId query param is present, request a per-module quiz.
         const urlModuleId = searchParams.get('moduleId');
-        console.log("Error in getting learning_plan");
+        // console.log("Error in getting learning_plan");
         let res;
         if (urlModuleId) {
           // Check if this is a baseline assessment request by looking at learning plan
@@ -108,10 +109,10 @@ const AssessmentPage = () => {
             .single()
 
           const isBaselineRequest = learningPlan && learningPlan.baseline_assessment === 1;
-          console.log(isBaselineRequest)
+          // console.log(isBaselineRequest)
           // console.log")
-            console.log("Inside the if statement for per-module quiz request.");
-          console.log(urlModuleId)
+            // console.log("Inside the if statement for per-module quiz request.");
+          // console.log(urlModuleId)
           res = await fetch('/api/gpt-mcq-quiz', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -125,7 +126,7 @@ const AssessmentPage = () => {
           });
         } else {
           // Request a baseline quiz for all assigned modules (multi-module baseline)
-          console.log("Inside the else statement for per-module quiz request.");
+          // console.log("Inside the else statement for per-module quiz request.");
           res = await fetch('/api/gpt-mcq-quiz', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -137,13 +138,13 @@ const AssessmentPage = () => {
             }),
           });
         }
-        console.log(res)
+        // console.log(res)
         if (!res.ok) {
           const errorText = await res.text();
           throw new Error(`API returned ${res.status}: ${errorText}`);
         }
         const d = await res.json();
-        console.log('[Assessment] Baseline quiz result:', d);
+        // console.log('[Assessment] Baseline quiz result:', d);
         
         // For per-module requests, the server returns an assessmentId we'll
         // attach so submissions can reference the created assessment. For
@@ -206,7 +207,7 @@ const AssessmentPage = () => {
   };
 
   const handleMCQSubmit = async (result: { score: number; answers: number[]; feedback: string[] }, moduleId: string) => {
-    console.log("handleMCQSubmit called with result successfully.");
+    // console.log("handleMCQSubmit called with result successfully.");
     setScore(result.score);
     setLoading(true);
     try {
@@ -237,16 +238,16 @@ const AssessmentPage = () => {
       let assessmentId: string | null = null;
       const quizEntry = mcqQuestionsByModule[0];
       if (quizEntry && (quizEntry as any).assessmentId) {
-        console.log("Inside in this if 1")
+        // console.log("Inside in this if 1")
         assessmentId = (quizEntry as any).assessmentId;
-        console.log(assessmentId)
-        console.log(mcqQuestionsByModule)
-        console.log(quizEntry)
+        // console.log(assessmentId)
+        // console.log(mcqQuestionsByModule)
+        // console.log(quizEntry)
       } else {
         const urlModuleId = searchParams.get('moduleId');
 
         // Look up (or create) the baseline assessment for this company
-        console.log("Inside in this else 1")
+        // console.log("Inside in this else 1")
         const { data: assessmentDef, error } = await supabase
               .from('assessments')
               .select(`
@@ -263,14 +264,14 @@ const AssessmentPage = () => {
               .limit(1)
               .maybeSingle();
 
-        console.log("New Query to get the result")
-        console.log(assessmentDef)
+        // console.log("New Query to get the result")
+        // console.log(assessmentDef)
         if (assessmentDef?.assessment_id) {
-          console.log("Inside in this if 2")
+          // console.log("Inside in this if 2")
           assessmentId = assessmentDef.assessment_id;
         } else {
-          console.log("Inside in this else 2")
-          console.log(mcqQuestionsByModule)
+          // console.log("Inside in this else 2")
+          // console.log(mcqQuestionsByModule)
           const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === 'baseline')?.questions || [];
           const { data: newDef } = await supabase
             .from('assessments')
@@ -279,14 +280,14 @@ const AssessmentPage = () => {
             .single();
             assessmentId = newDef?.assessment_id || null;
           }
-          console.log(assessmentId)
+          // console.log(assessmentId)
       }
 
       // Log score in terminal
-      console.log("Employee ID:", employeeId);
-      console.log("Employee Name:", user?.email);
-      console.log("Employee Score:", result.score, "/", (mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []).length);
-      console.log("Employee Feedback:", result.feedback.join("\n"));
+      // console.log("Employee ID:", employeeId);
+      // console.log("Employee Name:", user?.email);
+      // console.log("Employee Score:", result.score, "/", (mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []).length);
+      // console.log("Employee Feedback:", result.feedback.join("\n"));
 
       // Call GPT feedback API for AI-generated feedback and store in Supabase
       const res = await fetch("/api/gpt-feedback", {
@@ -304,8 +305,8 @@ const AssessmentPage = () => {
         }),
       });
       const data = await res.json();
-      console.log("Response from the /api/gpt-feedback endpoint:");
-      console.log(res)
+      // console.log("Response from the /api/gpt-feedback endpoint:");
+      // console.log(res)
       setFeedback(data.feedback || "");
       
       setQuizQuestions(mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []);
@@ -378,7 +379,7 @@ const AssessmentPage = () => {
               <div className="bg-white rounded-lg shadow-lg p-8 border-t-4 border-blue-600 w-full">
                 {(() => {
                   const { mainTitle, sections } = parseFeedbackSections(feedback);
-                  console.log(feedback)
+                  // console.log(feedback)
                   const sectionKeys = Object.keys(sections);
                   
                   return (

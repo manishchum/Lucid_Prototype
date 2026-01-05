@@ -11,8 +11,8 @@ import fetch from "node-fetch";
  */
 export async function ensureProcessedModulesForPlan(user_id: string, company_id: string, plan: any) {
   try {
-    console.log('[processedModulesHelper] Ensuring processed_modules for plan:', plan);
-    console.log('[processedModulesHelper] user_id:', user_id, 'company_id:', company_id);
+    // console.log('[processedModulesHelper] Ensuring processed_modules for plan:', plan);
+    // console.log('[processedModulesHelper] user_id:', user_id, 'company_id:', company_id);
     // Fetch user's learning style to assign to processed modules when not provided in plan
     let userLearningStyle: string | null = null;
     try {
@@ -59,13 +59,13 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
           return tn.includes(normTitle) || normTitle.includes(tn);
         });
         if (match) {
-          console.log("[processedModulesHelper] Fuzzy matched plan module to training_module:", title, "=>", match.title);
+          // console.log("[processedModulesHelper] Fuzzy matched plan module to training_module:", title, "=>", match.title);
         }
       }
 
       let original_module_id: string | null = null;
       if (!match) {
-        console.log("[processedModulesHelper] No matching training_module for plan module:", title, "— will create a plan-only processed_module");
+        // console.log("[processedModulesHelper] No matching training_module for plan module:", title, "— will create a plan-only processed_module");
       } else {
         original_module_id = match.module_id;
       }
@@ -78,7 +78,7 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
           .eq("original_module_id", original_module_id)
           .eq("user_id", user_id);
         } else {
-        console.log("[processedModulesHelper] Checking existing processed_module for original_module_id:", original_module_id);
+        // console.log("[processedModulesHelper] Checking existing processed_module for original_module_id:", original_module_id);
         existingQuery = existingQuery
           .ilike("title", title)
           .eq("user_id", user_id);
@@ -88,9 +88,9 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
         console.error("[processedModulesHelper] Error checking existing processed_modules:", exErr);
         continue;
       }
-      console.log(title)
-      console.log('Existing processed_module check result:',)
-      console.log(existing)
+      // console.log(title)
+      // console.log('Existing processed_module check result:',)
+      // console.log(existing)
       
       // If already exists, check if it has content
       if (existing && existing.length > 0) {
@@ -107,7 +107,7 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
         // If content is empty and we have an original_module_id, trigger content generation
         if (moduleData && original_module_id && (!moduleData.content || moduleData.content.trim() === '')) {
           try {
-            console.log('[processedModulesHelper] Existing module has no content, generating for:', existingId);
+            // console.log('[processedModulesHelper] Existing module has no content, generating for:', existingId);
             const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
             const contentResponse = await fetch(`${baseUrl}/api/generate-module-content`, {
               method: "POST",
@@ -120,7 +120,7 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
               console.error(`[processedModulesHelper] Content generation failed for existing ${existingId}:`, errorText);
             } else {
               const result = await contentResponse.json();
-              console.log('[processedModulesHelper] Content generation completed for existing module:', result);
+              // console.log('[processedModulesHelper] Content generation completed for existing module:', result);
             }
           } catch (e: any) {
             console.error("[processedModulesHelper] Content generation fetch failed:", e?.message || e);
@@ -128,9 +128,9 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
         }
         continue; // Skip to next module since this one already exists
       }
-      console.log('[processedModulesHelper] Creating new processed_module for plan module:', title);
-      console.log('[processedModulesHelper] original_module_id:', original_module_id);
-      console.log(m)
+      // console.log('[processedModulesHelper] Creating new processed_module for plan module:', title);
+      // console.log('[processedModulesHelper] original_module_id:', original_module_id);
+      // console.log(m)
 
       // Insert processed_module row with basic fields
       const insertPayload: any = {
@@ -205,7 +205,7 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
       // Generate content SYNCHRONOUSLY (wait for it to complete before moving to next module)
       if (newId && original_module_id) {
         try {
-          console.log('[processedModulesHelper] Generating content for processed_module_id:', newId, 'original_module_id:', original_module_id);
+          // console.log('[processedModulesHelper] Generating content for processed_module_id:', newId, 'original_module_id:', original_module_id);
           const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
           const contentResponse = await fetch(`${baseUrl}/api/generate-module-content`, {
             method: "POST",
@@ -218,7 +218,7 @@ export async function ensureProcessedModulesForPlan(user_id: string, company_id:
             console.error(`[processedModulesHelper] Content generation failed for ${newId}:`, errorText);
           } else {
             const result = await contentResponse.json();
-            console.log('[processedModulesHelper] Content generation completed:', result);
+            // console.log('[processedModulesHelper] Content generation completed:', result);
           }
         } catch (e: any) {
           console.error("[processedModulesHelper] Content generation fetch failed:", e?.message || e);

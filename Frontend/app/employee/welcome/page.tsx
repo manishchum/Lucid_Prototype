@@ -16,12 +16,19 @@ import EmployeeNavigation from "@/components/employee-navigation";
 
 // --- Types ---
 interface Employee {
-  id: string;
-  email: string;
-  name: string | null;
-  user_id?: string;
-  joined_at: string;
-  company_id?: string;
+  user_id: string
+  email: string
+  name: string | null
+  joined_at: string
+  company_id?: string
+}
+
+interface ModuleAssessmentStatus {
+  moduleId: string
+  hasBaseline: boolean
+  baselineCompleted: boolean
+  baselineScore?: number
+  baselineMaxScore?: number
 }
 
 export default function EmployeeWelcome() {
@@ -187,10 +194,12 @@ export default function EmployeeWelcome() {
             `Module ${p.module_id}`;
 
           return {
-            id: p.module_id,
-            title: resolvedTitle,
-            moduleName: adminName,
-          };
+              id: p.module_id,
+              title: resolvedTitle,
+              moduleName: adminName,
+              // Preserve whether admin/learning_plan has baseline enabled for this module
+              hasBaseline: (p.baseline_assessment === 1 || p.baseline_assessment === true),
+            };
         });
 
         // TEMP LOG: mapped assigned modules
@@ -430,9 +439,12 @@ export default function EmployeeWelcome() {
                         </div>
 
                         <div className="ml-auto flex items-center gap-3">
-                          <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-4 py-2 rounded-md border border-slate-200 text-sm font-bold text-slate-700 bg-white hover:bg-slate-50">
-                            Baseline
-                          </button>
+                          {/* Only show Baseline button when admin/learning_plan enables baseline for this module */}
+                          {m.hasBaseline ? (
+                            <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-4 py-2 rounded-md border border-slate-200 text-sm font-bold text-slate-700 bg-white hover:bg-slate-50">
+                              Baseline
+                            </button>
+                          ) : null}
 
                           <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-5 py-2 rounded-md bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
                             Learning Plan

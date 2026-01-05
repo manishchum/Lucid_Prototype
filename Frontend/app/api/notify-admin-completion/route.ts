@@ -17,7 +17,7 @@ const createTransporter = async () => {
 
       // Test the connection
       await gmailTransporter.verify()
-      console.log('📧 DEBUG: Gmail SMTP connection verified successfully')
+      // console.log('📧 DEBUG: Gmail SMTP connection verified successfully')
       return gmailTransporter
     } catch (error) {
       console.error('📧 DEBUG: Gmail SMTP failed, falling back to test service:', error)
@@ -25,7 +25,7 @@ const createTransporter = async () => {
   }
 
   // Fallback to Ethereal Email for testing
-  console.log('📧 DEBUG: Creating Ethereal test account for email testing...')
+  // console.log('📧 DEBUG: Creating Ethereal test account for email testing...')
   const testAccount = await nodemailer.createTestAccount()
   
   const testTransporter = nodemailer.createTransport({
@@ -38,8 +38,8 @@ const createTransporter = async () => {
     },
   })
 
-  console.log('📧 DEBUG: Using Ethereal test email service')
-  console.log(`📧 DEBUG: Preview emails at: https://ethereal.email/`)
+  // console.log('📧 DEBUG: Using Ethereal test email service')
+  // console.log(`📧 DEBUG: Preview emails at: https://ethereal.email/`)
   return testTransporter
 }
 
@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('📧 DEBUG: Processing admin notification for module completion:', { employeeId, moduleId })
+    // console.log('📧 DEBUG: Processing admin notification for module completion:', { employeeId, moduleId })
 
     // Get user details
     const { data: employeeData, error: employeeError } = await supabase
@@ -226,7 +226,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!adminData || adminData.length === 0) {
-      console.log('📧 DEBUG: No admins found for company:', employeeData.company_id)
+      // console.log('📧 DEBUG: No admins found for company:', employeeData.company_id)
       return NextResponse.json(
         { message: 'No admins found to notify for this company' },
         { status: 200 }
@@ -234,7 +234,7 @@ export async function POST(request: NextRequest) {
     }
 
     const adminEmails = adminData.map((admin: any) => admin.email)
-    console.log(`📧 DEBUG: Sending notifications to ${adminEmails.length} admins:`, adminEmails)
+    // console.log(`📧 DEBUG: Sending notifications to ${adminEmails.length} admins:`, adminEmails)
 
     // Create email transporter
     const transporter = await createTransporter()
@@ -261,7 +261,7 @@ export async function POST(request: NextRequest) {
           text: emailTemplate.text,
         })
 
-        console.log(`📧 DEBUG: Admin notification sent successfully to ${adminEmail}`)
+        // console.log(`📧 DEBUG: Admin notification sent successfully to ${adminEmail}`)
         return { 
           success: true, 
           email: adminEmail,
@@ -290,7 +290,7 @@ export async function POST(request: NextRequest) {
       .map((result) => result.status === 'fulfilled' ? result.value : null)
       .filter(Boolean)
 
-    console.log(`📧 DEBUG: Admin notifications completed - ${successfulEmails.length} successful, ${failedEmails.length} failed`)
+    // console.log(`📧 DEBUG: Admin notifications completed - ${successfulEmails.length} successful, ${failedEmails.length} failed`)
 
     return NextResponse.json({
       success: true,

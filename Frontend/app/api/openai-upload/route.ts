@@ -67,13 +67,13 @@ async function handleFileUpload(req: Request) {
     tempFilePath = path.join(tempDir, `${uuidv4()}_${file.name}`);
     const arrayBuffer = await file.arrayBuffer();
     await fs.writeFile(tempFilePath, Buffer.from(arrayBuffer));
-    console.log("🟢 File written to:", tempFilePath);
+    // console.log("🟢 File written to:", tempFilePath);
 
     // Check if file is a spreadsheet (unsupported by OpenAI file_search)
     const isSpreadsheet = file.name.match(/\.(xlsx|xls|csv)$/i);
     
     if (isSpreadsheet) {
-      console.log("📊 Detected spreadsheet file, extracting text locally...");
+      // console.log("📊 Detected spreadsheet file, extracting text locally...");
       
       // Read file as buffer (needed for XLSX.read in Next.js)
       const fileBuffer = await fs.readFile(tempFilePath);
@@ -96,7 +96,7 @@ async function handleFileUpload(req: Request) {
         });
       });
       
-      console.log("📊 Spreadsheet text extracted, length:", extractedText.length);
+      // console.log("📊 Spreadsheet text extracted, length:", extractedText.length);
       
       // Clean up temp file
       await fs.unlink(tempFilePath);
@@ -189,7 +189,7 @@ Additional instructions to maximize quality:
       }
     }
     message = message.trim();
-    console.log("🟡 Raw GPT response:", message);
+    // console.log("🟡 Raw GPT response:", message);
 
     let summary: string | null = null;
     let ai_modules: any[] = [];
@@ -292,10 +292,10 @@ Additional instructions to maximize quality:
         ai_objectives.push(...objectives);
       }
 
-      console.log("✅ Parsed summary:", summary);
-      console.log("✅ Modules:", ai_modules.length);
-      console.log("✅ Topics:", ai_topics.length);
-      console.log("✅ Objectives:", ai_objectives.length);
+      // console.log("✅ Parsed summary:", summary);
+      // console.log("✅ Modules:", ai_modules.length);
+      // console.log("✅ Topics:", ai_topics.length);
+      // console.log("✅ Objectives:", ai_objectives.length);
     }
 
     // Insert into Supabase (training_modules)
@@ -375,7 +375,7 @@ async function handleTextUpload(req: Request, providedText?: string, providedMod
       return NextResponse.json({ error: "Missing moduleId" }, { status: 400 });
     }
 
-    console.log("📝 Processing text content with OpenAI Assistant...");
+    // console.log("📝 Processing text content with OpenAI Assistant...");
 
     // Create OpenAI thread and process text directly
     const thread = await openai.beta.threads.create();
@@ -456,7 +456,7 @@ ${text}
       }
     }
     message = message.trim();
-    console.log("🟡 Raw GPT response:", message);
+    // console.log("🟡 Raw GPT response:", message);
 
     // Parse the response and save to database (same logic as file upload)
     let summary: string | null = null;
@@ -560,10 +560,10 @@ ${text}
         ai_objectives.push(...objectives);
       }
 
-      console.log("✅ Parsed summary:", summary);
-      console.log("✅ Modules:", ai_modules.length);
-      console.log("✅ Topics:", ai_topics.length);
-      console.log("✅ Objectives:", ai_objectives.length);
+      // console.log("✅ Parsed summary:", summary);
+      // console.log("✅ Modules:", ai_modules.length);
+      // console.log("✅ Topics:", ai_topics.length);
+      // console.log("✅ Objectives:", ai_objectives.length);
     }
 
     // Insert into Supabase (training_modules)
@@ -598,7 +598,7 @@ ${text}
       console.error("Failed to call start-content-generation:", e);
     }
 
-    console.log("✅ Successfully processed text content and triggered background worker");
+    // console.log("✅ Successfully processed text content and triggered background worker");
 
     return NextResponse.json({
       summary,

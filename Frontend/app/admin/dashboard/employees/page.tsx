@@ -1246,7 +1246,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       const arrayBuffer = await f.arrayBuffer();
       if (f.name.endsWith('.csv')) {
         const text = new TextDecoder().decode(arrayBuffer);
-        console.log(text.split(/\r?\n/).map(line => line.split(',')))
+        // console.log(text.split(/\r?\n/).map(line => line.split(',')))
         const rows = text.split(/\r?\n/).map(line => line.split(',').map(cell => cell.trim()));
         setPreview(rows.slice(0, 10));
       } else if (f.name.endsWith('.xlsx')) {
@@ -1277,7 +1277,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       
       if (file.name.endsWith('.csv')) {
         const text = new TextDecoder().decode(arrayBuffer);
-        console.log(text.split(/\r?\n/).map(line => line.split(',')));
+        // console.log(text.split(/\r?\n/).map(line => line.split(',')));
         rows = text.split(/\r?\n/).map(line => line.split(',').map(cell => cell.trim()));
       } else if (file.name.endsWith('.xlsx')) {
         // Dynamically import xlsx for processing
@@ -1293,7 +1293,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       // Skip header row if present - check for common header patterns
       const isHeaderRow = (row: string[]) => {
         if (!row || row.length === 0) return false;
-        console.log(row[0]?.toLowerCase())
+        // console.log(row[0]?.toLowerCase())
         const firstCell = row[0]?.toLowerCase() || '';
         
         // Check if first row contains common header keywords
@@ -1327,8 +1327,8 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
         try {
           // Validate required fields
           if (!name || !email) {
-            console.log(name)
-            console.log(email)
+            // console.log(name)
+            // console.log(email)
             results.errors.push(`Row ${dataRows.indexOf(row) + 1}: Name and email are required`);
             continue;
           }
@@ -1336,7 +1336,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
           // Email validation
           const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
           if (!emailRegex.test(email)) {
-            console.log("Error because of the email")
+            // console.log("Error because of the email")
             results.errors.push(`${email}: Invalid email format`);
             continue;
           }
@@ -1350,7 +1350,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
 
           if (existingUser) {
             results.skipped++;
-            console.log("Error because of existing user")
+            // console.log("Error because of existing user")
             continue;
           }
 
@@ -1361,7 +1361,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             departmentId = departmentsMap.get(deptKey) || null;
             
             if (!departmentId) {
-              console.log("Error because of the department ID is missing");
+              // console.log("Error because of the department ID is missing");
               results.errors.push(`${email}: Department "${department}" - "${subDepartment}" not found`);
               continue;
             }
@@ -1392,8 +1392,8 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             .select()
             .single();
 
-          console.log("User Data after creation");
-          console.log(userData)
+          // console.log("User Data after creation");
+          // console.log(userData)
           if (userError) {
             if (userError.code === '23505') { // Unique violation
               results.skipped++;
@@ -1460,7 +1460,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       }
     } catch (err) {
       onError('Failed to upload employees');
-      console.log(err)
+      // console.log(err)
     } finally {
       setUploading(false);
     }

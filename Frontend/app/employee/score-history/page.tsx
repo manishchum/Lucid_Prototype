@@ -314,7 +314,7 @@ export default function ScoreHistoryPage() {
           });
         }
       } catch (e) {
-        console.log('[score-history] module title enrich error', e);
+        // console.log('[score-history] module title enrich error', e);
       }
 
       setScoreHistory(enriched);

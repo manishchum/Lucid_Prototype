@@ -106,7 +106,7 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
       if (rolesError) throw rolesError;
       setRoles(rolesData || []);
     } catch (error) {
-      console.error('Failed to load dropdown data:', error);
+      // console.error('Failed to load dropdown data:', error);
       setError('Failed to load form data');
     }
   };
@@ -128,7 +128,7 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
         selected_roles: [...roleIds]
       }));
     } catch (error) {
-      console.error('Failed to load current roles:', error);
+      // console.error('Failed to load current roles:', error);
     }
   };
 
