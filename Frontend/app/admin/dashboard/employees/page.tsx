@@ -26,6 +26,7 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
+import { toast as shadcnToast } from '@/hooks/use-toast';
 
 // Types
 interface Admin {
@@ -487,6 +488,20 @@ export default function EmployeesPage() {
     }
   }, [showDepartmentDropdown, showSubDepartmentDropdown]);
 
+  // Convert legacy success banners into unified Radix toasts
+  useEffect(() => {
+    if (!success) return;
+
+    try {
+      shadcnToast({ title: success, duration: 7000 });
+    } catch (e) {
+      console.warn('Toast error', e);
+    }
+
+    // Clear the transient success message so the old banner doesn't re-render
+    setSuccess('');
+  }, [success]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -510,11 +525,7 @@ export default function EmployeesPage() {
         <p className="text-gray-600 mt-1">Manage users, assign modules, and organize by departments</p>
       </div>
       
-      {success && (
-        <Alert className="border-green-200 bg-green-50">
-          <AlertDescription className="text-green-800">{success}</AlertDescription>
-        </Alert>
-      )}
+      {/* success banners are shown via unified Radix toasts now */}
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
@@ -2286,6 +2297,17 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         return;
       }
 
+      try {
+        // Use the shared Radix-based toast so all toasters render the same UI
+        shadcnToast({
+          title: 'Modules Assigned!',
+          description: `Successfully assigned ${selectedModules.length} module${selectedModules.length === 1 ? '' : 's'} to ${selectedUsers.length} employee${selectedUsers.length === 1 ? '' : 's'}.`,
+          duration: 7000,
+        });
+      } catch (e) {
+        console.warn('Toast error', e);
+      }
+
       onSuccess();
       
     } catch (error: any) {
@@ -2414,7 +2436,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                     {modules.map(module => (
                       <label
                         key={module.module_id}
-                        className="flex items-start space-x-3 p-3 hover:bg-gray-50 rounded cursor-pointer border border-gray-100"
+                        className="submodule-card submodule-card--compact cursor-pointer"
                       >
                         <input
                           type="checkbox"
