@@ -7,6 +7,8 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import puppeteer from 'puppeteer';
 import ffmpeg from 'fluent-ffmpeg';
+import textToSpeech from "@google-cloud/text-to-speech";
+
 // Do not import ffmpeg-static at module scope (Next bundler may package binary incorrectly).
 
 export const runtime = 'nodejs';
@@ -180,9 +182,9 @@ async function createVideoFromImages(imagePaths: string[], outPath: string, dura
 }
 
 async function generateExplanationScript(title: string, content: string) {
-  const vertexApiKey = process.env.VERTEX_API_KEY;
-  if (!vertexApiKey) {
-    throw new Error('VERTEX_API_KEY not configured');
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey) {
+    throw new Error('GEMINI_API_KEY not configured');
   }
 
   const prompt = `You are an expert educator creating an engaging video script. 
@@ -201,7 +203,7 @@ Create a natural, conversational 60-90 second video narration script that:
 Return ONLY the narration script text, no meta-commentary.`;
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${vertexApiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiApiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -221,44 +223,71 @@ Return ONLY the narration script text, no meta-commentary.`;
 }
 
 async function generateTTSAudio(script: string, outputPath: string) {
-  const vertexApiKey = process.env.VERTEX_API_KEY;
-  if (!vertexApiKey) {
-    throw new Error('VERTEX_API_KEY not configured');
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey) {
+    throw new Error('GEMINI_API_KEY not configured');
   }
 
-  // Use Google Cloud TTS via the same API key
-  const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${vertexApiKey}`;
+  // Use Google Cloud TTS with the Gemini API key
+  // const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${geminiApiKey}`;
   
-  const response = await fetch(ttsUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      input: { text: script },
-      voice: {
-        languageCode: 'en-US',
-        name: 'en-US-Neural2-J', // Professional male voice
-        ssmlGender: 'MALE',
-      },
-      audioConfig: {
-        audioEncoding: 'MP3',
-        speakingRate: 0.95,
-        pitch: 0,
-      },
-    }),
+  // const response = await fetch(ttsUrl, {
+  //   method: 'POST',
+  //   headers: { 'Content-Type': 'application/json' },
+  //   body: JSON.stringify({
+  //     input: { text: script },
+  //     voice: {
+  //       languageCode: 'en-US',
+  //       name: 'en-US-Neural2-J', // Professional male voice
+  //       ssmlGender: 'MALE',
+  //     },
+  //     audioConfig: {
+  //       audioEncoding: 'MP3',
+  //       speakingRate: 0.95,
+  //       pitch: 0,
+  //     },
+  //   }),
+  // });
+
+
+  const ttsClient = new textToSpeech.TextToSpeechClient({
+    keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS || './secrets/google-credentials.json',
+  });
+async function generateTTSAudio(script: string, outputPath: string) {
+  const [response] = await ttsClient.synthesizeSpeech({
+    input: { text: script },
+    voice: {
+      languageCode: "en-US",
+      name: "en-US-Neural2-J",
+    },
+    audioConfig: {
+      audioEncoding: "MP3",
+      speakingRate: 0.95,
+    },
   });
 
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(`TTS API error: ${data?.error?.message || 'Unknown error'}`);
+  if (!response.audioContent) {
+    throw new Error("No audio content returned from TTS");
   }
 
-  const audioContent = data.audioContent;
-  if (!audioContent) {
-    throw new Error('No audio content returned from TTS');
-  }
+  await fsPromises.writeFile(
+    outputPath,
+    response.audioContent as Buffer
+  );
+}
+generateTTSAudio(script, outputPath);
+  // const data = await response.json();
+  // if (!response.ok) {
+  //   throw new Error(`TTS API error: ${data?.error?.message || 'Unknown error'}`);
+  // }
 
-  // Write audio to file
-  await fsPromises.writeFile(outputPath, Buffer.from(audioContent, 'base64'));
+  // const audioContent = data.audioContent;
+  // if (!audioContent) {
+  //   throw new Error('No audio content returned from TTS');
+  // }
+
+  // // Write audio to file
+  // await fsPromises.writeFile(outputPath, Buffer.from(audioContent, 'base64'));
   return outputPath;
 }
 

@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
 
     // Call the GPT/Gemini-based video generation endpoint for insightful video
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `http://localhost:${process.env.PORT || 3000}`;
-    const response = await fetch(`${baseUrl}/api/gpt-video-generation`, {
+    const response = await fetch(`${baseUrl}/api/video-generation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ processed_module_id: moduleId }),
