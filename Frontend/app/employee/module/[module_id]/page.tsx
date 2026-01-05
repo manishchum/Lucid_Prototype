@@ -524,7 +524,7 @@ function ContentTransformer({
   const hasAudio = !!module.audio_url;
   const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
   const [language, setLanguage] = useState<'en' | 'hi'>('en');
-  const [selectedOption, setSelectedOption] = useState<'audio' | 'infographic' | 'mindmap' | 'video'>('audio');
+  const [selectedOption, setSelectedOption] = useState<'audio' | 'infographic' | 'infographics' | 'mindmap' | 'video'>('audio');
   const [chatInput, setChatInput] = useState('');
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [audioOpen, setAudioOpen] = useState(false);
@@ -671,7 +671,7 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Structured concepts</div>
           </div>
 
-          {/* Infographic */}
+          {/* Flash cards (previously Infographic) */}
           <div
             onClick={async () => {
               // If already generated, just open the view
@@ -737,9 +737,27 @@ function ContentTransformer({
                 : 'bg-white border-slate-300 hover:border-slate-400'
             )}
           >
-            <div className="text-3xl mb-3">🖼️</div>
-            <div className="font-bold text-slate-900 text-sm">Infographic</div>
+            <div className="text-3xl mb-3">�</div>
+            <div className="font-bold text-slate-900 text-sm">Flash cards</div>
             <div className="text-slate-500 text-xs mt-1">Visual summary</div>
+          </div>
+
+          {/* Infographics (coming soon) - additional button */}
+          <div
+            onClick={() => {
+              // placeholder option: show coming-soon content
+              setSelectedOption('infographics');
+            }}
+            className={clsx(
+              'rounded-xl p-5 cursor-pointer transition-all border-2',
+              selectedOption === 'infographics'
+                ? 'bg-slate-50 border-green-500 shadow-lg'
+                : 'bg-white border-slate-300 hover:border-slate-400'
+            )}
+          >
+            <div className="text-3xl mb-3">�️</div>
+            <div className="font-bold text-slate-900 text-sm">Infographics</div>
+            <div className="text-slate-500 text-xs mt-1">Coming soon</div>
           </div>
         </div>
 
@@ -888,8 +906,8 @@ function ContentTransformer({
 
         {/* Placeholder / generated output for other options */}
         {selectedOption !== 'audio' && selectedOption !== 'video' && (
-          <div className="rounded-xl border border-slate-200 bg-white p-12 text-center">
-            <div className="text-slate-600 text-sm">
+          <div className="rounded-xl border border-slate-200 bg-white p-12 text-left">
+            <div className="text-slate-600 text-sm text-left">
                   {selectedOption === 'infographic' && (
                     <div>
                       {infographicLoading && (
@@ -902,6 +920,14 @@ function ContentTransformer({
                       {!infographicLoading && (
                         <InfographicCards sections={infographicSections} />
                       )}
+                    </div>
+                  )}
+
+                  {selectedOption === 'infographics' && (
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="text-4xl">🛠️</div>
+                      <div className="text-lg font-semibold">Infographics coming soon</div>
+                      <div className="text-sm text-slate-500">We're working on more visual summaries — stay tuned.</div>
                     </div>
                   )}
 
@@ -924,10 +950,7 @@ function ContentTransformer({
                     <div className="text-sm text-gray-500">Click the Mindmap tile to generate and view the mindmap.</div>
                   )}
 
-                  {/* Debug: show module.content length and preview */}
-                  <div className="mt-4 text-sm text-gray-500">
-                    <DebugContentPreview content={module.content || ''} />
-                  </div>
+                  {/* Debug preview removed */}
                 </div>
               )}
             </div>
@@ -962,36 +985,7 @@ function AudioSection(props: any) {
   return <ContentTransformer {...props} />;
 }
 
-// Simple debug preview component to verify module.content is populated
-function DebugContentPreview({ content }: { content: string }) {
-  const [open, setOpen] = useState(false);
-  const preview = content ? content.slice(0, 2000) : '(empty)';
-  const decodedPreview = typeof document !== 'undefined' ? (() => {
-    try {
-      const t = document.createElement('textarea');
-      t.innerHTML = preview;
-      return t.value;
-    } catch (e) {
-      return preview;
-    }
-  })() : preview;
-
-  return (
-    <div>
-      <button
-        onClick={() => setOpen((s) => !s)}
-        className="text-xs text-gray-600 hover:underline"
-      >
-        {open ? 'Hide debug content' : `Debug content (${content ? content.length : 0} chars)`}
-      </button>
-      {open && (
-        <div className="mt-2 p-3 border rounded bg-white text-xs text-gray-700 max-h-64 overflow-auto">
-          <pre className="whitespace-pre-wrap">{decodedPreview}</pre>
-        </div>
-      )}
-    </div>
-  );
-}
+// Debug preview removed
 
 // Helper to format content with beautiful card-based UI
 function formatContent(content: string) {

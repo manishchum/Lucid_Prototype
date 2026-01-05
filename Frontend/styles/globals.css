@@ -6,6 +6,25 @@
   .text-balance {
     text-wrap: balance;
   }
+  /* Utility to hide native scrollbars for overflow containers */
+  .no-scrollbar {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+
+  /* Stronger, scroller-specific rule for the infographic scroller to ensure scrollbars are hidden */
+  .infographic-scroller {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .infographic-scroller::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+  }
 }
 
 @layer base {
