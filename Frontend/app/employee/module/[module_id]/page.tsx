@@ -63,7 +63,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         console.error('[module] employee fetch error', e);
       }
       const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style, user_id";
-<<<<<<< HEAD
 
       let data: any = null;
 
@@ -72,10 +71,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       // console.log(empObj);
 
 
-
-=======
-      let data: any = null;
->>>>>>> 68be44a673901ee5bead65003adce4f38c4c0e50
       const { data: directData, error: directError } = await supabase
         .from('processed_modules')
         .select(selectCols)
@@ -336,19 +331,13 @@ function parseContentIntoSections(content: string) {
   if (!content || content.trim() === '') {
     return sections;
   }
-<<<<<<< HEAD
 
   // Clean up learning style codes from content first
   content = content.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
   content = content.replace(/\b(CS|CR|AS|AR)\b/g, '');
 
   // Split by major headings - more flexible patterns
-=======
-  
-  content = content.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
-  content = content.replace(/\b(CS|CR|AS|AR)\b/g, '');
-  
->>>>>>> 68be44a673901ee5bead65003adce4f38c4c0e50
+
   const lines = content.split('\n');
   let currentSection: { type: string; title: string; content: string } | null = null;
 
@@ -359,23 +348,17 @@ function parseContentIntoSections(content: string) {
       if (currentSection) currentSection.content += '\n';
       continue;
     }
-<<<<<<< HEAD
 
     // Check for Learning Objectives
-=======
-    
->>>>>>> 68be44a673901ee5bead65003adce4f38c4c0e50
+
     if (line.match(/^Learning Objectives?:/i)) {
       if (currentSection) sections.push(currentSection);
       currentSection = { type: 'objectives', title: 'Learning Objectives', content: '' };
       continue;
     }
-<<<<<<< HEAD
 
     // Check for Section headings (Section 1:, Section 2:, etc.)
-=======
-    
->>>>>>> 68be44a673901ee5bead65003adce4f38c4c0e50
+
     const sectionMatch = line.match(/^Section\s+(\d+)\s*:\s*(.+)$/i);
     if (sectionMatch) {
       if (currentSection) sections.push(currentSection);
@@ -386,12 +369,9 @@ function parseContentIntoSections(content: string) {
       };
       continue;
     }
-<<<<<<< HEAD
 
     // Check for Activity headings (Activity 1:, Activity 2:, etc.)
-=======
-    
->>>>>>> 68be44a673901ee5bead65003adce4f38c4c0e50
+
     const activityMatch = line.match(/^Activity\s+(\d+)\s*:\s*(.+)$/i);
     if (activityMatch) {
       if (currentSection) sections.push(currentSection);
@@ -402,41 +382,29 @@ function parseContentIntoSections(content: string) {
       };
       continue;
     }
-<<<<<<< HEAD
 
     // Check for Module Summary
-=======
-    
->>>>>>> 68be44a673901ee5bead65003adce4f38c4c0e50
+
     if (line.match(/^Module Summary:/i)) {
       if (currentSection) sections.push(currentSection);
       currentSection = { type: 'summary', title: 'Module Summary', content: '' };
       continue;
     }
-<<<<<<< HEAD
-
     // Check for Discussion Prompts
-=======
-    
->>>>>>> 68be44a673901ee5bead65003adce4f38c4c0e50
+
     if (line.match(/^Discussion Prompts?:/i)) {
       if (currentSection) sections.push(currentSection);
       currentSection = { type: 'discussion', title: 'Discussion Prompts', content: '' };
       continue;
     }
-<<<<<<< HEAD
 
-    // Add content to current section
-=======
-    
->>>>>>> 68be44a673901ee5bead65003adce4f38c4c0e50
     if (currentSection) {
       currentSection.content += lines[i] + '\n';
     } else {
       currentSection = { type: 'intro', title: '', content: lines[i] + '\n' };
     }
   }
-<<<<<<< HEAD
+
 
   // Push the last section
   if (currentSection && currentSection.content.trim()) {
@@ -444,13 +412,7 @@ function parseContentIntoSections(content: string) {
   }
 
   // If no sections were created, put all content in one section
-=======
-  
-  if (currentSection && currentSection.content.trim()) {
-    sections.push(currentSection);
-  }
-  
->>>>>>> 68be44a673901ee5bead65003adce4f38c4c0e50
+
   if (sections.length === 0 && content.trim()) {
     sections.push({ type: 'intro', title: '', content: content });
   }
@@ -512,17 +474,13 @@ function extractPlainText(content: string) {
 
 function parseChatFromTranscript(transcript: string): Array<{ speaker: string; text: string }> {
   const messages: Array<{ speaker: string; text: string }> = [];
-<<<<<<< HEAD
+
 
   // Split by sentence boundaries and alternate speakers
   const sentences = transcript.match(/[^.!?]+[.!?]+/g) || [];
   let isSarah = true; // Start with Sarah to match TTS API
 
-=======
-  const sentences = transcript.match(/[^.!?]+[.!?]+/g) || [];
-  let isSarah = false;
-  
->>>>>>> 68be44a673901ee5bead65003adce4f38c4c0e50
+
   for (const sentence of sentences) {
     const trimmed = sentence.trim();
     if (trimmed) {
@@ -565,12 +523,7 @@ function ContentTransformer({
     const ratio = Math.min(current / duration, 1);
     const chars = Math.floor(plainTranscript.length * ratio);
     setLiveTranscript(plainTranscript.slice(0, chars));
-<<<<<<< HEAD
 
-    // Parse and update chat messages based on progress
-=======
-    
->>>>>>> 68be44a673901ee5bead65003adce4f38c4c0e50
     const messages = parseChatFromTranscript(plainTranscript);
     const currentChars = Math.floor(plainTranscript.length * ratio);
     const displayedMessages: Array<{ speaker: string; text: string }> = [];
@@ -596,14 +549,14 @@ function ContentTransformer({
   const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || chatLoading) return;
-    
+
     const userMessage = chatInput.trim();
     setChatInput('');
-    
+
     const newUserMessage = { role: 'user' as const, content: userMessage };
     setUserChatHistory(prev => [...prev, newUserMessage]);
     setChatLoading(true);
-    
+
     try {
       const response = await fetch('/api/module-chat', {
         method: 'POST',
@@ -614,22 +567,22 @@ function ContentTransformer({
           chat_history: userChatHistory,
         }),
       });
-      
+
       const data = await response.json();
-      
+
       if (response.ok && data.message) {
         setUserChatHistory(prev => [...prev, { role: 'assistant', content: data.message }]);
       } else {
-        setUserChatHistory(prev => [...prev, { 
-          role: 'assistant', 
-          content: 'Sorry, I encountered an error. Please try again.' 
+        setUserChatHistory(prev => [...prev, {
+          role: 'assistant',
+          content: 'Sorry, I encountered an error. Please try again.'
         }]);
       }
     } catch (error) {
       console.error('Chat error:', error);
-      setUserChatHistory(prev => [...prev, { 
-        role: 'assistant', 
-        content: 'Sorry, I encountered an error. Please try again.' 
+      setUserChatHistory(prev => [...prev, {
+        role: 'assistant',
+        content: 'Sorry, I encountered an error. Please try again.'
       }]);
     } finally {
       setChatLoading(false);
@@ -936,8 +889,8 @@ function ContentTransformer({
 
         <div className="border-t border-slate-200 bg-white p-6">
           <form onSubmit={handleSendChat} className="flex gap-3">
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-600 disabled:opacity-50"
               disabled={chatLoading}
             >
@@ -951,8 +904,8 @@ function ContentTransformer({
               className="flex-1 outline-none text-slate-700 placeholder-slate-400 bg-gray-50 rounded-lg px-4 py-3 border border-gray-200 focus:border-blue-500 focus:bg-white transition-all"
               disabled={chatLoading}
             />
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={chatLoading || !chatInput.trim()}
             >
