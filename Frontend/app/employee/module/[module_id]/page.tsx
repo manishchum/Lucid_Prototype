@@ -67,7 +67,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       } catch (e) {
         console.error('[module] employee fetch error', e);
       }
-      const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style, user_id, podcast_timeline";
+      const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style, user_id, podcast_timeline,video_url";
       let data: any = null;
 
       // First try: direct lookup by processed_module_id (this is what we pass from training plan)
@@ -132,7 +132,9 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             setGeneratingContent(false);
           }
         }
-
+        if(data.video_url){
+          setHasVideo(true);
+        }
         setModule(data as any);
         setPlainTranscript(extractPlainText(data.content || ''));
         try {
