@@ -508,6 +508,7 @@ function ContentTransformer({
   // Podcast timeline state
   const [podcastTimeline, setPodcastTimeline] = useState<Array<{ speaker: 'sarah' | 'mark'; text: string; startSec: number; endSec: number }>>([]);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
+  const [transcriptStarted, setTranscriptStarted] = useState(false);
 
   // Hydrate timeline from module.podcast_timeline on component mount
   useEffect(() => {
@@ -559,6 +560,10 @@ function ContentTransformer({
   const handleTimeUpdate = (current: number, duration: number, playbackRate: number = 1.0) => {
     if (!duration || podcastTimeline.length === 0) return;
 
+    if (!transcriptStarted && current > 0) {
+      setTranscriptStarted(true);
+    }
+
     // currentTime already represents position in audio file
     // Browser handles playback speed internally, no adjustment needed
     let active = -1;
@@ -568,6 +573,16 @@ function ContentTransformer({
         active = i;
         break;
       }
+    }
+
+    // If we're in a pause/silence gap, keep showing the last known segment
+    if (active === -1 && activeSegmentIndex >= 0) {
+      active = activeSegmentIndex;
+    }
+
+    // Clamp to final segment once we've reached the end
+    if (active === -1 && current >= podcastTimeline[podcastTimeline.length - 1].endSec) {
+      active = podcastTimeline.length - 1;
     }
 
     if (active !== activeSegmentIndex) {
@@ -946,14 +961,14 @@ function ContentTransformer({
 
                   {transcriptOpen && (
                     <div className="mt-3 h-96 overflow-y-auto space-y-3 flex flex-col px-3">
-                      {activeSegmentIndex >= 0 && podcastTimeline.length > 0 ? (
+                      {transcriptStarted && activeSegmentIndex >= 0 && podcastTimeline.length > 0 ? (
                         (() => {
                           const segments = [];
                           // Show previous segment if available
                           if (activeSegmentIndex > 0) {
                             const prev = podcastTimeline[activeSegmentIndex - 1];
                             segments.push(
-                              <div key={`prev-${activeSegmentIndex - 1}`} className="opacity-50">
+                              <div key={`prev-${activeSegmentIndex - 1}`} className="opacity-50 transition-all duration-300 ease-out">
                                 <div className="flex justify-start">
                                   <div className="rounded-lg px-4 py-2 bg-gray-100 text-gray-600 rounded-bl-none max-w-2xl">
                                     <div className="font-semibold text-xs mb-2 opacity-75">
@@ -971,7 +986,7 @@ function ContentTransformer({
                             <div key={`curr-${activeSegmentIndex}`}>
                               <div className={clsx('flex', curr.speaker === 'sarah' ? 'justify-start' : 'justify-end')}>
                                 <div className={clsx(
-                                  'rounded-lg px-4 py-2 max-w-2xl font-semibold ring-2 ring-blue-500',
+                                  'rounded-lg px-4 py-2 max-w-2xl font-semibold ring-2 ring-blue-500 transition-all duration-300 ease-out',
                                   curr.speaker === 'sarah'
                                     ? 'bg-blue-100 text-blue-900 rounded-bl-none'
                                     : 'bg-green-100 text-green-900 rounded-br-none'
@@ -988,7 +1003,7 @@ function ContentTransformer({
                           if (activeSegmentIndex < podcastTimeline.length - 1) {
                             const next = podcastTimeline[activeSegmentIndex + 1];
                             segments.push(
-                              <div key={`next-${activeSegmentIndex + 1}`} className="opacity-50">
+                              <div key={`next-${activeSegmentIndex + 1}`} className="opacity-50 transition-all duration-300 ease-out">
                                 <div className={clsx('flex', next.speaker === 'sarah' ? 'justify-start' : 'justify-end')}>
                                   <div className="rounded-lg px-4 py-2 bg-gray-100 text-gray-600 rounded-br-none max-w-2xl">
                                     <div className="font-semibold text-xs mb-2 opacity-75">
