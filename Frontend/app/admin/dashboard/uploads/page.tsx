@@ -227,23 +227,23 @@ function UploadedFilesList({ companyId }: { companyId: string }) {
     return <div className="text-gray-500 italic">Loading files...</div>;
   }
 
-  return (
-    <div>
-      <h3 className="text-lg font-semibold mb-4">Uploaded Files in Storage</h3>
-      {files.length === 0 ? (
-        <p className="text-gray-400 italic">No storage files found</p>
-      ) : (
-        <div className="grid gap-2">
-          {files.map((file, idx) => (
-            <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded border text-sm">
-              <span className="truncate flex-1 mr-4">{file.name}</span>
-              <span className="text-gray-400 text-xs">{(file.metadata?.size / 1024 / 1024).toFixed(2)} MB</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  // return (
+  //   <div>
+  //     <h3 className="text-lg font-semibold mb-4">Uploaded Files in Storage</h3>
+  //     {files.length === 0 ? (
+  //       <p className="text-gray-400 italic">No storage files found</p>
+  //     ) : (
+  //       <div className="grid gap-2">
+  //         {files.map((file, idx) => (
+  //           <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded border text-sm">
+  //             <span className="truncate flex-1 mr-4">{file.name}</span>
+  //             <span className="text-gray-400 text-xs">{(file.metadata?.size / 1024 / 1024).toFixed(2)} MB</span>
+  //           </div>
+  //         ))}
+  //       </div>
+  //     )}
+  //   </div>
+  // );
 }
 
 // KPI Scores Upload Component
@@ -499,6 +499,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const [error, setError] = useState('');
   const [viewingUrl, setViewingUrl] = useState<string | null>(null);
   const [viewingTitle, setViewingTitle] = useState<string>('');
+  const [viewingType, setViewingType] = useState<string>('');
 
   useEffect(() => {
     if (companyId) {
@@ -548,33 +549,62 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
         const url = new URL(module.content_url);
         const pathSegments = url.pathname.split('/');
 
-        // Find the index where 'training-content' is and get everything after it
-        const trainingContentIndex = pathSegments.indexOf('training-content');
-        if (trainingContentIndex === -1) {
+        // Check for known buckets
+        // 1. content library
+        // 2. training-content
+
+        let bucketName = '';
+        let startIndex = -1;
+
+        // Find bucket in path
+        for (let i = 0; i < pathSegments.length; i++) {
+          const segment = decodeURIComponent(pathSegments[i]);
+          if (segment === 'content library') {
+            bucketName = 'content library';
+            startIndex = i;
+            break;
+          } else if (segment === 'training-content') {
+            bucketName = 'training-content';
+            startIndex = i;
+            break;
+          }
+        }
+
+        if (startIndex === -1 || !bucketName) {
           // If we can't extract the path, try opening the stored URL directly
-          // window.open(module.content_url, '_blank');
+          // This might fail if the token is expired
           setViewingUrl(module.content_url);
           setViewingTitle(module.title);
+          setViewingType(module.content_type || 'application/pdf');
           return;
         }
 
-        const storagePath = pathSegments.slice(trainingContentIndex + 1).join('/');
+        // Get everything after the bucket name
+        // And DECODE it because createSignedUrl expects the actual keys (spaces, etc.)
+        // url.pathname is percent-encoded
+        const rawPath = pathSegments.slice(startIndex + 1).join('/');
+        const storagePath = decodeURIComponent(rawPath);
+
+        console.log(`[ViewModule] Generating signed URL for bucket: '${bucketName}', path: '${storagePath}'`);
 
         // Generate a fresh signed URL with longer expiry (24 hours)
         const { data, error } = await supabase
           .storage
-          .from('training-content')
+          .from(bucketName)
           .createSignedUrl(storagePath, 24 * 60 * 60);
 
         if (error) {
           console.error('Failed to generate signed URL:', error);
-          setError('Failed to open training module');
+          setError('Failed to open training module: ' + error.message);
           return;
         }
+
+        console.log('[ViewModule] Generated signed URL:', data.signedUrl);
 
         // Set state to open viewer
         setViewingUrl(data.signedUrl);
         setViewingTitle(module.title);
+        setViewingType(module.content_type || 'application/pdf');
       } else {
         console.error('No content URL found for module');
         setError('Training module file not found');
@@ -706,11 +736,49 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           </DialogHeader>
           <div className="flex-1 w-full h-full bg-gray-100 rounded-md overflow-hidden relative">
             {viewingUrl && (
-              <iframe
-                src={viewingUrl}
-                className="w-full h-full"
-                title="Document Viewer"
-              />
+              (() => {
+                // Video
+                if (viewingType.startsWith('video/')) {
+                  return (
+                    <video controls className="w-full h-full">
+                      <source src={viewingUrl} type={viewingType} />
+                      Your browser does not support the video tag.
+                    </video>
+                  );
+                }
+
+                // Office Documents (Word, Excel, PowerPoint)
+                // Check mime type or file extension
+                const isOffice = [
+                  'application/msword',
+                  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                  'application/vnd.ms-excel',
+                  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                  'application/vnd.ms-powerpoint',
+                  'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+                ].includes(viewingType) || /\.(doc|docx|xls|xlsx|ppt|pptx)$/i.test(viewingTitle);
+
+                if (isOffice) {
+                  // Use Google Docs Viewer for Office files
+                  const encodedUrl = encodeURIComponent(viewingUrl);
+                  return (
+                    <iframe
+                      src={`https://docs.google.com/viewer?url=${encodedUrl}&embedded=true`}
+                      className="w-full h-full"
+                      title="Office Document Viewer"
+                    />
+                  );
+                }
+
+                // Default: PDF, Images, Text
+                return (
+                  <iframe
+                    src={viewingUrl}
+                    className="w-full h-full"
+                    title="Document Viewer"
+                  />
+                );
+              })()
             )}
           </div>
         </DialogContent>
