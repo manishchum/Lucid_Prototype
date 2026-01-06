@@ -297,4 +297,3 @@ export default function InfographicCards({ sections }: Props) {
     </section>
   )
 }
-

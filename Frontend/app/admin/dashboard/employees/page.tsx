@@ -27,7 +27,6 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { toast as shadcnToast } from '@/hooks/use-toast';
-import { formatContentType } from '@/lib/contentType';
 
 // Types
 interface Admin {
