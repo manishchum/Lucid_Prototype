@@ -703,11 +703,7 @@ function ContentTransformer({
                 setInfographicLoading(true);
                 const studyText = plainTranscript || module.content || '';
                 console.log('[infographic] starting fetch, studyText length:', (studyText || '').length);
-<<<<<<< HEAD
                 const res = await fetch('/api/generate-flashcards-gemini', {
-=======
-                const res = await fetch('/api/generate-infographic-gemini', {
->>>>>>> 8272ad0280465f07e79e2d063d047b4fd5936195
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ content: studyText }),
@@ -765,27 +761,7 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Visual summary</div>
           </div>
 
-<<<<<<< HEAD
           {/* Infographics button removed - keep only Flash cards button */}
-=======
-          {/* Infographics (coming soon) - additional button */}
-          <div
-            onClick={() => {
-              // placeholder option: show coming-soon content
-              setSelectedOption('infographics');
-            }}
-            className={clsx(
-              'rounded-xl p-5 cursor-pointer transition-all border-2',
-              selectedOption === 'infographics'
-                ? 'bg-slate-50 border-green-500 shadow-lg'
-                : 'bg-white border-slate-300 hover:border-slate-400'
-            )}
-          >
-            <div className="text-3xl mb-3">📊</div>
-            <div className="font-bold text-slate-900 text-sm">Infographics</div>
-            <div className="text-slate-500 text-xs mt-1">Coming soon</div>
-          </div>
->>>>>>> 8272ad0280465f07e79e2d063d047b4fd5936195
         </div>
 
         {selectedOption === 'audio' && audioOpen && (
@@ -957,28 +933,14 @@ function ContentTransformer({
                       )}
 
                       {!infographicLoading && (
-<<<<<<< HEAD
                         <div>
                               <InfographicCards sections={infographicSections} />
                         </div>
-=======
-                        <InfographicCards sections={infographicSections} />
->>>>>>> 8272ad0280465f07e79e2d063d047b4fd5936195
                       )}
                     </div>
                   )}
 
-<<<<<<< HEAD
                   {/* 'infographic' (singular) is used to show generated sections inline */}
-=======
-                  {selectedOption === 'infographics' && (
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="text-4xl">🛠️</div>
-                      <div className="text-lg font-semibold">Infographics coming soon</div>
-                      <div className="text-sm text-slate-500">We're working on more visual summaries — stay tuned.</div>
-                    </div>
-                  )}
->>>>>>> 8272ad0280465f07e79e2d063d047b4fd5936195
 
               {selectedOption === 'mindmap' && (
                 <div>

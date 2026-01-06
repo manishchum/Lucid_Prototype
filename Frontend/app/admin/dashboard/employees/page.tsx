@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
+import { formatContentType } from '@/lib/contentType';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -2436,13 +2437,13 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                     {modules.map(module => (
                       <label
                         key={module.module_id}
-                        className="submodule-card submodule-card--compact cursor-pointer"
+                        className="submodule-card submodule-card--compact cursor-pointer flex items-center gap-4"
                       >
                         <input
                           type="checkbox"
                           checked={selectedModules.includes(module.module_id)}
                           onChange={() => handleModuleToggle(module.module_id)}
-                          className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         />
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-gray-900">{module.title}</div>

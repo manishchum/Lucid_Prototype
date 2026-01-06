@@ -199,13 +199,56 @@ export default function EmployeeWelcome() {
               moduleName: adminName,
               // Preserve whether admin/learning_plan has baseline enabled for this module
               hasBaseline: (p.baseline_assessment === 1 || p.baseline_assessment === true),
+              // will compute baselinePending below once we know what the user has completed
+              baselinePending: false,
+              baselineAssessmentId: null,
             };
         });
 
         // TEMP LOG: mapped assigned modules
-        try { console.log('[debug] mappedAssignedModules:', mappedAssigned); } catch (e) {}
+        try { console.log('[debug] mappedAssignedModules (initial):', mappedAssigned); } catch (e) {}
 
-        setAssignedModules(mappedAssigned);
+        // Determine whether each module's baseline (if enabled) is still pending for this user.
+        // We need to look up training_modules to get baseline_assessment_id for each module,
+        // then check employee_assessments for this user to see completed assessment_ids.
+        try {
+          if (mIds.length > 0 && employeeData?.company_id) {
+            const { data: trainingMods } = await supabase
+              .from('training_modules')
+              .select('module_id, baseline_assessment_id')
+              .in('module_id', mIds)
+              .eq('company_id', employeeData.company_id);
+
+            const { data: userAssess } = await supabase
+              .from('employee_assessments')
+              .select('assessment_id')
+              .eq('user_id', employeeData.user_id);
+
+            const completedBaselineIds = new Set((userAssess || []).map((u: any) => u.assessment_id));
+
+            const baselinePendingByModule: Record<string, boolean> = {};
+            (trainingMods || []).forEach((tmod: any) => {
+              const aid = tmod?.baseline_assessment_id;
+              const pending = Boolean(aid && !completedBaselineIds.has(aid));
+              baselinePendingByModule[tmod.module_id] = pending;
+            });
+
+            const enriched = mappedAssigned.map((m: any) => ({
+              ...m,
+              baselinePending: m.hasBaseline ? !!baselinePendingByModule[m.id] : false,
+              baselineAssessmentId: baselinePendingByModule[m.id] ? (trainingMods.find((tm: any) => tm.module_id === m.id)?.baseline_assessment_id ?? null) : null,
+            }));
+
+            try { console.log('[debug] enrichedAssignedModules:', enriched); } catch (e) {}
+            setAssignedModules(enriched);
+          } else {
+            setAssignedModules(mappedAssigned);
+          }
+        } catch (e) {
+          // If any of the supplemental queries fail, fall back to the simple mapping
+          console.error('[welcome] baseline lookup failed', e);
+          setAssignedModules(mappedAssigned);
+        }
       }
 
       const { data: progressData } = await supabase.from("module_progress").select("*, processed_modules(title)").eq("user_id", employeeData.user_id);
@@ -434,7 +477,9 @@ export default function EmployeeWelcome() {
                             {m.moduleName && (
                               <div className="text-sm text-slate-500 truncate mt-1">{m.moduleName}</div>
                             )}
-                            <p className="text-xs font-black text-blue-600 uppercase tracking-wide mt-1">Baseline Pending</p>
+                            {m.baselinePending ? (
+                              <p className="text-xs font-black text-blue-600 uppercase tracking-wide mt-1">Baseline Pending</p>
+                            ) : null}
                           </div>
                         </div>
 
@@ -457,34 +502,7 @@ export default function EmployeeWelcome() {
               </CardContent>
             </Card>
 
-            {/* Progress History */}
-            <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-              <CardHeader className="px-8 py-6">
-                <CardTitle className="text-lg font-black text-slate-900">Recent Activity</CardTitle>
-              </CardHeader>
-              <CardContent className="px-8 pb-8">
-                <div className="space-y-4">
-                  {moduleProgress.length === 0 ? (
-                    <p className="text-slate-400 font-medium text-center py-4">No activity yet.</p>
-                  ) : (
-                    moduleProgress.map((mod) => (
-                      <div key={mod.processed_module_id} className="flex items-center gap-4 p-4 rounded-xl bg-slate-50/50 border border-slate-100/50">
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${mod.completed_at ? 'bg-green-100 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
-                          {mod.completed_at ? <CheckCircle2 size={20} /> : <Clock size={20} />}
-                        </div>
-                        <div className="flex-1 overflow-hidden">
-                          <p className="font-bold text-slate-900 truncate">{mod.processed_modules?.title || `Module ${mod.processed_module_id}`}</p>
-                          <p className="text-xs text-slate-500 font-medium">{mod.completed_at ? 'Finished' : 'In Progress'}</p>
-                        </div>
-                        {mod.quiz_score !== null && (
-                          <Badge className="bg-white border-slate-200 text-slate-600 font-bold">Score: {mod.quiz_score}%</Badge>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+            {/* Progress History removed per request (Recent Activity) */}
           </div>
         </div>
       </main>
