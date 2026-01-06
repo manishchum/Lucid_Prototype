@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import AudioPlayer from "./AudioPlayer";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -25,6 +25,9 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const [liveTranscript, setLiveTranscript] = useState("");
   const [plainTranscript, setPlainTranscript] = useState("");
   const [hasVideo, setHasVideo] = useState(false);
+  const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -153,6 +156,55 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
     if (moduleId) fetchModule();
   }, [moduleId]);
 
+  const handleSendChat = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!chatInput.trim() || chatLoading || !module?.processed_module_id) return;
+
+    const userMessage = chatInput.trim();
+    setChatInput('');
+
+    const newUserMessage = { role: 'user' as const, content: userMessage };
+    setUserChatHistory((prev) => [...prev, newUserMessage]);
+    setChatLoading(true);
+
+    try {
+      const response = await fetch('/api/module-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          processed_module_id: module.processed_module_id,
+          user_message: userMessage,
+          chat_history: userChatHistory,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.message) {
+        setUserChatHistory((prev) => [...prev, { role: 'assistant', content: data.message }]);
+      } else {
+        setUserChatHistory((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: 'Sorry, I encountered an error. Please try again.',
+          },
+        ]);
+      }
+    } catch (error) {
+      console.error('Chat error:', error);
+      setUserChatHistory((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: 'Sorry, I encountered an error. Please try again.',
+        },
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center">Loading module content...</div>;
   }
@@ -217,6 +269,89 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                 />
 
                 <ContentCards content={module.content || ''} />
+
+                <div className="rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden mt-10">
+                  <div className="p-6 h-96 overflow-y-auto bg-gray-50">
+                    {userChatHistory.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full text-center">
+                        <div className="text-6xl mb-4">💬</div>
+                        <h3 className="text-lg font-semibold text-gray-700 mb-2">Ask me anything about this module!</h3>
+                        <p className="text-sm text-gray-500">I can help clarify concepts, provide examples, or answer questions.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {userChatHistory.map((msg, idx) => (
+                          <div
+                            key={idx}
+                            className={clsx(
+                              'flex',
+                              msg.role === 'user' ? 'justify-end' : 'justify-start'
+                            )}
+                          >
+                            <div
+                              className={clsx(
+                                'rounded-lg px-4 py-3 max-w-3xl',
+                                msg.role === 'user'
+                                  ? 'bg-blue-600 text-white rounded-br-none'
+                                  : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
+                              )}
+                            >
+                              {msg.role === 'assistant' && (
+                                <div className="flex items-center gap-2 mb-2">
+                                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
+                                    AI
+                                  </div>
+                                  <span className="text-xs font-semibold text-gray-600">Learning Assistant</span>
+                                </div>
+                              )}
+                              <p className="whitespace-pre-wrap break-words leading-relaxed text-sm">
+                                {msg.content}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                        {chatLoading && (
+                          <div className="flex justify-start">
+                            <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 rounded-bl-none">
+                              <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border-t border-slate-200 bg-white p-6">
+                    <form onSubmit={handleSendChat} className="flex gap-3">
+                      <button
+                        type="button"
+                        className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-600 disabled:opacity-50"
+                        disabled={chatLoading}
+                      >
+                        📎
+                      </button>
+                      <input
+                        type="text"
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        placeholder="Ask for coaching, upload work, or chat..."
+                        className="flex-1 outline-none text-slate-700 placeholder-slate-400 bg-gray-50 rounded-lg px-4 py-3 border border-gray-200 focus:border-blue-500 focus:bg-white transition-all"
+                        disabled={chatLoading}
+                      />
+                      <button
+                        type="submit"
+                        className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={chatLoading || !chatInput.trim() || !module?.processed_module_id}
+                      >
+                        {chatLoading ? 'Sending...' : 'Send'}
+                      </button>
+                    </form>
+                  </div>
+                </div>
               </div>
             </main>
           </div>
@@ -332,6 +467,28 @@ function parseContentIntoSections(content: string) {
   
   const lines = content.split('\n');
   let currentSection: { type: string; title: string; content: string } | null = null;
+  let listBuffer: { type: 'ul' | 'ol'; items: string[] } | null = null;
+
+  const flushList = () => {
+    if (listBuffer && currentSection) {
+      const tag = listBuffer.type;
+      if (tag === 'ul') {
+        // Use bullet emoji for each item
+        currentSection.content += `<ul>${listBuffer.items.map((item) => `<li><span style='font-size:1.1em;margin-right:0.5em;'>•</span>${item}</li>`).join('')}</ul>\n`;
+      } else {
+        // Use number emoji for each item (1️⃣, 2️⃣, ... up to 10)
+        const numEmojis = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+        currentSection.content += `<ol>${listBuffer.items.map((item, idx) => `<li><span style='font-size:1.1em;margin-right:0.5em;'>${numEmojis[idx] || (idx+1)+'.'}</span>${item}</li>`).join('')}</ol>\n`;
+      }
+      listBuffer = null;
+    }
+  };
+
+  const startSection = (section: { type: string; title: string; content: string }) => {
+    flushList();
+    if (currentSection) sections.push(currentSection);
+    currentSection = section;
+  };
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -342,45 +499,60 @@ function parseContentIntoSections(content: string) {
     }
     
     if (line.match(/^Learning Objectives?:/i)) {
-      if (currentSection) sections.push(currentSection);
-      currentSection = { type: 'objectives', title: 'Learning Objectives', content: '' };
+      startSection({ type: 'objectives', title: 'Learning Objectives', content: '' });
       continue;
     }
     
     const sectionMatch = line.match(/^Section\s+(\d+)\s*:\s*(.+)$/i);
     if (sectionMatch) {
-      if (currentSection) sections.push(currentSection);
-      currentSection = { 
+      startSection({ 
         type: 'section', 
         title: line, 
         content: '' 
-      };
+      });
       continue;
     }
     
     const activityMatch = line.match(/^Activity\s+(\d+)\s*:\s*(.+)$/i);
     if (activityMatch) {
-      if (currentSection) sections.push(currentSection);
-      currentSection = { 
+      startSection({ 
         type: 'activity', 
         title: line, 
         content: '' 
-      };
+      });
       continue;
     }
     
     if (line.match(/^Module Summary:/i)) {
-      if (currentSection) sections.push(currentSection);
-      currentSection = { type: 'summary', title: 'Module Summary', content: '' };
+      startSection({ type: 'summary', title: 'Module Summary', content: '' });
       continue;
     }
     
     if (line.match(/^Discussion Prompts?:/i)) {
-      if (currentSection) sections.push(currentSection);
-      currentSection = { type: 'discussion', title: 'Discussion Prompts', content: '' };
+      startSection({ type: 'discussion', title: 'Discussion Prompts', content: '' });
       continue;
     }
     
+    const bulletMatch = line.match(/^[-\*•]\s+(.*)$/);
+    const numberedMatch = line.match(/^(\d+)\.\s+(.*)$/);
+
+    if (bulletMatch || numberedMatch) {
+      const type = bulletMatch ? 'ul' : 'ol';
+      const text = (bulletMatch ? bulletMatch[1] : numberedMatch?.[2] || '').trim();
+      if (!currentSection) {
+        currentSection = { type: 'intro', title: '', content: '' };
+      }
+      if (!listBuffer || listBuffer.type !== type) {
+        flushList();
+        listBuffer = { type, items: [] };
+      }
+      if (text) {
+        listBuffer.items.push(text);
+      }
+      continue;
+    }
+
+    flushList();
     if (currentSection) {
       currentSection.content += lines[i] + '\n';
     } else {
@@ -388,6 +560,7 @@ function parseContentIntoSections(content: string) {
     }
   }
   
+  flushList();
   if (currentSection && currentSection.content.trim()) {
     sections.push(currentSection);
   }
@@ -487,15 +660,12 @@ function ContentTransformer({
   const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
   const [language, setLanguage] = useState<'en' | 'hi'>('en');
   const [selectedOption, setSelectedOption] = useState<'audio' | 'infographic' | 'infographics' | 'mindmap' | 'video' | 'roleplay'>('audio');
-  const [chatInput, setChatInput] = useState('');
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [audioOpen, setAudioOpen] = useState(false);
   const [infographicSections, setInfographicSections] = useState<any[] | null>(null);
   const [infographicLoading, setInfographicLoading] = useState(false);
   const [mindmapData, setMindmapData] = useState<any | null>(null);
   const [mindmapLoading, setMindmapLoading] = useState(false);
-  const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
-  const [chatLoading, setChatLoading] = useState(false);
 
   // Roleplay-specific state
   const [roleplayPersona, setRoleplayPersona] = useState<string>('Coach');
@@ -604,51 +774,8 @@ function ContentTransformer({
     setChatMessages([]);
   };
 
-  const handleSendChat = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim() || chatLoading) return;
-    
-    const userMessage = chatInput.trim();
-    setChatInput('');
-    
-    const newUserMessage = { role: 'user' as const, content: userMessage };
-    setUserChatHistory(prev => [...prev, newUserMessage]);
-    setChatLoading(true);
-    
-    try {
-      const response = await fetch('/api/module-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          processed_module_id: module.processed_module_id,
-          user_message: userMessage,
-          chat_history: userChatHistory,
-        }),
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok && data.message) {
-        setUserChatHistory(prev => [...prev, { role: 'assistant', content: data.message }]);
-      } else {
-        setUserChatHistory(prev => [...prev, { 
-          role: 'assistant', 
-          content: 'Sorry, I encountered an error. Please try again.' 
-        }]);
-      }
-    } catch (error) {
-      console.error('Chat error:', error);
-      setUserChatHistory(prev => [...prev, { 
-        role: 'assistant', 
-        content: 'Sorry, I encountered an error. Please try again.' 
-      }]);
-    } finally {
-      setChatLoading(false);
-    }
-  };
-
   // Roleplay send handler
-  const handleSendRoleplay = async (e: React.FormEvent) => {
+  const handleSendRoleplay = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!roleplayInput.trim() || roleplayLoading) return;
 
@@ -1165,89 +1292,6 @@ function ContentTransformer({
             </div>
           </div>
         )}
-      </div>
-
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden">
-        <div className="p-6 h-96 overflow-y-auto bg-gray-50">
-          {userChatHistory.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <div className="text-6xl mb-4">💬</div>
-              <h3 className="text-lg font-semibold text-gray-700 mb-2">Ask me anything about this module!</h3>
-              <p className="text-sm text-gray-500">I can help clarify concepts, provide examples, or answer questions.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {userChatHistory.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={clsx(
-                    'flex',
-                    msg.role === 'user' ? 'justify-end' : 'justify-start'
-                  )}
-                >
-                  <div
-                    className={clsx(
-                      'rounded-lg px-4 py-3 max-w-3xl',
-                      msg.role === 'user'
-                        ? 'bg-blue-600 text-white rounded-br-none'
-                        : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
-                    )}
-                  >
-                    {msg.role === 'assistant' && (
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
-                          AI
-                        </div>
-                        <span className="text-xs font-semibold text-gray-600">Learning Assistant</span>
-                      </div>
-                    )}
-                    <p className="whitespace-pre-wrap break-words leading-relaxed text-sm">
-                      {msg.content}
-                    </p>
-                  </div>
-                </div>
-              ))}
-              {chatLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 rounded-bl-none">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="border-t border-slate-200 bg-white p-6">
-          <form onSubmit={handleSendChat} className="flex gap-3">
-            <button 
-              type="button" 
-              className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-600 disabled:opacity-50"
-              disabled={chatLoading}
-            >
-              📎
-            </button>
-            <input
-              type="text"
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              placeholder="Ask for coaching, upload work, or chat..."
-              className="flex-1 outline-none text-slate-700 placeholder-slate-400 bg-gray-50 rounded-lg px-4 py-3 border border-gray-200 focus:border-blue-500 focus:bg-white transition-all"
-              disabled={chatLoading}
-            />
-            <button 
-              type="submit" 
-              className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={chatLoading || !chatInput.trim()}
-            >
-              {chatLoading ? 'Sending...' : 'Send'}
-            </button>
-          </form>
-        </div>
       </div>
     </div>
   );
