@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download } from "lucide-react";
+import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download, X } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface Admin {
   user_id: string
@@ -496,6 +497,8 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const [trainingModules, setTrainingModules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [viewingUrl, setViewingUrl] = useState<string | null>(null);
+  const [viewingTitle, setViewingTitle] = useState<string>('');
 
   useEffect(() => {
     if (companyId) {
@@ -542,9 +545,6 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     try {
       if (module.content_url) {
         // Extract the storage path from the content_url
-        // The URL format is like: https://...storage.../training-content/file-path?token=...
-        // We need to extract the file path and create a fresh signed URL
-
         const url = new URL(module.content_url);
         const pathSegments = url.pathname.split('/');
 
@@ -552,7 +552,9 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
         const trainingContentIndex = pathSegments.indexOf('training-content');
         if (trainingContentIndex === -1) {
           // If we can't extract the path, try opening the stored URL directly
-          window.open(module.content_url, '_blank');
+          // window.open(module.content_url, '_blank');
+          setViewingUrl(module.content_url);
+          setViewingTitle(module.title);
           return;
         }
 
@@ -562,7 +564,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
         const { data, error } = await supabase
           .storage
           .from('training-content')
-          .createSignedUrl(storagePath, 24 * 60 * 60); // 24 hours expiry
+          .createSignedUrl(storagePath, 24 * 60 * 60);
 
         if (error) {
           console.error('Failed to generate signed URL:', error);
@@ -570,8 +572,9 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           return;
         }
 
-        // Open the fresh signed URL in a new tab
-        window.open(data.signedUrl, '_blank');
+        // Set state to open viewer
+        setViewingUrl(data.signedUrl);
+        setViewingTitle(module.title);
       } else {
         console.error('No content URL found for module');
         setError('Training module file not found');
@@ -695,6 +698,23 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       <div className="border-t pt-4">
         <UploadedFilesList companyId={companyId} />
       </div>
+
+      <Dialog open={!!viewingUrl} onOpenChange={(open) => !open && setViewingUrl(null)}>
+        <DialogContent className="max-w-5xl h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{viewingTitle}</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 w-full h-full bg-gray-100 rounded-md overflow-hidden relative">
+            {viewingUrl && (
+              <iframe
+                src={viewingUrl}
+                className="w-full h-full"
+                title="Document Viewer"
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
