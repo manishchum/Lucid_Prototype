@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
 import fetch from 'node-fetch';
 import { callGemini } from '@/lib/gemini-helper';
+>>>>>>>>> Temporary merge branch 2
 
 // Using Google Cloud Text-to-Speech REST API with service account credentials
 // Set GOOGLE_APPLICATION_CREDENTIALS to point to your service account JSON file
@@ -28,6 +29,7 @@ const admin = createClient(supabaseUrl, serviceKey || process.env.NEXT_PUBLIC_SU
 const BUCKET = 'module_audio';
 
 function generateJWT(credentials: any): string {
+  const crypto = require('crypto' );
   const header = { alg: 'RS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
   const payload = {
@@ -237,7 +239,7 @@ async function synthesizeAndStore(processedModuleId: string, lang: string = 'en'
     if (!credPath) {
       return { error: 'GOOGLE_APPLICATION_CREDENTIALS not set', status: 500 } as const;
     }
-
+    const fs = await import('fs');
     const credContent = fs.readFileSync(credPath, 'utf8');
     const credentials = JSON.parse(credContent);
 
