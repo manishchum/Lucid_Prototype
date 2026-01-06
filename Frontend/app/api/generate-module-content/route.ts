@@ -67,90 +67,93 @@ export async function POST(req: NextRequest) {
 
         // Compose prompt for the learning style of this row
         const style = mod.learning_style;
-        const stylePrompt = `You are an expert instructional designer. Your task is to write a complete, self-contained training module for employees, as if it were a chapter in a professional textbook.
+        const stylePrompt = `You are an expert Instructional Designer and Technical Writer. Your task is to write a complete, self-contained training module for employees, formatted as a high-end professional e-learning chapter.
 
-Module Title: "${mod.title}"
-${topicsText}
-${objectivesText}
+**Module Context:**
+* **Module Title:** "${mod.title}"
+* **Topics to Cover:** ${topicsText}
+* **Target Objectives:** ${objectivesText}
+* **Learning Style Focus:** ${style}
 
-Instructions:
-1. Structure the content with clear sections using these EXACT section headers (use these exact labels):
-   - Start with "Learning Objectives:" followed by a numbered list of 3-5 objectives
-   - Create AT LEAST 2-3 main content sections using "Section 1: [descriptive title]", "Section 2: [descriptive title]", etc.
-   - After EACH section, include a corresponding activity: "Activity 1: [descriptive title]", "Activity 2: [descriptive title]", etc.
-   - End with "Module Summary:" for the conclusion
-   
-2. For EACH section, provide:
-   - Detailed explanations (2-4 paragraphs minimum)
-   - Practical examples and real-world scenarios
-   - Key concepts and frameworks
-   - Best practices and tips
-   
-3. For EACH activity, provide:
-   - Clear objectives for the activity
-   - Step-by-step instructions (numbered steps)
-   - Expected outcomes
-   - Reflection questions or discussion prompts
-   - Estimated time to complete (e.g., "Time: 15 minutes")
-   
-4. Ensure comprehensive coverage:
-   - Each section should be substantial (300-500 words)
-   - Activities should be practical and hands-on
-   - Connect each section to real workplace scenarios
-   - Use concrete examples from business settings
+**Core Instructions:**
+1.  **Tone & Style:** Professional, engaging, and instructive. Adapt the delivery to the specific Learning Style provided below.
+2.  **Visual Formatting (Strict Requirement):**
+    * Use **Markdown** extensively to create visual hierarchy (H2 `##`, H3 `###`).
+    * Use **Bold text** to emphasize key terms and takeaways.
+    * Use **Tables** to compare concepts or list steps where appropriate.
+    * Use **Blockquotes** ('>') for tips, warnings, or key definitions.
+    * Use **Horizontal Rules** ('---') to separate sections.
+3.  **Visual Aids:** Insert specific image tags (e.g., `
 
-5. Adapt the content for the following Gregorc learning style: ${style}
-  - CS (Concrete Sequential): Use hands-on activities, clear instructions, logical sequence, deadlines, and factual information with checklists.
-  - CR (Concrete Random): Encourage experimentation, discovery, trial-and-error, flexibility, and problem-solving with open-ended tasks.
-  - AS (Abstract Sequential): Focus on analysis, intellectual exploration, theoretical models, research, and analytical activities.
-  - AR (Abstract Random): Foster reflection, emotional connection, group discussion, collaborative activities, and personal engagement.
-  
-6. Format each section clearly:
-   - Use the section headers mentioned above (Learning Objectives:, Section 1:, Activity 1:, etc.)
-   - Separate each major section with a blank line
-   - Use clear paragraph breaks within sections
-   - Use bullet points (•) or numbered lists (1., 2., 3.) where appropriate
-   - NEVER use Markdown formatting (no # headings, no **, no backticks)
-   - NEVER include learning style codes (CS, CR, AS, AR) in the content
+[Image of X]
+`) where a diagram or illustration would aid understanding. Do not use them just for decoration; they must be instructive (e.g., `
 
-EXAMPLE STRUCTURE (follow this pattern):
+[Image of Gantt chart example]
+`).
 
-Learning Objectives:
-1. [First objective]
-2. [Second objective]
-3. [Third objective]
+**Learning Style Adaptation (${style}):**
+* **If CS (Concrete Sequential):** Use structured checklists, step-by-step tables, clear deadlines, and factual headings.
+* **If CR (Concrete Random):** Use problem-solving scenarios, "Try this" experiments, and open-ended formatting.
+* **If AS (Abstract Sequential):** Use logic flowcharts (text-based), theoretical models, comparisons, and deep analysis.
+* **If AR (Abstract Random):** Use group scenarios, emotional context, narrative examples, and collaborative prompts.
 
-Section 1: Introduction to [Topic]
-[Detailed explanation paragraph 1...]
-[Detailed explanation paragraph 2...]
-[Examples and scenarios...]
-[Key takeaways...]
+---
 
-Activity 1: [Activity Name]
-Objective: [What learners will achieve]
-Time: 20 minutes
-Instructions:
-1. [Step 1]
-2. [Step 2]
-3. [Step 3]
-Reflection: [Questions for thinking]
+**REQUIRED STRUCTURE:**
 
-Section 2: [Next Major Topic]
-[Detailed content...]
+## Learning Objectives
+(Provide a numbered list of 3-5 clear, measurable objectives).
 
-Activity 2: [Next Activity]
-[Activity content...]
+---
 
-Section 3: [Advanced Concepts]
-[Detailed content...]
+## Section 1: [Descriptive Title]
+(Minimum 300 words).
+* **Concept:** Explain the core concept in depth.
+* **Real-World Context:** Provide specific business examples.
+* **Visual:** Insert a relevant  tag here.
+* **Key Takeaway:** Use a blockquote for the most important point.
 
-Activity 3: [Practical Application]
-[Activity content...]
+### Activity 1: [Activity Name]
+* **Objective:** What will the learner achieve?
+* **Time:** [Estimated time]
+* **Instructions:** (Numbered steps).
+* **Reflection/Output:** (Specific question or deliverable).
 
-Module Summary:
-[Comprehensive summary of all key points...]
+---
 
-IMPORTANT: Create AT LEAST 2-3 full sections with corresponding activities. Make the content rich, practical, and workplace-relevant.`;
+## Section 2: [Descriptive Title]
+(Minimum 300 words).
+* **Deep Dive:** Explore the next topic or a more advanced aspect.
+* **Comparison/Data:** Use a **Table** here to compare strategies, pros/cons, or data points.
+* **Scenario:** A detailed workplace scenario applying this concept.
+
+### Activity 2: [Activity Name]
+* **Objective:** What will the learner achieve?
+* **Time:** [Estimated time]
+* **Instructions:** (Numbered steps).
+* **Reflection/Output:** (Specific question or deliverable).
+
+---
+
+## Section 3: [Descriptive Title]
+(Minimum 300 words).
+* **Advanced Application:** How to apply this in complex situations.
+* **Best Practices:** Bulleted list of dos and don'ts.
+* **Visual:** Insert a relevant  tag here.
+
+### Activity 3: [Activity Name]
+* **Objective:** What will the learner achieve?
+* **Time:** [Estimated time]
+* **Instructions:** (Numbered steps).
+* **Reflection/Output:** (Specific question or deliverable).
+
+---
+
+## Module Summary
+(A comprehensive wrap-up of the module. Use bullet points to summarize the top 3-5 takeaways).
+
+## Next Steps
+(A specific call to action for the learner to apply this knowledge immediately).`
         
         // console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
         
