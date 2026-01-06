@@ -7,7 +7,7 @@ import ensureProcessedModulesForPlan from "@/lib/processedModulesHelper";
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 export async function POST(request: NextRequest) {
-  
+
   try {
     // console.log("POST Body of the training plan api route");
     const body = await request.json();
@@ -34,18 +34,18 @@ export async function POST(request: NextRequest) {
     }
 
 
-    const {data: checkForBaseline, error: userError} = await supabase
-    .from('learning_plan')
-    .select('baseline_assessment')
-    .eq('user_id', user_id)
-    .eq('module_id', module_id)
+    const { data: checkForBaseline, error: userError } = await supabase
+      .from('learning_plan')
+      .select('baseline_assessment')
+      .eq('user_id', user_id)
+      .eq('module_id', module_id)
 
 
-    const {data: assessmentData, error: baselineError} = await supabase
-    .from('employee_assessments ')
-    .select('assessment_id,assessments!inner(type)')
-    .eq('user_id', user_id)
-    .eq('assessments.type', 'baseline') 
+    const { data: assessmentData, error: baselineError } = await supabase
+      .from('employee_assessments ')
+      .select('assessment_id,assessments!inner(type)')
+      .eq('user_id', user_id)
+      .eq('assessments.type', 'baseline')
 
 
     // console.log("Check for baseline assessment data")
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     // console.log(checkForBaseline)
 
 
-    if(checkForBaseline && checkForBaseline[0].baseline_assessment==1 && (!assessmentData || assessmentData.length==0)){
+    if (checkForBaseline && checkForBaseline[0].baseline_assessment == 1 && (!assessmentData || assessmentData.length == 0)) {
       // console.log("User needs to complete baseline assessment first");
       return NextResponse.json({ error: 'BASELINE_REQUIRED', message: 'Please complete the baseline assessment first.' }, { status: 403 });
     }
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
 
 
     if (userError) {
-      console.error('📚 Error checking for baseline assessment:', userError);
+      console.error('Error checking for baseline assessment:', userError);
     }
     // Check if we already have a learning plan for this user and module
     if (module_id) {
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
         .limit(1)
         .maybeSingle();
 
-        // console.log(existingPlan)
+      // console.log(existingPlan)
       if (planCheckError && planCheckError.code !== 'PGRST116') {
         console.error('Error checking existing plan:', planCheckError);
       }
@@ -88,16 +88,16 @@ export async function POST(request: NextRequest) {
       // If we found an existing plan, return it instead of generating a new one
       if (existingPlan && existingPlan.plan_json) {
         // console.log("This is the module id",module_id)
-        // console.log('📚 Found existing learning plan for user:', user_id, 'module:', module_id);
-        
+        // console.log('Found existing learning plan for user:', user_id, 'module:', module_id);
+
         let planContent;
         try {
-          planContent = typeof existingPlan.plan_json === 'string' 
-            ? JSON.parse(existingPlan.plan_json) 
+          planContent = typeof existingPlan.plan_json === 'string'
+            ? JSON.parse(existingPlan.plan_json)
             : existingPlan.plan_json;
         } catch (e) {
           // If plan_json is corrupted, we'll regenerate below
-          console.warn('📚 Existing plan has corrupted JSON, will regenerate:', e);
+          console.warn('Existing plan has corrupted JSON, will regenerate:', e);
           planContent = null;
         }
 
@@ -108,9 +108,9 @@ export async function POST(request: NextRequest) {
             // console.log(planContent)
             await ensureProcessedModulesForPlan(user_id, company_id, planContent);
           } catch (e) {
-            console.error('📚 Error ensuring processed modules for existing plan:', e);
+            console.error('Error ensuring processed modules for existing plan:', e);
           }
-          
+
           return NextResponse.json({
             plan: planContent,
             reasoning: existingPlan.reasoning,
@@ -123,20 +123,20 @@ export async function POST(request: NextRequest) {
     }
 
     // If no existing plan found or module_id not provided, generate new plan
-    // console.log('📚 Generating new learning plan for user:', user_id, module_id ? `module: ${module_id}` : '(all modules)');
-   
+    // console.log('Generating new learning plan for user:', user_id, module_id ? `module: ${module_id}` : '(all modules)');
+
     // console.log("[Training Plan API] Request received");
     const module_id_query = request.nextUrl?.searchParams?.get("module_id") || null;
     // console.log("[Training Plan API] user_id:", user_id);
     if (module_id_query) // console.log("[Training Plan API] module_id (query):", module_id_query);
-    // Validate Gemini API key early to avoid opaque 500s later
-    // console.log("The module id is not passed in the request")
-    // console.log(module_id)
-    // console.log(module_id_query)
-    if (!process.env.GEMINI_API_KEY) {
-      console.error("[Training Plan API] GEMINI_API_KEY is not set");
-      return NextResponse.json({ error: "Server misconfiguration: GEMINI_API_KEY is missing." }, { status: 500 });
-    }
+      // Validate Gemini API key early to avoid opaque 500s later
+      // console.log("The module id is not passed in the request")
+      // console.log(module_id)
+      // console.log(module_id_query)
+      if (!process.env.GEMINI_API_KEY) {
+        console.error("[Training Plan API] GEMINI_API_KEY is not set");
+        return NextResponse.json({ error: "Server misconfiguration: GEMINI_API_KEY is missing." }, { status: 500 });
+      }
     // company_id already resolved above
 
     // Note: Baseline requirement check removed from here as it's module-specific, not company-wide
@@ -272,9 +272,9 @@ export async function POST(request: NextRequest) {
       } catch (e) {
         console.error("[Training Plan API] ensureProcessedModulesForPlan failed on existing plan:", e);
       }
-      
+
       return NextResponse.json({
-        plan: existingPlan.plan_json, 
+        plan: existingPlan.plan_json,
         reasoning: existingPlan.reasoning,
         message: "Using existing stable learning plan"
       });
@@ -282,7 +282,7 @@ export async function POST(request: NextRequest) {
 
     // Only generate new plan if NO plan exists at all
     // console.log("[Training Plan API] No existing plan found - generating new plan");
-    
+
     // Fetch all processed modules for this company by joining training_modules, handling empty lists safely
     // console.log("[Training Plan API] Fetching processed modules for company_id:", company_id);
     let modules: any[] = [];
@@ -299,9 +299,9 @@ export async function POST(request: NextRequest) {
 
         if (moduleCheckError || !moduleCheck) {
           console.error("[Training Plan API] Module not found or doesn't belong to company:", moduleCheckError);
-          return NextResponse.json({ 
-            error: "MODULE_NOT_FOUND", 
-            message: "The specified module was not found or doesn't belong to your company." 
+          return NextResponse.json({
+            error: "MODULE_NOT_FOUND",
+            message: "The specified module was not found or doesn't belong to your company."
           }, { status: 404 });
         }
 
@@ -311,14 +311,14 @@ export async function POST(request: NextRequest) {
           .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
           .eq("original_module_id", module_id)
           .eq("user_id", user_id);
-        
+
         if (modError) {
           console.error("[Training Plan API] Error fetching processed module:", modError);
           return NextResponse.json({ error: modError.message }, { status: 500 });
         }
-        
+
         modules = pmRows || [];
-        
+
         // If no processed modules found and baseline is not required, fetch raw training module as fallback
         if (modules.length === 0 && !baselineRequired) {
           // console.log("[Training Plan API] No processed modules found, baseline not required - using raw training module");
@@ -327,7 +327,7 @@ export async function POST(request: NextRequest) {
             .select("module_id, title, gpt_summary,  company_id")
             .eq("module_id", module_id)
             .eq("company_id", company_id);
-          
+
           if (tmError) {
             console.error("[Training Plan API] Error fetching training module fallback:", tmError);
           } else if (tmRows && tmRows.length > 0) {
@@ -341,7 +341,7 @@ export async function POST(request: NextRequest) {
             // console.log("[Training Plan API] Using raw training module as fallback");
           }
         }
-        
+
         // console.log("[Training Plan API] Filtered modules for module_id:", module_id, modules);
       } catch (e) {
         console.error("[Training Plan API] Unexpected error filtering module:", e);
@@ -372,7 +372,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: modError.message }, { status: 500 });
         }
         modules = pmRows || [];
-        
+
         // If no processed modules found and baseline is not required, fetch raw training modules as fallback
         if (modules.length === 0 && !baselineRequired) {
           // console.log("[Training Plan API] No processed modules found, baseline not required - using raw training modules");
@@ -381,7 +381,7 @@ export async function POST(request: NextRequest) {
             .select("module_id, title, content, company_id")
             .in("module_id", tmIds)
             .eq("company_id", company_id);
-          
+
           if (tmFallbackError) {
             console.error("[Training Plan API] Error fetching training modules fallback:", tmFallbackError);
           } else if (tmRows && tmRows.length > 0) {
@@ -411,7 +411,7 @@ export async function POST(request: NextRequest) {
       geminiText = `Learning Style: ${lsData.learning_style}\nAnalysis: ${lsData.gemini_analysis}`;
     }
 
-    
+
 
     // Fetch employee KPIs (description and score)
     const { data: kpiRows, error: kpiError } = await supabase
@@ -462,19 +462,17 @@ export async function POST(request: NextRequest) {
       "- If datatype is 'ratio', compare as a ratio (e.g., score/benchmark).\n" +
       "- Use this comparison to identify strengths and weaknesses for each KPI.\n\n" +
       "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, learning style, and KPI factors (including benchmark and datatype) influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, learning style, and KPIs (including benchmark and datatype)\n- Explicitly explain how the score, benchmark, and datatype influenced the number of modules and total study hours.\n\n" +
-    "Assessment Results (baseline only, percentage-based):\n" + JSON.stringify(baselinePercentAssessments, null, 2) + "\n\n" +
+      "Assessment Results (baseline only, percentage-based):\n" + JSON.stringify(baselinePercentAssessments, null, 2) + "\n\n" +
       "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
       "REMEMBER: Based on the assessment score percentage, you MUST include the minimum number of modules specified above. For a score of 23%, you MUST include at least 4-5 modules.\n\n" +
       "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n" +
-      "The 'plan' object MUST contain a 'modules' array with AT LEAST the minimum number of modules based on the score.\n" +
-      "Example plan structure:\n" +
+      "JSON format:\n" +  
       "{\n" +
       "  \"plan\": {\n" +
       "    \"modules\": [\n" +
       "      { \"title\": \"Module Name\", \"recommended_time\": 5, \"order\": 1 },\n" +
       "      { \"title\": \"Module Name 2\", \"recommended_time\": 5, \"order\": 2 },\n" +
-      "      { \"title\": \"Module Name 3\", \"recommended_time\": 5, \"order\": 3 },\n" +
-      "      { \"title\": \"Module Name 4\", \"recommended_time\": 5, \"order\": 4 }\n" +
+      "       \"and so on...\\n" +
       "    ],\n" +
       "    \"tips\": \"...\"\n" +
       "  },\n" +
@@ -503,19 +501,19 @@ export async function POST(request: NextRequest) {
 
     // Clean the response to remove markdown code blocks and extra formatting
     let cleanedContent = planJsonRaw.trim();
-    
+
     // Remove markdown code blocks if present
     cleanedContent = cleanedContent.replace(/^```json\s*/i, '');
     cleanedContent = cleanedContent.replace(/^```\s*/i, '');
     cleanedContent = cleanedContent.replace(/\s*```$/i, '');
-    
+
     // Remove any leading/trailing whitespace again
     cleanedContent = cleanedContent.trim();
-    
+
     // Try to find JSON object bounds if there's extra text
     const jsonStart = cleanedContent.indexOf('{');
     const jsonEnd = cleanedContent.lastIndexOf('}');
-    
+
     if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
       cleanedContent = cleanedContent.substring(jsonStart, jsonEnd + 1);
     }

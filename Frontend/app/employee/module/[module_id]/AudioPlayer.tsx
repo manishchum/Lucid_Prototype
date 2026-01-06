@@ -5,7 +5,7 @@ interface AudioPlayerProps {
   processedModuleId: string;
   moduleId: string;
   audioUrl: string;
-  onTimeUpdate?: (current: number, duration: number) => void;
+  onTimeUpdate?: (current: number, duration: number, playbackRate: number) => void;
   onPlayExtra?: () => void;
   className?: string;
 }
@@ -50,7 +50,8 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
       onPlay={handlePlay}
       onTimeUpdate={() => {
         if (!audioRef.current) return;
-        onTimeUpdate?.(audioRef.current.currentTime, audioRef.current.duration || 0);
+        const playbackRate = audioRef.current.playbackRate || 1.0;
+        onTimeUpdate?.(audioRef.current.currentTime, audioRef.current.duration || 0, playbackRate);
       }}
       onEnded={handleEnded}
     >

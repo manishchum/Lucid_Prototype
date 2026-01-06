@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import AudioPlayer from "./AudioPlayer";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -8,6 +8,8 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
 import { ChevronLeft, Info, Lightbulb, BookOpen, Zap } from "lucide-react";
+import InfographicCards from '@/components/InfographicCards'
+import MindmapViewer from '@/components/MindmapViewer'
 import clsx from "clsx";
 import { useAuth } from "@/contexts/auth-context";
 
@@ -23,13 +25,14 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const [liveTranscript, setLiveTranscript] = useState("");
   const [plainTranscript, setPlainTranscript] = useState("");
   const [hasVideo, setHasVideo] = useState(false);
+  const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
     const fetchModule = async () => {
       setLoading(true);
-      // console.log('[module] Fetching module with id:', moduleId);
-      // Validate incoming module id
       if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
         console.error('[module] Invalid module id:', moduleId);
         setModule(null);
@@ -50,7 +53,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           if (emp?.user_id) {
             empObj = emp;
             setEmployee(emp);
-            // Fetch learning style for employee
             const { data: styleData } = await supabase
               .from('employee_learning_style')
               .select('learning_style')
@@ -62,60 +64,48 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             }
           }
         }
-        // console.log("User Data:", user);
-        // console.log(employeeEmail)
       } catch (e) {
-        // console.log('[module] employee fetch error', e);
+        console.error('[module] employee fetch error', e);
       }
-      // Fetch module info from processed_modules - try direct lookup first, then fallbacks
-      const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style, user_id";
-      
+      const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style, user_id, podcast_timeline";
       let data: any = null;
-      
+
       // First try: direct lookup by processed_module_id (this is what we pass from training plan)
       // console.log('[module] Attempting direct fetch by processed_module_id:', moduleId);
       // console.log(empObj);
-      
-      
 
-        const { data: directData, error: directError } = await supabase
+
+      const { data: directData, error: directError } = await supabase
         .from('processed_modules')
         .select(selectCols)
         .eq('processed_module_id', moduleId)
-        .eq('user_id',empObj?.user_id || '')
+        .eq('user_id', empObj?.user_id || '')
         .maybeSingle();
 
       if (directError) {
         console.error('[module] Error fetching by processed_module_id:', directError);
       }
-      
+
       if (directData) {
-        // console.log('[module] Found module by processed_module_id:', directData.processed_module_id);
         data = directData;
       } else {
-        // Fallback: try by original_module_id
-        // console.log('[module] No direct match, trying by original_module_id');
         const { data: origData, error: origError } = await supabase
           .from('processed_modules')
           .select(selectCols)
           .eq('original_module_id', moduleId)
-          .eq('user_id',empObj?.user_id || '')
+          .eq('user_id', empObj?.user_id || '')
           .maybeSingle();
-        
+
         if (origError) {
           console.error('[module] Error fetching by original_module_id:', origError);
         }
-        
+
         if (origData) {
-          // console.log('[module] Found module by original_module_id:', origData.processed_module_id);
           data = origData;
         }
       }
-      // console.log('[module] Fetched module data:', data);
       if (data) {
-        // Check if content is empty and trigger generation
         if (!data.content || data.content.trim() === '') {
-          // console.log('[module] Content is empty, triggering generation for:', data.processed_module_id);
           setGeneratingContent(true);
           try {
             const genResponse = await fetch('/api/generate-module-content', {
@@ -126,8 +116,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
               }),
             });
             if (genResponse.ok) {
-              // console.log('[module] Content generation triggered successfully');
-              // Wait a moment then refetch the module to get updated content
               await new Promise(resolve => setTimeout(resolve, 2000));
               const { data: refreshedData } = await supabase
                 .from('processed_modules')
@@ -136,7 +124,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                 .maybeSingle();
               if (refreshedData && refreshedData.content) {
                 data = refreshedData;
-                // console.log('[module] Content loaded after generation');
               }
             }
           } catch (genError) {
@@ -145,13 +132,11 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             setGeneratingContent(false);
           }
         }
-        
+
         setModule(data as any);
         setPlainTranscript(extractPlainText(data.content || ''));
-        // Log view to module_progress - only set started_at, NOT completed_at
         try {
           if (empObj?.user_id) {
-            // console.log('[module] Logging module view for employee:', empObj.user_id, 'module:', data.processed_module_id);
             await fetch('/api/module-progress', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -166,7 +151,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             });
           }
         } catch (e) {
-          // console.log('[module] progress log error', e);
+          console.error('[module] progress log error', e);
         }
       } else {
         console.error('[module] No module data found for id:', moduleId);
@@ -176,6 +161,55 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
     };
     if (moduleId) fetchModule();
   }, [moduleId]);
+
+  const handleSendChat = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!chatInput.trim() || chatLoading || !module?.processed_module_id) return;
+
+    const userMessage = chatInput.trim();
+    setChatInput('');
+
+    const newUserMessage = { role: 'user' as const, content: userMessage };
+    setUserChatHistory((prev) => [...prev, newUserMessage]);
+    setChatLoading(true);
+
+    try {
+      const response = await fetch('/api/module-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          processed_module_id: module.processed_module_id,
+          user_message: userMessage,
+          chat_history: userChatHistory,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.message) {
+        setUserChatHistory((prev) => [...prev, { role: 'assistant', content: data.message }]);
+      } else {
+        setUserChatHistory((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: 'Sorry, I encountered an error. Please try again.',
+          },
+        ]);
+      }
+    } catch (error) {
+      console.error('Chat error:', error);
+      setUserChatHistory((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: 'Sorry, I encountered an error. Please try again.',
+        },
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center">Loading module content...</div>;
@@ -194,12 +228,11 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   }
 
   if (!module) {
-    // console.log("Inside the !module block");
     return <div className="min-h-screen flex items-center justify-center text-red-600">Module not found.</div>;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+    <div className="min-h-screen">
       <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} />
 
       <div className="transition-all duration-300 ease-in-out px-12 py-8" style={{ marginLeft: 'var(--sidebar-width, 0px)' }}>
@@ -207,7 +240,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           <div>
             <main className="w-full">
               <div className="bg-white rounded-lg shadow-sm border p-12 w-full min-h-screen">
-                {/* Back button */}
                 <div className="mb-8">
                   <Button
                     variant="outline"
@@ -220,13 +252,11 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                   </Button>
                 </div>
 
-                {/* Title Section */}
                 <div className="mb-10">
                   <h1 className="text-4xl font-bold text-gray-900 mb-2">{module.title}</h1>
                   <p className="text-lg text-gray-600">Professional learning content tailored for you</p>
                 </div>
 
-                {/* Content Transformer Section - Above Content */}
                 <ContentTransformer
                   module={module}
                   employee={employee}
@@ -244,8 +274,90 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                   }}
                 />
 
-                {/* Main Content Cards */}
                 <ContentCards content={module.content || ''} />
+
+                <div className="rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden mt-10">
+                  <div className="p-6 h-96 overflow-y-auto bg-gray-50">
+                    {userChatHistory.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full text-center">
+                        <div className="text-6xl mb-4">💬</div>
+                        <h3 className="text-lg font-semibold text-gray-700 mb-2">Ask me anything about this module!</h3>
+                        <p className="text-sm text-gray-500">I can help clarify concepts, provide examples, or answer questions.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {userChatHistory.map((msg, idx) => (
+                          <div
+                            key={idx}
+                            className={clsx(
+                              'flex',
+                              msg.role === 'user' ? 'justify-end' : 'justify-start'
+                            )}
+                          >
+                            <div
+                              className={clsx(
+                                'rounded-lg px-4 py-3 max-w-3xl',
+                                msg.role === 'user'
+                                  ? 'bg-blue-600 text-white rounded-br-none'
+                                  : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
+                              )}
+                            >
+                              {msg.role === 'assistant' && (
+                                <div className="flex items-center gap-2 mb-2">
+                                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
+                                    AI
+                                  </div>
+                                  <span className="text-xs font-semibold text-gray-600">Learning Assistant</span>
+                                </div>
+                              )}
+                              <p className="whitespace-pre-wrap break-words leading-relaxed text-sm">
+                                {msg.content}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                        {chatLoading && (
+                          <div className="flex justify-start">
+                            <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 rounded-bl-none">
+                              <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border-t border-slate-200 bg-white p-6">
+                    <form onSubmit={handleSendChat} className="flex gap-3">
+                      <button
+                        type="button"
+                        className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-600 disabled:opacity-50"
+                        disabled={chatLoading}
+                      >
+                        📎
+                      </button>
+                      <input
+                        type="text"
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        placeholder="Ask for coaching, upload work, or chat..."
+                        className="flex-1 outline-none text-slate-700 placeholder-slate-400 bg-gray-50 rounded-lg px-4 py-3 border border-gray-200 focus:border-blue-500 focus:bg-white transition-all"
+                        disabled={chatLoading}
+                      />
+                      <button
+                        type="submit"
+                        className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={chatLoading || !chatInput.trim() || !module?.processed_module_id}
+                      >
+                        {chatLoading ? 'Sending...' : 'Send'}
+                      </button>
+                    </form>
+                  </div>
+                </div>
               </div>
             </main>
           </div>
@@ -255,7 +367,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   );
 }
 
-// Component to render content in separate cards
 function ContentCards({ content }: { content: string }) {
   const sections = parseContentIntoSections(content);
   const tabGroups = useMemo(() => groupSectionsForTabs(sections), [sections]);
@@ -268,7 +379,7 @@ function ContentCards({ content }: { content: string }) {
       setActiveTab(tabGroups[0].key);
     }
   }, [tabGroups, activeTab]);
-  
+
   if (sections.length === 0) {
     return (
       <div className="text-center py-12">
@@ -278,6 +389,17 @@ function ContentCards({ content }: { content: string }) {
   }
 
   const activeGroup = tabGroups.find((group) => group.key === activeTab);
+
+  function formatContent(content: string): string {
+    // Sanitize and format the content to ensure safe rendering
+    const sanitizedContent = content
+      .replace(/<script[^>]*?>.*?<\/script>/gi, "") // Remove any script tags
+      .replace(/<style[^>]*?>.*?<\/style>/gi, "") // Remove any style tags
+      .replace(/on\w+="[^"]*"/gi, "") // Remove inline event handlers
+      .replace(/javascript:/gi, ""); // Remove javascript: URLs
+
+    return sanitizedContent;
+  }
 
   return (
     <div className="space-y-6 mb-8">
@@ -299,15 +421,15 @@ function ContentCards({ content }: { content: string }) {
       </div>
 
       {activeGroup?.items.map((section, index) => (
-        <div 
-          key={index} 
+        <div
+          key={index}
           className={clsx(
             "rounded-xl border-2 shadow-md p-8 transition-all hover:shadow-lg",
             section.type === 'objectives' ? 'bg-gradient-to-br from-blue-50 to-blue-100 border-blue-300' :
-            section.type === 'activity' ? 'bg-gradient-to-br from-green-50 to-green-100 border-green-300' :
-            section.type === 'summary' ? 'bg-gradient-to-br from-purple-50 to-purple-100 border-purple-300' :
-            section.type === 'discussion' ? 'bg-gradient-to-br from-orange-50 to-orange-100 border-orange-300' :
-            'bg-white border-gray-300'
+              section.type === 'activity' ? 'bg-gradient-to-br from-green-50 to-green-100 border-green-300' :
+                section.type === 'summary' ? 'bg-gradient-to-br from-purple-50 to-purple-100 border-purple-300' :
+                  section.type === 'discussion' ? 'bg-gradient-to-br from-orange-50 to-orange-100 border-orange-300' :
+                    'bg-white border-gray-300'
           )}
         >
           {section.title && (
@@ -319,19 +441,19 @@ function ContentCards({ content }: { content: string }) {
               <h2 className={clsx(
                 "font-bold",
                 section.type === 'objectives' ? 'text-2xl text-blue-900' :
-                section.type === 'section' ? 'text-2xl text-gray-900' :
-                section.type === 'activity' ? 'text-xl text-green-900' :
-                section.type === 'summary' ? 'text-xl text-purple-900' :
-                section.type === 'discussion' ? 'text-xl text-orange-900' :
-                'text-xl text-gray-900'
+                  section.type === 'section' ? 'text-2xl text-gray-900' :
+                    section.type === 'activity' ? 'text-xl text-green-900' :
+                      section.type === 'summary' ? 'text-xl text-purple-900' :
+                        section.type === 'discussion' ? 'text-xl text-orange-900' :
+                          'text-xl text-gray-900'
               )}>
                 {section.title}
               </h2>
             </div>
           )}
-          <div 
-            className="prose prose-sm max-w-none text-gray-800 leading-relaxed" 
-            dangerouslySetInnerHTML={{ __html: formatContent(section.content) }} 
+          <div
+            className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
+            dangerouslySetInnerHTML={{ __html: formatContent(section.content) }}
           />
         </div>
       ))}
@@ -339,94 +461,134 @@ function ContentCards({ content }: { content: string }) {
   );
 }
 
-// Parse content into separate sections
 function parseContentIntoSections(content: string) {
   const sections: Array<{ type: string; title: string; content: string }> = [];
-  
+
   if (!content || content.trim() === '') {
     return sections;
   }
-  
+
   // Clean up learning style codes from content first
   content = content.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
   content = content.replace(/\b(CS|CR|AS|AR)\b/g, '');
-  
+
   // Split by major headings - more flexible patterns
+
   const lines = content.split('\n');
   let currentSection: { type: string; title: string; content: string } | null = null;
+  let listBuffer: { type: 'ul' | 'ol'; items: string[] } | null = null;
+
+  const flushList = () => {
+    if (listBuffer && currentSection) {
+      const tag = listBuffer.type;
+      if (tag === 'ul') {
+        // Use bullet emoji for each item
+        currentSection.content += `<ul>${listBuffer.items.map((item) => `<li><span style='font-size:1.1em;margin-right:0.5em;'>•</span>${item}</li>`).join('')}</ul>\n`;
+      } else {
+        // Use number emoji for each item (1️⃣, 2️⃣, ... up to 10)
+        const numEmojis = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+        currentSection.content += `<ol>${listBuffer.items.map((item, idx) => `<li><span style='font-size:1.1em;margin-right:0.5em;'>${numEmojis[idx] || (idx+1)+'.'}</span>${item}</li>`).join('')}</ol>\n`;
+      }
+      listBuffer = null;
+    }
+  };
+
+  const startSection = (section: { type: string; title: string; content: string }) => {
+    flushList();
+    if (currentSection) sections.push(currentSection);
+    currentSection = section;
+  };
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    
+
     if (!line) {
       if (currentSection) currentSection.content += '\n';
       continue;
     }
-    
+
     // Check for Learning Objectives
+
     if (line.match(/^Learning Objectives?:/i)) {
-      if (currentSection) sections.push(currentSection);
-      currentSection = { type: 'objectives', title: 'Learning Objectives', content: '' };
+      startSection({ type: 'objectives', title: 'Learning Objectives', content: '' });
       continue;
     }
-    
+
     // Check for Section headings (Section 1:, Section 2:, etc.)
+
     const sectionMatch = line.match(/^Section\s+(\d+)\s*:\s*(.+)$/i);
     if (sectionMatch) {
-      if (currentSection) sections.push(currentSection);
-      currentSection = { 
+      startSection({ 
         type: 'section', 
         title: line, 
         content: '' 
-      };
+      });
       continue;
     }
-    
+
     // Check for Activity headings (Activity 1:, Activity 2:, etc.)
+
     const activityMatch = line.match(/^Activity\s+(\d+)\s*:\s*(.+)$/i);
     if (activityMatch) {
-      if (currentSection) sections.push(currentSection);
-      currentSection = { 
+      startSection({ 
         type: 'activity', 
         title: line, 
         content: '' 
-      };
+      });
       continue;
     }
-    
+
     // Check for Module Summary
+
     if (line.match(/^Module Summary:/i)) {
-      if (currentSection) sections.push(currentSection);
-      currentSection = { type: 'summary', title: 'Module Summary', content: '' };
+      startSection({ type: 'summary', title: 'Module Summary', content: '' });
       continue;
     }
-    
     // Check for Discussion Prompts
+
     if (line.match(/^Discussion Prompts?:/i)) {
-      if (currentSection) sections.push(currentSection);
-      currentSection = { type: 'discussion', title: 'Discussion Prompts', content: '' };
+      startSection({ type: 'discussion', title: 'Discussion Prompts', content: '' });
       continue;
     }
     
-    // Add content to current section
+    const bulletMatch = line.match(/^[-\*•]\s+(.*)$/);
+    const numberedMatch = line.match(/^(\d+)\.\s+(.*)$/);
+
+    if (bulletMatch || numberedMatch) {
+      const type = bulletMatch ? 'ul' : 'ol';
+      const text = (bulletMatch ? bulletMatch[1] : numberedMatch?.[2] || '').trim();
+      if (!currentSection) {
+        currentSection = { type: 'intro', title: '', content: '' };
+      }
+      if (!listBuffer || listBuffer.type !== type) {
+        flushList();
+        listBuffer = { type, items: [] };
+      }
+      if (text) {
+        listBuffer.items.push(text);
+      }
+      continue;
+    }
+
+    flushList();
     if (currentSection) {
       currentSection.content += lines[i] + '\n';
     } else {
-      // Content before first section - create intro section
       currentSection = { type: 'intro', title: '', content: lines[i] + '\n' };
     }
   }
   
-  // Push the last section
+  flushList();
   if (currentSection && currentSection.content.trim()) {
     sections.push(currentSection);
   }
-  
+
   // If no sections were created, put all content in one section
+
   if (sections.length === 0 && content.trim()) {
     sections.push({ type: 'intro', title: '', content: content });
   }
-  
+
   return sections;
 }
 
@@ -475,7 +637,6 @@ function groupSectionsForTabs(sections: SectionBlock[]): TabGroup[] {
 }
 
 function extractPlainText(content: string) {
-  // Basic markdown/HTML stripping for a readable transcript source
   return content
     .replace(/<[^>]+>/g, ' ')
     .replace(/[#*>`_\-]/g, ' ')
@@ -484,14 +645,14 @@ function extractPlainText(content: string) {
 }
 
 function parseChatFromTranscript(transcript: string): Array<{ speaker: string; text: string }> {
-  // Parse the transcript to identify speakers and their messages
-  // The transcript is generated from the podcast which alternates between Sarah and Mark
   const messages: Array<{ speaker: string; text: string }> = [];
-  
+
+
   // Split by sentence boundaries and alternate speakers
   const sentences = transcript.match(/[^.!?]+[.!?]+/g) || [];
-  let isSarah = false; // Start with Mark
-  
+  let isSarah = true; // Start with Sarah to match TTS API
+
+
   for (const sentence of sentences) {
     const trimmed = sentence.trim();
     if (trimmed) {
@@ -502,7 +663,7 @@ function parseChatFromTranscript(transcript: string): Array<{ speaker: string; t
       isSarah = !isSarah;
     }
   }
-  
+
   return messages;
 }
 
@@ -520,35 +681,116 @@ function ContentTransformer({
   onVideoGenerated,
 }: any) {
   const hasAudio = !!module.audio_url;
-  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
+  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]);
   const [language, setLanguage] = useState<'en' | 'hi'>('en');
-  const [selectedOption, setSelectedOption] = useState<'audio' | 'infographic' | 'mindmap' | 'video'>('audio');
-  const [chatInput, setChatInput] = useState('');
+  const [selectedOption, setSelectedOption] = useState<'audio' | 'infographic' | 'infographics' | 'mindmap' | 'video' | 'roleplay'>('audio');
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [audioOpen, setAudioOpen] = useState(false);
+  const [infographicSections, setInfographicSections] = useState<any[] | null>(null);
+  const [infographicLoading, setInfographicLoading] = useState(false);
+  const [mindmapData, setMindmapData] = useState<any | null>(null);
+  const [mindmapLoading, setMindmapLoading] = useState(false);
 
-  const handleTimeUpdate = (current: number, duration: number) => {
-    if (!duration || !plainTranscript) return;
-    const ratio = Math.min(current / duration, 1);
-    const chars = Math.floor(plainTranscript.length * ratio);
-    setLiveTranscript(plainTranscript.slice(0, chars));
-    
-    // Parse and update chat messages based on progress
-    const messages = parseChatFromTranscript(plainTranscript);
-    const currentChars = Math.floor(plainTranscript.length * ratio);
-    const displayedMessages: Array<{ speaker: string; text: string }> = [];
-    let charCount = 0;
-    
-    for (const msg of messages) {
-      charCount += msg.text.length;
-      if (charCount <= currentChars) {
-        displayedMessages.push(msg);
-      } else {
+  // Roleplay-specific state
+  const [roleplayPersona, setRoleplayPersona] = useState<string>('Coach');
+  const [roleplayScenario, setRoleplayScenario] = useState<string>('');
+  const [roleplayHistory, setRoleplayHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [roleplayInput, setRoleplayInput] = useState<string>('');
+  const [roleplayLoading, setRoleplayLoading] = useState(false);
+  const [roleplayPersist, setRoleplayPersist] = useState<boolean>(false);
+
+  // Podcast timeline state
+  const [podcastTimeline, setPodcastTimeline] = useState<Array<{ speaker: 'sarah' | 'mark'; text: string; startSec: number; endSec: number }>>([]);
+  const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
+  const [transcriptStarted, setTranscriptStarted] = useState(false);
+
+  // Hydrate timeline from module.podcast_timeline on component mount
+  useEffect(() => {
+    if (!module?.podcast_timeline) {
+      console.log('[ContentTransformer] No podcast_timeline in module data');
+      return;
+    }
+
+    try {
+      let timeline = module.podcast_timeline;
+      // If podcast_timeline is a string (JSON), parse it
+      if (typeof timeline === 'string') {
+        timeline = JSON.parse(timeline);
+      }
+
+      // Validate timeline data structure
+      if (!Array.isArray(timeline)) {
+        console.warn('[ContentTransformer] Invalid timeline format: not an array', { timeline });
+        return;
+      }
+
+      // Validate each segment has required fields
+      const isValid = timeline.every(
+        (seg: any) =>
+          typeof seg.speaker === 'string' &&
+          typeof seg.text === 'string' &&
+          typeof seg.startSec === 'number' &&
+          typeof seg.endSec === 'number'
+      );
+
+      if (!isValid) {
+        console.warn('[ContentTransformer] Timeline segments missing required fields', { timeline });
+        return;
+      }
+
+      setPodcastTimeline(timeline);
+      console.log('[ContentTransformer] Timeline loaded from module:', {
+        segmentCount: timeline.length,
+        totalDuration: timeline.length > 0 ? timeline[timeline.length - 1].endSec : 0,
+      });
+    } catch (error) {
+      console.error('[ContentTransformer] Failed to parse podcast_timeline:', {
+        error,
+        raw: module?.podcast_timeline,
+      });
+    }
+  }, [module?.podcast_timeline]);
+
+  const handleTimeUpdate = (current: number, duration: number, playbackRate: number = 1.0) => {
+    if (!duration || podcastTimeline.length === 0) return;
+
+    if (!transcriptStarted && current > 0) {
+      setTranscriptStarted(true);
+    }
+
+    // currentTime already represents position in audio file
+    // Browser handles playback speed internally, no adjustment needed
+    let active = -1;
+    for (let i = 0; i < podcastTimeline.length; i++) {
+      const seg = podcastTimeline[i];
+      if (current >= seg.startSec && current < seg.endSec) {
+        active = i;
         break;
       }
     }
-    
-    setChatMessages(displayedMessages);
+
+    // If we're in a pause/silence gap, keep showing the last known segment
+    if (active === -1 && activeSegmentIndex >= 0) {
+      active = activeSegmentIndex;
+    }
+
+    // Clamp to final segment once we've reached the end
+    if (active === -1 && current >= podcastTimeline[podcastTimeline.length - 1].endSec) {
+      active = podcastTimeline.length - 1;
+    }
+
+    if (active !== activeSegmentIndex) {
+      setActiveSegmentIndex(active);
+      if (active >= 0 && active < podcastTimeline.length) {
+        console.log('[ContentTransformer] Active segment:', {
+          index: active,
+          speaker: podcastTimeline[active].speaker,
+          currentTime: current,
+          playbackRate,
+          segmentRange: `${podcastTimeline[active].startSec.toFixed(2)}s - ${podcastTimeline[active].endSec.toFixed(2)}s`,
+        });
+      }
+    }
   };
 
   const handleResetTranscript = () => {
@@ -556,18 +798,48 @@ function ContentTransformer({
     setChatMessages([]);
   };
 
-  const handleSendChat = (e: React.FormEvent) => {
+  // Roleplay send handler
+  const handleSendRoleplay = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!chatInput.trim()) return;
-    // Add user message
-    setChatMessages(prev => [...prev, { speaker: 'user', text: chatInput }]);
-    setChatInput('');
-    // TODO: Send to API and get response
+    if (!roleplayInput.trim() || roleplayLoading) return;
+
+    const userMessage = roleplayInput.trim();
+    setRoleplayInput('');
+
+    const newUserMessage = { role: 'user' as const, content: userMessage };
+    setRoleplayHistory(prev => [...prev, newUserMessage]);
+    setRoleplayLoading(true);
+
+    try {
+      const response = await fetch('/api/roleplay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          processed_module_id: module.processed_module_id,
+          user_message: userMessage,
+          persona: roleplayPersona,
+          scenario: roleplayScenario,
+          chat_history: roleplayHistory,
+          persist: roleplayPersist,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.message) {
+        setRoleplayHistory(prev => [...prev, { role: 'assistant', content: data.message }]);
+      } else {
+        setRoleplayHistory(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
+      }
+    } catch (err) {
+      console.error('Roleplay error:', err);
+      setRoleplayHistory(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
+    } finally {
+      setRoleplayLoading(false);
+    }
   };
 
   return (
     <div className="mb-10 w-full">
-      {/* Content Transformer Header */}
       <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-lg mb-6">
         <div className="flex items-start gap-4 mb-8">
           <div className="h-14 w-14 rounded-xl bg-white border-2 border-slate-300 text-slate-800 flex items-center justify-center text-2xl shadow-lg">
@@ -579,9 +851,7 @@ function ContentTransformer({
           </div>
         </div>
 
-        {/* Options Grid */}
         <div className="grid grid-cols-4 gap-4 mb-6">
-          {/* Audio Guide */}
           <div
             onClick={() => {
               if (selectedOption === 'audio') {
@@ -603,7 +873,6 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Listen on the go</div>
           </div>
 
-          {/* Explainer Video */}
           <div
             onClick={() => setSelectedOption('video')}
             className={clsx(
@@ -618,9 +887,40 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Video lesson</div>
           </div>
 
-          {/* Mindmap */}
           <div
-            onClick={() => setSelectedOption('mindmap')}
+            onClick={async () => {
+              setSelectedOption('mindmap');
+              setMindmapData(null);
+              setMindmapLoading(true);
+              try {
+                const studyText = plainTranscript || module.content || '';
+                const res = await fetch('/api/generate-mindmap', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ content: studyText, title: module.title }),
+                });
+                let data: any = null;
+                try {
+                  data = await res.json();
+                } catch (err) {
+                  const raw = await res.clone().text();
+                  console.error('[mindmap] parse error, raw:', raw.slice(0, 400));
+                  data = null;
+                }
+
+                if (res.ok && data && data.nodes && data.edges) {
+                  setMindmapData(data);
+                } else {
+                  console.error('[mindmap] generation failed', data);
+                  setMindmapData(null);
+                }
+              } catch (e) {
+                console.error('Error generating mindmap', e);
+                setMindmapData(null);
+              } finally {
+                setMindmapLoading(false);
+              }
+            }}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
               selectedOption === 'mindmap'
@@ -633,9 +933,65 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Structured concepts</div>
           </div>
 
-          {/* Infographic */}
+          {/* Flash cards (previously Infographic) */}
           <div
-            onClick={() => setSelectedOption('infographic')}
+            onClick={async () => {
+              // If already generated, just open the view
+              if (infographicSections && infographicSections.length > 0) {
+                setSelectedOption('infographic');
+                return;
+              }
+
+              try {
+                setInfographicLoading(true);
+                const studyText = plainTranscript || module.content || '';
+                console.log('[infographic] starting fetch, studyText length:', (studyText || '').length);
+                const res = await fetch('/api/generate-infographic-gemini', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ content: studyText }),
+                });
+
+                // Read raw text for debugging first, then attempt to parse JSON
+                const raw = await res.clone().text();
+                console.log('[infographic] fetch status:', res.status, 'raw preview:', raw.slice(0, 400));
+
+                let data: any = null;
+                try {
+                  data = await res.json();
+                } catch (parseErr) {
+                  console.error('[infographic] failed to parse JSON from response, parseErr:', parseErr);
+                  // fallback: try to parse raw substring
+                  try {
+                    data = JSON.parse(raw);
+                  } catch (e2) {
+                    data = { raw };
+                  }
+                }
+
+                console.log('[infographic] parsed response:', data);
+
+                if (res.ok) {
+                  // Expecting an array of { heading, points }
+                  if (Array.isArray(data)) {
+                    setInfographicSections(data);
+                  } else if (data && data.error) {
+                    setInfographicSections([{ heading: 'Infographic generation failed', points: [data.error || data.detail || 'See console for details'] }]);
+                  } else {
+                    setInfographicSections([{ heading: 'Infographic: unexpected response', points: [JSON.stringify(data).slice(0, 300)] }]);
+                  }
+                } else {
+                  // Surface error to the UI so the user sees feedback instead of a silent failure
+                  setInfographicSections([{ heading: 'Infographic generation failed', points: [data?.error || data?.detail || 'See console for details'] }]);
+                  console.error('Infographic generation failed', data);
+                }
+              } catch (e) {
+                console.error('Error generating infographic', e);
+              } finally {
+                setInfographicLoading(false);
+                setSelectedOption('infographic');
+              }
+            }}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
               selectedOption === 'infographic'
@@ -643,19 +999,43 @@ function ContentTransformer({
                 : 'bg-white border-slate-300 hover:border-slate-400'
             )}
           >
-            <div className="text-3xl mb-3">🖼️</div>
-            <div className="font-bold text-slate-900 text-sm">Infographic</div>
+            <div className="text-3xl mb-3">🃏</div>
+            <div className="font-bold text-slate-900 text-sm">Flash cards</div>
             <div className="text-slate-500 text-xs mt-1">Visual summary</div>
+          </div>
+
+          <div
+            onClick={() => setSelectedOption('roleplay')}
+            className={clsx(
+              'rounded-xl p-5 cursor-pointer transition-all border-2',
+              selectedOption === 'roleplay'
+                ? 'bg-slate-50 border-green-500 shadow-lg'
+                : 'bg-white border-slate-300 hover:border-slate-400'
+            )}
+          >
+            <div className="text-3xl mb-3">🎭</div>
+            <div className="font-bold text-slate-900 text-sm">Role-playing Exercise</div>
+            <div className="text-slate-500 text-xs mt-1">Role Play</div>
           </div>
         </div>
 
-        {/* Audio Content Area */}
         {selectedOption === 'audio' && audioOpen && (
           <div className="space-y-3 flex flex-col">
             {!hasAudio && (
               <GenerateAudioButton
                 moduleId={module.processed_module_id}
-                onAudioGenerated={onAudioGenerated}
+                onAudioGenerated={(url, timeline) => {
+                  onAudioGenerated(url);
+                  if (timeline && Array.isArray(timeline)) {
+                    console.log('[ContentTransformer] Timeline received from audio generation:', {
+                      segmentCount: timeline.length,
+                      totalDuration: timeline.length > 0 ? timeline[timeline.length - 1].endSec : 0,
+                    });
+                    setPodcastTimeline(timeline);
+                  } else if (!timeline) {
+                    console.warn('[ContentTransformer] No timeline returned from audio generation');
+                  }
+                }}
               />
             )}
 
@@ -667,13 +1047,12 @@ function ContentTransformer({
                     processedModuleId={module.processed_module_id}
                     moduleId={module.original_module_id}
                     audioUrl={module.audio_url}
-                    onTimeUpdate={handleTimeUpdate}
+                    onTimeUpdate={(current, duration, playbackRate) => handleTimeUpdate(current, duration, playbackRate)}
                     onPlayExtra={handleResetTranscript}
                     className="w-full"
                   />
                 </div>
 
-                {/* Language Toggle */}
                 <div className="flex gap-2 justify-end">
                   <button
                     onClick={async () => {
@@ -713,7 +1092,6 @@ function ContentTransformer({
                   </button>
                 </div>
 
-                {/* Live Transcript (collapsible) */}
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                   <button
                     type="button"
@@ -734,30 +1112,62 @@ function ContentTransformer({
 
                   {transcriptOpen && (
                     <div className="mt-3 h-96 overflow-y-auto space-y-3 flex flex-col px-3">
-                      {chatMessages.length > 0 ? (
-                        chatMessages.map((msg, idx) => (
-                          <div
-                            key={idx}
-                            className={clsx(
-                              'flex',
-                              msg.speaker === 'sarah' ? 'justify-start' : 'justify-end'
-                            )}
-                          >
-                            <div
-                              className={clsx(
-                                'rounded-lg px-4 py-2',
-                                msg.speaker === 'sarah'
-                                  ? 'bg-blue-100 text-blue-900 rounded-bl-none max-w-2xl'
-                                  : 'bg-green-100 text-green-900 rounded-br-none max-w-2xl'
-                              )}
-                            >
-                              <div className="font-semibold text-xs mb-2 opacity-75">
-                                {msg.speaker === 'sarah' ? 'Sarah' : 'Mark'}
+                      {transcriptStarted && activeSegmentIndex >= 0 && podcastTimeline.length > 0 ? (
+                        (() => {
+                          const segments = [];
+                          // Show previous segment if available
+                          if (activeSegmentIndex > 0) {
+                            const prev = podcastTimeline[activeSegmentIndex - 1];
+                            segments.push(
+                              <div key={`prev-${activeSegmentIndex - 1}`} className="opacity-50 transition-all duration-300 ease-out">
+                                <div className="flex justify-start">
+                                  <div className="rounded-lg px-4 py-2 bg-gray-100 text-gray-600 rounded-bl-none max-w-2xl">
+                                    <div className="font-semibold text-xs mb-2 opacity-75">
+                                      {prev.speaker === 'sarah' ? 'Sarah' : 'Mark'}
+                                    </div>
+                                    <p className="whitespace-normal break-words leading-relaxed text-sm">{prev.text}</p>
+                                  </div>
+                                </div>
                               </div>
-                              <p className="whitespace-normal break-words leading-relaxed text-base">{msg.text}</p>
+                            );
+                          }
+                          // Show current segment
+                          const curr = podcastTimeline[activeSegmentIndex];
+                          segments.push(
+                            <div key={`curr-${activeSegmentIndex}`}>
+                              <div className={clsx('flex', curr.speaker === 'sarah' ? 'justify-start' : 'justify-end')}>
+                                <div className={clsx(
+                                  'rounded-lg px-4 py-2 max-w-2xl font-semibold ring-2 ring-blue-500 transition-all duration-300 ease-out',
+                                  curr.speaker === 'sarah'
+                                    ? 'bg-blue-100 text-blue-900 rounded-bl-none'
+                                    : 'bg-green-100 text-green-900 rounded-br-none'
+                                )}>
+                                  <div className="font-semibold text-xs mb-2 opacity-75">
+                                    {curr.speaker === 'sarah' ? 'Sarah (now)' : 'Mark (now)'}
+                                  </div>
+                                  <p className="whitespace-normal break-words leading-relaxed text-base">{curr.text}</p>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        ))
+                          );
+                          // Show next segment if available
+                          if (activeSegmentIndex < podcastTimeline.length - 1) {
+                            const next = podcastTimeline[activeSegmentIndex + 1];
+                            segments.push(
+                              <div key={`next-${activeSegmentIndex + 1}`} className="opacity-50 transition-all duration-300 ease-out">
+                                <div className={clsx('flex', next.speaker === 'sarah' ? 'justify-start' : 'justify-end')}>
+                                  <div className="rounded-lg px-4 py-2 bg-gray-100 text-gray-600 rounded-br-none max-w-2xl">
+                                    <div className="font-semibold text-xs mb-2 opacity-75">
+                                      {next.speaker === 'sarah' ? 'Sarah' : 'Mark'}
+                                    </div>
+                                    <p className="whitespace-normal break-words leading-relaxed text-sm">{next.text}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+                          return segments;
+                        })()
                       ) : (
                         <div className="flex items-center justify-center h-full text-slate-500 text-sm">
                           Press play to see the conversation unfold
@@ -771,7 +1181,6 @@ function ContentTransformer({
           </div>
         )}
 
-        {/* Video Content Area */}
         {selectedOption === 'video' && (
           <div className="space-y-3 flex flex-col">
             {!hasVideo && (
@@ -792,43 +1201,131 @@ function ContentTransformer({
           </div>
         )}
 
-        {/* Placeholder for other options */}
+        {/* Placeholder / generated output for other options */}
         {selectedOption !== 'audio' && selectedOption !== 'video' && (
-          <div className="rounded-xl border border-slate-200 bg-white p-12 text-center">
-            <div className="text-slate-600 text-sm">
-              {selectedOption === 'infographic' && '📊 Infographic generation coming soon...'}
-              {selectedOption === 'mindmap' && '🗺️ Mindmap generation coming soon...'}
+          <div className="rounded-xl border border-slate-200 bg-white p-12 text-left">
+            <div className="text-slate-600 text-sm text-left">
+                  {selectedOption === 'infographic' && (
+                    <div>
+                      {infographicLoading && (
+                        <div className="flex flex-col items-center">
+                          <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
+                          <div>Generating infographic...</div>
+                        </div>
+                      )}
+
+                      {!infographicLoading && (
+                        <InfographicCards sections={infographicSections} />
+                      )}
+                    </div>
+                  )}
+
+                  {selectedOption === 'infographics' && (
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="text-4xl">🛠️</div>
+                      <div className="text-lg font-semibold">Infographics coming soon</div>
+                      <div className="text-sm text-slate-500">We're working on more visual summaries — stay tuned.</div>
+                    </div>
+                  )}
+
+              {selectedOption === 'mindmap' && (
+                <div>
+                  {mindmapLoading && (
+                    <div className="flex flex-col items-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
+                      <div>Generating mindmap...</div>
+                    </div>
+                  )}
+
+                  {!mindmapLoading && mindmapData && (
+                    <div className="w-full h-[60vh] rounded-lg border p-2 bg-white overflow-auto">
+                      <MindmapViewer data={mindmapData} source={module.content || ''} />
+                    </div>
+                  )}
+
+                  {!mindmapLoading && !mindmapData && (
+                    <div className="text-sm text-gray-500">Click the Mindmap tile to generate and view the mindmap.</div>
+                  )}
+
+                  {/* Debug preview removed */}
+                </div>
+              )}
+
+              {selectedOption === 'roleplay' && (
+                <div>
+                  <div className="mb-4 grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Persona</label>
+                      <input
+                        value={roleplayPersona}
+                        onChange={(e) => setRoleplayPersona(e.target.value)}
+                        className="w-full rounded border px-3 py-2 text-sm"
+                        placeholder="e.g., Supportive manager"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Scenario</label>
+                      <input
+                        value={roleplayScenario}
+                        onChange={(e) => setRoleplayScenario(e.target.value)}
+                        className="w-full rounded border px-3 py-2 text-sm"
+                        placeholder="Short scenario (what's the goal)"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                      <input type="checkbox" checked={roleplayPersist} onChange={(e) => setRoleplayPersist(e.target.checked)} />
+                      <span>Save transcript</span>
+                    </label>
+                  </div>
+
+                  <div className="rounded-xl border p-4 mb-4 max-h-64 overflow-auto bg-white">
+                    {roleplayHistory.length === 0 ? (
+                      <div className="text-sm text-gray-500">Start the roleplay by sending a message.</div>
+                    ) : (
+                      roleplayHistory.map((msg, idx) => (
+                        <div key={idx} className={clsx('mb-3', msg.role === 'user' ? 'text-right' : 'text-left')}>
+                          <div className={clsx('inline-block px-4 py-2 rounded-lg', msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800')}>
+                            {msg.content}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <form onSubmit={handleSendRoleplay} className="flex gap-3">
+                    <input
+                      value={roleplayInput}
+                      onChange={(e) => setRoleplayInput(e.target.value)}
+                      placeholder="Speak in character..."
+                      className="flex-1 outline-none text-slate-700 placeholder-slate-400 bg-gray-50 rounded-lg px-4 py-3 border border-gray-200 focus:border-blue-500 focus:bg-white transition-all"
+                      disabled={roleplayLoading}
+                    />
+                    <button
+                      type="submit"
+                      className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={roleplayLoading || !roleplayInput.trim()}
+                    >
+                      {roleplayLoading ? 'Sending...' : 'Send'}
+                    </button>
+                  </form>
+                </div>
+              )}
             </div>
           </div>
         )}
       </div>
-
-      {/* Chat Bar */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-lg">
-        <form onSubmit={handleSendChat} className="flex gap-3">
-          <button type="button" className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-600">
-            📎
-          </button>
-          <input
-            type="text"
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            placeholder="Ask for coaching, upload work, or chat..."
-            className="flex-1 outline-none text-slate-700 placeholder-slate-400"
-          />
-          <button type="button" className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-600">
-            🎤
-          </button>
-        </form>
-      </div>
     </div>
   );
 }
-
 // Keep old AudioSection as alias for backward compatibility
 function AudioSection(props: any) {
   return <ContentTransformer {...props} />;
 }
+
+// Debug preview removed
 
 // Helper to format content with beautiful card-based UI
 function formatContent(content: string) {
@@ -838,7 +1335,7 @@ function formatContent(content: string) {
     if (typeof parsed === "object") {
       return `<pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto"><code>${JSON.stringify(parsed, null, 2)}</code></pre>`;
     }
-  } catch {}
+  } catch { }
 
   // Lightweight markdown-like to HTML - enhanced for plain text
   // Remove visual divider lines made of underscores/dashes before formatting
@@ -860,7 +1357,7 @@ function formatContent(content: string) {
     .replace(/\n/g, '<br/>');
 
   formatted = '<p class="mb-4 text-gray-700 leading-relaxed">' + formatted + '</p>';
-  
+
   // Group list items into proper ul/ol tags
   formatted = formatted
     .replace(/<p class="mb-4 text-gray-700 leading-relaxed">(<li class="ml-6 mb-2 list-disc[^>]*>.*?(?:<\/li>(?:\s*<br\/>\s*<li|<\/li>))*<\/li>)/g, '<ul class="mb-4 space-y-2 list-disc ml-6">$1</ul>')
@@ -870,7 +1367,7 @@ function formatContent(content: string) {
 
   // Clean up empty paragraphs
   formatted = formatted.replace(/<p class="mb-4 text-gray-700 leading-relaxed">\s*<\/p>/g, '');
-  
+
   // Remove learning style codes (CS, CR, AS, AR) from content
   formatted = formatted.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
   formatted = formatted.replace(/\b(CS|CR|AS|AR)\b(?=\W|$)/g, '');
@@ -930,7 +1427,7 @@ function formatContent(content: string) {
     while (i < allParas.length) {
       const el = allParas[i];
       const text = el.textContent?.trim() || '';
-      
+
       if (el.tagName === 'P' && text.match(/^Learning Objectives?:/i)) {
         // Found objectives heading; look for following list
         let nextIdx = i + 1;
@@ -961,7 +1458,7 @@ function formatContent(content: string) {
     }
 
     // Wrap main sections into standalone cards: Module Title, Objectives, Section n:
-    const isHeaderPara = (p: Element): { kind: 'module'|'objectives'|'section'|null; title: string } => {
+    const isHeaderPara = (p: Element): { kind: 'module' | 'objectives' | 'section' | null; title: string } => {
       const text = p.textContent?.trim() || '';
       let m;
       if ((m = text.match(/^Module\s*Title:\s*(.+)$/i))) {
@@ -1038,7 +1535,9 @@ function formatContent(content: string) {
 }
 
 // Add GenerateAudioButton component
-function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string, onAudioGenerated: (url: string) => void }) {
+
+
+function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string, onAudioGenerated: (url: string, timeline?: any) => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1049,7 +1548,7 @@ function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string,
       const res = await fetch(`/api/tts?processed_module_id=${moduleId}`);
       const data = await res.json();
       if (res.ok && data.audioUrl) {
-        onAudioGenerated(data.audioUrl);
+        onAudioGenerated(data.audioUrl, data.podcastTimeline);
       } else {
         setError(data.error || 'Failed to generate audio');
       }
@@ -1073,7 +1572,6 @@ function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string,
   );
 }
 
-// Add GenerateVideoButton component
 function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string, onVideoGenerated: (url: string) => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1082,11 +1580,6 @@ function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string,
     setLoading(true);
     setError(null);
     try {
-      // Use the new GPT-based video generation route. Previously we called `/api/video-generation` which
-      // generated images/screenshots directly inside this page's flow. That approach is now deprecated here —
-      // keep the old call commented below for reference.
-      // const res = await fetch(`/api/video-generation?processed_module_id=${moduleId}`);
-
       const res = await fetch(`/api/veo-video`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

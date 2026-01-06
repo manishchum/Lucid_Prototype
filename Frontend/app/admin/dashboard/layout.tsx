@@ -1,6 +1,6 @@
 "use client"
 
-import { Toaster } from "react-hot-toast";
+// Using the shared Radix-based Toaster (rendered from root layout)
 import EmployeeNavigation from "@/components/employee-navigation";
 
 export default function AdminDashboardLayout({
@@ -10,7 +10,6 @@ export default function AdminDashboardLayout({
 }) {
   return (
     <div className="min-h-screen bg-gray-50">
-      <Toaster />
       
       {/* Employee Navigation includes admin sub-navigation */}
       <EmployeeNavigation showBack={false} showForward={false} />
