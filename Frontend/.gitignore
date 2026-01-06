@@ -29,7 +29,6 @@ next-env.d.ts
 /node_modules
 
 #Secret keys
-Frontend\tts-prototype-468309-54562721c4e0.jsontts-prototype-468309-54562721c4e0.json
-tts-prototype-468309-54562721c4e0.json
+secrets/google-tts.json
 
-secrets/
+

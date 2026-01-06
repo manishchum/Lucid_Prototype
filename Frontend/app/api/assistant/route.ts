@@ -35,12 +35,8 @@ export async function POST(request: NextRequest) {
           const { data: upsertData, error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, ask_doubt: arr, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
           if (upsertErr) {
             console.warn('[assistant] fallback upsert error', { user: uid, upsertErr })
-          } else {
-            try { 
-              // console.log('[assistant] fallback upsert ok', { user: uid, upsertRows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
-          }
-        }
-      } catch (e) {
+          } 
+      }} catch (e) {
         console.warn('[assistant] saveAskDoubt failed', e)
       }
     }
@@ -63,7 +59,7 @@ export async function POST(request: NextRequest) {
         const { data: upsertData, error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, summarize: arr, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
         if (upsertErr) console.warn('[assistant] saveSummarize upsert error', { user: uid, upsertErr })
         else try {
-      //  console.log('[assistant] saveSummarize ok', { user: uid, rows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
+       console.log('[assistant] saveSummarize ok', { user: uid, rows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
       } catch (e) {
         console.warn('[assistant] saveSummarize failed', e)
       }
@@ -102,6 +98,7 @@ export async function POST(request: NextRequest) {
 
     // Tokenize the query to improve matching (remove short/common words)
     const normalized = query.toLowerCase().replace(/[^a-z0-9\s]/g, ' ')
+    //@ts-ignore
     const tokens = Array.from(new Set(normalized.split(/\s+/).filter(t => t.length >= 3 && !['the','and','for','with','you','how','what','when','where','is','are','in','on','of','a','an'].includes(t))))
 
     let matches: any[] = []
@@ -184,7 +181,6 @@ export async function POST(request: NextRequest) {
       if (results.length > 0) {
         const answer = `Duration: ${results.join('; ')}`
         if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, answer)
-        try { await saveChatMessage(userId, { role: 'assistant', text: answer, created_at: new Date().toISOString() }) } catch (e) {}
         return NextResponse.json({ answer, sources: matches.map((m: any) => ({ id: m.id, title: m.title })) })
       }
       // else fall through to LLM if no structured durations available
@@ -256,7 +252,7 @@ export async function POST(request: NextRequest) {
       return unique
     }
 
-    const sections = extractTopSections(matches, query, tokens, 3)
+    const sections = extractTopSections(matches, query, tokens as string[], 3)
 
     // Helper: normalize and remove markdown-like markers, convert lists to '- '
     const cleanFormatting = (s: string) => {
@@ -408,7 +404,7 @@ export async function POST(request: NextRequest) {
             const { data: upsertData, error: upsertErr } = await supabase.from('chatbot_user_interactions').upsert([{ user_id: uid, practise_ques: arr, updated_at: new Date().toISOString() }], { onConflict: 'user_id' })
             if (upsertErr) console.warn('[assistant] savePracticeQues upsert error (practise_ques)', { user: uid, upsertErr })
             else try { 
-          // console.log('[assistant] savePracticeQues ok (practise_ques)', { user: uid, rows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
+          console.log('[assistant] savePracticeQues ok (practise_ques)', { user: uid, rows: Array.isArray(upsertData) ? upsertData.length : null }) } catch(e) {}
           } catch (e) {
             console.warn('[assistant] savePracticeQues failed', e)
           }
@@ -502,7 +498,6 @@ export async function POST(request: NextRequest) {
 
     // Persist the user's message to chat history (non-blocking)
     try {
-      try { await saveChatMessage(userId, { role: 'user', text: query, created_at: new Date().toISOString() }) } catch (e) { /* non-fatal */ }
       // OpenAI integration removed: assistant uses Gemini exclusively.
 
       // Adapter: delegate to shared gemini helper and normalize result to
@@ -538,30 +533,31 @@ export async function POST(request: NextRequest) {
           synthData = { choices: [{ message: { content: cand } }] }
           usedModel = `gemini:${geminiModel}`
           try {
-            // console.log('[assistant] gemini synth success', { model: usedModel, preview: (cand || '').slice(0, 400) })
+            console.log('[assistant] gemini synth success', { model: usedModel, preview: (cand || '').slice(0, 400) })
           } catch (e) {
             // ignore logging errors
+            console.log(e);
           }
         } else {
-          const errText = (gResp && (gResp.error || gResp.text)) || 'unknown_gemini_error'
+          const errText = (gResp && (gResp.error)) || 'unknown_gemini_error'
           modelErrors.push({ model: `gemini:${geminiModel}`, error: errText })
           console.error('[assistant] gemini failed for synth pass', errText, { gResp })
-          try {
-            // console.log('[assistant] returning grounded fallback (gemini failed)', { fallbackPreview: cleanFormatting(sourceParts).slice(0, 400) })
-          } catch (e) {}
+          
           // Return grounded fallback so the user still receives content rather than attempting OpenAI
           const fallbackAnswer = cleanFormatting(sourceParts)
           // persist assistant reply
-          try { await saveChatMessage(userId, { role: 'assistant', text: fallbackAnswer, llm_model_used: null, llm_error: modelErrors.length ? modelErrors : null, created_at: new Date().toISOString() }) } catch (e) {}
           if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
           if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: fallbackAnswer, source: body?.pdf_name ? 'pdf' : 'text', intent: summarizeIntent || 'complete_summary', created_at: new Date().toISOString() })
           return NextResponse.json({ answer: fallbackAnswer, llm_model_used: null, llm_error: modelErrors.length ? modelErrors : null })
         }
-      } else {
+        
+      } catch (e) {
+        console.error('[assistant] error processing gemini response', e)
+      }}
+      else {
         // Gemini is required for the assistant in this configuration
         console.warn('[assistant] GEMINI_API_KEY missing; assistant configured to use Gemini only')
         const fallbackAnswer = cleanFormatting(sourceParts)
-        try { await saveChatMessage(userId, { role: 'assistant', text: fallbackAnswer, llm_model_used: null, llm_error: [{ model: 'gemini', error: 'no_gemini_key' }], created_at: new Date().toISOString() }) } catch (e) {}
         if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
         if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: fallbackAnswer, source: body?.pdf_name ? 'pdf' : 'text', created_at: new Date().toISOString() })
         return NextResponse.json({ answer: fallbackAnswer, llm_model_used: null, llm_error: [{ model: 'gemini', error: 'no_gemini_key' }] })
@@ -602,7 +598,6 @@ export async function POST(request: NextRequest) {
                     // console.log('[assistant] returning paraphrased answer from gemini', { preview: finalAnswer.slice(0,400), usedModel: usedModel })
                   } catch (e) {}
                   // persist assistant reply
-                  try { await saveChatMessage(userId, { role: 'assistant', text: finalAnswer, llm_model_used: usedModel, intent: summarizeIntent || null, created_at: new Date().toISOString() }) } catch (e) {}
                   if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, finalAnswer)
                   if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: finalAnswer, source: body?.pdf_name ? 'pdf' : 'text', intent: summarizeIntent || 'complete_summary', created_at: new Date().toISOString() })
                   return NextResponse.json({ answer: finalAnswer, llm_model_used: usedModel, llm_error: modelErrors.length ? modelErrors : null })
@@ -619,7 +614,6 @@ export async function POST(request: NextRequest) {
             // console.log('[assistant] returning synth answer from gemini', { preview: finalAnswer.slice(0,400), usedModel: usedModel })
           } catch (e) {}
           // persist assistant reply
-          try { await saveChatMessage(userId, { role: 'assistant', text: finalAnswer, llm_model_used: usedModel, intent: summarizeIntent || null, created_at: new Date().toISOString() }) } catch (e) {}
           if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, finalAnswer)
           if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: finalAnswer, source: body?.pdf_name ? 'pdf' : 'text', intent: summarizeIntent || 'complete_summary', created_at: new Date().toISOString() })
           return NextResponse.json({ answer: finalAnswer, llm_model_used: usedModel, llm_error: modelErrors.length ? modelErrors : null })
@@ -646,7 +640,6 @@ export async function POST(request: NextRequest) {
     // format module headings for fallback answer as well
     fallbackAnswer = formatModuleHeadings(fallbackAnswer)
     // persist assistant fallback reply
-    try { await saveChatMessage(userId, { role: 'assistant', text: fallbackAnswer, llm_model_used: null, llm_error: modelErrors.length ? modelErrors : null, intent: summarizeIntent || null, created_at: new Date().toISOString() }) } catch (e) {}
     if (mode === 'doubt' && userId) await saveAskDoubt(userId, query, fallbackAnswer)
     if (mode === 'summarize' && userId) await saveSummarize(userId, { title: body?.pdf_name || (query || null), summary: fallbackAnswer, source: body?.pdf_name ? 'pdf' : 'text', intent: summarizeIntent || 'complete_summary', created_at: new Date().toISOString() })
     return NextResponse.json({ answer: fallbackAnswer, llm_model_used: null, llm_error: modelErrors.length ? modelErrors : null })
