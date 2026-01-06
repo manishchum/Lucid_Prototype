@@ -64,7 +64,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       } catch (e) {
         console.error('[module] employee fetch error', e);
       }
-      const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style, user_id";
+      const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style, user_id, podcast_timeline";
       let data: any = null;
       const { data: directData, error: directError } = await supabase
         .from('processed_modules')
@@ -505,27 +505,83 @@ function ContentTransformer({
   const [roleplayLoading, setRoleplayLoading] = useState(false);
   const [roleplayPersist, setRoleplayPersist] = useState<boolean>(false);
 
-  const handleTimeUpdate = (current: number, duration: number) => {
-    if (!duration || !plainTranscript) return;
-    const ratio = Math.min(current / duration, 1);
-    const chars = Math.floor(plainTranscript.length * ratio);
-    setLiveTranscript(plainTranscript.slice(0, chars));
-    
-    const messages = parseChatFromTranscript(plainTranscript);
-    const currentChars = Math.floor(plainTranscript.length * ratio);
-    const displayedMessages: Array<{ speaker: string; text: string }> = [];
-    let charCount = 0;
-    
-    for (const msg of messages) {
-      charCount += msg.text.length;
-      if (charCount <= currentChars) {
-        displayedMessages.push(msg);
-      } else {
+  // Podcast timeline state
+  const [podcastTimeline, setPodcastTimeline] = useState<Array<{ speaker: 'sarah' | 'mark'; text: string; startSec: number; endSec: number }>>([]);
+  const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
+
+  // Hydrate timeline from module.podcast_timeline on component mount
+  useEffect(() => {
+    if (!module?.podcast_timeline) {
+      console.log('[ContentTransformer] No podcast_timeline in module data');
+      return;
+    }
+
+    try {
+      let timeline = module.podcast_timeline;
+      // If podcast_timeline is a string (JSON), parse it
+      if (typeof timeline === 'string') {
+        timeline = JSON.parse(timeline);
+      }
+
+      // Validate timeline data structure
+      if (!Array.isArray(timeline)) {
+        console.warn('[ContentTransformer] Invalid timeline format: not an array', { timeline });
+        return;
+      }
+
+      // Validate each segment has required fields
+      const isValid = timeline.every(
+        (seg: any) =>
+          typeof seg.speaker === 'string' &&
+          typeof seg.text === 'string' &&
+          typeof seg.startSec === 'number' &&
+          typeof seg.endSec === 'number'
+      );
+
+      if (!isValid) {
+        console.warn('[ContentTransformer] Timeline segments missing required fields', { timeline });
+        return;
+      }
+
+      setPodcastTimeline(timeline);
+      console.log('[ContentTransformer] Timeline loaded from module:', {
+        segmentCount: timeline.length,
+        totalDuration: timeline.length > 0 ? timeline[timeline.length - 1].endSec : 0,
+      });
+    } catch (error) {
+      console.error('[ContentTransformer] Failed to parse podcast_timeline:', {
+        error,
+        raw: module?.podcast_timeline,
+      });
+    }
+  }, [module?.podcast_timeline]);
+
+  const handleTimeUpdate = (current: number, duration: number, playbackRate: number = 1.0) => {
+    if (!duration || podcastTimeline.length === 0) return;
+
+    // currentTime already represents position in audio file
+    // Browser handles playback speed internally, no adjustment needed
+    let active = -1;
+    for (let i = 0; i < podcastTimeline.length; i++) {
+      const seg = podcastTimeline[i];
+      if (current >= seg.startSec && current < seg.endSec) {
+        active = i;
         break;
       }
     }
-    
-    setChatMessages(displayedMessages);
+
+    if (active !== activeSegmentIndex) {
+      setActiveSegmentIndex(active);
+      if (active >= 0 && active < podcastTimeline.length) {
+        console.log('[ContentTransformer] Active segment:', {
+          index: active,
+          speaker: podcastTimeline[active].speaker,
+          currentTime: current,
+          playbackRate,
+          segmentRange: `${podcastTimeline[active].startSec.toFixed(2)}s - ${podcastTimeline[active].endSec.toFixed(2)}s`,
+        });
+      }
+    }
   };
 
   const handleResetTranscript = () => {
@@ -802,7 +858,18 @@ function ContentTransformer({
             {!hasAudio && (
               <GenerateAudioButton
                 moduleId={module.processed_module_id}
-                onAudioGenerated={onAudioGenerated}
+                onAudioGenerated={(url, timeline) => {
+                  onAudioGenerated(url);
+                  if (timeline && Array.isArray(timeline)) {
+                    console.log('[ContentTransformer] Timeline received from audio generation:', {
+                      segmentCount: timeline.length,
+                      totalDuration: timeline.length > 0 ? timeline[timeline.length - 1].endSec : 0,
+                    });
+                    setPodcastTimeline(timeline);
+                  } else if (!timeline) {
+                    console.warn('[ContentTransformer] No timeline returned from audio generation');
+                  }
+                }}
               />
             )}
 
@@ -814,7 +881,7 @@ function ContentTransformer({
                     processedModuleId={module.processed_module_id}
                     moduleId={module.original_module_id}
                     audioUrl={module.audio_url}
-                    onTimeUpdate={handleTimeUpdate}
+                    onTimeUpdate={(current, duration, playbackRate) => handleTimeUpdate(current, duration, playbackRate)}
                     onPlayExtra={handleResetTranscript}
                     className="w-full"
                   />
@@ -879,30 +946,62 @@ function ContentTransformer({
 
                   {transcriptOpen && (
                     <div className="mt-3 h-96 overflow-y-auto space-y-3 flex flex-col px-3">
-                      {chatMessages.length > 0 ? (
-                        chatMessages.map((msg, idx) => (
-                          <div
-                            key={idx}
-                            className={clsx(
-                              'flex',
-                              msg.speaker === 'sarah' ? 'justify-start' : 'justify-end'
-                            )}
-                          >
-                            <div
-                              className={clsx(
-                                'rounded-lg px-4 py-2',
-                                msg.speaker === 'sarah'
-                                  ? 'bg-blue-100 text-blue-900 rounded-bl-none max-w-2xl'
-                                  : 'bg-green-100 text-green-900 rounded-br-none max-w-2xl'
-                              )}
-                            >
-                              <div className="font-semibold text-xs mb-2 opacity-75">
-                                {msg.speaker === 'sarah' ? 'Sarah' : 'Mark'}
+                      {activeSegmentIndex >= 0 && podcastTimeline.length > 0 ? (
+                        (() => {
+                          const segments = [];
+                          // Show previous segment if available
+                          if (activeSegmentIndex > 0) {
+                            const prev = podcastTimeline[activeSegmentIndex - 1];
+                            segments.push(
+                              <div key={`prev-${activeSegmentIndex - 1}`} className="opacity-50">
+                                <div className="flex justify-start">
+                                  <div className="rounded-lg px-4 py-2 bg-gray-100 text-gray-600 rounded-bl-none max-w-2xl">
+                                    <div className="font-semibold text-xs mb-2 opacity-75">
+                                      {prev.speaker === 'sarah' ? 'Sarah' : 'Mark'}
+                                    </div>
+                                    <p className="whitespace-normal break-words leading-relaxed text-sm">{prev.text}</p>
+                                  </div>
+                                </div>
                               </div>
-                              <p className="whitespace-normal break-words leading-relaxed text-base">{msg.text}</p>
+                            );
+                          }
+                          // Show current segment
+                          const curr = podcastTimeline[activeSegmentIndex];
+                          segments.push(
+                            <div key={`curr-${activeSegmentIndex}`}>
+                              <div className={clsx('flex', curr.speaker === 'sarah' ? 'justify-start' : 'justify-end')}>
+                                <div className={clsx(
+                                  'rounded-lg px-4 py-2 max-w-2xl font-semibold ring-2 ring-blue-500',
+                                  curr.speaker === 'sarah'
+                                    ? 'bg-blue-100 text-blue-900 rounded-bl-none'
+                                    : 'bg-green-100 text-green-900 rounded-br-none'
+                                )}>
+                                  <div className="font-semibold text-xs mb-2 opacity-75">
+                                    {curr.speaker === 'sarah' ? 'Sarah (now)' : 'Mark (now)'}
+                                  </div>
+                                  <p className="whitespace-normal break-words leading-relaxed text-base">{curr.text}</p>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        ))
+                          );
+                          // Show next segment if available
+                          if (activeSegmentIndex < podcastTimeline.length - 1) {
+                            const next = podcastTimeline[activeSegmentIndex + 1];
+                            segments.push(
+                              <div key={`next-${activeSegmentIndex + 1}`} className="opacity-50">
+                                <div className={clsx('flex', next.speaker === 'sarah' ? 'justify-start' : 'justify-end')}>
+                                  <div className="rounded-lg px-4 py-2 bg-gray-100 text-gray-600 rounded-br-none max-w-2xl">
+                                    <div className="font-semibold text-xs mb-2 opacity-75">
+                                      {next.speaker === 'sarah' ? 'Sarah' : 'Mark'}
+                                    </div>
+                                    <p className="whitespace-normal break-words leading-relaxed text-sm">{next.text}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+                          return segments;
+                        })()
                       ) : (
                         <div className="flex items-center justify-center h-full text-slate-500 text-sm">
                           Press play to see the conversation unfold
@@ -1355,7 +1454,7 @@ function formatContent(content: string) {
 // Add GenerateAudioButton component
 
 
-function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string, onAudioGenerated: (url: string) => void }) {
+function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string, onAudioGenerated: (url: string, timeline?: any) => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1366,7 +1465,7 @@ function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string,
       const res = await fetch(`/api/tts?processed_module_id=${moduleId}`);
       const data = await res.json();
       if (res.ok && data.audioUrl) {
-        onAudioGenerated(data.audioUrl);
+        onAudioGenerated(data.audioUrl, data.podcastTimeline);
       } else {
         setError(data.error || 'Failed to generate audio');
       }
