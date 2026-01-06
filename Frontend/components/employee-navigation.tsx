@@ -1,14 +1,14 @@
 'use client'
 
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import { useState, useEffect } from "react";
 
 interface EmployeeNavigationProps {
   showBack?: boolean;
@@ -21,17 +21,14 @@ interface EmployeeNavigationProps {
 }
 
 const EmployeeNavigation = ({ 
-  showBack = true, 
-  showForward = true,
-  customBackPath,
-  customForwardPath,
-  className = "",
   user: providedUser,
   onLogout: providedOnLogout
 }: EmployeeNavigationProps) => {
   const router = useRouter();
   const pathname = usePathname();
   const { user: authUser, logout } = useAuth();
+  
+  // Existing Logic States
   const [employee, setEmployee] = useState<any>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -41,20 +38,23 @@ const EmployeeNavigation = ({
   const [userRoles, setUserRoles] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
+  const [showReportToast, setShowReportToast] = useState(false);
 
   const displayUser = providedUser || employee;
+
+  // Existing Logout Logic
   const handleLogout = providedOnLogout || (async () => {
     await logout();
     router.push("/");
   });
 
+  // Existing Data Fetching Logic
   useEffect(() => {
     if (pathname && pathname.startsWith('/employee/courses')) {
-      setCoursesOpen(true);
+        setCoursesOpen(true);
     }
-
     if (pathname && pathname.startsWith("/admin/dashboard")) {
-      setAdminDropdownOpen(true);
+        setAdminDropdownOpen(true);
     }
 
     if (pathname && pathname.startsWith("/kpi")) {
@@ -64,34 +64,24 @@ const EmployeeNavigation = ({
     if (!providedUser && authUser?.email) {
       const fetchEmployee = async () => {
         try {
-          const { data: employeeData, error } = await supabase
-            .from("users")
-            .select("*")
-            .eq("email", authUser.email)
-            .single();
-            
-          if (!error && employeeData) {
+          const { data: employeeData } = await supabase
+            .from("users").select("*").eq("email", authUser.email).single();
+          
+          if (employeeData) {
             setEmployee(employeeData);
-            
-            const { data: roleData, error: roleError } = await supabase
+            const { data: roleData } = await supabase
               .from("user_role_assignments")
-              .select(`
-                roles!inner(name)
-              `)
+              .select(`roles!inner(name)`)
               .eq("user_id", employeeData.user_id)
               .eq("is_active", true);
 
-            if (!roleError && roleData) {
-              const roles = roleData.map((assignment: { roles: { name: any; }; }) => assignment.roles?.name).filter(Boolean);
-              setUserRoles(roles);
-              setIsAdmin(roles.includes('ADMIN') || roles.includes('SUPER_ADMIN') || roles.includes('Admin'));
+            if (roleData) {
+              const roles = roleData.map((ra: any) => ra.roles?.name);
+              setIsAdmin(roles.some((r: string | undefined) => ['ADMIN', 'SUPER_ADMIN', 'Admin'].includes(String(r))));
             }
           }
-        } catch (error) {
-          console.error("Failed to fetch employee data:", error);
-        }
+        } catch (e) { console.error(e); }
       };
-
       fetchEmployee();
     }
   }, [providedUser, authUser?.email, pathname]);
@@ -100,472 +90,274 @@ const EmployeeNavigation = ({
     setIsNavigating(false);
   }, [pathname]);
 
-  const handleNavigate = (href: string) => {
-    // Only show loader if navigating to a different page
-    if (href !== pathname) {
-      setIsNavigating(true);
+  // Read one-shot toast flag set when an assessment/quiz result is shown
+  useEffect(() => {
+    try {
+      const v = sessionStorage.getItem('show_report_toast');
+      if (v === '1') {
+        setShowReportToast(true);
+        // remove the flag so it doesn't show repeatedly
+        sessionStorage.removeItem('show_report_toast');
+        // auto-hide after a few seconds
+        const t = setTimeout(() => setShowReportToast(false), 6000);
+        return () => clearTimeout(t);
+      }
+    } catch (e) {
+      // ignore (SSR or privacy)
     }
-    closeMobileSidebar();
+  }, [pathname]);
+
+  // Sync Side-bar Width CSS Variable
+  useEffect(() => {
+    try {
+      document.documentElement.style.setProperty('--sidebar-width', isCollapsed ? '5rem' : '17.5rem');
+    } catch (e) {}
+    return () => {
+      try { document.documentElement.style.removeProperty('--sidebar-width'); } catch (e) {}
+    };
+  }, [isCollapsed]);
+
+  const isActive = (path: string) => pathname === path;
+
+  const handleNavigate = (href: string) => {
+    if (href !== pathname) setIsNavigating(true);
+    setIsMobileOpen(false);
     router.push(href);
   };
 
-  const isActiveRoute = (route: string) => {
-    if (route === '/employee/welcome') {
-      return pathname === '/employee/welcome';
-    }
-    return pathname?.startsWith(route) || false;
-  };
-
-  const handleBack = () => {
-    if (customBackPath) {
-      router.push(customBackPath);
-    } else {
-      router.back();
-    }
-  };
-
-  const handleForward = () => {
-    if (customForwardPath) {
-      router.push(customForwardPath);
-    } else {
-      router.push("/employee/welcome");
-    }
-  };
-
-  const toggleSidebar = () => {
-    setIsCollapsed(!isCollapsed);
-  };
-
-  const toggleMobileSidebar = () => {
-    setIsMobileOpen(!isMobileOpen);
-  };
-
-  const closeMobileSidebar = () => {
-    setIsMobileOpen(false);
-  };
-
-  const renderIcon = (icon: any) => {
-    return (
-      <span className="w-5 h-5 flex items-center justify-center nav-icon">
-        {icon}
-      </span>
-    );
-  };
+  // UI Component: Tooltip for collapsed state
+  const NavTooltip = ({ label }: { label: string }) => (
+    <div className="absolute left-full ml-3 px-3 py-2 bg-[#1E293B] text-white text-xs font-bold rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 translate-x-[-10px] group-hover:translate-x-0 z-[100] whitespace-nowrap shadow-xl">
+      {label}
+      <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-2 bg-[#1E293B] rotate-45" />
+    </div>
+  );
 
   return (
-    <div>
-      <style jsx global>{`
-        :root {
-          --sidebar-width: ${isCollapsed ? '5rem' : '18rem'};
-        }
-        
-        @media (max-width: 1024px) {
-          :root {
-            --sidebar-width: 0;
-          }
-        }
-        
-        .nav-icon {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 20px;
-          height: 20px;
-          flex-shrink: 0;
-        }
-
-        .nav-icon svg {
-          width: 20px;
-          height: 20px;
-          display: block;
-          margin: auto;
-          vertical-align: middle;
-          transform-origin: center;
-        }
-
-        .nav-row {
-          height: 48px !important;
-          min-height: 48px !important;
-          align-items: center !important;
-        }
-
-        .icon-box {
-          width: 40px !important;
-          height: 40px !important;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-        }
-
-        .admin-dropdown {
-          transition: all 0.3s ease-in-out;
-          overflow: hidden;
-        }
-
-        .admin-dropdown.open {
-          max-height: 200px;
-          opacity: 1;
-        }
-
-        .admin-dropdown.closed {
-          max-height: 0;
-          opacity: 0;
-        }
-      `}</style>
-      
+    <>
+      {/* Loading Overlay */}
       {isNavigating && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
-          <div className="bg-white p-6 rounded-lg shadow-xl flex flex-col items-center gap-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            <p className="text-gray-600 font-medium">Loading...</p>
+        <div className="fixed inset-0 bg-white/60 backdrop-blur-sm z-[100] flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-4 border-[#3B66F5]/20 border-t-[#3B66F5] rounded-full animate-spin"></div>
+            <p className="text-sm font-bold text-[#1E293B]">Loading...</p>
           </div>
         </div>
       )}
-      
+
+      {/* Mobile Backdrop */}
+      {isMobileOpen && (
+        <div className="lg:hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-[45]" onClick={() => setIsMobileOpen(false)} />
+      )}
+
+      {/* Mobile Toggle */}
       <div className="lg:hidden fixed top-4 left-4 z-50">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={toggleMobileSidebar}
-          className="bg-white shadow-lg border-2 hover:shadow-xl transition-shadow w-10 h-10 p-0 rounded-lg"
-        >
-          {isMobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        <Button variant="outline" size="sm" onClick={() => setIsMobileOpen(!isMobileOpen)} className="bg-white shadow-md border-slate-200 w-10 h-10 p-0 rounded-lg">
+          {isMobileOpen ? <X size={20} /> : <Menu size={20} />}
         </Button>
       </div>
 
-      {isMobileOpen && (
-        <div 
-          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-40"
-          onClick={closeMobileSidebar}
-        />
-      )}
-
-      <aside className={`fixed top-0 left-0 h-screen bg-white border-r z-40 transition-all duration-300 ${isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} ${isCollapsed ? 'w-20' : 'w-72'}`}>
-        <div className="flex flex-col h-full">
-          <div className="flex items-center justify-between px-4 py-4 border-b">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => router.push('/employee/welcome')}>
-              <div className="w-10 h-10 bg-gradient-to-br from-violet-400 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">L</div>
-              {!isCollapsed && <div className="font-semibold text-lg text-gray-900">Lucid</div>}
+      <aside className={`fixed top-0 left-0 h-screen bg-white border-r border-slate-100 z-50 transition-all duration-300 ease-in-out flex flex-col
+        ${isMobileOpen ? 'translate-x-0 w-[280px]' : '-translate-x-full lg:translate-x-0'} 
+        ${isCollapsed ? 'lg:w-20' : 'lg:w-[280px]'}`}>
+        
+        {/* Header */}
+        <div className="p-6 pb-4 flex items-center justify-between">
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleNavigate('/employee/welcome')}>
+            <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0 shadow-sm">
+              <svg className="w-5 h-5 text-[#3B66F5]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="6" y="4" width="3" height="14" fill="#3B66F5" rx="0.5" />
+                <rect x="6" y="15" width="9" height="3" fill="#3B66F5" rx="0.5" />
+              </svg>
             </div>
+            {!isCollapsed && <span className="text-[21px] font-bold text-[#1E293B] tracking-tight">Lucid</span>}
+          </div>
+          <button onClick={() => setIsCollapsed(!isCollapsed)} className="hidden lg:block text-slate-400 hover:text-slate-600 transition-colors">
+            {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          </button>
+        </div>
 
-            <div className="hidden lg:flex">
-              <Button variant="ghost" size="sm" onClick={toggleSidebar} className="w-8 h-8 p-0 rounded-full">
-                {isCollapsed ? <ChevronRight className="w-4 h-4 text-gray-600" /> : <ChevronLeft className="w-4 h-4 text-gray-600" />}
-              </Button>
+        {/* Profile */}
+        {!isCollapsed && (
+          <div className="px-4 mb-4">
+            <div className="flex items-center gap-3 p-3.5 rounded-[18px] border border-slate-50 bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
+              <div className="w-10 h-10 rounded-full bg-[#E0E9FF] flex items-center justify-center text-[#3B66F5] font-bold text-sm relative shrink-0">
+                {displayUser?.name ? displayUser.name.split(' ').map((n:any)=>n[0]).join('').toUpperCase() : 'U'}
+                <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#4ADE80] border-2 border-white rounded-full"></div>
+              </div>
+              <div className="overflow-hidden">
+                <p className="text-[14px] font-bold text-[#1E293B] leading-tight truncate">{displayUser?.name || 'User'}</p>
+                <p className="text-[11px] text-slate-500 truncate font-medium mt-0.5">{displayUser?.email}</p>
+              </div>
             </div>
           </div>
+        )}
 
-          <div className={`flex items-center gap-3 px-4 py-4 border-b ${isCollapsed ? 'justify-center' : ''}`}>
-            <div className="flex items-center gap-3 w-full">
-              <Link href="/employee/account" onClick={closeMobileSidebar} className="relative inline-block">
-                <div className={`rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold ${isCollapsed ? 'w-10 h-10 text-sm' : 'w-12 h-12 text-lg'}`}>
-                  {displayUser?.name ? displayUser.name.split(' ').map((n:string)=>n[0]).join('') : ''}
-                </div>
-                <span className="absolute bottom-0 right-0 block w-3 h-3 rounded-full ring-2 ring-white bg-green-400" />
-              </Link>
-              {!isCollapsed && (
-                <div>
-                  <div className="font-semibold text-gray-900">{displayUser?.name}</div>
-                  <div className="text-xs text-gray-500">{displayUser?.email || 'Employee'}</div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <nav className="flex flex-col gap-1 px-2 py-6 flex-1 overflow-y-auto">
-            {[
-              { href: '/employee/welcome', icon: <Home className="w-5 h-5" /> , label: 'Home'},
-              { href: '/employee/training-plan', icon: <BookOpen className="w-5 h-5" /> , label: 'Learning Plan'},
-              { href: '/employee/score-history', icon: <FileText className="w-5 h-5" /> , label: 'Reports'},
-              
-            ].map((m) => {
-              // if (!isAdmin) return null;
-
-              // Special rendering for Courses to allow a nested submenu
-              if (m.href === '/employee/training-plan') {
-                return (
-                  <div key={m.href} className="flex flex-col">
-                    <div 
-                      className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors cursor-pointer ${isActiveRoute(m.href) ? 'text-violet-600 bg-violet-50' : 'text-gray-700 hover:bg-gray-100'}`}
-                      onClick={(e) => { 
-                        e.preventDefault(); 
-                        if (isCollapsed) {
-                          handleNavigate(m.href);
-                        } else {
-                          setCoursesOpen(!coursesOpen); 
-                        }
-                      }}
-                    >
-                      <div className={`icon-box rounded-lg transition-colors border ${isActiveRoute(m.href) ? 'bg-violet-50 border-violet-100 text-violet-600' : 'border-transparent text-gray-500 hover:border-gray-200 hover:bg-gray-50'}`}>
-                        {renderIcon(m.icon)}
-                      </div>
-                      {!isCollapsed && (
-                        <>
-                          <span className="flex-1">{m.label}</span>
-                          <ChevronDown className={`w-4 h-4 transition-transform ${coursesOpen ? 'rotate-180' : ''}`} />
-                        </>
-                      )}
-                    </div>
-
-                    {!isCollapsed && coursesOpen && (
-                      <div className="pl-14 pr-4 pt-2 pb-2">
-                        <div className="py-2 space-y-1">
-                          {[
-                            {
-                              href: '/employee/welcome',
-                              icon: <PlayCircle className="w-4 h-4" />,
-                              label: 'Active Modules'
-                            },
-                            {
-                              href: '/employee/welcome',
-                              icon: <CheckCircle2 className="w-4 h-4" />,
-                              label: 'Completed'
-                            },
-                            {
-                              href: '/content-library',
-                              icon: <ListChecks className="w-4 h-4" />,
-                              label: 'All Modules'
-                            }
-                          ].map((subItem) => (
-                            <button
-                              key={subItem.href}
-                              onClick={() => handleNavigate(subItem.href)}
-                              className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors w-full text-left ${
-                                isActiveRoute(subItem.href)
-                                  ? 'text-gray-700 bg-white border-r-2 border-gray-200'
-                                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                              }`}
-                            >
-                              <div className="relative flex items-center">
-                                <span
-                                  className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${
-                                    isActiveRoute(subItem.href)
-                                      ? 'border border-gray-400 bg-transparent'
-                                      : 'border border-gray-300 bg-transparent'
-                                  }`}
-                                />
-                                <div className="flex items-center gap-2">
-                                  {renderIcon(subItem.icon)}
-                                  <span>{subItem.label}</span>
-                                </div>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              }
-
-              return (
-                <button key={m.href} onClick={() => handleNavigate(m.href)} className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors w-full text-left ${isActiveRoute(m.href) ? 'text-violet-600 bg-violet-50' : 'text-gray-700 hover:bg-gray-100'}`}>
-                    <div className={`icon-box rounded-lg transition-colors border ${isActiveRoute(m.href) ? 'bg-violet-50 border-violet-100 text-violet-600' : 'border-transparent text-gray-500 hover:border-gray-200 hover:bg-gray-50'}`}>
-                    {renderIcon(m.icon)}
-                  </div>
-                  {!isCollapsed && <span>{m.label}</span>}
-                </button>
-              );
-            })}
-
-            {isAdmin && (
-              <>
-                <div className="flex flex-col">
-                  <div
-                    className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors cursor-pointer ${
-                      isActiveRoute("/admin/dashboard")
-                        ? "text-blue-600 bg-blue-50"
-                        : "text-gray-700 hover:bg-gray-100"
-                    }`}
-                    onClick={() => {
-                      if (isCollapsed) {
-                        handleNavigate("/admin/dashboard/analytics");
-                      } else {
-                        setAdminDropdownOpen(!adminDropdownOpen);
-                      }
-                    }}
-                  >
-                    <div
-                      className={`icon-box rounded-lg transition-colors border ${
-                        isActiveRoute("/admin/dashboard")
-                          ? "bg-blue-50 border-blue-100 text-blue-600"
-                          : "border-transparent text-gray-500 hover:border-gray-200 hover:bg-gray-50"
-                      }`}
-                    >
-                      {renderIcon(<Shield className="w-5 h-5" />)}
-                    </div>
-                    {!isCollapsed && (
-                      <>
-                        <span className="flex-1">Admin Panel</span>
-                        <ChevronDown
-                          className={`w-4 h-4 transition-transform ${
-                            adminDropdownOpen ? "rotate-180" : ""
-                          }`}
-                        />
-                      </>
-                    )}
-                  </div>
-
-                  {!isCollapsed && (
-                    <div
-                      className={`admin-dropdown ${
-                        adminDropdownOpen ? "open" : "closed"
-                      } pl-14 pr-4`}
-                    >
-                      <div className="py-2 space-y-1">
-                        {[
-                          {
-                            href: "/admin/dashboard/analytics",
-                            icon: <BarChart3 className="w-4 h-4" />,
-                            label: "Analytics & Reports",
-                          },
-                          {
-                            href: "/admin/dashboard/employees",
-                            icon: <Users className="w-4 h-4" />,
-                            label: "Employee Management",
-                          },
-                          {
-                            href: "/admin/dashboard/uploads",
-                            icon: <Upload className="w-4 h-4" />,
-                            label: "KPI & Content Uploads",
-                          },
-                        ].map((subItem) => (
-                          <button
-                            key={subItem.href}
-                            onClick={() => handleNavigate(subItem.href)}
-                            className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors w-full text-left ${
-                              isActiveRoute(subItem.href)
-                                ? "text-blue-600 bg-blue-50 border-r-2 border-blue-600"
-                                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                            }`}
-                          >
-                            <div className="relative flex items-center">
-                              <span
-                                className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${
-                                  isActiveRoute(subItem.href)
-                                    ? "bg-blue-500"
-                                    : "border border-gray-300 bg-transparent"
-                                }`}
-                              />
-                              <div className="flex items-center gap-2">
-                                {renderIcon(subItem.icon)}
-                                <span>{subItem.label}</span>
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex flex-col">
-                  <div
-                    className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors cursor-pointer ${
-                      isActiveRoute("/kpi")
-                        ? "text-green-600 bg-green-50"
-                        : "text-gray-700 hover:bg-gray-100"
-                    }`}
-                    onClick={() => {
-                      if (isCollapsed) {
-                        handleNavigate("/kpi/intelligence");
-                      } else {
-                        setKpiDropdownOpen(!kpiDropdownOpen);
-                      }
-                    }}
-                  >
-                    <div
-                      className={`icon-box rounded-lg transition-colors border ${
-                        isActiveRoute("/kpi")
-                          ? "bg-green-50 border-green-100 text-green-600"
-                          : "border-transparent text-gray-500 hover:border-gray-200 hover:bg-gray-50"
-                      }`}
-                    >
-                      {renderIcon(<TrendingUp className="w-5 h-5" />)}
-                    </div>
-                    {!isCollapsed && (
-                      <>
-                        <span className="flex-1">KPI</span>
-                        <ChevronDown
-                          className={`w-4 h-4 transition-transform ${
-                            kpiDropdownOpen ? "rotate-180" : ""
-                          }`}
-                        />
-                      </>
-                    )}
-                  </div>
-
-                  {!isCollapsed && (
-                    <div
-                      className={`admin-dropdown ${
-                        kpiDropdownOpen ? "open" : "closed"
-                      } pl-14 pr-4`}
-                    >
-                      <div className="py-2 space-y-1">
-                        {[
-                          {
-                            href: "/kpi/intelligence",
-                            icon: <TrendingUp className="w-4 h-4" />,
-                            label: "KPI Intelligence",
-                          },
-                          {
-                            href: "/kpi/configuration",
-                            icon: <SettingsIcon className="w-4 h-4" />,
-                            label: "KPI Configuration",
-                          },
-                          {
-                            href: "/kpi/turbocharge",
-                            icon: <Zap className="w-4 h-4" />,
-                            label: "KPI TurboCharge",
-                          },
-                          {
-                            href: "/kpi/workforce-overview",
-                            icon: <UsersRound className="w-4 h-4" />,
-                            label: "Workforce Overview",
-                          },
-                        ].map((subItem) => (
-                          <button
-                            key={subItem.href}
-                            onClick={() => handleNavigate(subItem.href)}
-                            className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors w-full text-left ${
-                              isActiveRoute(subItem.href)
-                                ? "text-green-600 bg-green-50 border-r-2 border-green-600"
-                                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                            }`}
-                          >
-                            <div className="relative flex items-center">
-                              <span
-                                className={`absolute -left-6 top-2 w-2 h-2 rounded-full ${
-                                  isActiveRoute(subItem.href)
-                                    ? "bg-green-500"
-                                    : "border border-gray-300 bg-transparent"
-                                }`}
-                              />
-                              <div className="flex items-center gap-2">
-                                {renderIcon(subItem.icon)}
-                                <span>{subItem.label}</span>
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </nav>
-
-          <div className="px-6 py-6 border-t">
-            <button onClick={() => { handleLogout(); closeMobileSidebar(); }} className="flex items-center gap-2 text-red-600 font-semibold hover:underline">
-              <LogOut className="w-5 h-5 flex-shrink-0" />
-              {!isCollapsed && <span>Log Out</span>}
+        <nav className="flex-1 px-3 overflow-y-auto space-y-1 custom-scrollbar pt-2">
+          {/* Home */}
+          <div className="relative group">
+            <button 
+              onClick={() => handleNavigate('/employee/welcome')}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/welcome') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+            >
+              <LayoutGrid size={20} className="shrink-0" />
+              {!isCollapsed && <span className="text-[15px]">Home</span>}
             </button>
+            {isCollapsed && <NavTooltip label="Home" />}
           </div>
+
+          {!isCollapsed && <div className="pt-6 pb-2 px-4 text-[10px] font-black text-[#1E293B] uppercase tracking-[0.2em] opacity-60">Learning Plan</div>}
+
+          {/* Training Plan (Dropdown) */}
+          <div className="relative group">
+            <button 
+              onClick={() => isCollapsed ? handleNavigate('/employee/welcome') : setCoursesOpen(!coursesOpen)} 
+              className={`w-full flex items-center justify-between px-4 py-2.5 rounded-[12px] transition-all duration-200 text-[#1E293B] hover:bg-slate-50`}
+            >
+              <div className="flex items-center gap-3.5">
+                <BookOpen size={20} className="shrink-0" />
+                {!isCollapsed && <span className="text-[15px] font-medium">Learning Plan</span>}
+              </div>
+              {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${coursesOpen ? '' : '-rotate-90'}`} />}
+            </button>
+            {isCollapsed && <NavTooltip label="Learning Plan" />}
+            
+            {coursesOpen && !isCollapsed && (
+              <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
+                {[
+                  { href: '/employee/welcome', label: 'Active Modules', icon: Play },
+                  { href: '/employee/welcome', label: 'Completed', icon: Check },
+                  { href: '/content-library', label: 'All Modules', icon: List }
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    onClick={() => handleNavigate(item.href)}
+                    className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                  >
+                    <item.icon size={18} className="shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Reports */}
+          <div className="relative group">
+            <button 
+              onClick={() => handleNavigate('/employee/score-history')}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/score-history') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+            >
+              <FileText size={20} className="shrink-0" />
+              {!isCollapsed && <span className="text-[15px]">Reports</span>}
+            </button>
+            {isCollapsed && <NavTooltip label="Reports" />}
+            {/* One-shot toast shown to the right of Reports when an assessment/quiz result was just produced */}
+            {!isCollapsed && showReportToast && (
+              <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 z-[60]">
+                <div
+                  className="flex items-center gap-3 bg-[#111827] text-white text-sm font-medium px-3 py-2 rounded-lg shadow-lg cursor-pointer select-none"
+                  onClick={() => { setShowReportToast(false); handleNavigate('/employee/score-history'); }}
+                >
+                  <span>Click for detailed report</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Admin Panel */}
+          {isAdmin && (
+            <>
+              {!isCollapsed && <div className="pt-8 pb-2 px-4 text-[10px] font-black text-[#1E293B] uppercase tracking-[0.2em] opacity-60">Admin Panel</div>}
+              <div className="relative group">
+                <button 
+                  onClick={() => isCollapsed ? handleNavigate('/admin/dashboard/analytics') : setAdminDropdownOpen(!adminDropdownOpen)} 
+                  className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <Shield size={20} className="shrink-0" />
+                    {!isCollapsed && <span className="text-[15px] font-medium">Admin Panel</span>}
+                  </div>
+                  {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${adminDropdownOpen ? '' : '-rotate-90'}`} />}
+                </button>
+                {isCollapsed && <NavTooltip label="Admin Panel" />}
+                {adminDropdownOpen && !isCollapsed && (
+                  <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
+                    {[
+                        { href: "/admin/dashboard/analytics", label: "Analytics", icon: BarChart3 },
+                        { href: "/admin/dashboard/employees", label: "Employees", icon: Users },
+                        { href: "/admin/dashboard/uploads", label: "Uploads", icon: Upload },
+                    ].map((item) => (
+                        <button
+                            key={item.label}
+                            onClick={() => handleNavigate(item.href)}
+                            className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                        >
+                            <item.icon size={18} className="shrink-0" />
+                            <span className="truncate">{item.label}</span>
+                        </button>
+                    ))}
+                  </div>
+                )}
+                
+              </div>
+            </>
+          )}
+
+          {/* KPI Panel */}
+          {!isCollapsed && <div className="pt-8 pb-2 px-4 text-[10px] font-black text-[#1E293B] uppercase tracking-[0.2em] opacity-60">KPI</div>}
+          <div className="relative group">
+            <button 
+              onClick={() => isCollapsed ? handleNavigate('/kpi') : setKpiDropdownOpen(!kpiDropdownOpen)} 
+              className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
+            >
+              <div className="flex items-center gap-3.5">
+                <TrendingUp size={20} className="shrink-0" />
+                {!isCollapsed && <span className="text-[15px] font-medium">KPI</span>}
+              </div>
+              {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${kpiDropdownOpen ? '' : '-rotate-90'}`} />}
+            </button>
+            {isCollapsed && <NavTooltip label="KPI" />}
+            {kpiDropdownOpen && !isCollapsed && (
+              <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
+                {[
+                    { href: "/kpi/intelligence", label: "KPI Intelligence", icon: TrendingUp },
+                    { href: "/kpi/configuration", label: "KPI Configuration", icon: SettingsIcon },
+                    { href: "/kpi/turbocharge", label: "KPI TurboCharge", icon: Zap },
+                    { href: "/kpi/workforce-overview", label: "Workforce Overview", icon: UsersRound },
+                ].map((item) => (
+                    <button
+                        key={item.label}
+                        onClick={() => handleNavigate(item.href)}
+                        className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                    >
+                        <item.icon size={18} className="shrink-0" />
+                        <span className="truncate">{item.label}</span>
+                    </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </nav>
+
+        {/* Logout */}
+        <div className="p-4 border-t border-slate-50 mt-auto">
+          <button onClick={handleLogout} className="relative group w-full flex items-center gap-3.5 px-4 py-3 text-[#EF4444] font-bold text-[15px] hover:bg-red-50 rounded-xl transition-all duration-200">
+            <LogOut size={20} className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
+            {!isCollapsed && <span>Log Out</span>}
+            {isCollapsed && (
+              <div className="absolute left-full ml-3 px-3 py-2 bg-[#EF4444] text-white text-xs font-bold rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-[100] whitespace-nowrap shadow-xl">
+                Log Out
+                <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-2 bg-[#EF4444] rotate-45" />
+              </div>
+            )}
+          </button>
         </div>
       </aside>
-    </div>
+    </>
   );
 };
 

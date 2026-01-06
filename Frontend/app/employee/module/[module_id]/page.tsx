@@ -8,6 +8,8 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
 import { ChevronLeft, Info, Lightbulb, BookOpen, Zap } from "lucide-react";
+import InfographicCards from '@/components/InfographicCards'
+import MindmapViewer from '@/components/MindmapViewer'
 import clsx from "clsx";
 import { useAuth } from "@/contexts/auth-context";
 
@@ -172,7 +174,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+    <div className="min-h-screen">
       <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} />
 
       <div className="transition-all duration-300 ease-in-out px-12 py-8" style={{ marginLeft: 'var(--sidebar-width, 0px)' }}>
@@ -484,12 +486,24 @@ function ContentTransformer({
   const hasAudio = !!module.audio_url;
   const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
   const [language, setLanguage] = useState<'en' | 'hi'>('en');
-  const [selectedOption, setSelectedOption] = useState<'audio' | 'infographic' | 'mindmap' | 'video'>('audio');
+  const [selectedOption, setSelectedOption] = useState<'audio' | 'infographic' | 'infographics' | 'mindmap' | 'video' | 'roleplay'>('audio');
   const [chatInput, setChatInput] = useState('');
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [audioOpen, setAudioOpen] = useState(false);
+  const [infographicSections, setInfographicSections] = useState<any[] | null>(null);
+  const [infographicLoading, setInfographicLoading] = useState(false);
+  const [mindmapData, setMindmapData] = useState<any | null>(null);
+  const [mindmapLoading, setMindmapLoading] = useState(false);
   const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
   const [chatLoading, setChatLoading] = useState(false);
+
+  // Roleplay-specific state
+  const [roleplayPersona, setRoleplayPersona] = useState<string>('Coach');
+  const [roleplayScenario, setRoleplayScenario] = useState<string>('');
+  const [roleplayHistory, setRoleplayHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [roleplayInput, setRoleplayInput] = useState<string>('');
+  const [roleplayLoading, setRoleplayLoading] = useState(false);
+  const [roleplayPersist, setRoleplayPersist] = useState<boolean>(false);
 
   const handleTimeUpdate = (current: number, duration: number) => {
     if (!duration || !plainTranscript) return;
@@ -562,6 +576,46 @@ function ContentTransformer({
     }
   };
 
+  // Roleplay send handler
+  const handleSendRoleplay = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!roleplayInput.trim() || roleplayLoading) return;
+
+    const userMessage = roleplayInput.trim();
+    setRoleplayInput('');
+
+    const newUserMessage = { role: 'user' as const, content: userMessage };
+    setRoleplayHistory(prev => [...prev, newUserMessage]);
+    setRoleplayLoading(true);
+
+    try {
+      const response = await fetch('/api/roleplay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          processed_module_id: module.processed_module_id,
+          user_message: userMessage,
+          persona: roleplayPersona,
+          scenario: roleplayScenario,
+          chat_history: roleplayHistory,
+          persist: roleplayPersist,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.message) {
+        setRoleplayHistory(prev => [...prev, { role: 'assistant', content: data.message }]);
+      } else {
+        setRoleplayHistory(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
+      }
+    } catch (err) {
+      console.error('Roleplay error:', err);
+      setRoleplayHistory(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
+    } finally {
+      setRoleplayLoading(false);
+    }
+  };
+
   return (
     <div className="mb-10 w-full">
       <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-lg mb-6">
@@ -612,7 +666,39 @@ function ContentTransformer({
           </div>
 
           <div
-            onClick={() => setSelectedOption('mindmap')}
+            onClick={async () => {
+              setSelectedOption('mindmap');
+              setMindmapData(null);
+              setMindmapLoading(true);
+              try {
+                const studyText = plainTranscript || module.content || '';
+                const res = await fetch('/api/generate-mindmap', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ content: studyText, title: module.title }),
+                });
+                let data: any = null;
+                try {
+                  data = await res.json();
+                } catch (err) {
+                  const raw = await res.clone().text();
+                  console.error('[mindmap] parse error, raw:', raw.slice(0, 400));
+                  data = null;
+                }
+
+                if (res.ok && data && data.nodes && data.edges) {
+                  setMindmapData(data);
+                } else {
+                  console.error('[mindmap] generation failed', data);
+                  setMindmapData(null);
+                }
+              } catch (e) {
+                console.error('Error generating mindmap', e);
+                setMindmapData(null);
+              } finally {
+                setMindmapLoading(false);
+              }
+            }}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
               selectedOption === 'mindmap'
@@ -625,8 +711,65 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Structured concepts</div>
           </div>
 
+          {/* Flash cards (previously Infographic) */}
           <div
-            onClick={() => setSelectedOption('infographic')}
+            onClick={async () => {
+              // If already generated, just open the view
+              if (infographicSections && infographicSections.length > 0) {
+                setSelectedOption('infographic');
+                return;
+              }
+
+              try {
+                setInfographicLoading(true);
+                const studyText = plainTranscript || module.content || '';
+                console.log('[infographic] starting fetch, studyText length:', (studyText || '').length);
+                const res = await fetch('/api/generate-infographic-gemini', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ content: studyText }),
+                });
+
+                // Read raw text for debugging first, then attempt to parse JSON
+                const raw = await res.clone().text();
+                console.log('[infographic] fetch status:', res.status, 'raw preview:', raw.slice(0, 400));
+
+                let data: any = null;
+                try {
+                  data = await res.json();
+                } catch (parseErr) {
+                  console.error('[infographic] failed to parse JSON from response, parseErr:', parseErr);
+                  // fallback: try to parse raw substring
+                  try {
+                    data = JSON.parse(raw);
+                  } catch (e2) {
+                    data = { raw };
+                  }
+                }
+
+                console.log('[infographic] parsed response:', data);
+
+                if (res.ok) {
+                  // Expecting an array of { heading, points }
+                  if (Array.isArray(data)) {
+                    setInfographicSections(data);
+                  } else if (data && data.error) {
+                    setInfographicSections([{ heading: 'Infographic generation failed', points: [data.error || data.detail || 'See console for details'] }]);
+                  } else {
+                    setInfographicSections([{ heading: 'Infographic: unexpected response', points: [JSON.stringify(data).slice(0, 300)] }]);
+                  }
+                } else {
+                  // Surface error to the UI so the user sees feedback instead of a silent failure
+                  setInfographicSections([{ heading: 'Infographic generation failed', points: [data?.error || data?.detail || 'See console for details'] }]);
+                  console.error('Infographic generation failed', data);
+                }
+              } catch (e) {
+                console.error('Error generating infographic', e);
+              } finally {
+                setInfographicLoading(false);
+                setSelectedOption('infographic');
+              }
+            }}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
               selectedOption === 'infographic'
@@ -634,16 +777,16 @@ function ContentTransformer({
                 : 'bg-white border-slate-300 hover:border-slate-400'
             )}
           >
-            <div className="text-3xl mb-3">🖼️</div>
-            <div className="font-bold text-slate-900 text-sm">Infographic</div>
+            <div className="text-3xl mb-3">🃏</div>
+            <div className="font-bold text-slate-900 text-sm">Flash cards</div>
             <div className="text-slate-500 text-xs mt-1">Visual summary</div>
           </div>
 
           <div
-            onClick={() => setSelectedOption('Role-playing Exercise')}
+            onClick={() => setSelectedOption('roleplay')}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
-              selectedOption === 'Role-playing Exercise'
+              selectedOption === 'roleplay'
                 ? 'bg-slate-50 border-green-500 shadow-lg'
                 : 'bg-white border-slate-300 hover:border-slate-400'
             )}
@@ -793,11 +936,118 @@ function ContentTransformer({
           </div>
         )}
 
+        {/* Placeholder / generated output for other options */}
         {selectedOption !== 'audio' && selectedOption !== 'video' && (
-          <div className="rounded-xl border border-slate-200 bg-white p-12 text-center">
-            <div className="text-slate-600 text-sm">
-              {selectedOption === 'infographic' && '📊 Infographic generation coming soon...'}
-              {selectedOption === 'mindmap' && '🗺️ Mindmap generation coming soon...'}
+          <div className="rounded-xl border border-slate-200 bg-white p-12 text-left">
+            <div className="text-slate-600 text-sm text-left">
+                  {selectedOption === 'infographic' && (
+                    <div>
+                      {infographicLoading && (
+                        <div className="flex flex-col items-center">
+                          <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
+                          <div>Generating infographic...</div>
+                        </div>
+                      )}
+
+                      {!infographicLoading && (
+                        <InfographicCards sections={infographicSections} />
+                      )}
+                    </div>
+                  )}
+
+                  {selectedOption === 'infographics' && (
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="text-4xl">🛠️</div>
+                      <div className="text-lg font-semibold">Infographics coming soon</div>
+                      <div className="text-sm text-slate-500">We're working on more visual summaries — stay tuned.</div>
+                    </div>
+                  )}
+
+              {selectedOption === 'mindmap' && (
+                <div>
+                  {mindmapLoading && (
+                    <div className="flex flex-col items-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
+                      <div>Generating mindmap...</div>
+                    </div>
+                  )}
+
+                  {!mindmapLoading && mindmapData && (
+                    <div className="w-full h-[60vh] rounded-lg border p-2 bg-white overflow-auto">
+                      <MindmapViewer data={mindmapData} source={module.content || ''} />
+                    </div>
+                  )}
+
+                  {!mindmapLoading && !mindmapData && (
+                    <div className="text-sm text-gray-500">Click the Mindmap tile to generate and view the mindmap.</div>
+                  )}
+
+                  {/* Debug preview removed */}
+                </div>
+              )}
+
+              {selectedOption === 'roleplay' && (
+                <div>
+                  <div className="mb-4 grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Persona</label>
+                      <input
+                        value={roleplayPersona}
+                        onChange={(e) => setRoleplayPersona(e.target.value)}
+                        className="w-full rounded border px-3 py-2 text-sm"
+                        placeholder="e.g., Supportive manager"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Scenario</label>
+                      <input
+                        value={roleplayScenario}
+                        onChange={(e) => setRoleplayScenario(e.target.value)}
+                        className="w-full rounded border px-3 py-2 text-sm"
+                        placeholder="Short scenario (what's the goal)"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                      <input type="checkbox" checked={roleplayPersist} onChange={(e) => setRoleplayPersist(e.target.checked)} />
+                      <span>Save transcript</span>
+                    </label>
+                  </div>
+
+                  <div className="rounded-xl border p-4 mb-4 max-h-64 overflow-auto bg-white">
+                    {roleplayHistory.length === 0 ? (
+                      <div className="text-sm text-gray-500">Start the roleplay by sending a message.</div>
+                    ) : (
+                      roleplayHistory.map((msg, idx) => (
+                        <div key={idx} className={clsx('mb-3', msg.role === 'user' ? 'text-right' : 'text-left')}>
+                          <div className={clsx('inline-block px-4 py-2 rounded-lg', msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800')}>
+                            {msg.content}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <form onSubmit={handleSendRoleplay} className="flex gap-3">
+                    <input
+                      value={roleplayInput}
+                      onChange={(e) => setRoleplayInput(e.target.value)}
+                      placeholder="Speak in character..."
+                      className="flex-1 outline-none text-slate-700 placeholder-slate-400 bg-gray-50 rounded-lg px-4 py-3 border border-gray-200 focus:border-blue-500 focus:bg-white transition-all"
+                      disabled={roleplayLoading}
+                    />
+                    <button
+                      type="submit"
+                      className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={roleplayLoading || !roleplayInput.trim()}
+                    >
+                      {roleplayLoading ? 'Sending...' : 'Send'}
+                    </button>
+                  </form>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -892,6 +1142,8 @@ function ContentTransformer({
 function AudioSection(props: any) {
   return <ContentTransformer {...props} />;
 }
+
+// Debug preview removed
 
 // Helper to format content with beautiful card-based UI
 function formatContent(content: string) {
