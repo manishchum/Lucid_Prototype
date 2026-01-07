@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import fetch from 'node-fetch';
 import { callGemini } from '@/lib/gemini-helper';
 
+
 // Using Google Cloud Text-to-Speech REST API with service account credentials
 // Set GOOGLE_APPLICATION_CREDENTIALS to point to your service account JSON file
 // Env:
@@ -28,25 +29,28 @@ const admin = createClient(supabaseUrl, serviceKey || process.env.NEXT_PUBLIC_SU
 const BUCKET = 'module_audio';
 
 function generateJWT(credentials: any): string {
-  const crypto = require('crypto');
+  const crypto = require('crypto' );
   const header = { alg: 'RS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     iss: credentials.client_email,
+    sub: credentials.client_email,
     scope: 'https://www.googleapis.com/auth/cloud-platform',
     aud: 'https://oauth2.googleapis.com/token',
     exp: now + 3600,
     iat: now,
   };
-  
-  const headerB64 = Buffer.from(JSON.stringify(header)).toString('base64').replace(/[=+/]/g, (m: string) => ({ '=': '', '+': '-', '/': '_' }[m as '=' | '+' | '/'] || ''));
-  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64').replace(/[=+/]/g, (m: string) => ({ '=': '', '+': '-', '/': '_' }[m as '=' | '+' | '/'] || ''));
+
+  const headerB64 = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+
+  const privateKey = credentials.private_key.replace(/\\n/g, '\n').trim();
+
   const signature = crypto
     .createSign('RSA-SHA256')
     .update(`${headerB64}.${payloadB64}`)
-    .sign(credentials.private_key, 'base64')
-    .replace(/[=+/]/g, (m: string) => ({ '=': '', '+': '-', '/': '_' }[m as '=' | '+' | '/'] || ''));
-  
+    .sign(privateKey, 'base64url');
+
   return `${headerB64}.${payloadB64}.${signature}`;
 }
 
@@ -244,7 +248,7 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
     header.writeUInt32LE(pcmBuffer.length, 40);
     return Buffer.concat([header, pcmBuffer]);
   }
-  
+
   const pcmBuffers: Buffer[] = [];
   const SAMPLE_RATE = 24000;
   const BYTES_PER_SAMPLE = 2;
@@ -267,11 +271,10 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
     if (!credPath) {
       return { error: 'GOOGLE_APPLICATION_CREDENTIALS not set', status: 500 } as const;
     }
-    
     const fs = await import('fs');
     const credContent = fs.readFileSync(credPath, 'utf8');
     const credentials = JSON.parse(credContent);
-    
+
     const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -280,13 +283,13 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
         assertion: generateJWT(credentials),
       }),
     });
-    
+
     if (!tokenResp.ok) {
       const errText = await tokenResp.text();
       console.error('[TTS API] Failed to get access token:', errText);
       return { error: `Failed to get Google access token: ${errText}`, status: 500 } as const;
     }
-    
+
     const tokenData = await tokenResp.json();
     accessToken = (tokenData as any).access_token;
     if (!accessToken) {
@@ -296,7 +299,7 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
     console.error('[TTS API] Error getting access token:', err);
     return { error: `Failed to initialize TTS: ${err?.message}`, status: 500 } as const;
   }
-  
+
   // Generate audio for each dialogue segment with appropriate voice
   for (let i = 0; i < dialogue.length; i++) {
     const segment = dialogue[i];
@@ -316,21 +319,21 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
     const requestBody = {
       input: { text: segment.text },
       voice: voice,
-      audioConfig: { 
+      audioConfig: {
         audioEncoding: 'LINEAR16',
         sampleRateHertz: 24000,
         speakingRate: 1.0,
         pitch: 0.0
       },
     };
-    
+
     try {
       console.log(`[TTS] Synthesizing segment ${i + 1}/${dialogue.length} (${segment.speaker}, ${language})...`);
       const response = await fetch(
         `https://texttospeech.googleapis.com/v1/text:synthesize`,
         {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${accessToken}`
           },
@@ -341,19 +344,19 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
       if (!response.ok) {
         const errorText = await response.text();
         console.error('[TTS API] Google TTS REST API error:', response.status, errorText);
-        return { 
-          error: `Google TTS API failed: ${response.statusText}. ${errorText}`, 
-          status: response.status 
+        return {
+          error: `Google TTS API failed: ${response.statusText}. ${errorText}`,
+          status: response.status
         } as const;
       }
 
       const data = await response.json();
       const audioContent = (data as any).audioContent;
-      
+
       if (!audioContent) {
         return { error: 'TTS returned no audio for a segment', status: 500 } as const;
       }
-      
+
       const buf = Buffer.from(audioContent, 'base64');
       
       // Calculate duration from PCM buffer length
@@ -382,9 +385,9 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
     } catch (ttsErr: any) {
       const errMsg = ttsErr?.message || String(ttsErr);
       console.error('[TTS API] Google Cloud TTS error:', errMsg);
-      return { 
-        error: `Google Cloud TTS failed: ${errMsg}`, 
-        status: 500 
+      return {
+        error: `Google Cloud TTS failed: ${errMsg}`,
+        status: 500
       } as const;
     }
   }
@@ -451,6 +454,7 @@ export async function GET(request: NextRequest) {
     const legacy = url.searchParams.get('module_id');
     const language = (url.searchParams.get('language') || 'en') as 'en' | 'hinglish';
     const moduleId = processed || legacy;
+    const language = url.searchParams.get('language') || 'en';
 
     let targetId = moduleId;
     if (!targetId) {

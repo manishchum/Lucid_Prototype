@@ -191,8 +191,6 @@ export async function POST(request: NextRequest) {
     processed_module_id: m?.processed_module_id || null,
   }));
 
-
-
   // console.log("Error inside the insrtion block:", rowsToInsert);
   console.log("Error inside the insrtion block:", rowsToInsert);
 

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download } from "lucide-react";
+import { formatContentType } from '@/lib/contentType';
 
 interface Admin {
   user_id: string
@@ -26,31 +27,127 @@ type KPIUploadResult = {
 };
 
 // Placeholder ContentUpload Component
-function ContentUpload({ 
-  companyId, 
-  adminId, 
-  onUploadComplete 
-}: { 
-  companyId: string; 
-  adminId: string; 
-  onUploadComplete: () => void; 
+function ContentUpload({
+  companyId,
+  adminId,
+  onUploadComplete
+}: {
+  companyId: string;
+  adminId: string;
+  onUploadComplete: () => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
 
+  const isMediaFile = (type: string) => type.includes('video/') || type.includes('audio/') || type.match(/\.(mp4|mp3|wav|mov|avi|m4a)$/i);
+
+  const triggerAIProcessing = async (file: File, moduleId: string, fileUrl: string) => {
+    try {
+      console.log(`[AI] Starting processing for module: ${moduleId}`);
+
+      // Update status to transcribing/summarizing immediately
+      const initialStatus = isMediaFile(file.type) ? 'transcribing' : 'summarizing';
+      await supabase.from('training_modules').update({ processing_status: initialStatus }).eq('module_id', moduleId);
+      onUploadComplete(); // Refresh UI to show status change
+
+      if (isMediaFile(file.type)) {
+        // Step 1: Extract/Transcribe
+        const extractRes = await fetch('/api/extract-and-analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileUrl, fileType: file.type, moduleId })
+        });
+
+        if (!extractRes.ok) throw new Error('Transcription failed');
+        const { extractedText } = await extractRes.json();
+
+        // Step 2: Process text with GPT
+        await fetch('/api/openai-upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: extractedText, moduleId })
+        });
+      } else {
+        // Direct file upload for documents/spreadsheets
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('moduleId', moduleId);
+
+        await fetch('/api/openai-upload', {
+          method: 'POST',
+          body: formData
+        });
+      }
+
+      console.log(`[AI] Processing triggered successfully for module: ${moduleId}`);
+      onUploadComplete(); // Final refresh
+    } catch (err) {
+      console.error('[AI] Pipeline failed:', err);
+      await supabase.from('training_modules').update({ processing_status: 'failed' }).eq('module_id', moduleId);
+      onUploadComplete();
+    }
+  };
+
   const handleUpload = async () => {
     if (!file || !title) return;
-    
+
     setUploading(true);
     try {
-      // Simple file upload placeholder
-      // console.log('Uploading content:', { title, description, file });
-      // In a real implementation, this would upload to storage and create training module
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('title', title);
+      formData.append('description', description);
+
+      const response = await fetch('/api/content-library/upload', {
+        method: 'POST',
+        headers: {
+          'x-company-id': companyId,
+          'x-admin-id': adminId
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Upload failed');
+      }
+
+      const result = await response.json();
+      console.log('Upload successful:', result);
+
+      const uploadedFile = result.inserted?.[0];
+      if (uploadedFile) {
+        const { data: moduleData, error: tmError } = await supabase
+          .from('training_modules')
+          .insert({
+            company_id: companyId,
+            title: title,
+            description: description,
+            content_url: uploadedFile.module,
+            content_type: file.type,
+            processing_status: 'pending'
+          })
+          .select()
+          .single();
+
+        if (tmError) {
+          console.error('Failed to create training module entry:', tmError);
+        } else if (moduleData) {
+          // Trigger AI background processing
+          triggerAIProcessing(file, moduleData.module_id, uploadedFile.module);
+        }
+      }
+
+      setFile(null);
+      setTitle('');
+      setDescription('');
       onUploadComplete();
-    } catch (error) {
+      alert('Content uploaded! AI analysis is running in the background.');
+    } catch (error: any) {
       console.error('Upload failed:', error);
+      alert(`Upload failed: ${error.message}`);
     } finally {
       setUploading(false);
     }
@@ -67,7 +164,7 @@ function ContentUpload({
           placeholder="Enter training module title"
         />
       </div>
-      
+
       <div>
         <Label htmlFor="description">Description</Label>
         <Input
@@ -77,7 +174,7 @@ function ContentUpload({
           placeholder="Enter description"
         />
       </div>
-      
+
       <div>
         <Label htmlFor="file">Upload File</Label>
         <Input
@@ -87,7 +184,7 @@ function ContentUpload({
           onChange={(e) => setFile(e.target.files?.[0] || null)}
         />
       </div>
-      
+
       <Button onClick={handleUpload} disabled={!file || !title || uploading}>
         {uploading ? 'Uploading...' : 'Upload Content'}
       </Button>
@@ -101,23 +198,48 @@ function UploadedFilesList({ companyId }: { companyId: string }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Placeholder - in real implementation would load files from storage
-    setFiles([]);
-    setLoading(false);
+    const fetchFiles = async () => {
+      try {
+        const { data, error } = await supabase
+          .storage
+          .from('content library')
+          .list('uploads/', {
+            limit: 100,
+            offset: 0,
+            sortBy: { column: 'created_at', order: 'desc' },
+          });
+
+        if (error) throw error;
+        setFiles(data || []);
+      } catch (error) {
+        console.error('Error fetching files:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (companyId) {
+      fetchFiles();
+    }
   }, [companyId]);
 
   if (loading) {
-    return <div>Loading files...</div>;
+    return <div className="text-gray-500 italic">Loading files...</div>;
   }
 
   return (
     <div>
-      <h3 className="text-lg font-semibold mb-4">Uploaded Files</h3>
+      <h3 className="text-lg font-semibold mb-4">Uploaded Files in Storage</h3>
       {files.length === 0 ? (
-        <p className="text-gray-500">No uploaded files found</p>
+        <p className="text-gray-400 italic">No storage files found</p>
       ) : (
-        <div>
-          {/* File list would go here */}
+        <div className="grid gap-2">
+          {files.map((file, idx) => (
+            <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded border text-sm">
+              <span className="truncate flex-1 mr-4">{file.name}</span>
+              <span className="text-gray-400 text-xs">{(file.metadata?.size / 1024 / 1024).toFixed(2)} MB</span>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -204,13 +326,13 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
           {uploading ? "Uploading..." : "Upload"}
         </Button>
       </div>
-      
+
       <div className="text-xs text-gray-500">
         Expected format: employee_id, kpi_name, score, period, notes
       </div>
 
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-      
+
       {preview.length > 0 && (
         <div className="mb-2">
           <div className="font-semibold mb-1">Preview (first 10 rows):</div>
@@ -229,7 +351,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
           </div>
         </div>
       )}
-      
+
       {result && (
         <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded">
           <div className="font-semibold text-green-800">Upload Result:</div>
@@ -322,13 +444,13 @@ function KPIDefinitionsUpload({ companyId }: { companyId?: string }) {
           {uploading ? "Uploading..." : "Upload"}
         </Button>
       </div>
-      
+
       <div className="text-xs text-gray-500">
         Expected format: kpi_name, description, category, target_value, unit
       </div>
 
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-      
+
       {preview.length > 0 && (
         <div className="mb-2">
           <div className="font-semibold mb-1">Preview (first 10 rows):</div>
@@ -347,7 +469,7 @@ function KPIDefinitionsUpload({ companyId }: { companyId?: string }) {
           </div>
         </div>
       )}
-      
+
       {result && (
         <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded">
           <div className="font-semibold text-green-800">Upload Result:</div>
@@ -401,12 +523,16 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'COMPLETED':
+    switch (status?.toLowerCase()) {
+      case 'completed':
         return <Badge className="bg-green-100 text-green-800">Ready</Badge>;
-      case 'PROCESSING':
-        return <Badge className="bg-blue-100 text-blue-800">Processing</Badge>;
-      case 'FAILED':
+      case 'pending':
+        return <Badge className="bg-orange-100 text-orange-800">Pending</Badge>;
+      case 'transcribing':
+      case 'summarizing':
+      case 'processing':
+        return <Badge className="bg-blue-100 text-blue-800 animate-pulse">Processing</Badge>;
+      case 'failed':
         return <Badge className="bg-red-100 text-red-800">Failed</Badge>;
       default:
         return <Badge variant="secondary">{status}</Badge>;
@@ -419,10 +545,10 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
         // Extract the storage path from the content_url
         // The URL format is like: https://...storage.../training-content/file-path?token=...
         // We need to extract the file path and create a fresh signed URL
-        
+
         const url = new URL(module.content_url);
         const pathSegments = url.pathname.split('/');
-        
+
         // Find the index where 'training-content' is and get everything after it
         const trainingContentIndex = pathSegments.indexOf('training-content');
         if (trainingContentIndex === -1) {
@@ -430,9 +556,9 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           window.open(module.content_url, '_blank');
           return;
         }
-        
+
         const storagePath = pathSegments.slice(trainingContentIndex + 1).join('/');
-        
+
         // Generate a fresh signed URL with longer expiry (24 hours)
         const { data, error } = await supabase
           .storage
@@ -467,7 +593,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
         .eq('module_id', moduleId);
 
       if (error) throw error;
-      
+
       // Reload modules
       loadTrainingModules();
     } catch (error: any) {
@@ -496,7 +622,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       {/* Content Upload Section */}
       <div className="border-b pb-4">
         <h3 className="text-lg font-semibold mb-2">Upload New Training Content</h3>
-        <ContentUpload 
+        <ContentUpload
           companyId={companyId}
           adminId={adminId}
           onUploadComplete={loadTrainingModules}
@@ -506,7 +632,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       {/* Training Modules List */}
       <div>
         <h3 className="text-lg font-semibold mb-4">Training Modules ({trainingModules.length})</h3>
-        
+
         {trainingModules.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <Upload className="w-12 h-12 mx-auto mb-4 opacity-50" />
@@ -524,13 +650,13 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                         <h4 className="font-medium text-gray-900">{module.title}</h4>
                         {getStatusBadge(module.processing_status)}
                       </div>
-                      
+
                       {module.description && (
                         <p className="text-sm text-gray-600 mb-2">{module.description}</p>
                       )}
-                      
+
                       <div className="flex items-center gap-4 text-xs text-gray-500">
-                        <span>Type: {module.content_type}</span>
+                        <span>Type: {formatContentType(module.content_type)}</span>
                         <span>Created: {new Date(module.created_at).toLocaleDateString()}</span>
                         {module.ai_modules && (
                           <span>AI Processed: Yes</span>
@@ -539,18 +665,18 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                     </div>
 
                     <div className="flex gap-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => handleViewModule(module)}
                       >
                         <Eye className="w-4 h-4 mr-1" />
                         View
                       </Button>
-                      
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
+
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => handleDeleteModule(module.module_id)}
                         className="text-red-600 hover:text-red-800"
                       >
@@ -619,8 +745,8 @@ export default function UploadsPage() {
       }
 
       // Check if user has Admin role
-      const hasAdminRole = roleData.some((assignment: any) => 
-        assignment.roles?.name?.toLowerCase() === 'admin' || 
+      const hasAdminRole = roleData.some((assignment: any) =>
+        assignment.roles?.name?.toLowerCase() === 'admin' ||
         assignment.roles?.name?.toLowerCase() === 'super_admin'
       );
 
@@ -741,8 +867,8 @@ export default function UploadsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <TrainingContentManagement 
-            companyId={admin.company_id} 
+          <TrainingContentManagement
+            companyId={admin.company_id}
             adminId={admin.user_id}
           />
         </CardContent>
