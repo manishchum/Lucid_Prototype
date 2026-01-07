@@ -134,23 +134,23 @@ export default function EmployeeWelcome() {
         // Try to fetch processed_modules rows where either the original_module_id or the processed_module_id
         // matches any of the module ids we have. Some rows store IDs under processed_module_id instead.
         const { data: pModsByOriginal } = await supabase
-          .from('processed_modules')
-          .select('processed_module_id, title, original_module_id')
-          .in('original_module_id', mIds);
+          .from('training_modules')
+          .select('module_id, title')
+          .in('module_id', mIds);
 
-        const { data: pModsByProcessed } = await supabase
-          .from('processed_modules')
-          .select('processed_module_id, title, original_module_id')
-          .in('processed_module_id', mIds);
+        // const { data: pModsByProcessed } = await supabase
+        //   .from('processed_modules')
+        //   .select('processed_module_id, title, original_module_id')
+        //   .in('processed_module_id', mIds);
 
-        const pMods = Array.from(new Map([...(pModsByOriginal || []), ...(pModsByProcessed || [])].map((r: any) => [r.processed_module_id || r.original_module_id || JSON.stringify(r), r])).values());
-
+        const pMods = Array.from(new Map([...(pModsByOriginal || [])].map((r: any) => [r.module_id  || JSON.stringify(r), r])).values());
+        console.log(pMods)
         // TEMP LOG: inspect processed_modules rows
         try {
           console.log('[debug] processed_modules (pMods combined):', pMods);
         } catch (e) { /* ignore */ }
 
-        const pIds = pMods?.map((m: any) => m.processed_module_id) || [];
+        const pIds = pMods?.map((m: any) => m.module_id) || [];
         const { data: pProg } = await supabase
           .from('module_progress')
           .select('*')
@@ -174,8 +174,8 @@ export default function EmployeeWelcome() {
         const titleByProcessedId: Record<string, string> = {};
         (pMods || []).forEach((pm: any) => {
           if (pm) {
-            if (pm.original_module_id) {
-              titleByOriginal[pm.original_module_id] = pm.title || `Module ${pm.original_module_id}`;
+            if (pm.module_id) {
+              titleByOriginal[pm.module_id] = pm.title || `Module ${pm.original_module_id}`;
             }
             if (pm.processed_module_id) {
               titleByProcessedId[pm.processed_module_id] = pm.title || `Module ${pm.processed_module_id}`;
