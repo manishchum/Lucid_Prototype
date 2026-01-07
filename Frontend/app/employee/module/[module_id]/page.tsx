@@ -218,54 +218,54 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
     }
   };
 
-  const handleSendChat = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!chatInput.trim() || chatLoading || !module?.processed_module_id) return;
+  // const handleSendChat = async (e: FormEvent<HTMLFormElement>) => {
+  //   e.preventDefault();
+  //   if (!chatInput.trim() || chatLoading || !module?.processed_module_id) return;
 
-    const userMessage = chatInput.trim();
-    setChatInput('');
+  //   const userMessage = chatInput.trim();
+  //   setChatInput('');
 
-    const newUserMessage = { role: 'user' as const, content: userMessage };
-    setUserChatHistory((prev) => [...prev, newUserMessage]);
-    setChatLoading(true);
+  //   const newUserMessage = { role: 'user' as const, content: userMessage };
+  //   setUserChatHistory((prev) => [...prev, newUserMessage]);
+  //   setChatLoading(true);
 
-    try {
-      const response = await fetch('/api/module-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          processed_module_id: module.processed_module_id,
-          user_message: userMessage,
-          chat_history: userChatHistory,
-        }),
-      });
+  //   try {
+  //     const response = await fetch('/api/module-chat', {
+  //       method: 'POST',
+  //       headers: { 'Content-Type': 'application/json' },
+  //       body: JSON.stringify({
+  //         processed_module_id: module.processed_module_id,
+  //         user_message: userMessage,
+  //         chat_history: userChatHistory,
+  //       }),
+  //     });
 
-      const data = await response.json();
+  //     const data = await response.json();
 
-      if (response.ok && data.message) {
-        setUserChatHistory((prev) => [...prev, { role: 'assistant', content: data.message }]);
-      } else {
-        setUserChatHistory((prev) => [
-          ...prev,
-          {
-            role: 'assistant',
-            content: 'Sorry, I encountered an error. Please try again.',
-          },
-        ]);
-      }
-    } catch (error) {
-      console.error('Chat error:', error);
-      setUserChatHistory((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: 'Sorry, I encountered an error. Please try again.',
-        },
-      ]);
-    } finally {
-      setChatLoading(false);
-    }
-  };
+  //     if (response.ok && data.message) {
+  //       setUserChatHistory((prev) => [...prev, { role: 'assistant', content: data.message }]);
+  //     } else {
+  //       setUserChatHistory((prev) => [
+  //         ...prev,
+  //         {
+  //           role: 'assistant',
+  //           content: 'Sorry, I encountered an error. Please try again.',
+  //         },
+  //       ]);
+  //     }
+  //   } catch (error) {
+  //     console.error('Chat error:', error);
+  //     setUserChatHistory((prev) => [
+  //       ...prev,
+  //       {
+  //         role: 'assistant',
+  //         content: 'Sorry, I encountered an error. Please try again.',
+  //       },
+  //     ]);
+  //   } finally {
+  //     setChatLoading(false);
+  //   }
+  // };
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center">Loading module content...</div>;
