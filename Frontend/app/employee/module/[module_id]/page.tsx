@@ -1030,17 +1030,17 @@ function ContentTransformer({
 
         {selectedOption === 'audio' && audioOpen && (
           <div className="space-y-3 flex flex-col">
-            {!hasCurrentLanguageAudio(language) && (
-              <div className="flex items-center gap-3">
-                <select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value as 'en' | 'hinglish')}
-                  className="px-3 py-1 rounded border text-sm bg-white"
-                >
-                  <option value="en">English</option>
-                  <option value="hinglish">Hinglish</option>
-                </select>
+             <div className="flex items-center gap-3">
+              <select
+                value={language}
+                onChange={(e) => setLanguage(e.target.value as 'en' | 'hinglish')}
+                className="px-3 py-1 rounded border text-sm bg-white"
+              >
+                <option value="en">English</option>
+                <option value="hinglish">हिंदी</option>
+              </select>
 
+              {!hasCurrentLanguageAudio(language) && (
                 <GenerateAudioButton
                   moduleId={module.processed_module_id}
                   onAudioGenerated={(url, data) => {
@@ -1057,10 +1057,10 @@ function ContentTransformer({
                   }}
                   language={language}
                 />
-              </div>
-            )}
+              )}
+            </div>
 
-            {hasAudio && (
+            {hasCurrentLanguageAudio(language) && (
               <>
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                   <AudioPlayer
@@ -1072,32 +1072,6 @@ function ContentTransformer({
                     onPlayExtra={handleResetTranscript}
                     className="w-full"
                   />
-                </div>
-
-                <div className="flex items-center gap-2 justify-end">
-                  <select
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value as 'en' | 'hinglish')}
-                    className="px-3 py-1 rounded border text-sm bg-white"
-                  >
-                    <option value="en">English</option>
-                    <option value="hinglish">Hinglish</option>
-                  </select>
-
-                  {!hasCurrentLanguageAudio(language) && (
-                    <GenerateAudioButton
-                      moduleId={module.processed_module_id}
-                      onAudioGenerated={(url, data) => {
-                        onAudioGenerated(url, data);
-                        if (data?.timeline && Array.isArray(data.timeline)) {
-                          setPodcastTimeline(data.timeline);
-                        } else if (!data?.timeline) {
-                          console.warn('[ContentTransformer] No timeline returned from audio generation');
-                        }
-                      }}
-                      language={language}
-                    />
-                  )}
                 </div>
 
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
