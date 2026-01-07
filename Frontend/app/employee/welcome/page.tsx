@@ -486,8 +486,16 @@ export default function EmployeeWelcome() {
                         <div className="ml-auto flex items-center gap-3">
                           {/* Only show Baseline button when admin/learning_plan enables baseline for this module */}
                           {m.hasBaseline ? (
-                            <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-4 py-2 rounded-md border border-slate-200 text-sm font-bold text-slate-700 bg-white hover:bg-slate-50">
-                              Baseline
+                            <button
+                              onClick={() => {
+                                // Prevent navigation if baseline already completed
+                                if (!m.baselinePending) return;
+                                router.push(`/employee/assessment?moduleId=${m.id}`);
+                              }}
+                              disabled={!m.baselinePending}
+                              className={`px-4 py-2 rounded-md border border-slate-200 text-sm font-bold ${m.baselinePending ? 'text-slate-700 bg-white hover:bg-slate-50' : 'text-slate-400 bg-slate-50 cursor-not-allowed'}`}
+                            >
+                              {m.baselinePending ? 'Baseline' : 'Baseline Completed'}
                             </button>
                           ) : null}
 
