@@ -953,7 +953,7 @@ function ContentTransformer({
                 setInfographicLoading(true);
                 const studyText = plainTranscript || module.content || '';
                 console.log('[infographic] starting fetch, studyText length:', (studyText || '').length);
-                const res = await fetch('/api/generate-infographic-gemini', {
+                const res = await fetch('/api/generate-flashcards-gemini', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ content: studyText }),
@@ -1011,6 +1011,7 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Visual summary</div>
           </div>
 
+          {/* Infographics button removed - keep only Flash cards button */}
           <div
             onClick={() => setSelectedOption('roleplay')}
             className={clsx(
@@ -1024,6 +1025,7 @@ function ContentTransformer({
             <div className="font-bold text-slate-900 text-sm">Role-playing Exercise</div>
             <div className="text-slate-500 text-xs mt-1">Role Play</div>
           </div>
+
         </div>
 
         {selectedOption === 'audio' && audioOpen && (
@@ -1222,18 +1224,14 @@ function ContentTransformer({
                       )}
 
                       {!infographicLoading && (
-                        <InfographicCards sections={infographicSections} />
+                        <div>
+                              <InfographicCards sections={infographicSections} />
+                        </div>
                       )}
                     </div>
                   )}
 
-                  {selectedOption === 'infographics' && (
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="text-4xl">🛠️</div>
-                      <div className="text-lg font-semibold">Infographics coming soon</div>
-                      <div className="text-sm text-slate-500">We're working on more visual summaries — stay tuned.</div>
-                    </div>
-                  )}
+                  {/* 'infographic' (singular) is used to show generated sections inline */}
 
               {selectedOption === 'mindmap' && (
                 <div>
@@ -1616,4 +1614,72 @@ function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string,
       {error && <div className="text-red-600 mt-2">{error}</div>}
     </div>
   );
+}
+
+// Helper: escape XML-sensitive characters for safe insertion into SVG
+function escapeXml(unsafe: string) {
+  if (!unsafe) return '';
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+// Build a simple 16:9 infographic SVG string from sections.
+// sections: array of { heading: string, points: string[] }
+function buildInfographicSVG(sections: any[], title: string) {
+  const w = 1920;
+  const h = 1080;
+  const marginX = 120;
+  const startY = 160;
+  const boxHeight = 220;
+  const gapY = 28;
+  const maxSections = 4;
+  const items = Array.isArray(sections) ? sections.slice(0, maxSections) : [];
+
+  const header = escapeXml(title || 'Infographic');
+
+  const colors = ['#E8F4FF', '#EFFCF0', '#FFF7E8', '#F6F0FF'];
+
+  const rects = items.map((s: any, i: number) => {
+    const y = startY + i * (boxHeight + gapY);
+    const heading = escapeXml(String(s.heading || '').slice(0, 80));
+    const points = Array.isArray(s.points) ? s.points : (typeof s.points === 'string' ? [s.points] : []);
+    // Render up to 6 bullet points
+    const bullets = (points || []).slice(0, 6).map((p: any, idx: number) => {
+      const px = marginX + 32;
+      const py = y + 80 + idx * 30;
+      const txt = escapeXml(String(p || '').replace(/\s+/g, ' ').trim()).slice(0, 120);
+      return `<text x="${px}" y="${py}" font-family="Inter, Arial, sans-serif" font-size="20" fill="#1f2937">• ${txt}</text>`;
+    }).join('\n');
+
+    const color = colors[i % colors.length];
+
+    return `
+      <g>
+        <rect x="${marginX}" y="${y}" rx="18" ry="18" width="${w - marginX * 2}" height="${boxHeight}" fill="${color}" stroke="#D1D5DB" stroke-width="1" />
+        <text x="${marginX + 28}" y="${y + 46}" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="700" fill="#0f172a">${heading}</text>
+        ${bullets}
+      </g>
+    `;
+  }).join('\n');
+
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+  <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <style>
+      .title { font-family: Inter, Arial, sans-serif; font-size:48px; font-weight:800; fill:#0b3b66 }
+    </style>
+    <rect width="100%" height="100%" fill="#ffffff" />
+    <g>
+      <text x="${marginX}" y="88" class="title">${header}</text>
+    </g>
+    ${rects}
+    <g>
+      <text x="${marginX}" y="${h - 48}" font-family="Inter, Arial, sans-serif" font-size="14" fill="#6b7280">Boost Productivity • Generated by Lucid</text>
+    </g>
+  </svg>`;
+
+  return svg;
 }

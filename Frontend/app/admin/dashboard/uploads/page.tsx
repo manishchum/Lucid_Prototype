@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download } from "lucide-react";
+import { formatContentType } from '@/lib/contentType';
 
 interface Admin {
   user_id: string
@@ -655,7 +656,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                       )}
 
                       <div className="flex items-center gap-4 text-xs text-gray-500">
-                        <span>Type: {module.content_type}</span>
+                        <span>Type: {formatContentType(module.content_type)}</span>
                         <span>Created: {new Date(module.created_at).toLocaleDateString()}</span>
                         {module.ai_modules && (
                           <span>AI Processed: Yes</span>

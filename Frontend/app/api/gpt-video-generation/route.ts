@@ -102,9 +102,9 @@ For each scene, provide:
 1. title: A concise scene title.
 2. spoken_script: The natural narration text.
 3. slide_bullets: 2-3 key points for the slide.
-4. visual_prompt: A descriptive 1-sentence prompt for a high-quality, artistic background image (strictly no text, no human faces) relevant to the scene topic (e.g., "An abstract digital landscape representing network security with glowing nodes").
+4. visual_prompt: A descriptive 1-sentence prompt for a high-quality, artistic, light-colored, and professional background image (strictly no text, no human faces, e.g., "A bright minimalist workspace with soft shadows", "Soft pastel abstract gradients", "Clean architectural details with natural light").
 
-CRITICAL: Return JSON ONLY in this format:
+CRITICAL: Return JSON ONLY in this format. Ensure all strings are properly escaped for valid JSON (especially double quotes inside narration).
 [
   {
     "title": "...",
@@ -140,7 +140,7 @@ async function generateImagenImage(prompt: string, outFile: string) {
     console.log(`[IMAGEN] Generating with prompt: ${prompt}`);
 
     // Newer Imagen 3 endpoint for Google AI Studio / Gemini API
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${key}`, {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${key}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -172,7 +172,6 @@ async function generateImagenImage(prompt: string, outFile: string) {
 
 async function renderFallbackAssets(dir: string) {
   const bgPath = path.join(dir, "fallback-bg.png");
-  const avPath = path.join(dir, "fallback-av.png");
 
   const browser = await puppeteer.launch({
     headless: true,
@@ -182,17 +181,18 @@ async function renderFallbackAssets(dir: string) {
   try {
     const page = await browser.newPage();
 
-    // 1. Render Background
+    // 1. Render Background (Light Professional)
     await page.setViewport({ width: 1280, height: 720 });
-    await page.setContent(`<body style="margin:0; background: linear-gradient(135deg, #0f172a, #1e1b4b); width:1280px; height:720px;"></body>`);
+    await page.setContent(`<body style="margin:0; background: linear-gradient(135deg, #f8fafc, #e2e8f0); width:1280px; height:720px;"></body>`);
     await page.screenshot({ path: bgPath });
 
     // 2. Render Tiny Transparent/Empty Avatar Fallback
     await page.setViewport({ width: 1, height: 1 });
     await page.setContent(`<body style="margin:0; background: transparent;"></body>`);
-    await page.screenshot({ path: avPath, omitBackground: true });
+    const fallbackAvatar = path.join(dir, "fallback-av.png");
+    await page.screenshot({ path: fallbackAvatar, omitBackground: true });
 
-    return { bgPath, avPath };
+    return { bgPath, fallbackAvatar };
   } finally {
     await browser.close();
   }
@@ -276,7 +276,8 @@ async function renderSlide(scene: Scene, index: number, dir: string): Promise<st
 /* 4. COMPOSITION */
 /* ------------------------------------------------------------------ */
 
-async function composeScene(background: string, overlay: string, avatar: string, audio: string, out: string, fallbacks: { bgPath: string, avPath: string }) {
+async function composeScene(background: string, overlay: string, avatar: string, audio: string, out: string, fallbacks: { bgPath: string, fallbackAvatar: string }) {
+  console.log("[Compose] Scene args:", { bg: background, av: avatar, fallbacks });
   return new Promise<void>(async (resolve, reject) => {
     const proc = ffmpeg();
 
@@ -303,7 +304,7 @@ async function composeScene(background: string, overlay: string, avatar: string,
     } catch (e) { }
 
     // Input 2: Avatar (Real image only, avoid lavfi)
-    proc.input(avatarExists ? avatar : fallbacks.avPath).inputOptions("-loop 1");
+    proc.input(avatarExists ? avatar : fallbacks.fallbackAvatar).inputOptions("-loop 1");
 
     // Input 3: Audio
     proc.input(audio);
@@ -359,6 +360,8 @@ async function generateVideo(processedModuleId: string): Promise<string> {
 
   console.log("Preparing fallback assets...");
   const fallbacks = await renderFallbackAssets(tmpDir);
+
+  console.log("Generating AI instructor avatar...");
   const avatar = await generateAvatarImage(tmpDir);
 
   const sceneVideos: string[] = [];
@@ -414,9 +417,13 @@ async function generateVideo(processedModuleId: string): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
+  console.log("[GPT-VIDEO] POST request received");
   try {
-    const { processed_module_id } = await req.json();
+    const body = await req.json();
+    console.log("[GPT-VIDEO] Body parsed:", body);
+    const { processed_module_id } = body;
     if (!processed_module_id) return NextResponse.json({ error: "Missing ID" }, { status: 400 });
+    console.log("[GPT-VIDEO] Starting generation for:", processed_module_id);
     const videoUrl = await generateVideo(processed_module_id);
     return NextResponse.json({ videoUrl });
   } catch (e: any) {
