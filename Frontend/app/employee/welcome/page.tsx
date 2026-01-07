@@ -130,13 +130,7 @@ export default function EmployeeWelcome() {
       setBaselineRequired(requiresBaseline);
 
       const assignedPlans = planRows?.filter((p: any) => p.status === 'ASSIGNED') || [];
-      // TEMP LOGS: inspect returned learning_plan rows and assigned plans
-      try {
-        console.log('[debug] learning_plan rows:', planRows);
-        console.log('[debug] assignedPlans:', assignedPlans);
-      } catch (e) {
-        /* ignore console errors */
-      }
+      // TEMP LOG: inspect returned learning_plan rows and assigned plans
       const mIds = assignedPlans.map((p: any) => p.module_id).filter(Boolean);
       
       // Calculate Progress and resolve module titles
@@ -157,24 +151,34 @@ export default function EmployeeWelcome() {
         const pMods = Array.from(new Map([...(pModsByOriginal || []), ...(pModsByProcessed || [])].map((r: any) => [r.processed_module_id || r.original_module_id || JSON.stringify(r), r])).values());
 
         // TEMP LOG: inspect processed_modules rows
-        try {
-          console.log('[debug] processed_modules (pMods combined):', pMods);
-        } catch (e) { /* ignore */ }
 
         const pIds = pMods?.map((m: any) => m.processed_module_id) || [];
-        // Fetch module_progress and include the linked processed_modules row so we can map back to original module ids
-        const { data: pProg } = await supabase
-          .from('module_progress')
-          .select('*, processed_modules(processed_module_id, original_module_id)')
-          .eq('user_id', employeeData.user_id)
-          .in('processed_module_id', pIds);
+        // Fetch module_progress and include the linked processed_modules row so we can map back to original module ids.
+        // Try lookup by processed_module ids first; if that yields no rows (or we have no pIds), fall back to fetching
+        // all module_progress rows for the user and rely on processed_modules.original_module_id to match learning_plan.module_id.
+        let pProg: any[] | null = null;
+        if (pIds && pIds.length > 0) {
+          const { data: byProcessed, error: byProcessedErr } = await supabase
+            .from('module_progress')
+            .select('*, processed_modules(processed_module_id, original_module_id)')
+            .eq('user_id', employeeData.user_id)
+            .in('processed_module_id', pIds);
+          if (!byProcessedErr && byProcessed && byProcessed.length > 0) {
+            pProg = byProcessed;
+          }
+        }
 
-        // TEMP LOG: inspect module_progress rows
-        try {
-          console.log('[debug] module_progress (pProg):', pProg);
-        } catch (e) { /* ignore */ }
+        if (!pProg || pProg.length === 0) {
+          const { data: allProg, error: allProgErr } = await supabase
+            .from('module_progress')
+            .select('*, processed_modules(processed_module_id, original_module_id)')
+            .eq('user_id', employeeData.user_id);
+          if (!allProgErr && allProg) pProg = allProg;
+        }
 
-  const completedCount = pProg?.filter((p: any) => p.completed_at).length || 0;
+        // TEMP LOGs removed
+
+        const completedCount = (pProg || []).filter((p: any) => p.completed_at).length || 0;
         const prog = mIds.length > 0 ? Math.round((completedCount / mIds.length) * 100) : 0;
         setProgressPercentage(prog);
         if (employeeData.company_id) await fetchCompanyStats(employeeData.company_id, employeeData.user_id, prog);
@@ -200,7 +204,10 @@ export default function EmployeeWelcome() {
         const progressByOriginalId: Record<string, any> = {};
         (pProg || []).forEach((pp: any) => {
           if (!pp) return;
+          // map by processed_module_id when present
           if (pp.processed_module_id) progressByProcessedId[String(pp.processed_module_id)] = pp;
+          // If module_progress stores the original module id directly, map by that as well
+          if (pp.module_id) progressByOriginalId[String(pp.module_id)] = pp;
           // If the joined processed_modules object exists, map by its original_module_id as well
           if (pp.processed_modules && pp.processed_modules.original_module_id) {
             progressByOriginalId[String(pp.processed_modules.original_module_id)] = pp;
@@ -229,6 +236,8 @@ export default function EmployeeWelcome() {
           const progEntry = (resolvedProcessedId && progressByProcessedId[resolvedProcessedId]) || progressByOriginalId[String(p.module_id)] || null;
           const percentComplete = progEntry && progEntry.completed_at ? 100 : 0;
 
+          // mapping debug logs removed
+
           return {
             id: p.module_id,
             title: resolvedTitle,
@@ -243,8 +252,7 @@ export default function EmployeeWelcome() {
           };
         });
 
-        // TEMP LOG: mapped assigned modules
-        try { console.log('[debug] mappedAssignedModules (initial):', mappedAssigned); } catch (e) {}
+  // mappedAssignedModules logging removed
 
         // Determine whether each module's baseline (if enabled) is still pending for this user.
         // We need to look up training_modules to get baseline_assessment_id for each module,
@@ -277,7 +285,7 @@ export default function EmployeeWelcome() {
               baselineAssessmentId: baselinePendingByModule[m.id] ? (trainingMods.find((tm: any) => tm.module_id === m.id)?.baseline_assessment_id ?? null) : null,
             }));
 
-            try { console.log('[debug] enrichedAssignedModules:', enriched); } catch (e) {}
+            // enrichedAssignedModules logging removed
             setAssignedModules(enriched);
           } else {
             setAssignedModules(mappedAssigned);
@@ -506,9 +514,14 @@ export default function EmployeeWelcome() {
                     {assignedModules.map((m) => (
                       <div key={m.id} className="flex items-center gap-6 p-6 bg-white">
                         <div className="flex items-center gap-4 min-w-0">
-                          <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
-                            {m.percentComplete != null ? `${m.percentComplete}%` : '0%'}
-                          </div>
+                          {(m.percentComplete ?? 0) > 0 ? (
+                            <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
+                              {`${m.percentComplete}%`}
+                            </div>
+                          ) : (
+                            // render empty ring on the left to keep alignment
+                            <div className="w-14 h-14 rounded-full border-4 border-slate-50 bg-white" />
+                          )}
 
                           <div className="min-w-0">
                             <p className="text-lg font-extrabold text-slate-900 truncate max-w-[70vw] md:max-w-[40vw]">{m.title || `Module ${m.id}`}</p>
