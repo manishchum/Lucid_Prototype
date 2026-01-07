@@ -218,7 +218,7 @@ export async function POST(request: NextRequest) {
         feedback: row?.feedback ?? null,
       };
     });
-    // console.log("[Training Plan API] Baseline percent assessments:", baselinePercentAssessments);
+    console.log("[Training Plan API] Baseline percent assessments:", baselinePercentAssessments);
 
     // Compute hash only from baseline assessments so module quizzes don't change the plan
     // Include module_id in the hash when provided so cached plans are scoped per-module
@@ -429,21 +429,18 @@ export async function POST(request: NextRequest) {
           return `KPI: ${desc}, Score: ${score}, Benchmark: ${benchmark}, Datatype: ${datatype}`;
         }).join("\n");
     }
-
-    // Compose prompt for Gemini
-    const prompt =
-      "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan. If KPI scores (description, score, benchmark, and datatype) are available, use them; otherwise, rely only on baseline assessments.\n\n" +
+const prompt1 = "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan. If KPI scores (description, score, benchmark, and datatype) are available, use them; otherwise, rely only on baseline assessments.\n\n" +
       geminiText + "\n\n" +
       (kpiText ? kpiText + "\n\n" : "") +
       "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n" +
       "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
+      
       "CRITICAL MODULE SELECTION REQUIREMENTS - MUST FOLLOW:\n" +
       "- For scores 0-30%: YOU MUST recommend MINIMUM 4-5 modules, NO EXCEPTIONS. Allocate 5-6 hours per module.\n" +
       "- For scores 31-50%: YOU MUST recommend MINIMUM 3-4 modules. Allocate 4-5 hours per module.\n" +
       "- For scores 51-70%: Recommend 3 modules minimum. Allocate 3-4 hours per module.\n" +
       "- For scores 71-85%: Recommend 2-3 modules. Allocate 2-3 hours per module.\n" +
       "- For scores 86-100%: Recommend 1-2 modules. Allocate 2 hours per module.\n" +
-      "- SELECT modules from the Available Modules list that match the employee's weak areas.\n" +
       "- NEVER recommend only 1 module for low scores (below 50%). This is MANDATORY.\n" +
       "- Each module must include: title (or name), recommended_time (in hours), and order.\n" +
       "- Prioritize modules addressing the most critical skill gaps shown in the assessment.\n\n" +
@@ -464,7 +461,6 @@ export async function POST(request: NextRequest) {
       "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, learning style, and KPI factors (including benchmark and datatype) influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, learning style, and KPIs (including benchmark and datatype)\n- Explicitly explain how the score, benchmark, and datatype influenced the number of modules and total study hours.\n\n" +
       "Assessment Results (baseline only, percentage-based):\n" + JSON.stringify(baselinePercentAssessments, null, 2) + "\n\n" +
       "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
-      "REMEMBER: Based on the assessment score percentage, you MUST include the minimum number of modules specified above. For a score of 23%, you MUST include at least 4-5 modules.\n\n" +
       "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n" +
       "JSON format:\n" +  
       "{\n" +
@@ -481,6 +477,52 @@ export async function POST(request: NextRequest) {
       "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
       "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"kpi_influence\": string,\n  \"overall_strategy\": string\n}\n" +
       "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
+
+      const prompt2 = "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan. If KPI scores (description, score, benchmark, and datatype) are available, use them; otherwise, rely only on baseline assessments.\n\n" +
+      geminiText + "\n\n" +
+      (kpiText ? kpiText + "\n\n" : "") +
+      "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n" +
+      "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
+      
+      "CRITICAL MODULE SELECTION REQUIREMENTS - MUST FOLLOW:\n" +
+      "YOU MUST recommend MINIMUM 3-4 modules. Allocate 4-5 hours per module.\n" +
+      "IF THERE ARE LESS MODULES AVAILABLE GENERATE MORE MODULES TO MEET THE MINIMUM REQUIREMENT.\n" +
+      "THE MODULES YOU GENERATE MUST BE RELEVANT TO THE TOPIC AND SIMILAR IN STYLE TO THE AVAILABLE MODULES.\n\n" +
+
+      "- NEVER recommend only 1 module for low scores (below 50%). This is MANDATORY.\n" +
+      "- Each module must include: title (or name), recommended_time (in hours), and order.\n" +
+      "- Prioritize modules addressing the most critical skill gaps shown in the assessment.\n\n" +
+      "The plan should:\n" +
+      "- Map each selected module to specific weaknesses\n" +
+      "- Specify study order, recommended time per module (in hours)\n" +
+      "- Include actionable tips and recommendations\n" +
+      "- Ensure all recommendations align with the employee's learning style\n" +
+      
+      "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, learning style, and KPI factors (including benchmark and datatype) influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, learning style, and KPIs (including benchmark and datatype)\n- Explicitly explain how the score, benchmark, and datatype influenced the number of modules and total study hours.\n\n" +
+      "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
+      "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n" +
+      "JSON format:\n" +  
+      "{\n" +
+      "  \"plan\": {\n" +
+      "    \"modules\": [\n" +
+      "      { \"title\": \"Module Name\", \"recommended_time\": 5, \"order\": 1 },\n" +
+      "      { \"title\": \"Module Name 2\", \"recommended_time\": 5, \"order\": 2 },\n" +
+      "       \"and so on...\\n" +
+      "    ],\n" +
+      "    \"tips\": \"...\"\n" +
+      "  },\n" +
+      "  \"reasoning\": { ... }\n" +
+      "}\n" +
+      "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
+      "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"kpi_influence\": string,\n  \"overall_strategy\": string\n}\n" +
+      "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
+
+
+
+
+    // Compose prompt for Gemini
+    const prompt =
+      baselinePercentAssessments.length > 0 ? prompt1 : prompt2;
     // // console.log("[Training Plan API] Prompt for Gemini:", prompt);
 
     // Call Gemini with gemini-2.5flash-lite model

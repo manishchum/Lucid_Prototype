@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
     const userId = url.searchParams.get('user_id')
     if (!userId) return NextResponse.json({ error: 'user_id required' }, { status: 400 })
 
-    const { data, error } = await supabase.from('chatbot_user_interactions').select('chat').eq('user_id', userId).single()
+    const { data, error } = await supabase.from('chatbot_user_interactions').select('ask_doubt').eq('user_id', userId).single()
     if (error) {
       console.warn('[assistant/chat] supabase select error', { user: userId, error })
       // return an empty array rather than a hard failure so the frontend can still render

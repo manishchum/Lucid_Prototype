@@ -65,25 +65,88 @@ export async function POST(req: NextRequest) {
           ? `Objectives for this module:\n${objectives.map((obj: string, idx: number) => `${idx + 1}. ${obj}`).join("\n")}`
           : "";
 
-  // Compose a JSON-first prompt so we can reliably convert to the exact layout required by the front-end
-  const style = mod.learning_style;
-  const stylePrompt = `You are an expert instructional designer. Convert the Study Text below into a STRICT JSON object that represents a complete training module.
+        // Compose prompt for the learning style of this row
+        const style = mod.learning_style;
+        const stylePrompt = `You are an expert instructional designer. Your task is to write a complete, self-contained training module for employees, as if it were a chapter in a professional textbook.
 
-Rules (follow EXACTLY):
-1) OUTPUT ONLY valid JSON between BEGIN_JSON and END_JSON markers. Do NOT include any other text.
-2) JSON shape: { "title": string, "learning_objectives": [string,...], "sections": [ { "heading": string, "body": string, "activity": { "title": string, "objective": string, "time": string, "instructions": [string,...], "reflection_questions": [string,...] } } ], "module_summary": string }
-3) Include at least 2 and up to 6 sections.
-4) Use ONLY the Study Text below; do not invent unrelated examples.
-
-BEGIN_JSON
-{ "title": "...", "learning_objectives": ["..."], "sections": [ { "heading":"...","body":"...","activity":{ "title":"...","objective":"...","time":"20 minutes","instructions":["..."],"reflection_questions":["..."] } } ], "module_summary": "A concise summary of the module in 2-4 sentences." }
-END_JSON
-
-Study Text:
 Module Title: "${mod.title}"
 ${topicsText}
 ${objectivesText}
-${mod.content || ''}`;
+
+Instructions:
+1. Structure the content with clear sections using these EXACT section headers (use these exact labels):
+- Start with "Learning Objectives:" followed by a numbered list of 3-5 objectives
+- Create AT LEAST 3-5 main content sections using "Section 1: [descriptive title]", "Section 2: [descriptive title]", etc.
+- After EACH section, include a corresponding activity: "Activity 1: [descriptive title]", "Activity 2: [descriptive title]", etc.
+- End with "Module Summary:" for the conclusion
+2. For EACH section, provide:
+- Detailed explanations (2-4 paragraphs minimum)
+- Practical examples and real-world scenarios
+- Key concepts and frameworks
+- Best practices and tips
+3. For EACH activity, provide:
+- Clear objectives for the activity
+- Step-by-step instructions (numbered steps)
+- Expected outcomes
+- Reflection questions or discussion prompts
+- Estimated time to complete (e.g., "Time: 15 minutes")
+4. Ensure comprehensive coverage:
+- Each section should be substantial (300-500 words)
+- Activities should be practical and hands-on
+- Connect each section to real workplace scenarios
+- Use concrete examples from business settings
+
+5. Adapt the content for the following Gregorc learning style: ${style}
+- CS (Concrete Sequential): Use hands-on activities, clear instructions, logical sequence, deadlines, and factual information with checklists.
+- CR (Concrete Random): Encourage experimentation, discovery, trial-and-error, flexibility, and problem-solving with open-ended tasks.
+- AS (Abstract Sequential): Focus on analysis, intellectual exploration, theoretical models, research, and analytical activities.
+- AR (Abstract Random): Foster reflection, emotional connection, group discussion, collaborative activities, and personal engagement.
+6. Format each section clearly:
+- Use the section headers mentioned above (Learning Objectives:, Section 1:, Activity 1:, etc.)
+- Separate each major section with a blank line
+- Use clear paragraph breaks within sections
+- Use bullet points (•) or numbered lists (1., 2., 3.) where appropriate
+- NEVER use Markdown formatting (no # headings, no **, no backticks)
+- NEVER include learning style codes (CS, CR, AS, AR) in the content
+
+EXAMPLE STRUCTURE (follow this pattern):
+
+Learning Objectives:
+1. [First objective]
+2. [Second objective]
+3. [Third objective]
+
+Section 1: Introduction to [Topic]
+[Detailed explanation paragraph 1...]
+[Detailed explanation paragraph 2...]
+[Examples and scenarios...]
+[Key takeaways...]
+
+Activity 1: [Activity Name]
+Objective: [What learners will achieve]
+Time: 20 minutes
+Instructions:
+1. [Step 1]
+2. [Step 2]
+3. [Step 3]
+Reflection: [Questions for thinking]
+
+Section 2: [Next Major Topic]
+[Detailed content...]
+
+Activity 2: [Next Activity]
+[Activity content...]
+
+Section 3: [Advanced Concepts]
+[Detailed content...]
+
+Activity 3: [Practical Application]
+[Activity content...]
+
+Module Summary:
+[Comprehensive summary of all key points...]
+
+IMPORTANT: Create AT LEAST 2-3 full sections with corresponding activities. Make the content rich, practical, and workplace-relevant.`;
         
         // console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
         
