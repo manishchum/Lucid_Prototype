@@ -78,7 +78,13 @@ function cleanTextForTTS(text: string) {
     .trim();
 }
 
-function buildGeminiPodcastPrompt(moduleTitle: string, moduleContent: string): string {
+function buildGeminiPodcastPrompt(moduleTitle: string, moduleContent: string, language: 'en' | 'hinglish' = 'en'): string {
+  const languageInstruction = language === 'hinglish' 
+    ? 'Generate the entire podcast script in Hinglish. Both Sarah and Mark should speak in Indian Hinglish with more on hindi side rather than english.'
+    : 'Generate the entire podcast script in English.';
+  
+  const dialogueCount = language === 'hinglish' ? '12-15' : '20-30';
+  
   return `Create a podcast script for a conversation between two hosts:
 - Sarah (host) - conversational, engaging, asks good questions
 - Mark (interviewee) - expert, explains concepts clearly, practical examples
@@ -89,18 +95,19 @@ Content to cover:
 ${moduleContent}
 
 Instructions:
-1. Create a natural conversation with back-and-forth dialogue between Sarah and Mark
-2. Sarah asks questions, Mark explains and provides insights
-3. Keep each response concise (1-3 sentences per speaker turn)
-4. Skip activities, homework, and discussion prompts
-5. Focus on key concepts and practical takeaways
-6. Make it engaging and informative
+1. ${languageInstruction}
+2. Create a natural conversation with back-and-forth dialogue between Sarah and Mark
+3. Sarah asks questions, Mark explains and provides insights
+4. Keep each response concise (1-3 sentences per speaker turn)
+5. Skip activities, homework, and discussion prompts
+6. Focus on key concepts and practical takeaways
+7. Make it engaging and informative
 
 Format each line as:
 Sarah: [text]
 Mark: [text]
 
-Generate about 10-20 dialogue exchanges.`;
+Generate about ${dialogueCount} dialogue exchanges.`;
 }
 
 interface DialogueLine {
@@ -135,7 +142,7 @@ function parseGeminiDialogue(text: string): DialogueLine[] {
   return dialogue.slice(0, 30); // Max 30 segments
 }
 
-async function synthesizeAndStore(processedModuleId: string) {
+async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'hinglish' = 'en') {
   // Fetch module content from processed_modules
   const { data: module, error: moduleError } = await admin
     .from('processed_modules')
@@ -150,14 +157,18 @@ async function synthesizeAndStore(processedModuleId: string) {
   if (!fullContent) return { error: 'Empty content', status: 400 } as const;
 
   // Call Gemini to generate podcast dialogue
-  console.log('[TTS] Calling Gemini to generate podcast script...');
-  const prompt = buildGeminiPodcastPrompt(module.title, fullContent);
+  console.log(`[TTS] Calling Gemini to generate podcast script (language: ${language})...`);
+  const prompt = buildGeminiPodcastPrompt(module.title, fullContent, language);
   
   let geminiResponse: string = '';
   try {
+    // Use lower token limits for Hinglish to avoid API errors
+    const maxTokens = language === 'hinglish' ? 800 : 1200;
+    const temp = language === 'hinglish' ? 0.3 : 0.35;
+    
     const geminiResult = await callGemini(prompt, { 
-      temperature: 0.35,
-      maxOutputTokens: 1200
+      temperature: temp,
+      maxOutputTokens: maxTokens
     });
     
     if (!geminiResult.ok) {
@@ -268,10 +279,17 @@ async function synthesizeAndStore(processedModuleId: string) {
   for (let i = 0; i < dialogue.length; i++) {
     const segment = dialogue[i];
     
-    // Choose voice based on speaker
-    const voice = segment.speaker === 'sarah' 
-      ? { languageCode: 'en-US', name: 'en-US-Neural2-F', ssmlGender: 'FEMALE' }  // Sarah - female voice
-      : { languageCode: 'en-US', name: 'en-US-Neural2-J', ssmlGender: 'MALE' };   // Mark - male voice
+    // Choose voice based on speaker and language
+    let voice;
+    if (language === 'hinglish') {
+      voice = segment.speaker === 'sarah' 
+        ? { languageCode: 'en-IN', name: 'en-IN-Neural2-A', ssmlGender: 'FEMALE' }  // Sarah - female voice (Indian English for Hinglish)
+        : { languageCode: 'en-IN', name: 'en-IN-Neural2-B', ssmlGender: 'MALE' };   // Mark - male voice (Indian English for Hinglish)
+    } else {
+      voice = segment.speaker === 'sarah' 
+        ? { languageCode: 'en-US', name: 'en-US-Neural2-F', ssmlGender: 'FEMALE' }  // Sarah - female voice (English)
+        : { languageCode: 'en-US', name: 'en-US-Neural2-J', ssmlGender: 'MALE' };   // Mark - male voice (English)
+    }
     
     const requestBody = {
       input: { text: segment.text },
@@ -285,7 +303,7 @@ async function synthesizeAndStore(processedModuleId: string) {
     };
     
     try {
-      console.log(`[TTS] Synthesizing segment ${i + 1}/${dialogue.length} (${segment.speaker})...`);
+      console.log(`[TTS] Synthesizing segment ${i + 1}/${dialogue.length} (${segment.speaker}, ${language})...`);
       const response = await fetch(
         `https://texttospeech.googleapis.com/v1/text:synthesize`,
         {
@@ -377,21 +395,31 @@ async function synthesizeAndStore(processedModuleId: string) {
     .getPublicUrl(fileName);
   const audioUrl = publicUrlData?.publicUrl;
 
-  // Update processed_modules with audio_url, podcast_transcript, podcast_timeline, and generated_at
+  // Update processed_modules with language-specific columns
+  const updateData = language === 'hinglish' 
+    ? {
+        audio_url_hinglish: audioUrl,
+        podcast_transcript_hinglish: dialogue.map(d => `${d.speaker}: ${d.text}`).join('\n'),
+        podcast_timeline_hinglish: JSON.stringify(podcastTimeline),
+        audio_generated_at: new Date().toISOString() 
+      }
+    : {
+        audio_url: audioUrl,
+        podcast_transcript: dialogue.map(d => `${d.speaker}: ${d.text}`).join('\n'),
+        podcast_timeline: JSON.stringify(podcastTimeline),
+        audio_generated_at: new Date().toISOString() 
+      };
+
   const { error: updateErr } = await admin
     .from('processed_modules')
-    .update({ 
-      audio_url: audioUrl,
-      podcast_transcript: dialogue.map(d => `${d.speaker}: ${d.text}`).join('\n'),
-      podcast_timeline: JSON.stringify(podcastTimeline),
-      audio_generated_at: new Date().toISOString() 
-    })
+    .update(updateData)
     .eq('processed_module_id', processedModuleId);
   if (updateErr) {
     return { error: `DB update failed: ${updateErr.message}`, status: 500 } as const;
   }
 
-  return { audioUrl, podcastTimeline } as const;
+  const podcastTranscript = dialogue.map(d => `${d.speaker}: ${d.text}`).join('\n');
+  return { audioUrl, podcastTimeline, podcastTranscript } as const;
 }
 
 export async function GET(request: NextRequest) {
@@ -399,6 +427,7 @@ export async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const processed = url.searchParams.get('processed_module_id');
     const legacy = url.searchParams.get('module_id');
+    const language = (url.searchParams.get('language') || 'en') as 'en' | 'hinglish';
     const moduleId = processed || legacy;
 
     let targetId = moduleId;
@@ -429,12 +458,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No processed_modules found to synthesize' }, { status: 404 });
     }
 
-    const result = await synthesizeAndStore(targetId);
+    const result = await synthesizeAndStore(targetId, language);
     if ('error' in result) {
       console.error('[TTS API][GET] Synthesis failed:', result.error);
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
-    return NextResponse.json({ audioUrl: result.audioUrl, podcastTimeline: result.podcastTimeline, processed_module_id: targetId });
+    return NextResponse.json({ audioUrl: result.audioUrl, podcastTimeline: result.podcastTimeline, podcastTranscript: result.podcastTranscript, processed_module_id: targetId });
   } catch (err: any) {
     const errMsg = err?.message || String(err);
     console.error('[TTS API][GET] Error:', errMsg, err);
@@ -446,14 +475,15 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const module_id = body.processed_module_id || body.module_id;
+    const language = (body.language || 'en') as 'en' | 'hinglish';
     if (!module_id) return NextResponse.json({ error: 'Missing processed_module_id' }, { status: 400 });
 
-    const result = await synthesizeAndStore(module_id);
+    const result = await synthesizeAndStore(module_id, language);
     if ('error' in result) {
       console.error('[TTS API][POST] Synthesis failed:', result.error);
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
-    return NextResponse.json({ audioUrl: result.audioUrl, podcastTimeline: result.podcastTimeline, processed_module_id: module_id });
+    return NextResponse.json({ audioUrl: result.audioUrl, podcastTimeline: result.podcastTimeline, podcastTranscript: result.podcastTranscript, processed_module_id: module_id });
   } catch (err: any) {
     const errMsg = err?.message || String(err);
     console.error('[TTS API][POST] Error:', errMsg, err);

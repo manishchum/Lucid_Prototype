@@ -67,7 +67,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       } catch (e) {
         console.error('[module] employee fetch error', e);
       }
-      const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style, user_id, podcast_timeline";
+      const selectCols = "processed_module_id, title, content, audio_url, audio_url_hinglish, original_module_id, learning_style, user_id, podcast_timeline, podcast_timeline_hinglish, podcast_transcript, podcast_transcript_hinglish";
       let data: any = null;
       const { data: directData, error: directError } = await supabase
         .from('processed_modules')
@@ -259,7 +259,26 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                   liveTranscript={liveTranscript}
                   plainTranscript={plainTranscript}
                   setLiveTranscript={setLiveTranscript}
-                  onAudioGenerated={(url: string) => setModule((m: any) => ({ ...m, audio_url: url }))}
+                  onAudioGenerated={(url: string, data?: { transcript?: string; timeline?: any; language?: 'en' | 'hinglish' }) => {
+                    setModule((m: any) => {
+                      const language = data?.language || 'en';
+                      if (language === 'hinglish') {
+                        return {
+                          ...m,
+                          audio_url_hinglish: url,
+                          podcast_transcript_hinglish: data?.transcript || m.podcast_transcript_hinglish,
+                          podcast_timeline_hinglish: data?.timeline ? JSON.stringify(data.timeline) : m.podcast_timeline_hinglish,
+                        };
+                      } else {
+                        return {
+                          ...m,
+                          audio_url: url,
+                          podcast_transcript: data?.transcript || m.podcast_transcript,
+                          podcast_timeline: data?.timeline ? JSON.stringify(data.timeline) : m.podcast_timeline,
+                        };
+                      }
+                    });
+                  }}
                   hasVideo={hasVideo}
                   setHasVideo={setHasVideo}
                   onVideoGenerated={(url: string) => {
@@ -656,9 +675,20 @@ function ContentTransformer({
   setHasVideo,
   onVideoGenerated,
 }: any) {
-  const hasAudio = !!module.audio_url;
+  // Check if audio exists for each language
+  const hasEnglishAudio = !!(module.audio_url && module.podcast_transcript && module.podcast_timeline);
+  const hasHinglishAudio = !!(module.audio_url_hinglish && module.podcast_transcript_hinglish && module.podcast_timeline_hinglish);
+  const hasAudio = hasEnglishAudio || hasHinglishAudio;
+  
+  // Check if current language audio is available
+  const hasCurrentLanguageAudio = (language: 'en' | 'hinglish') => {
+    if (language === 'hinglish') {
+      return hasHinglishAudio;
+    }
+    return hasEnglishAudio;
+  };
   const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
-  const [language, setLanguage] = useState<'en' | 'hi'>('en');
+  const [language, setLanguage] = useState<'en' | 'hinglish'>('en');
   const [selectedOption, setSelectedOption] = useState<'audio' | 'infographic' | 'infographics' | 'mindmap' | 'video' | 'roleplay'>('audio');
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [audioOpen, setAudioOpen] = useState(false);
@@ -682,21 +712,24 @@ function ContentTransformer({
 
   // Hydrate timeline from module.podcast_timeline on component mount
   useEffect(() => {
-    if (!module?.podcast_timeline) {
-      console.log('[ContentTransformer] No podcast_timeline in module data');
+    const timelineField = language === 'hinglish' ? 'podcast_timeline_hinglish' : 'podcast_timeline';
+    const timelineData = language === 'hinglish' ? module?.podcast_timeline_hinglish : module?.podcast_timeline;
+    
+    if (!timelineData) {
+      console.log(`[ContentTransformer] No ${timelineField} in module data`);
       return;
     }
 
     try {
-      let timeline = module.podcast_timeline;
-      // If podcast_timeline is a string (JSON), parse it
+      let timeline = timelineData;
+      // If timeline is a string (JSON), parse it
       if (typeof timeline === 'string') {
         timeline = JSON.parse(timeline);
       }
 
       // Validate timeline data structure
       if (!Array.isArray(timeline)) {
-        console.warn('[ContentTransformer] Invalid timeline format: not an array', { timeline });
+        console.warn(`[ContentTransformer] Invalid ${timelineField} format: not an array`, { timeline });
         return;
       }
 
@@ -710,22 +743,22 @@ function ContentTransformer({
       );
 
       if (!isValid) {
-        console.warn('[ContentTransformer] Timeline segments missing required fields', { timeline });
+        console.warn(`[ContentTransformer] ${timelineField} segments missing required fields`, { timeline });
         return;
       }
 
       setPodcastTimeline(timeline);
-      console.log('[ContentTransformer] Timeline loaded from module:', {
+      console.log(`[ContentTransformer] ${timelineField} loaded from module:`, {
         segmentCount: timeline.length,
         totalDuration: timeline.length > 0 ? timeline[timeline.length - 1].endSec : 0,
       });
     } catch (error) {
-      console.error('[ContentTransformer] Failed to parse podcast_timeline:', {
+      console.error(`[ContentTransformer] Failed to parse ${timelineField}:`, {
         error,
-        raw: module?.podcast_timeline,
+        raw: timelineData,
       });
     }
-  }, [module?.podcast_timeline]);
+  }, [module?.podcast_timeline, module?.podcast_timeline_hinglish, language]);
 
   const handleTimeUpdate = (current: number, duration: number, playbackRate: number = 1.0) => {
     if (!duration || podcastTimeline.length === 0) return;
@@ -997,22 +1030,34 @@ function ContentTransformer({
 
         {selectedOption === 'audio' && audioOpen && (
           <div className="space-y-3 flex flex-col">
-            {!hasAudio && (
-              <GenerateAudioButton
-                moduleId={module.processed_module_id}
-                onAudioGenerated={(url, timeline) => {
-                  onAudioGenerated(url);
-                  if (timeline && Array.isArray(timeline)) {
-                    console.log('[ContentTransformer] Timeline received from audio generation:', {
-                      segmentCount: timeline.length,
-                      totalDuration: timeline.length > 0 ? timeline[timeline.length - 1].endSec : 0,
-                    });
-                    setPodcastTimeline(timeline);
-                  } else if (!timeline) {
-                    console.warn('[ContentTransformer] No timeline returned from audio generation');
-                  }
-                }}
-              />
+            {!hasCurrentLanguageAudio(language) && (
+              <div className="flex items-center gap-3">
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value as 'en' | 'hinglish')}
+                  className="px-3 py-1 rounded border text-sm bg-white"
+                >
+                  <option value="en">English</option>
+                  <option value="hinglish">Hinglish</option>
+                </select>
+
+                <GenerateAudioButton
+                  moduleId={module.processed_module_id}
+                  onAudioGenerated={(url, data) => {
+                    onAudioGenerated(url, data);
+                    if (data?.timeline && Array.isArray(data.timeline)) {
+                      console.log('[ContentTransformer] Timeline received from audio generation:', {
+                        segmentCount: data.timeline.length,
+                        totalDuration: data.timeline.length > 0 ? data.timeline[data.timeline.length - 1].endSec : 0,
+                      });
+                      setPodcastTimeline(data.timeline);
+                    } else if (!data?.timeline) {
+                      console.warn('[ContentTransformer] No timeline returned from audio generation');
+                    }
+                  }}
+                  language={language}
+                />
+              </div>
             )}
 
             {hasAudio && (
@@ -1022,50 +1067,37 @@ function ContentTransformer({
                     employeeId={employee?.user_id}
                     processedModuleId={module.processed_module_id}
                     moduleId={module.original_module_id}
-                    audioUrl={module.audio_url}
+                    audioUrl={language === 'hinglish' ? (module.audio_url_hinglish || module.audio_url) : module.audio_url}
                     onTimeUpdate={(current, duration, playbackRate) => handleTimeUpdate(current, duration, playbackRate)}
                     onPlayExtra={handleResetTranscript}
                     className="w-full"
                   />
                 </div>
 
-                <div className="flex gap-2 justify-end">
-                  <button
-                    onClick={async () => {
-                      setLanguage('en');
-                      const res = await fetch(`/api/tts?processed_module_id=${module.processed_module_id}&language=en`);
-                      const data = await res.json();
-                      if (res.ok && data.audioUrl) {
-                        onAudioGenerated(data.audioUrl);
-                      }
-                    }}
-                    className={clsx(
-                      'px-3 py-1 rounded text-xs font-medium transition-all',
-                      language === 'en'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                    )}
+                <div className="flex items-center gap-2 justify-end">
+                  <select
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value as 'en' | 'hinglish')}
+                    className="px-3 py-1 rounded border text-sm bg-white"
                   >
-                    English
-                  </button>
-                  <button
-                    onClick={async () => {
-                      setLanguage('hi');
-                      const res = await fetch(`/api/tts?processed_module_id=${module.processed_module_id}&language=hi`);
-                      const data = await res.json();
-                      if (res.ok && data.audioUrl) {
-                        onAudioGenerated(data.audioUrl);
-                      }
-                    }}
-                    className={clsx(
-                      'px-3 py-1 rounded text-xs font-medium transition-all',
-                      language === 'hi'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                    )}
-                  >
-                    हिंदी
-                  </button>
+                    <option value="en">English</option>
+                    <option value="hinglish">Hinglish</option>
+                  </select>
+
+                  {!hasCurrentLanguageAudio(language) && (
+                    <GenerateAudioButton
+                      moduleId={module.processed_module_id}
+                      onAudioGenerated={(url, data) => {
+                        onAudioGenerated(url, data);
+                        if (data?.timeline && Array.isArray(data.timeline)) {
+                          setPodcastTimeline(data.timeline);
+                        } else if (!data?.timeline) {
+                          console.warn('[ContentTransformer] No timeline returned from audio generation');
+                        }
+                      }}
+                      language={language}
+                    />
+                  )}
                 </div>
 
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -1513,7 +1545,7 @@ function formatContent(content: string) {
 // Add GenerateAudioButton component
 
 
-function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string, onAudioGenerated: (url: string, timeline?: any) => void }) {
+function GenerateAudioButton({ moduleId, onAudioGenerated, language = 'en' }: { moduleId: string, onAudioGenerated: (url: string, data?: { transcript?: string; timeline?: any; language?: 'en' | 'hinglish' }) => void, language?: 'en' | 'hinglish' }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1521,12 +1553,31 @@ function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string,
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/tts?processed_module_id=${moduleId}`);
-      const data = await res.json();
-      if (res.ok && data.audioUrl) {
-        onAudioGenerated(data.audioUrl, data.podcastTimeline);
+      if (language === 'hinglish') {
+        // Hinglish generation implementation
+        const res = await fetch(`/api/tts?processed_module_id=${moduleId}&language=hinglish`);
+        const data = await res.json();
+        if (res.ok && data.audioUrl) {
+          onAudioGenerated(data.audioUrl, {
+            transcript: data.podcastTranscript,
+            timeline: data.podcastTimeline,
+            language: 'hinglish'
+          });
+        } else {
+          setError(data.error || 'Failed to generate Hinglish audio');
+        }
       } else {
-        setError(data.error || 'Failed to generate audio');
+        const res = await fetch(`/api/tts?processed_module_id=${moduleId}&language=en`);
+        const data = await res.json();
+        if (res.ok && data.audioUrl) {
+          onAudioGenerated(data.audioUrl, {
+            transcript: data.podcastTranscript,
+            timeline: data.podcastTimeline,
+            language: 'en'
+          });
+        } else {
+          setError(data.error || 'Failed to generate audio');
+        }
       }
     } catch (e: any) {
       setError(e?.message || 'Error generating audio');
