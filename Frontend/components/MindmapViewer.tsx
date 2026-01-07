@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useMemo } from 'react';
+import { Download } from 'lucide-react';
 
 type Node = { id: string; label: string; x: number; y: number };
 type Edge = { from: string; to: string };
@@ -522,10 +523,10 @@ export default function MindmapViewer({
                 console.error('Failed to download PNG', e);
               }
             }}
-            className="bg-white px-2 py-1 rounded shadow"
-            title="Download PNG"
+            className="bg-white px-2 py-1 rounded shadow flex items-center justify-center"
+            title="Download image"
           >
-            PNG
+            <Download size={16} />
           </button>
         </div>
 
