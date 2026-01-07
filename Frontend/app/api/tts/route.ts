@@ -84,13 +84,20 @@ function cleanTextForTTS(text: string) {
 
 function buildGeminiPodcastPrompt(moduleTitle: string, moduleContent: string, language: 'en' | 'hinglish' = 'en'): string {
   const languageInstruction = language === 'hinglish' 
-    ? 'Generate the entire podcast script in Hinglish. Both Pooja and Rahul should speak in Indian Hinglish with more on hindi side rather than english.'
+    ? `CRITICAL LANGUAGE REQUIREMENT - MUST BE FOLLOWED STRICTLY:
+- Write 85% of ALL content in HINDI (Devanagari script or romanized Hindi)
+- Use English ONLY for: technical terms, modern concepts, brand names
+- Maximum 15-20% English words allowed
+- Each sentence should be PRIMARILY Hindi with minimal English
+- Example CORRECT format: "Aaj hum baat karenge financial ratios ke baare mein jo company ki health check karne mein help karte hain"
+- Example WRONG format (DO NOT USE): "Today we are going to talk about financial ratios which help in checking company health"
+- Pooja aur Rahul dono ko Hindi mein hi baat karni hai`
     : 'Generate the entire podcast script in English.';
   
   const dialogueCount = language === 'hinglish' ? '12-15' : '20-30';
   
   const speakers = language === 'hinglish'
-    ? '- Pooja (host) - enthusiastic, warm, naturally curious, uses conversational fillers and expressions\n- Rahul (expert) - friendly teacher, uses real-world examples, explains like talking to a friend'
+    ? '- Pooja (host) - Hindi mein baat karti hai, enthusiastic, warm, naturally curious\n- Rahul (expert) - Hindi mein samjhate hain, friendly teacher, real-world examples dete hain'
     : '- Sarah (host) - enthusiastic, warm, naturally curious, uses conversational fillers and expressions\n- Mark (expert) - friendly teacher, uses real-world examples, explains like talking to a friend';
   
   return `Create a natural, engaging podcast conversation between two people:
@@ -103,18 +110,20 @@ ${moduleContent}
 
 IMPORTANT - Make it sound like a real conversation:
 1. ${languageInstruction}
-2. Use natural speech patterns - include filler words like "you know", "I mean", "actually", "right", "so"
-3. The host should react naturally - "Oh interesting!", "That makes sense", "Tell me more about that"
-4. Keep responses conversational and flowing - 2-4 sentences per turn
+2. Use natural speech patterns - include filler words ${language === 'hinglish' ? 'like "arey", "toh", "matlab", "dekho", "acha", "sahi hai", "bilkul"' : 'like "you know", "I mean", "actually", "right", "so"'}
+3. The host should react naturally - ${language === 'hinglish' ? '"Arey interesting!", "Bilkul sahi!", "Aur batao iske baare mein"' : '"Oh interesting!", "That makes sense", "Tell me more about that"'}
+4. Keep responses conversational and flowing - 2 to 4 or more sentences per turn
 5. The expert should explain concepts like teaching a friend, not lecturing
-6. Include smooth transitions between topics - "That reminds me...", "Speaking of...", "And another thing..."
+6. Include smooth transitions - ${language === 'hinglish' ? '"Isse yaad aaya...", "Iske baare mein baat karte hain...", "Ek aur cheez..."' : '"That reminds me...", "Speaking of...", "And another thing..."'}
 7. Show genuine enthusiasm and interest in the topic
 8. Avoid formal or robotic language - be warm and relatable
 9. Skip activities, homework sections, and discussion prompts
 10. Focus on practical insights and real-world applications
 
+${language === 'hinglish' ? 'REMINDER: WRITE IN HINDI! Use romanized Hindi or Devanagari. English sirf technical terms ke liye.' : ''}
+
 Format each line as:
-${language === 'hinglish' ? 'Pooja: [text]\nRahul: [text]' : 'Sarah: [text]\nMark: [text]'}
+${language === 'hinglish' ? 'Pooja: [text in Hindi with minimal English]\nRahul: [text in Hindi with minimal English]' : 'Sarah: [text]\nMark: [text]'}
 
 Generate about ${dialogueCount} natural dialogue exchanges.`;
 }
