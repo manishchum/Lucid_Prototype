@@ -334,7 +334,7 @@ export async function POST(request: NextRequest) {
             modules = tmRows.map((m: any) => ({
               processed_module_id: m.module_id,
               title: m.title,
-              content: m.content,
+              content: m.gpt_summary,
               original_module_id: m.module_id,
               training_modules: { company_id: m.company_id }
             }));
@@ -347,7 +347,11 @@ export async function POST(request: NextRequest) {
         console.error("[Training Plan API] Unexpected error filtering module:", e);
         return NextResponse.json({ error: String(e) }, { status: 500 });
       }
+
+      console.log("Inside the if statement", company_id)
+      console.log("The modules are", modules)
     } else {
+      console.log("Inside the else statement", company_id)
       // No specific module requested — fall back to previous behavior: fetch all company training modules
       const { data: trainingModuleRows, error: tmError } = await supabase
         .from("training_modules")
@@ -395,6 +399,7 @@ export async function POST(request: NextRequest) {
             // console.log("[Training Plan API] Using raw training modules as fallback");
           }
         }
+        console.log("The modules are", modules)
       } else {
         // console.log("[Training Plan API] No training modules found for company; proceeding with empty module list");
       }
