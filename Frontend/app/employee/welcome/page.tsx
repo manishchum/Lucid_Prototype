@@ -134,23 +134,23 @@ export default function EmployeeWelcome() {
         // Try to fetch processed_modules rows where either the original_module_id or the processed_module_id
         // matches any of the module ids we have. Some rows store IDs under processed_module_id instead.
         const { data: pModsByOriginal } = await supabase
-          .from('processed_modules')
-          .select('processed_module_id, title, original_module_id')
-          .in('original_module_id', mIds);
+          .from('training_modules')
+          .select('module_id, title')
+          .in('module_id', mIds);
 
-        const { data: pModsByProcessed } = await supabase
-          .from('processed_modules')
-          .select('processed_module_id, title, original_module_id')
-          .in('processed_module_id', mIds);
+        // const { data: pModsByProcessed } = await supabase
+        //   .from('processed_modules')
+        //   .select('processed_module_id, title, original_module_id')
+        //   .in('processed_module_id', mIds);
 
-        const pMods = Array.from(new Map([...(pModsByOriginal || []), ...(pModsByProcessed || [])].map((r: any) => [r.processed_module_id || r.original_module_id || JSON.stringify(r), r])).values());
-
+        const pMods = Array.from(new Map([...(pModsByOriginal || [])].map((r: any) => [r.module_id  || JSON.stringify(r), r])).values());
+        console.log(pMods)
         // TEMP LOG: inspect processed_modules rows
         try {
           console.log('[debug] processed_modules (pMods combined):', pMods);
         } catch (e) { /* ignore */ }
 
-        const pIds = pMods?.map((m: any) => m.processed_module_id) || [];
+        const pIds = pMods?.map((m: any) => m.module_id) || [];
         const { data: pProg } = await supabase
           .from('module_progress')
           .select('*')
@@ -174,8 +174,8 @@ export default function EmployeeWelcome() {
         const titleByProcessedId: Record<string, string> = {};
         (pMods || []).forEach((pm: any) => {
           if (pm) {
-            if (pm.original_module_id) {
-              titleByOriginal[pm.original_module_id] = pm.title || `Module ${pm.original_module_id}`;
+            if (pm.module_id) {
+              titleByOriginal[pm.module_id] = pm.title || `Module ${pm.original_module_id}`;
             }
             if (pm.processed_module_id) {
               titleByProcessedId[pm.processed_module_id] = pm.title || `Module ${pm.processed_module_id}`;
@@ -425,16 +425,16 @@ export default function EmployeeWelcome() {
                     {assignedModules.map((m) => (
                       <div key={m.id} className="flex items-center gap-6 p-6 bg-white">
                         <div className="flex items-center gap-4 min-w-0">
-                          <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
+                          {/* <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
                             0%
-                          </div>
+                          </div> */}
 
                           <div className="min-w-0">
                             <p className="text-lg font-extrabold text-slate-900 truncate max-w-[70vw] md:max-w-[40vw]">{m.title || `Module ${m.id}`}</p>
                             {m.moduleName && (
                               <div className="text-sm text-slate-500 truncate mt-1">{m.moduleName}</div>
                             )}
-                            <p className="text-xs font-black text-blue-600 uppercase tracking-wide mt-1">Baseline Pending</p>
+                            {/* <p className="text-xs font-black text-blue-600 uppercase tracking-wide mt-1">Baseline Pending</p> */}
                           </div>
                         </div>
 
@@ -458,7 +458,7 @@ export default function EmployeeWelcome() {
             </Card>
 
             {/* Progress History */}
-            <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+            {/* <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
               <CardHeader className="px-8 py-6">
                 <CardTitle className="text-lg font-black text-slate-900">Recent Activity</CardTitle>
               </CardHeader>
@@ -484,7 +484,7 @@ export default function EmployeeWelcome() {
                   )}
                 </div>
               </CardContent>
-            </Card>
+            </Card> */}
           </div>
         </div>
       </main>

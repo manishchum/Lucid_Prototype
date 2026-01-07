@@ -27,6 +27,7 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { toast as shadcnToast } from '@/hooks/use-toast';
+import { formatContentType } from '@/lib/contentType';
 
 // Types
 interface Admin {
@@ -1284,8 +1285,9 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
         const xlsx = await import("xlsx");
         const workbook = xlsx.read(arrayBuffer, { type: "array" });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = xlsx.utils.sheet_to_json(sheet, { header: 1 }) as string[][];
+       rows = xlsx.utils.sheet_to_json(sheet, { header: 1 }) as string[][];
       } else {
+        
         onError('Unsupported file type. Only CSV or XLSX allowed.');
         return;
       }
@@ -2436,13 +2438,13 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                     {modules.map(module => (
                       <label
                         key={module.module_id}
-                        className="submodule-card submodule-card--compact cursor-pointer"
+                        className="submodule-card submodule-card--compact cursor-pointer flex items-center gap-4"
                       >
                         <input
                           type="checkbox"
                           checked={selectedModules.includes(module.module_id)}
                           onChange={() => handleModuleToggle(module.module_id)}
-                          className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         />
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-gray-900">{module.title}</div>
@@ -2451,7 +2453,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                           )}
                           <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
                             <span className="bg-gray-100 px-2 py-1 rounded">
-                              {module.content_type.toUpperCase()}
+                              {formatContentType(module.content_type)}
                             </span>
                             <span>
                               Created: {new Date(module.created_at).toLocaleDateString()}

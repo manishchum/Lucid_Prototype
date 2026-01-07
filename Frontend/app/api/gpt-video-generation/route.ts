@@ -351,7 +351,7 @@ async function generateVideo(processedModuleId: string): Promise<string> {
   const actualId = module.processed_module_id;
 
   // Use user context for NotebookLM feel
-  const { data: userModules } = await supabase.from("processed_modules").select("title, content").eq("user_id", module.user_id).order("created_at", { ascending: false }).limit(3);
+  const { data: userModules } = await supabase.from("processed_modules").select("title, content").eq("user_id", module.user_id).eq("processed_module_id",actualId).order("created_at", { ascending: false }).limit(3);
   const context = userModules?.map(m => `### ${m.title}\n${m.content}`).join("\n\n") || module.content;
 
   const scenes = await planScenes(context);
@@ -402,10 +402,12 @@ async function generateVideo(processedModuleId: string): Promise<string> {
   await supabase.storage.from(BUCKET).upload(uploadPath, buffer, { contentType: "video/mp4", upsert: true });
   const videoUrl = supabase.storage.from(BUCKET).getPublicUrl(uploadPath).data.publicUrl;
 
+
+  console.log("Saving video URL to database...");
+  console.log(videoUrl);
+
   await supabase.from("processed_modules").update({
     video_url: videoUrl,
-    chapters,
-    transcript: transcript.join("\n\n"),
     video_generated_at: new Date().toISOString(),
   }).eq("processed_module_id", actualId);
 
