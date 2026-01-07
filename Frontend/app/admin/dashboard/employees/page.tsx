@@ -27,6 +27,7 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { toast as shadcnToast } from '@/hooks/use-toast';
+import { formatContentType } from '@/lib/contentType';
 
 // Types
 interface Admin {
@@ -1284,8 +1285,9 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
         const xlsx = await import("xlsx");
         const workbook = xlsx.read(arrayBuffer, { type: "array" });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = xlsx.utils.sheet_to_json(sheet, { header: 1 }) as string[][];
+       rows = xlsx.utils.sheet_to_json(sheet, { header: 1 }) as string[][];
       } else {
+        
         onError('Unsupported file type. Only CSV or XLSX allowed.');
         return;
       }

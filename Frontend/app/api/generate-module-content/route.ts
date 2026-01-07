@@ -78,19 +78,12 @@ export async function POST(req: NextRequest) {
 **Core Instructions:**
 1.  **Tone & Style:** Professional, engaging, and instructive. Adapt the delivery to the specific Learning Style provided below.
 2.  **Visual Formatting (Strict Requirement):**
-    * Use **Markdown** extensively to create visual hierarchy (H2 `##`, H3 `###`).
+    * Use **Markdown** extensively to create visual hierarchy (H2 '##', H3 '###').
     * Use **Bold text** to emphasize key terms and takeaways.
     * Use **Tables** to compare concepts or list steps where appropriate.
     * Use **Blockquotes** ('>') for tips, warnings, or key definitions.
     * Use **Horizontal Rules** ('---') to separate sections.
-3.  **Visual Aids:** Insert specific image tags (e.g., `
-
-[Image of X]
-`) where a diagram or illustration would aid understanding. Do not use them just for decoration; they must be instructive (e.g., `
-
-[Image of Gantt chart example]
-`).
-
+3.  **Visual Aids:** Insert specific image tags  where a diagram or illustration would aid understanding. Do not use them just for decoration; they must be instructive 
 **Learning Style Adaptation (${style}):**
 * **If CS (Concrete Sequential):** Use structured checklists, step-by-step tables, clear deadlines, and factual headings.
 * **If CR (Concrete Random):** Use problem-solving scenarios, "Try this" experiments, and open-ended formatting.
