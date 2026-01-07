@@ -783,10 +783,10 @@ function ContentTransformer({
       }
 
       setPodcastTimeline(timeline);
-      console.log(`[ContentTransformer] ${timelineField} loaded from module:`, {
-        segmentCount: timeline.length,
-        totalDuration: timeline.length > 0 ? timeline[timeline.length - 1].endSec : 0,
-      });
+      // console.log(`[ContentTransformer] ${timelineField} loaded from module:`, {
+      //   segmentCount: timeline.length,
+      //   totalDuration: timeline.length > 0 ? timeline[timeline.length - 1].endSec : 0,
+      // });
     } catch (error) {
       console.error(`[ContentTransformer] Failed to parse ${timelineField}:`, {
         error,
@@ -826,13 +826,13 @@ function ContentTransformer({
     if (active !== activeSegmentIndex) {
       setActiveSegmentIndex(active);
       if (active >= 0 && active < podcastTimeline.length) {
-        console.log('[ContentTransformer] Active segment:', {
-          index: active,
-          speaker: podcastTimeline[active].speaker,
-          currentTime: current,
-          playbackRate,
-          segmentRange: `${podcastTimeline[active].startSec.toFixed(2)}s - ${podcastTimeline[active].endSec.toFixed(2)}s`,
-        });
+        // console.log('[ContentTransformer] Active segment:', {
+        //   index: active,
+        //   speaker: podcastTimeline[active].speaker,
+        //   currentTime: current,
+        //   playbackRate,
+        //   segmentRange: `${podcastTimeline[active].startSec.toFixed(2)}s - ${podcastTimeline[active].endSec.toFixed(2)}s`,
+        // });
       }
     }
   };
@@ -1083,13 +1083,13 @@ function ContentTransformer({
                   onAudioGenerated={(url, data) => {
                     onAudioGenerated(url, data);
                     if (data?.timeline && Array.isArray(data.timeline)) {
-                      console.log('[ContentTransformer] Timeline received from audio generation:', {
-                        segmentCount: data.timeline.length,
-                        totalDuration: data.timeline.length > 0 ? data.timeline[data.timeline.length - 1].endSec : 0,
-                      });
+                      // console.log('[ContentTransformer] Timeline received from audio generation:', {
+                      //   segmentCount: data.timeline.length,
+                      //   totalDuration: data.timeline.length > 0 ? data.timeline[data.timeline.length - 1].endSec : 0,
+                      // });
                       setPodcastTimeline(data.timeline);
                     } else if (!data?.timeline) {
-                      console.warn('[ContentTransformer] No timeline returned from audio generation');
+                      // console.warn('[ContentTransformer] No timeline returned from audio generation');
                     }
                   }}
                   language={language}
