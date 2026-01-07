@@ -425,16 +425,16 @@ export default function EmployeeWelcome() {
                     {assignedModules.map((m) => (
                       <div key={m.id} className="flex items-center gap-6 p-6 bg-white">
                         <div className="flex items-center gap-4 min-w-0">
-                          <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
+                          {/* <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
                             0%
-                          </div>
+                          </div> */}
 
                           <div className="min-w-0">
                             <p className="text-lg font-extrabold text-slate-900 truncate max-w-[70vw] md:max-w-[40vw]">{m.title || `Module ${m.id}`}</p>
                             {m.moduleName && (
                               <div className="text-sm text-slate-500 truncate mt-1">{m.moduleName}</div>
                             )}
-                            <p className="text-xs font-black text-blue-600 uppercase tracking-wide mt-1">Baseline Pending</p>
+                            {/* <p className="text-xs font-black text-blue-600 uppercase tracking-wide mt-1">Baseline Pending</p> */}
                           </div>
                         </div>
 
@@ -458,7 +458,7 @@ export default function EmployeeWelcome() {
             </Card>
 
             {/* Progress History */}
-            <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+            {/* <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
               <CardHeader className="px-8 py-6">
                 <CardTitle className="text-lg font-black text-slate-900">Recent Activity</CardTitle>
               </CardHeader>
@@ -484,7 +484,7 @@ export default function EmployeeWelcome() {
                   )}
                 </div>
               </CardContent>
-            </Card>
+            </Card> */}
           </div>
         </div>
       </main>

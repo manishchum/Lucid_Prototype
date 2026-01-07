@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
-import { formatContentType } from '@/lib/contentType';
+// import { formatContentType } from '@/lib/contentType';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -2462,30 +2462,28 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                           </div>
                         </div>
                         {/* Individual Baseline Assessment Toggle */}
-                        <div className="flex flex-col items-center gap-2 ml-4">
+                        <div className="flex items-center gap-3 ml-4">
                           <Label className="text-xs font-medium text-gray-600">Baseline Assessment</Label>
-                          <div className="flex items-center space-x-2">
-                            <label className="flex items-center cursor-pointer">
-                              <div className="relative">
-                                <input
-                                  type="checkbox"
-                                  checked={moduleBaselineSettings[module.module_id] || false}
-                                  onChange={(e) => {
-                                    e.stopPropagation();
-                                    handleBaselineToggle(module.module_id);
-                                  }}
-                                  className="sr-only"
-                                />
-                                <div className={`w-9 h-5 rounded-full transition-colors ${
-                                  moduleBaselineSettings[module.module_id] ? 'bg-blue-600' : 'bg-gray-300'
-                                }`}>
-                                  <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${
-                                    moduleBaselineSettings[module.module_id] ? 'translate-x-4' : 'translate-x-0.5'
-                                  } mt-0.5`}></div>
-                                </div>
+                          <label className="flex items-center cursor-pointer">
+                            <div className="relative">
+                              <input
+                                type="checkbox"
+                                checked={moduleBaselineSettings[module.module_id] || false}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  handleBaselineToggle(module.module_id);
+                                }}
+                                className="sr-only"
+                              />
+                              <div className={`w-9 h-5 rounded-full transition-colors ${
+                                moduleBaselineSettings[module.module_id] ? 'bg-blue-600' : 'bg-gray-300'
+                              }`}>
+                                <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${
+                                  moduleBaselineSettings[module.module_id] ? 'translate-x-4' : 'translate-x-0.5'
+                                } mt-0.5`}></div>
                               </div>
-                            </label>
-                          </div>
+                            </div>
+                          </label>
                           <span className="text-xs text-gray-500">
                             {moduleBaselineSettings[module.module_id] ? 'Required' : 'Optional'}
                           </span>
