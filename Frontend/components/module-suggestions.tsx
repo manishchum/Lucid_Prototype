@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BookOpen, Database, Sparkles, Plus, ExternalLink, TrendingUp, TrendingDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { formatContentType } from '@/lib/contentType';
 
 interface DatasetSuggestion {
   source: string;
@@ -134,7 +135,7 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
                                   {module.content_type && (
                                     <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
                                       <BookOpen className="w-3.5 h-3.5" />
-                                      <span className="capitalize">{module.content_type}</span>
+                                      <span className="">{formatContentType(module.content_type)}</span>
                                     </div>
                                   )}
 
@@ -238,7 +239,7 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
                                   {module.content_type && (
                                     <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
                                       <BookOpen className="w-3.5 h-3.5" />
-                                      <span className="capitalize">{module.content_type}</span>
+                                      <span className="">{formatContentType(module.content_type)}</span>
                                     </div>
                                   )}
 

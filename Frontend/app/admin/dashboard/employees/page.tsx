@@ -2451,7 +2451,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                           )}
                           <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
                             <span className="bg-gray-100 px-2 py-1 rounded">
-                              {module.content_type.toUpperCase()}
+                              {formatContentType(module.content_type)}
                             </span>
                             <span>
                               Created: {new Date(module.created_at).toLocaleDateString()}

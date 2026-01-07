@@ -76,13 +76,14 @@ export async function POST(req: NextRequest) {
 
     if (!process.env.GEMINI_API_KEY) {
       console.warn('[generate-infographic-gemini] missing GEMINI_API_KEY')
-      // Allow a dev fallback so you can test the frontend without a key.
+      // In development, return a simple sample so the UI can render example infographics without the model.
       if (process.env.NODE_ENV !== 'production') {
         console.log('[generate-infographic-gemini] returning dev fallback sample response')
         const sample = [
-          { heading: 'Overview', points: ['Context', 'Scope', 'Goal'] },
-          { heading: 'Steps', points: ['Prepare', 'Execute', 'Measure'] },
-          { heading: 'Outcomes', points: ['Insights', 'Decisions', 'Next steps'] },
+          { heading: 'Plan', points: ['Set objectives', 'Identify scope', 'Allocate time'] },
+          { heading: 'Research', points: ['Gather sources', 'Validate data', 'Summarize findings'] },
+          { heading: 'Design', points: ['Create outline', 'Pick visuals', 'Draft content'] },
+          { heading: 'Review', points: ['Peer feedback', 'Iterate', 'Finalize'] },
         ]
         return NextResponse.json(sample)
       }
@@ -90,26 +91,27 @@ export async function POST(req: NextRequest) {
     }
 
   // Stronger prompt: enforce strict JSON shape and limits for headings and bullets.
-  const prompt = `Convert ONLY the Study Text into a compact, academically accurate infographic JSON.
+  const prompt = `Act as a Senior Instructional Designer. Convert the provided Study Text into a compact, academically accurate infographic JSON structure.
 
-Rules (follow EXACTLY):
-1) OUTPUT ONLY valid JSON between the markers BEGIN_JSON and END_JSON. Do NOT include any extra text, explanation, or markdown outside those markers.
-2) Return an ARRAY with 5 or 6 objects (max 6). Do not return more than 6 objects; if there are more, include only the first 6.
-3) Each object MUST have exactly these fields and NO OTHERS: { "heading": string, "points": string[] }
-   - heading: 1 short title, MAX 4 words. Use concise, study-focused phrases (e.g., "Chart Choice").
-   - points: an array of EXACTLY up to 3 bullets (preferably 3). Each bullet MUST be ultra-short: MAX 6 words. Keep bullets actionable and academically accurate.
-4) Use ONLY the Study Text content provided below. Ignore any unrelated metadata, file names, Excel columns, or tables. Do not invent examples not supported by the Study Text.
-5) Keep language formal, objective, and focused on study concepts. Bullets should begin with an action word when possible.
-6) Example (STRICT shape):
-BEGIN_JSON
-[
-  {"heading":"Define Scope","points":["State research question","Identify key variables","Set success criteria"]},
-  {"heading":"Choose Chart","points":["Match chart to goal","Prefer line for trends","Check axes labels"]},
-  ... up to 6 objects ...
-]
-END_JSON
+Rules (Follow EXACTLY):
 
-Now produce the JSON array based ONLY on the Study Text below. Ensure headings are ≤4 words and each points array contains at most 3 bullets of ≤6 words each. Do not include subtitles, icons, colors, or any extra fields.
+OUTPUT ONLY valid JSON between the markers BEGIN_JSON and END_JSON. Do not include any introductory text, markdown code blocks (), or explanations.
+
+Return an ARRAY with exactly 3 to 6 objects.
+
+Each object MUST have exactly these fields: { "heading": string, "points": string[], "icon_keyword": string }
+
+heading: MAX 4 words. Use concise, study-focused titles.
+
+points: An array of EXACTLY 3 bullets. Each bullet MUST be ultra-short (MAX 6 words).
+
+icon_keyword: A single noun for a simple vector icon (e.g., "book", "lightbulb", "trend").
+
+Use ONLY the Study Text content below. Keep language formal and objective.
+
+Use action-oriented verbs to start bullets where possible.
+
+Example Shape: BEGIN_JSON [ { "heading": "Phase One: Planning", "points": ["Define research goals", "Identify target audience", "Select primary methods"], "icon_keyword": "target" } ] END_JSON
 
 Study Text:
 ${content}`
