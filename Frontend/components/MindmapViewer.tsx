@@ -20,6 +20,12 @@ export default function MindmapViewer({
   // This replaces any incoming x/y coordinates and forces a single
   // hierarchical layout (root at top, children beneath in columns) so
   // the viewer always shows the same layout style (matching the attachment).
+  // Compute a deterministic top-down tree layout once per data change.
+  // This replaces any incoming x/y coordinates and forces a single
+  // hierarchical layout (root at top, children beneath in columns). The
+  // layout also estimates node sizes and spaces leaves so node rectangles
+  // do not overlap horizontally. Vertical spacing is sized to avoid
+  // overlap based on node heights.
   const layoutNodes = useMemo(() => {
     if (!nodes || nodes.length === 0) return nodes;
 
@@ -65,14 +71,55 @@ export default function MindmapViewer({
     };
     dfsLeaves(rootId);
 
-    // Spacing constants (tweakable)
-    const nodeSpacing = 220; // horizontal spacing between leaves
-    const levelHeight = 120; // vertical spacing between levels
+    // Helper to estimate rect size for a label (matches render logic)
+    const estimateRect = (label: string) => {
+      const words = String(label || '').split(/\s+/);
+      const lines: string[] = [];
+      let cur = '';
+      const maxChars = 36;
+      for (const w of words) {
+        if ((cur + ' ' + w).trim().length <= maxChars) {
+          cur = (cur + ' ' + w).trim();
+        } else {
+          if (cur) lines.push(cur);
+          cur = w;
+        }
+      }
+      if (cur) lines.push(cur);
+      const longest = lines.reduce((a, b) => (b.length > a ? b.length : a), 0);
+      const rectW = Math.max(80, Math.min(700, longest * 7 + 48));
+      const lineHeight = 18;
+      const rectH = Math.max(34, lines.length * lineHeight + 12);
+      return { rectW, rectH };
+    };
 
-    // Assign x positions to leaves then compute internal nodes as average of children
+    // Determine horizontal positions for leaves using estimated widths
+    const leafSizes = new Map<string, { w: number; h: number }>();
+    for (const id of leafOrder) {
+      const node = nodes.find((n) => idKey(n.id) === id);
+      const e = estimateRect(node?.label || '');
+      leafSizes.set(id, { w: e.rectW, h: e.rectH });
+    }
+
+    // Minimum gap between node rectangles
+    const minGap = 24;
     const xMap = new Map<string, number>();
-    leafOrder.forEach((id, i) => xMap.set(id, i * nodeSpacing));
+    // Position first leaf at x=0, subsequent leaves placed to avoid overlap
+    for (let i = 0; i < leafOrder.length; i++) {
+      const id = leafOrder[i];
+      const size = leafSizes.get(id) || { w: 120, h: 40 };
+      if (i === 0) {
+        xMap.set(id, 0);
+      } else {
+        const prevId = leafOrder[i - 1];
+        const prevSize = leafSizes.get(prevId) || { w: 120, h: 40 };
+        const prevCenter = xMap.get(prevId) ?? 0;
+        const nextCenter = prevCenter + prevSize.w / 2 + minGap + size.w / 2;
+        xMap.set(id, nextCenter);
+      }
+    }
 
+    // Assign x for internal nodes as average of children
     const assignX = (id: string): number => {
       const ch = children.get(id) || [];
       if (ch.length === 0) return xMap.get(id) ?? 0;
@@ -82,6 +129,14 @@ export default function MindmapViewer({
       return avg;
     };
     assignX(rootId);
+
+    // Choose vertical spacing based on node heights to avoid overlap
+    let maxRectH = 0;
+    for (const n of nodes) {
+      const est = estimateRect(n.label || '');
+      if (est.rectH > maxRectH) maxRectH = est.rectH;
+    }
+    const levelHeight = Math.max(120, maxRectH + 40);
 
     // Build new nodes with computed x/y (centered horizontally)
     const built = nodes.map((n) => {
@@ -142,16 +197,21 @@ export default function MindmapViewer({
     };
 
     useEffect(() => {
-      // center the map initially
+      // center the map whenever the layout or container size changes
       if (!svgRef.current) return;
       const rect = svgRef.current.getBoundingClientRect();
       const cw = rect.width;
       const ch = rect.height;
-      // center offsets so root roughly centered
-      setPanX((cw - naturalWidth) / 2);
-      setPanY((ch - naturalHeight) / 6);
-      setScale(Math.min(cw / naturalWidth, ch / naturalHeight, 1));
-    }, [naturalWidth, naturalHeight]);
+      // Compute scale to fit, then center content (so user doesn't have to pan)
+      const s = Math.min(cw / naturalWidth, ch / naturalHeight, 1);
+      setScale(s);
+      // content center (we already padded min/max earlier)
+      const contentCenterX = (minX + maxX) / 2;
+      const contentCenterY = (minY + maxY) / 2;
+      // translate such that content center maps to viewport center
+      setPanX(cw / 2 - contentCenterX * s);
+      setPanY(ch / 2 - contentCenterY * s);
+    }, [naturalWidth, naturalHeight, nodes.length, edges.length]);
 
     // Mouse handlers for panning
     const onMouseDown = (e: React.MouseEvent) => {
@@ -259,6 +319,85 @@ export default function MindmapViewer({
       }
     };
 
+    // Native handlers: attach with passive: false to allow preventDefault without console warnings.
+    const handleNativeTouchStart = (e: TouchEvent) => {
+      if (!svgRef.current) return;
+      // prevent scrolling while interacting with the mindmap
+      e.preventDefault();
+      const touches = e.touches;
+      if (touches.length === 1) {
+        touchRef.current.mode = 'pan';
+        touchRef.current.startX = touches[0].clientX;
+        touchRef.current.startY = touches[0].clientY;
+        touchRef.current.originPanX = panX;
+        touchRef.current.originPanY = panY;
+      } else if (touches.length === 2) {
+        touchRef.current.mode = 'pinch';
+        touchRef.current.startDist = getTouchDistance(touches[0], touches[1]);
+        touchRef.current.startScale = scale;
+        const mid = getTouchMidpoint(touches[0], touches[1]);
+        touchRef.current.startMidClientX = mid.x;
+        touchRef.current.startMidClientY = mid.y;
+        touchRef.current.originPanX = panX;
+        touchRef.current.originPanY = panY;
+      }
+    };
+
+    const handleNativeTouchMove = (e: TouchEvent) => {
+      if (!svgRef.current) return;
+      // preventDefault to stop page scroll
+      e.preventDefault();
+      const touches = e.touches;
+      const rect = svgRef.current.getBoundingClientRect();
+      if (touches.length === 1 && touchRef.current.mode === 'pan') {
+        const dx = touches[0].clientX - touchRef.current.startX;
+        const dy = touches[0].clientY - touchRef.current.startY;
+        setPanX(touchRef.current.originPanX + dx);
+        setPanY(touchRef.current.originPanY + dy);
+      } else if (touches.length === 2 && touchRef.current.mode === 'pinch') {
+        const dist = getTouchDistance(touches[0], touches[1]);
+        const ratio = dist / Math.max(1, touchRef.current.startDist);
+        const newScale = Math.min(Math.max(0.2, touchRef.current.startScale * ratio), 4);
+
+        const mid = getTouchMidpoint(touches[0], touches[1]);
+        const mouseX = mid.x - rect.left;
+        const mouseY = mid.y - rect.top;
+
+        // compute svg-space coords of midpoint
+        const svgX = (mouseX - touchRef.current.originPanX) / touchRef.current.startScale;
+        const svgY = (mouseY - touchRef.current.originPanY) / touchRef.current.startScale;
+
+        const newPanX = mouseX - svgX * newScale;
+        const newPanY = mouseY - svgY * newScale;
+
+        setScale(newScale);
+        setPanX(newPanX);
+        setPanY(newPanY);
+      }
+    };
+
+    const handleNativeTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) {
+        touchRef.current.mode = 'none';
+      }
+    };
+
+    // Attach native listeners with passive:false to allow preventDefault
+    React.useEffect(() => {
+      const el = svgRef.current;
+      if (!el) return;
+      el.addEventListener('touchstart', handleNativeTouchStart, { passive: false });
+      el.addEventListener('touchmove', handleNativeTouchMove, { passive: false });
+      el.addEventListener('touchend', handleNativeTouchEnd, { passive: false });
+      el.addEventListener('touchcancel', handleNativeTouchEnd, { passive: false });
+      return () => {
+        el.removeEventListener('touchstart', handleNativeTouchStart);
+        el.removeEventListener('touchmove', handleNativeTouchMove);
+        el.removeEventListener('touchend', handleNativeTouchEnd);
+        el.removeEventListener('touchcancel', handleNativeTouchEnd);
+      };
+    }, [svgRef, panX, panY, scale]);
+
     // Wheel to zoom at cursor
     const onWheel = (e: React.WheelEvent) => {
       if (!svgRef.current) return;
@@ -285,9 +424,12 @@ export default function MindmapViewer({
     const resetView = () => {
       if (!svgRef.current) return;
       const rect = svgRef.current.getBoundingClientRect();
-      setScale(Math.min(rect.width / naturalWidth, rect.height / naturalHeight, 1));
-      setPanX((rect.width - naturalWidth) / 2);
-      setPanY((rect.height - naturalHeight) / 6);
+      const s = Math.min(rect.width / naturalWidth, rect.height / naturalHeight, 1);
+      setScale(s);
+      const contentCenterX = (minX + maxX) / 2;
+      const contentCenterY = (minY + maxY) / 2;
+      setPanX(rect.width / 2 - contentCenterX * s);
+      setPanY(rect.height / 2 - contentCenterY * s);
     };
 
   const findNode = (id: string) => layoutNodes.find((n) => String(n.id) === String(id));
@@ -321,6 +463,70 @@ export default function MindmapViewer({
           <button onClick={resetView} className="bg-white px-2 py-1 rounded shadow" title="Reset view">
             Reset
           </button>
+
+          
+
+          {/* PNG download (high-quality raster) */}
+          <button
+            onClick={async () => {
+              if (!svgRef.current) return;
+              try {
+                const svg = svgRef.current;
+                const group = svg.querySelector('g');
+                const defs = svg.querySelector('defs')?.outerHTML || '';
+                const inner = group?.innerHTML || '';
+                const bg = `<rect x="${minX}" y="${minY}" width="${naturalWidth}" height="${naturalHeight}" fill="#ffffff"/>`;
+                const svgStr = `<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"${naturalWidth}\" height=\"${naturalHeight}\" viewBox=\"${minX} ${minY} ${naturalWidth} ${naturalHeight}\">${defs}${bg}${inner}</svg>`;
+
+                // Create image
+                const svg64 = btoa(unescape(encodeURIComponent(svgStr)));
+                const imgSrc = 'data:image/svg+xml;base64,' + svg64;
+
+                // Choose DPR for clarity (cap to avoid huge canvases)
+                const baseDPR = Math.max(1, window.devicePixelRatio || 1);
+                const DPR = Math.min(3, Math.round(baseDPR * 1.5));
+
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.round(naturalWidth * DPR);
+                canvas.height = Math.round(naturalHeight * DPR);
+                canvas.style.width = naturalWidth + 'px';
+                canvas.style.height = naturalHeight + 'px';
+                const ctx = canvas.getContext('2d');
+                if (!ctx) throw new Error('Canvas not supported');
+                ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+                const img = new Image();
+                img.onload = () => {
+                  try {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, naturalWidth, naturalHeight);
+                    ctx.drawImage(img, 0, 0, naturalWidth, naturalHeight);
+                    canvas.toBlob((blob) => {
+                      if (!blob) return;
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = 'mindmap.png';
+                      document.body.appendChild(a);
+                      a.click();
+                      a.remove();
+                      setTimeout(() => URL.revokeObjectURL(url), 5000);
+                    }, 'image/png');
+                  } catch (e) {
+                    console.error('Failed to rasterize SVG', e);
+                  }
+                };
+                img.onerror = (ev) => console.error('Image load failed for SVG rasterization', ev);
+                img.src = imgSrc;
+              } catch (e) {
+                console.error('Failed to download PNG', e);
+              }
+            }}
+            className="bg-white px-2 py-1 rounded shadow"
+            title="Download PNG"
+          >
+            PNG
+          </button>
         </div>
 
         <svg
@@ -331,10 +537,6 @@ export default function MindmapViewer({
           onMouseUp={onMouseUp}
           onMouseLeave={onMouseUp}
           onWheel={onWheel}
-          onTouchStart={onTouchStart}
-          onTouchMove={onTouchMove}
-          onTouchEnd={onTouchEnd}
-          onTouchCancel={onTouchEnd}
         >
           <defs>
             <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">

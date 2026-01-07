@@ -737,28 +737,56 @@ export default function TrainingPlanPage() {
                         </div>
 
                       </div>
-                      {/* Tips */}
-                      <div className="bg-amber-50 rounded-lg p-5 border border-amber-200 mb-6">
-                        <div className="font-semibold text-amber-800 mb-4 flex items-center gap-2">
-                          {/* <span className="text-xl">💡</span> */}
-                          Tips for Success
-                        </div>
-                        {Array.isArray(mod.tips) ? (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {mod.tips.map((t: any, i: number) => (
-                              <div
-                                key={`${mod._tabValue}-tip-${i}`}
-                                className="flex items-start gap-2"
-                              >
-                                <div className="w-2 h-2 bg-amber-400 rounded-full mt-2 shrink-0"></div>
-                                <div className="text-amber-700 flex-1">{t}</div>
-                              </div>
-                            ))}
+
+                      {/* Tips for Success (per-module banner shown between metrics and actions) */}
+                      {(() => {
+                        // Prefer module-level tips, then plan-level tips. Fall back to static text.
+                        // Try several possible locations where tips might be stored.
+                        const moduleIndex = normalizedModules.findIndex((nm) => nm._tabValue === mod._tabValue);
+                        const planObj: any = parsedPlan || {};
+                        let tips: any = null;
+
+                        // 1) module-level property on the mod object returned by the plan
+                        if (mod?.tips) tips = mod.tips;
+                        if (!tips && mod?.tips_for_success) tips = mod.tips_for_success;
+
+                        // 2) corresponding module entry in parsed plan (if available)
+                        if (!tips && Array.isArray(planObj?.modules) && moduleIndex >= 0) {
+                          const planModule = planObj.modules[moduleIndex] || planObj.learning_plan?.modules?.[moduleIndex] || planObj.plan?.modules?.[moduleIndex];
+                          if (planModule) {
+                            tips = planModule.tips || planModule.tips_for_success || planModule.quick_tips || null;
+                          }
+                        }
+
+                        // 3) top-level plan tips
+                        if (!tips) {
+                          tips = planObj?.tips || planObj?.plan?.tips || planObj?.learning_plan?.tips || planObj?.raw?.plan?.tips || null;
+                        }
+
+                        // Normalize arrays/objects into a display string
+                        let tipsText = "";
+                        if (Array.isArray(tips)) {
+                          tipsText = tips.join("\n\n");
+                        } else if (typeof tips === 'object' && tips !== null) {
+                          try { tipsText = JSON.stringify(tips, null, 2); } catch { tipsText = String(tips); }
+                        } else if (typeof tips === 'string') {
+                          tipsText = tips;
+                        }
+
+                        const showFallback = !tipsText || tipsText.trim().length === 0;
+
+                        return (
+                          <div className="mt-6 mb-6 p-6 bg-yellow-50 rounded-xl border border-yellow-200 shadow-sm">
+                            <div className="font-bold text-xl mb-2 text-yellow-900">Tips for Success</div>
+                            {showFallback ? (
+                              <div className="text-yellow-800 text-sm">Use these quick tips to get the most from your learning plan.</div>
+                            ) : (
+                              <div className="text-yellow-800 text-sm whitespace-pre-line">{tipsText}</div>
+                            )}
                           </div>
-                        ) : (
-                          <div className="text-amber-700">{mod.tips}</div>
-                        )}
-                      </div>
+                        );
+                      })()}
+
                       {/* Actions */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <Button

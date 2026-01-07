@@ -67,90 +67,86 @@ export async function POST(req: NextRequest) {
 
         // Compose prompt for the learning style of this row
         const style = mod.learning_style;
-        const stylePrompt = `You are an expert instructional designer. Your task is to write a complete, self-contained training module for employees, as if it were a chapter in a professional textbook.
+        const stylePrompt = `You are an expert Instructional Designer and Technical Writer. Your task is to write a complete, self-contained training module for employees, formatted as a high-end professional e-learning chapter.
 
-Module Title: "${mod.title}"
-${topicsText}
-${objectivesText}
+**Module Context:**
+* **Module Title:** "${mod.title}"
+* **Topics to Cover:** ${topicsText}
+* **Target Objectives:** ${objectivesText}
+* **Learning Style Focus:** ${style}
 
-Instructions:
-1. Structure the content with clear sections using these EXACT section headers (use these exact labels):
-   - Start with "Learning Objectives:" followed by a numbered list of 3-5 objectives
-   - Create AT LEAST 2-3 main content sections using "Section 1: [descriptive title]", "Section 2: [descriptive title]", etc.
-   - After EACH section, include a corresponding activity: "Activity 1: [descriptive title]", "Activity 2: [descriptive title]", etc.
-   - End with "Module Summary:" for the conclusion
-   
-2. For EACH section, provide:
-   - Detailed explanations (2-4 paragraphs minimum)
-   - Practical examples and real-world scenarios
-   - Key concepts and frameworks
-   - Best practices and tips
-   
-3. For EACH activity, provide:
-   - Clear objectives for the activity
-   - Step-by-step instructions (numbered steps)
-   - Expected outcomes
-   - Reflection questions or discussion prompts
-   - Estimated time to complete (e.g., "Time: 15 minutes")
-   
-4. Ensure comprehensive coverage:
-   - Each section should be substantial (300-500 words)
-   - Activities should be practical and hands-on
-   - Connect each section to real workplace scenarios
-   - Use concrete examples from business settings
+**Core Instructions:**
+1.  **Tone & Style:** Professional, engaging, and instructive. Adapt the delivery to the specific Learning Style provided below.
+2.  **Visual Formatting (Strict Requirement):**
+    * Use **Markdown** extensively to create visual hierarchy (H2 '##', H3 '###').
+    * Use **Bold text** to emphasize key terms and takeaways.
+    * Use **Tables** to compare concepts or list steps where appropriate.
+    * Use **Blockquotes** ('>') for tips, warnings, or key definitions.
+    * Use **Horizontal Rules** ('---') to separate sections.
+3.  **Visual Aids:** Insert specific image tags  where a diagram or illustration would aid understanding. Do not use them just for decoration; they must be instructive 
+**Learning Style Adaptation (${style}):**
+* **If CS (Concrete Sequential):** Use structured checklists, step-by-step tables, clear deadlines, and factual headings.
+* **If CR (Concrete Random):** Use problem-solving scenarios, "Try this" experiments, and open-ended formatting.
+* **If AS (Abstract Sequential):** Use logic flowcharts (text-based), theoretical models, comparisons, and deep analysis.
+* **If AR (Abstract Random):** Use group scenarios, emotional context, narrative examples, and collaborative prompts.
 
-5. Adapt the content for the following Gregorc learning style: ${style}
-  - CS (Concrete Sequential): Use hands-on activities, clear instructions, logical sequence, deadlines, and factual information with checklists.
-  - CR (Concrete Random): Encourage experimentation, discovery, trial-and-error, flexibility, and problem-solving with open-ended tasks.
-  - AS (Abstract Sequential): Focus on analysis, intellectual exploration, theoretical models, research, and analytical activities.
-  - AR (Abstract Random): Foster reflection, emotional connection, group discussion, collaborative activities, and personal engagement.
-  
-6. Format each section clearly:
-   - Use the section headers mentioned above (Learning Objectives:, Section 1:, Activity 1:, etc.)
-   - Separate each major section with a blank line
-   - Use clear paragraph breaks within sections
-   - Use bullet points (•) or numbered lists (1., 2., 3.) where appropriate
-   - NEVER use Markdown formatting (no # headings, no **, no backticks)
-   - NEVER include learning style codes (CS, CR, AS, AR) in the content
+---
 
-EXAMPLE STRUCTURE (follow this pattern):
+**REQUIRED STRUCTURE:**
 
-Learning Objectives:
-1. [First objective]
-2. [Second objective]
-3. [Third objective]
+## Learning Objectives
+(Provide a numbered list of 3-5 clear, measurable objectives).
 
-Section 1: Introduction to [Topic]
-[Detailed explanation paragraph 1...]
-[Detailed explanation paragraph 2...]
-[Examples and scenarios...]
-[Key takeaways...]
+---
 
-Activity 1: [Activity Name]
-Objective: [What learners will achieve]
-Time: 20 minutes
-Instructions:
-1. [Step 1]
-2. [Step 2]
-3. [Step 3]
-Reflection: [Questions for thinking]
+## Section 1: [Descriptive Title]
+(Minimum 300 words).
+* **Concept:** Explain the core concept in depth.
+* **Real-World Context:** Provide specific business examples.
+* **Visual:** Insert a relevant  tag here.
+* **Key Takeaway:** Use a blockquote for the most important point.
 
-Section 2: [Next Major Topic]
-[Detailed content...]
+### Activity 1: [Activity Name]
+* **Objective:** What will the learner achieve?
+* **Time:** [Estimated time]
+* **Instructions:** (Numbered steps).
+* **Reflection/Output:** (Specific question or deliverable).
 
-Activity 2: [Next Activity]
-[Activity content...]
+---
 
-Section 3: [Advanced Concepts]
-[Detailed content...]
+## Section 2: [Descriptive Title]
+(Minimum 300 words).
+* **Deep Dive:** Explore the next topic or a more advanced aspect.
+* **Comparison/Data:** Use a **Table** here to compare strategies, pros/cons, or data points.
+* **Scenario:** A detailed workplace scenario applying this concept.
 
-Activity 3: [Practical Application]
-[Activity content...]
+### Activity 2: [Activity Name]
+* **Objective:** What will the learner achieve?
+* **Time:** [Estimated time]
+* **Instructions:** (Numbered steps).
+* **Reflection/Output:** (Specific question or deliverable).
 
-Module Summary:
-[Comprehensive summary of all key points...]
+---
 
-IMPORTANT: Create AT LEAST 2-3 full sections with corresponding activities. Make the content rich, practical, and workplace-relevant.`;
+## Section 3: [Descriptive Title]
+(Minimum 300 words).
+* **Advanced Application:** How to apply this in complex situations.
+* **Best Practices:** Bulleted list of dos and don'ts.
+* **Visual:** Insert a relevant  tag here.
+
+### Activity 3: [Activity Name]
+* **Objective:** What will the learner achieve?
+* **Time:** [Estimated time]
+* **Instructions:** (Numbered steps).
+* **Reflection/Output:** (Specific question or deliverable).
+
+---
+
+## Module Summary
+(A comprehensive wrap-up of the module. Use bullet points to summarize the top 3-5 takeaways).
+
+## Next Steps
+(A specific call to action for the learner to apply this knowledge immediately).`
         
         // console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
         
@@ -172,6 +168,36 @@ IMPORTANT: Create AT LEAST 2-3 full sections with corresponding activities. Make
         if (!aiContent) {
           console.warn(`No content generated for module: ${mod.processed_module_id} style: ${style}`);
           continue;
+        }
+
+        // Helper to extract JSON between markers or first JSON object/array
+        const extractJson = (text: string | undefined) => {
+          if (!text) return null;
+          const m = text.match(/BEGIN_JSON\s*([\s\S]*?)\s*END_JSON/im);
+          if (m && m[1]) {
+            try { return JSON.parse(m[1]); } catch (e) { return null; }
+          }
+          const objMatch = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/m);
+          if (objMatch && objMatch[0]) {
+            try { return JSON.parse(objMatch[0]); } catch (e) { return null; }
+          }
+          return null;
+        };
+
+        let parsedJson = extractJson(aiContent);
+        // retry once if parse failed
+        if (!parsedJson) {
+          try {
+            console.warn('[generate-module-content] initial JSON parse failed; retrying with stricter prompt');
+            const retryPrompt = `The previous response did not follow instructions. Return ONLY the JSON between BEGIN_JSON and END_JSON using the exact shape requested earlier. Do not include any other text.\n\nStudy Text:\n${topicsText}\n${objectivesText}\n${mod.content || ''}`;
+            const retryResult = await model.generateContent(retryPrompt);
+            const retryResp = await retryResult.response;
+            const retryText = retryResp.text();
+            parsedJson = extractJson(retryText);
+            if (!parsedJson) console.warn('[generate-module-content] retry failed to produce valid JSON');
+          } catch (e) {
+            console.warn('[generate-module-content] retry threw error', e);
+          }
         }
 
         // Sanitize AI output to remove common Markdown artifacts that are distracting
@@ -199,14 +225,68 @@ IMPORTANT: Create AT LEAST 2-3 full sections with corresponding activities. Make
         };
 
         const cleanedContent = sanitize(aiContent);
-        if (!cleanedContent) {
+
+        // If we were able to parse JSON, convert the JSON into the exact textual layout
+        let finalContent = cleanedContent;
+        if (parsedJson) {
+          const toTextModule = (json: any) => {
+            const parts: string[] = [];
+            if (json.title) parts.push(`${json.title}`);
+
+            if (Array.isArray(json.learning_objectives) && json.learning_objectives.length) {
+              parts.push(`\nLearning Objectives:`);
+              json.learning_objectives.forEach((lo: any, idx: number) => {
+                parts.push(`${idx + 1}. ${String(lo).trim()}`);
+              });
+            }
+
+            if (Array.isArray(json.sections)) {
+              json.sections.forEach((sec: any, idx: number) => {
+                const secIndex = idx + 1;
+                parts.push(`\nSection ${secIndex}: ${sec.heading || ""}`);
+                if (sec.body) parts.push(`${sec.body}`);
+
+                const act = sec.activity || {};
+                parts.push(`\nActivity ${secIndex}: ${act.title || ""}`);
+                if (act.objective) parts.push(`Objective: ${act.objective}`);
+                if (act.time) parts.push(`Time: ${act.time}`);
+                if (Array.isArray(act.instructions) && act.instructions.length) {
+                  parts.push(`Instructions:`);
+                  act.instructions.forEach((ins: any) => parts.push(`- ${String(ins).trim()}`));
+                }
+                if (Array.isArray(act.reflection_questions) && act.reflection_questions.length) {
+                  parts.push(`Reflection Questions:`);
+                  act.reflection_questions.forEach((q: any) => parts.push(`- ${String(q).trim()}`));
+                }
+              });
+            }
+
+            if (json.module_summary) {
+              parts.push(`\nModule Summary:\n${json.module_summary}`);
+            }
+
+            return parts.join("\n");
+          };
+
+          try {
+            const converted = toTextModule(parsedJson);
+            const convertedSanitized = sanitize(converted);
+            if (convertedSanitized && convertedSanitized.length > 0) {
+              finalContent = convertedSanitized;
+            }
+          } catch (e) {
+            console.warn(`[generate-module-content] failed to convert parsed JSON to text for module ${mod.processed_module_id}:`, e);
+          }
+        }
+
+        if (!finalContent) {
           console.warn(`Sanitized content empty for module: ${mod.processed_module_id} style: ${style}`);
           continue;
         }
         // Update the processed_modules row for this module and learning style
         const { error: updateError } = await supabase
           .from("processed_modules")
-          .update({ content: cleanedContent })
+          .update({ content: finalContent })
           .eq("processed_module_id", mod.processed_module_id);
         if (updateError) {
           console.error(`Failed to update content for module ${mod.processed_module_id} style ${style}:`, updateError);

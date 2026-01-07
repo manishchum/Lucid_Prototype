@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { formatContentType } from '@/lib/contentType';
 
 interface Admin {
   user_id: string
@@ -594,9 +595,20 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           .createSignedUrl(storagePath, 24 * 60 * 60);
 
         if (error) {
-          console.error('Failed to generate signed URL:', error);
-          setError('Failed to open training module: ' + error.message);
-          return;
+          // If signed URL generation fails (for example due to an expired/invalid JWT),
+          // fallback to opening the stored content_url directly so the admin can still
+          // access the file while we investigate auth/token issues.
+          console.warn('Failed to generate signed URL:', error);
+
+          try {
+            // Try opening the original URL as a best-effort fallback.
+            window.open(module.content_url, '_blank');
+            return;
+          } catch (openErr) {
+            console.error('Failed to open fallback content URL:', openErr);
+            setError('Failed to open training module');
+            return;
+          }
         }
 
         console.log('[ViewModule] Generated signed URL:', data.signedUrl);
@@ -688,7 +700,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                       )}
 
                       <div className="flex items-center gap-4 text-xs text-gray-500">
-                        <span>Type: {module.content_type}</span>
+                        <span>Type: {formatContentType(module.content_type)}</span>
                         <span>Created: {new Date(module.created_at).toLocaleDateString()}</span>
                         {module.ai_modules && (
                           <span>AI Processed: Yes</span>
