@@ -3,7 +3,6 @@ import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
 import fetch from 'node-fetch';
 import { callGemini } from '@/lib/gemini-helper';
->>>>>>>>> Temporary merge branch 2
 
 // Using Google Cloud Text-to-Speech REST API with service account credentials
 // Set GOOGLE_APPLICATION_CREDENTIALS to point to your service account JSON file
@@ -29,7 +28,7 @@ const admin = createClient(supabaseUrl, serviceKey || process.env.NEXT_PUBLIC_SU
 const BUCKET = 'module_audio';
 
 function generateJWT(credentials: any): string {
-  const crypto = require('crypto' );
+  const crypto = require('crypto');
   const header = { alg: 'RS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
   const payload = {
@@ -83,7 +82,7 @@ function cleanTextForTTS(text: string) {
 }
 
 function buildGeminiPodcastPrompt(moduleTitle: string, moduleContent: string, language: 'en' | 'hinglish' = 'en'): string {
-  const languageInstruction = language === 'hinglish' 
+  const languageInstruction = language === 'hinglish'
     ? `CRITICAL LANGUAGE REQUIREMENT - MUST BE FOLLOWED STRICTLY:
 - Write 85% of ALL content in HINDI (Devanagari script or romanized Hindi)
 - Use English ONLY for: technical terms, modern concepts, brand names
@@ -93,13 +92,13 @@ function buildGeminiPodcastPrompt(moduleTitle: string, moduleContent: string, la
 - Example WRONG format (DO NOT USE): "Today we are going to talk about financial ratios which help in checking company health"
 - Pooja aur Rahul dono ko Hindi mein hi baat karni hai`
     : 'Generate the entire podcast script in English.';
-  
+
   const dialogueCount = language === 'hinglish' ? '12-15' : '20-30';
-  
+
   const speakers = language === 'hinglish'
     ? '- Pooja (host) - Hindi mein baat karti hai, enthusiastic, warm, naturally curious\n- Rahul (expert) - Hindi mein samjhate hain, friendly teacher, real-world examples dete hain'
     : '- Sarah (host) - enthusiastic, warm, naturally curious, uses conversational fillers and expressions\n- Mark (expert) - friendly teacher, uses real-world examples, explains like talking to a friend';
-  
+
   return `Create a natural, engaging podcast conversation between two people:
 ${speakers}
 
@@ -136,15 +135,15 @@ interface DialogueLine {
 function parseGeminiDialogue(text: string, language: 'en' | 'hinglish' = 'en'): DialogueLine[] {
   const dialogue: DialogueLine[] = [];
   const lines = text.split('\n');
-  
+
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    
+
     if (language === 'hinglish') {
       const poojaMatch = trimmed.match(/^Pooja:\s*(.+)$/i);
       const rahulMatch = trimmed.match(/^Rahul:\s*(.+)$/i);
-      
+
       if (poojaMatch) {
         dialogue.push({
           speaker: 'pooja',
@@ -159,7 +158,7 @@ function parseGeminiDialogue(text: string, language: 'en' | 'hinglish' = 'en'): 
     } else {
       const sarahMatch = trimmed.match(/^Sarah:\s*(.+)$/i);
       const markMatch = trimmed.match(/^Mark:\s*(.+)$/i);
-      
+
       if (sarahMatch) {
         dialogue.push({
           speaker: 'sarah',
@@ -173,7 +172,7 @@ function parseGeminiDialogue(text: string, language: 'en' | 'hinglish' = 'en'): 
       }
     }
   }
-  
+
   return dialogue.slice(0, 30); // Max 30 segments
 }
 
@@ -194,50 +193,50 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
   // Call Gemini to generate podcast dialogue
   console.log(`[TTS] Calling Gemini to generate podcast script (language: ${language})...`);
   const prompt = buildGeminiPodcastPrompt(module.title, fullContent, language);
-  
+
   let geminiResponse: string = '';
   try {
     // Use lower token limits for Hinglish to avoid API errors
     const maxTokens = language === 'hinglish' ? 800 : 1200;
     const temp = language === 'hinglish' ? 0.3 : 0.35;
-    
-    const geminiResult = await callGemini(prompt, { 
+
+    const geminiResult = await callGemini(prompt, {
       temperature: temp,
       maxOutputTokens: maxTokens
     });
-    
+
     if (!geminiResult.ok) {
       console.error('[TTS] Gemini API failed:', geminiResult.text);
-      return { 
-        error: `Gemini API failed: ${geminiResult.text}`, 
-        status: 500 
+      return {
+        error: `Gemini API failed: ${geminiResult.text}`,
+        status: 500
       } as const;
     }
-    
+
     geminiResponse = geminiResult.data?.text || '';
     if (!geminiResponse) {
-      return { 
-        error: 'No text generated from Gemini', 
-        status: 500 
+      return {
+        error: 'No text generated from Gemini',
+        status: 500
       } as const;
     }
   } catch (err: any) {
     console.error('[TTS] Gemini API error:', err);
-    return { 
-      error: `Gemini API failed: ${err?.message || String(err)}`, 
-      status: 500 
+    return {
+      error: `Gemini API failed: ${err?.message || String(err)}`,
+      status: 500
     } as const;
   }
 
   // Parse Gemini response into dialogue
   const dialogue = parseGeminiDialogue(geminiResponse, language);
-  
+
   if (dialogue.length === 0) {
     return { error: 'No dialogue generated from Gemini response', status: 500 } as const;
   }
 
   console.log(`[TTS] Generated ${dialogue.length} dialogue segments from Gemini`);
-  
+
   function createWavBuffer(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1, bytesPerSample = 2) {
     const blockAlign = numChannels * bytesPerSample;
     const byteRate = sampleRate * blockAlign;
@@ -262,7 +261,7 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
   const SAMPLE_RATE = 24000;
   const BYTES_PER_SAMPLE = 2;
   const PAUSE_DURATION = 0.2; // seconds between speakers - reduced for more natural flow
-  
+
   // Build timeline with cumulative start/end times
   interface TimelineEntry {
     speaker: 'sarah' | 'mark' | 'pooja' | 'rahul';
@@ -272,7 +271,7 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
   }
   const podcastTimeline: TimelineEntry[] = [];
   let cumulativeTime = 0;
-  
+
   // Get access token from service account
   let accessToken: string | null = null;
   try {
@@ -312,7 +311,7 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
   // Generate audio for each dialogue segment with appropriate voice
   for (let i = 0; i < dialogue.length; i++) {
     const segment = dialogue[i];
-    
+
     // Choose voice based on speaker and language
     let voice;
     if (language === 'hinglish') {
@@ -324,7 +323,7 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
         ? { languageCode: 'en-US', name: 'en-US-Neural2-F', ssmlGender: 'FEMALE' }  // Sarah - female voice (English)
         : { languageCode: 'en-US', name: 'en-US-Neural2-J', ssmlGender: 'MALE' };   // Mark - male voice (English)
     }
-    
+
     const requestBody = {
       input: { text: segment.text },
       voice: voice,
@@ -367,12 +366,12 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
       }
 
       const buf = Buffer.from(audioContent, 'base64');
-      
+
       // Calculate duration from PCM buffer length
       const durationSec = buf.length / (SAMPLE_RATE * BYTES_PER_SAMPLE);
       const startSec = cumulativeTime;
       const endSec = cumulativeTime + durationSec;
-      
+
       // Add to timeline
       podcastTimeline.push({
         speaker: segment.speaker,
@@ -380,10 +379,10 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
         startSec,
         endSec
       });
-      
+
       pcmBuffers.push(buf);
       cumulativeTime = endSec;
-      
+
       // Add a small pause between speakers
       if (i < dialogue.length - 1) {
         const pauseSamples = Math.floor(PAUSE_DURATION * SAMPLE_RATE);
@@ -430,19 +429,19 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
   const audioUrl = publicUrlData?.publicUrl;
 
   // Update processed_modules with language-specific columns
-  const updateData = language === 'hinglish' 
+  const updateData = language === 'hinglish'
     ? {
-        audio_url_hinglish: audioUrl,
-        podcast_transcript_hinglish: dialogue.map(d => `${d.speaker}: ${d.text}`).join('\n'),
-        podcast_timeline_hinglish: JSON.stringify(podcastTimeline),
-        audio_generated_at: new Date().toISOString() 
-      }
+      audio_url_hinglish: audioUrl,
+      podcast_transcript_hinglish: dialogue.map(d => `${d.speaker}: ${d.text}`).join('\n'),
+      podcast_timeline_hinglish: JSON.stringify(podcastTimeline),
+      audio_generated_at: new Date().toISOString()
+    }
     : {
-        audio_url: audioUrl,
-        podcast_transcript: dialogue.map(d => `${d.speaker}: ${d.text}`).join('\n'),
-        podcast_timeline: JSON.stringify(podcastTimeline),
-        audio_generated_at: new Date().toISOString() 
-      };
+      audio_url: audioUrl,
+      podcast_transcript: dialogue.map(d => `${d.speaker}: ${d.text}`).join('\n'),
+      podcast_timeline: JSON.stringify(podcastTimeline),
+      audio_generated_at: new Date().toISOString()
+    };
 
   const { error: updateErr } = await admin
     .from('processed_modules')
