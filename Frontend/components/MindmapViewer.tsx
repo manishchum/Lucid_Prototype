@@ -524,7 +524,7 @@ export default function MindmapViewer({
               }
             }}
             className="bg-white px-2 py-1 rounded shadow flex items-center justify-center"
-            title="Download PNG"
+            title="Download image"
           >
             <Download size={16} />
           </button>
