@@ -706,9 +706,20 @@ function ContentTransformer({
   const [roleplayPersist, setRoleplayPersist] = useState<boolean>(false);
 
   // Podcast timeline state
-  const [podcastTimeline, setPodcastTimeline] = useState<Array<{ speaker: 'sarah' | 'mark'; text: string; startSec: number; endSec: number }>>([]);
+  const [podcastTimeline, setPodcastTimeline] = useState<Array<{ speaker: 'sarah' | 'mark' | 'pooja' | 'rahul'; text: string; startSec: number; endSec: number }>>([]);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
   const [transcriptStarted, setTranscriptStarted] = useState(false);
+
+  // Helper to get display name for speaker
+  const getSpeakerDisplayName = (speaker: string) => {
+    const names: Record<string, string> = {
+      'sarah': 'Sarah',
+      'mark': 'Mark',
+      'pooja': 'Pooja',
+      'rahul': 'Rahul'
+    };
+    return names[speaker] || speaker;
+  };
 
   // Hydrate timeline from module.podcast_timeline on component mount
   useEffect(() => {
@@ -1105,7 +1116,7 @@ function ContentTransformer({
                                 <div className="flex justify-start">
                                   <div className="rounded-lg px-4 py-2 bg-gray-100 text-gray-600 rounded-bl-none max-w-2xl">
                                     <div className="font-semibold text-xs mb-2 opacity-75">
-                                      {prev.speaker === 'sarah' ? 'Sarah' : 'Mark'}
+                                      {getSpeakerDisplayName(prev.speaker)}
                                     </div>
                                     <p className="whitespace-normal break-words leading-relaxed text-sm">{prev.text}</p>
                                   </div>
@@ -1115,17 +1126,18 @@ function ContentTransformer({
                           }
                           // Show current segment
                           const curr = podcastTimeline[activeSegmentIndex];
+                          const isHost = curr.speaker === 'sarah' || curr.speaker === 'pooja';
                           segments.push(
                             <div key={`curr-${activeSegmentIndex}`}>
-                              <div className={clsx('flex', curr.speaker === 'sarah' ? 'justify-start' : 'justify-end')}>
+                              <div className={clsx('flex', isHost ? 'justify-start' : 'justify-end')}>
                                 <div className={clsx(
                                   'rounded-lg px-4 py-2 max-w-2xl font-semibold ring-2 ring-blue-500 transition-all duration-300 ease-out',
-                                  curr.speaker === 'sarah'
+                                  isHost
                                     ? 'bg-blue-100 text-blue-900 rounded-bl-none'
                                     : 'bg-green-100 text-green-900 rounded-br-none'
                                 )}>
                                   <div className="font-semibold text-xs mb-2 opacity-75">
-                                    {curr.speaker === 'sarah' ? 'Sarah (now)' : 'Mark (now)'}
+                                    {getSpeakerDisplayName(curr.speaker)} (now)
                                   </div>
                                   <p className="whitespace-normal break-words leading-relaxed text-base">{curr.text}</p>
                                 </div>
@@ -1135,12 +1147,13 @@ function ContentTransformer({
                           // Show next segment if available
                           if (activeSegmentIndex < podcastTimeline.length - 1) {
                             const next = podcastTimeline[activeSegmentIndex + 1];
+                            const isNextHost = next.speaker === 'sarah' || next.speaker === 'pooja';
                             segments.push(
                               <div key={`next-${activeSegmentIndex + 1}`} className="opacity-50 transition-all duration-300 ease-out">
-                                <div className={clsx('flex', next.speaker === 'sarah' ? 'justify-start' : 'justify-end')}>
+                                <div className={clsx('flex', isNextHost ? 'justify-start' : 'justify-end')}>
                                   <div className="rounded-lg px-4 py-2 bg-gray-100 text-gray-600 rounded-br-none max-w-2xl">
                                     <div className="font-semibold text-xs mb-2 opacity-75">
-                                      {next.speaker === 'sarah' ? 'Sarah' : 'Mark'}
+                                      {getSpeakerDisplayName(next.speaker)}
                                     </div>
                                     <p className="whitespace-normal break-words leading-relaxed text-sm">{next.text}</p>
                                   </div>

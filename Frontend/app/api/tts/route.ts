@@ -80,42 +80,47 @@ function cleanTextForTTS(text: string) {
 
 function buildGeminiPodcastPrompt(moduleTitle: string, moduleContent: string, language: 'en' | 'hinglish' = 'en'): string {
   const languageInstruction = language === 'hinglish' 
-    ? 'Generate the entire podcast script in Hinglish. Both Sarah and Mark should speak in Indian Hinglish with more on hindi side rather than english.'
+    ? 'Generate the entire podcast script in Hinglish. Both Pooja and Rahul should speak in Indian Hinglish with more on hindi side rather than english.'
     : 'Generate the entire podcast script in English.';
   
   const dialogueCount = language === 'hinglish' ? '12-15' : '20-30';
   
-  return `Create a podcast script for a conversation between two hosts:
-- Sarah (host) - conversational, engaging, asks good questions
-- Mark (interviewee) - expert, explains concepts clearly, practical examples
+  const speakers = language === 'hinglish'
+    ? '- Pooja (host) - enthusiastic, warm, naturally curious, uses conversational fillers and expressions\n- Rahul (expert) - friendly teacher, uses real-world examples, explains like talking to a friend'
+    : '- Sarah (host) - enthusiastic, warm, naturally curious, uses conversational fillers and expressions\n- Mark (expert) - friendly teacher, uses real-world examples, explains like talking to a friend';
+  
+  return `Create a natural, engaging podcast conversation between two people:
+${speakers}
 
 Module Title: ${moduleTitle}
 
 Content to cover:
 ${moduleContent}
 
-Instructions:
+IMPORTANT - Make it sound like a real conversation:
 1. ${languageInstruction}
-2. Create a natural conversation with back-and-forth dialogue between Sarah and Mark
-3. Sarah asks questions, Mark explains and provides insights
-4. Keep each response concise (1-3 sentences per speaker turn)
-5. Skip activities, homework, and discussion prompts
-6. Focus on key concepts and practical takeaways
-7. Make it engaging and informative
+2. Use natural speech patterns - include filler words like "you know", "I mean", "actually", "right", "so"
+3. The host should react naturally - "Oh interesting!", "That makes sense", "Tell me more about that"
+4. Keep responses conversational and flowing - 2-4 sentences per turn
+5. The expert should explain concepts like teaching a friend, not lecturing
+6. Include smooth transitions between topics - "That reminds me...", "Speaking of...", "And another thing..."
+7. Show genuine enthusiasm and interest in the topic
+8. Avoid formal or robotic language - be warm and relatable
+9. Skip activities, homework sections, and discussion prompts
+10. Focus on practical insights and real-world applications
 
 Format each line as:
-Sarah: [text]
-Mark: [text]
+${language === 'hinglish' ? 'Pooja: [text]\nRahul: [text]' : 'Sarah: [text]\nMark: [text]'}
 
-Generate about ${dialogueCount} dialogue exchanges.`;
+Generate about ${dialogueCount} natural dialogue exchanges.`;
 }
 
 interface DialogueLine {
-  speaker: 'sarah' | 'mark';
+  speaker: 'sarah' | 'mark' | 'pooja' | 'rahul';
   text: string;
 }
 
-function parseGeminiDialogue(text: string): DialogueLine[] {
+function parseGeminiDialogue(text: string, language: 'en' | 'hinglish' = 'en'): DialogueLine[] {
   const dialogue: DialogueLine[] = [];
   const lines = text.split('\n');
   
@@ -123,19 +128,36 @@ function parseGeminiDialogue(text: string): DialogueLine[] {
     const trimmed = line.trim();
     if (!trimmed) continue;
     
-    const sarahMatch = trimmed.match(/^Sarah:\s*(.+)$/i);
-    const markMatch = trimmed.match(/^Mark:\s*(.+)$/i);
-    
-    if (sarahMatch) {
-      dialogue.push({
-        speaker: 'sarah',
-        text: cleanTextForTTS(sarahMatch[1])
-      });
-    } else if (markMatch) {
-      dialogue.push({
-        speaker: 'mark',
-        text: cleanTextForTTS(markMatch[1])
-      });
+    if (language === 'hinglish') {
+      const poojaMatch = trimmed.match(/^Pooja:\s*(.+)$/i);
+      const rahulMatch = trimmed.match(/^Rahul:\s*(.+)$/i);
+      
+      if (poojaMatch) {
+        dialogue.push({
+          speaker: 'pooja',
+          text: cleanTextForTTS(poojaMatch[1])
+        });
+      } else if (rahulMatch) {
+        dialogue.push({
+          speaker: 'rahul',
+          text: cleanTextForTTS(rahulMatch[1])
+        });
+      }
+    } else {
+      const sarahMatch = trimmed.match(/^Sarah:\s*(.+)$/i);
+      const markMatch = trimmed.match(/^Mark:\s*(.+)$/i);
+      
+      if (sarahMatch) {
+        dialogue.push({
+          speaker: 'sarah',
+          text: cleanTextForTTS(sarahMatch[1])
+        });
+      } else if (markMatch) {
+        dialogue.push({
+          speaker: 'mark',
+          text: cleanTextForTTS(markMatch[1])
+        });
+      }
     }
   }
   
@@ -195,7 +217,7 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
   }
 
   // Parse Gemini response into dialogue
-  const dialogue = parseGeminiDialogue(geminiResponse);
+  const dialogue = parseGeminiDialogue(geminiResponse, language);
   
   if (dialogue.length === 0) {
     return { error: 'No dialogue generated from Gemini response', status: 500 } as const;
@@ -226,11 +248,11 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
   const pcmBuffers: Buffer[] = [];
   const SAMPLE_RATE = 24000;
   const BYTES_PER_SAMPLE = 2;
-  const PAUSE_DURATION = 0.5; // seconds between speakers
+  const PAUSE_DURATION = 0.2; // seconds between speakers - reduced for more natural flow
   
   // Build timeline with cumulative start/end times
   interface TimelineEntry {
-    speaker: 'sarah' | 'mark';
+    speaker: 'sarah' | 'mark' | 'pooja' | 'rahul';
     text: string;
     startSec: number;
     endSec: number;
@@ -282,11 +304,11 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
     // Choose voice based on speaker and language
     let voice;
     if (language === 'hinglish') {
-      voice = segment.speaker === 'sarah' 
-        ? { languageCode: 'en-IN', name: 'en-IN-Neural2-A', ssmlGender: 'FEMALE' }  // Sarah - female voice (Indian English for Hinglish)
-        : { languageCode: 'en-IN', name: 'en-IN-Neural2-B', ssmlGender: 'MALE' };   // Mark - male voice (Indian English for Hinglish)
+      voice = (segment.speaker === 'pooja')
+        ? { languageCode: 'hi-IN', name: 'hi-IN-Chirp3-HD-Autonoe', ssmlGender: 'FEMALE' }  // Pooja - female voice (Indian English for Hinglish)
+        : { languageCode: 'hi-IN', name: 'hi-IN-Chirp3-HD-Enceladus', ssmlGender: 'MALE' };   // Rahul - male voice (Indian English for Hinglish)
     } else {
-      voice = segment.speaker === 'sarah' 
+      voice = (segment.speaker === 'sarah')
         ? { languageCode: 'en-US', name: 'en-US-Neural2-F', ssmlGender: 'FEMALE' }  // Sarah - female voice (English)
         : { languageCode: 'en-US', name: 'en-US-Neural2-J', ssmlGender: 'MALE' };   // Mark - male voice (English)
     }
