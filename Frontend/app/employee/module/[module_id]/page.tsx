@@ -67,7 +67,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       } catch (e) {
         console.error('[module] employee fetch error', e);
       }
-      const selectCols = "processed_module_id, title, content, audio_url, original_module_id, learning_style, user_id, podcast_timeline";
+      const selectCols = "processed_module_id, title, content, audio_url, audio_url_hinglish, original_module_id, learning_style, user_id, podcast_timeline, podcast_timeline_hinglish, podcast_transcript, podcast_transcript_hinglish,video_url";
       let data: any = null;
 
       // First try: direct lookup by processed_module_id (this is what we pass from training plan)
@@ -132,7 +132,9 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             setGeneratingContent(false);
           }
         }
-
+        if(data.video_url){
+          setHasVideo(true);
+        }
         setModule(data as any);
         setPlainTranscript(extractPlainText(data.content || ''));
         try {
@@ -159,8 +161,62 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       }
       setLoading(false);
     };
-    if (moduleId) fetchModule();
-  }, [moduleId]);
+    if (!moduleId) return;
+    if (authLoading) return;     // wait for auth
+  if (!user) return;
+
+    
+  fetchModule();
+  }, [moduleId,user,authLoading]);
+
+  const handleSendChat = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!chatInput.trim() || chatLoading || !module?.processed_module_id) return;
+
+    const userMessage = chatInput.trim();
+    setChatInput('');
+
+    const newUserMessage = { role: 'user' as const, content: userMessage };
+    setUserChatHistory((prev) => [...prev, newUserMessage]);
+    setChatLoading(true);
+
+    try {
+      const response = await fetch('/api/module-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          processed_module_id: module.processed_module_id,
+          user_message: userMessage,
+          chat_history: userChatHistory,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.message) {
+        setUserChatHistory((prev) => [...prev, { role: 'assistant', content: data.message }]);
+      } else {
+        setUserChatHistory((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: 'Sorry, I encountered an error. Please try again.',
+          },
+        ]);
+      }
+    } catch (error) {
+      console.error('Chat error:', error);
+      setUserChatHistory((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: 'Sorry, I encountered an error. Please try again.',
+        },
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
 
   const handleSendChat = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -265,7 +321,26 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                   liveTranscript={liveTranscript}
                   plainTranscript={plainTranscript}
                   setLiveTranscript={setLiveTranscript}
-                  onAudioGenerated={(url: string) => setModule((m: any) => ({ ...m, audio_url: url }))}
+                  onAudioGenerated={(url: string, data?: { transcript?: string; timeline?: any; language?: 'en' | 'hinglish' }) => {
+                    setModule((m: any) => {
+                      const language = data?.language || 'en';
+                      if (language === 'hinglish') {
+                        return {
+                          ...m,
+                          audio_url_hinglish: url,
+                          podcast_transcript_hinglish: data?.transcript || m.podcast_transcript_hinglish,
+                          podcast_timeline_hinglish: data?.timeline ? JSON.stringify(data.timeline) : m.podcast_timeline_hinglish,
+                        };
+                      } else {
+                        return {
+                          ...m,
+                          audio_url: url,
+                          podcast_transcript: data?.transcript || m.podcast_transcript,
+                          podcast_timeline: data?.timeline ? JSON.stringify(data.timeline) : m.podcast_timeline,
+                        };
+                      }
+                    });
+                  }}
                   hasVideo={hasVideo}
                   setHasVideo={setHasVideo}
                   onVideoGenerated={(url: string) => {
@@ -680,9 +755,20 @@ function ContentTransformer({
   setHasVideo,
   onVideoGenerated,
 }: any) {
-  const hasAudio = !!module.audio_url;
-  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]);
-  const [language, setLanguage] = useState<'en' | 'hi'>('en');
+  // Check if audio exists for each language
+  const hasEnglishAudio = !!(module.audio_url && module.podcast_transcript && module.podcast_timeline);
+  const hasHinglishAudio = !!(module.audio_url_hinglish && module.podcast_transcript_hinglish && module.podcast_timeline_hinglish);
+  const hasAudio = hasEnglishAudio || hasHinglishAudio;
+  
+  // Check if current language audio is available
+  const hasCurrentLanguageAudio = (language: 'en' | 'hinglish') => {
+    if (language === 'hinglish') {
+      return hasHinglishAudio;
+    }
+    return hasEnglishAudio;
+  };
+  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
+  const [language, setLanguage] = useState<'en' | 'hinglish'>('en');
   const [selectedOption, setSelectedOption] = useState<'audio' | 'infographic' | 'infographics' | 'mindmap' | 'video' | 'roleplay'>('audio');
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [audioOpen, setAudioOpen] = useState(false);
@@ -700,27 +786,41 @@ function ContentTransformer({
   const [roleplayPersist, setRoleplayPersist] = useState<boolean>(false);
 
   // Podcast timeline state
-  const [podcastTimeline, setPodcastTimeline] = useState<Array<{ speaker: 'sarah' | 'mark'; text: string; startSec: number; endSec: number }>>([]);
+  const [podcastTimeline, setPodcastTimeline] = useState<Array<{ speaker: 'sarah' | 'mark' | 'pooja' | 'rahul'; text: string; startSec: number; endSec: number }>>([]);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
   const [transcriptStarted, setTranscriptStarted] = useState(false);
 
+  // Helper to get display name for speaker
+  const getSpeakerDisplayName = (speaker: string) => {
+    const names: Record<string, string> = {
+      'sarah': 'Sarah',
+      'mark': 'Mark',
+      'pooja': 'Pooja',
+      'rahul': 'Rahul'
+    };
+    return names[speaker] || speaker;
+  };
+
   // Hydrate timeline from module.podcast_timeline on component mount
   useEffect(() => {
-    if (!module?.podcast_timeline) {
-      console.log('[ContentTransformer] No podcast_timeline in module data');
+    const timelineField = language === 'hinglish' ? 'podcast_timeline_hinglish' : 'podcast_timeline';
+    const timelineData = language === 'hinglish' ? module?.podcast_timeline_hinglish : module?.podcast_timeline;
+    
+    if (!timelineData) {
+      console.log(`[ContentTransformer] No ${timelineField} in module data`);
       return;
     }
 
     try {
-      let timeline = module.podcast_timeline;
-      // If podcast_timeline is a string (JSON), parse it
+      let timeline = timelineData;
+      // If timeline is a string (JSON), parse it
       if (typeof timeline === 'string') {
         timeline = JSON.parse(timeline);
       }
 
       // Validate timeline data structure
       if (!Array.isArray(timeline)) {
-        console.warn('[ContentTransformer] Invalid timeline format: not an array', { timeline });
+        console.warn(`[ContentTransformer] Invalid ${timelineField} format: not an array`, { timeline });
         return;
       }
 
@@ -734,22 +834,22 @@ function ContentTransformer({
       );
 
       if (!isValid) {
-        console.warn('[ContentTransformer] Timeline segments missing required fields', { timeline });
+        console.warn(`[ContentTransformer] ${timelineField} segments missing required fields`, { timeline });
         return;
       }
 
       setPodcastTimeline(timeline);
-      console.log('[ContentTransformer] Timeline loaded from module:', {
-        segmentCount: timeline.length,
-        totalDuration: timeline.length > 0 ? timeline[timeline.length - 1].endSec : 0,
-      });
+      // console.log(`[ContentTransformer] ${timelineField} loaded from module:`, {
+      //   segmentCount: timeline.length,
+      //   totalDuration: timeline.length > 0 ? timeline[timeline.length - 1].endSec : 0,
+      // });
     } catch (error) {
-      console.error('[ContentTransformer] Failed to parse podcast_timeline:', {
+      console.error(`[ContentTransformer] Failed to parse ${timelineField}:`, {
         error,
-        raw: module?.podcast_timeline,
+        raw: timelineData,
       });
     }
-  }, [module?.podcast_timeline]);
+  }, [module?.podcast_timeline, module?.podcast_timeline_hinglish, language]);
 
   const handleTimeUpdate = (current: number, duration: number, playbackRate: number = 1.0) => {
     if (!duration || podcastTimeline.length === 0) return;
@@ -782,13 +882,13 @@ function ContentTransformer({
     if (active !== activeSegmentIndex) {
       setActiveSegmentIndex(active);
       if (active >= 0 && active < podcastTimeline.length) {
-        console.log('[ContentTransformer] Active segment:', {
-          index: active,
-          speaker: podcastTimeline[active].speaker,
-          currentTime: current,
-          playbackRate,
-          segmentRange: `${podcastTimeline[active].startSec.toFixed(2)}s - ${podcastTimeline[active].endSec.toFixed(2)}s`,
-        });
+        // console.log('[ContentTransformer] Active segment:', {
+        //   index: active,
+        //   speaker: podcastTimeline[active].speaker,
+        //   currentTime: current,
+        //   playbackRate,
+        //   segmentRange: `${podcastTimeline[active].startSec.toFixed(2)}s - ${podcastTimeline[active].endSec.toFixed(2)}s`,
+        // });
       }
     }
   };
@@ -869,7 +969,7 @@ function ContentTransformer({
             )}
           >
             <div className="text-3xl mb-3">🎧</div>
-            <div className="font-bold text-slate-900 text-sm">Audio Guide</div>
+            <div className="font-bold text-slate-900 text-sm">Podcast</div>
             <div className="text-slate-500 text-xs mt-1">Listen on the go</div>
           </div>
 
@@ -946,7 +1046,7 @@ function ContentTransformer({
                 setInfographicLoading(true);
                 const studyText = plainTranscript || module.content || '';
                 console.log('[infographic] starting fetch, studyText length:', (studyText || '').length);
-                const res = await fetch('/api/generate-infographic-gemini', {
+                const res = await fetch('/api/generate-flashcards-gemini', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ content: studyText }),
@@ -1004,7 +1104,8 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Visual summary</div>
           </div>
 
-          <div
+          {/* Infographics button removed - keep only Flash cards button */}
+          {/*<div
             onClick={() => setSelectedOption('roleplay')}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
@@ -1016,80 +1117,54 @@ function ContentTransformer({
             <div className="text-3xl mb-3">🎭</div>
             <div className="font-bold text-slate-900 text-sm">Role-playing Exercise</div>
             <div className="text-slate-500 text-xs mt-1">Role Play</div>
-          </div>
+          </div> */}
+
         </div>
 
         {selectedOption === 'audio' && audioOpen && (
           <div className="space-y-3 flex flex-col">
-            {!hasAudio && (
-              <GenerateAudioButton
-                moduleId={module.processed_module_id}
-                onAudioGenerated={(url, timeline) => {
-                  onAudioGenerated(url);
-                  if (timeline && Array.isArray(timeline)) {
-                    console.log('[ContentTransformer] Timeline received from audio generation:', {
-                      segmentCount: timeline.length,
-                      totalDuration: timeline.length > 0 ? timeline[timeline.length - 1].endSec : 0,
-                    });
-                    setPodcastTimeline(timeline);
-                  } else if (!timeline) {
-                    console.warn('[ContentTransformer] No timeline returned from audio generation');
-                  }
-                }}
-              />
-            )}
+             <div className="flex items-center gap-3">
+              <select
+                value={language}
+                onChange={(e) => setLanguage(e.target.value as 'en' | 'hinglish')}
+                className="px-3 py-1 rounded border text-sm bg-white"
+              >
+                <option value="en">English</option>
+                <option value="hinglish">हिंदी</option>
+              </select>
 
-            {hasAudio && (
+              {!hasCurrentLanguageAudio(language) && (
+                <GenerateAudioButton
+                  moduleId={module.processed_module_id}
+                  onAudioGenerated={(url, data) => {
+                    onAudioGenerated(url, data);
+                    if (data?.timeline && Array.isArray(data.timeline)) {
+                      // console.log('[ContentTransformer] Timeline received from audio generation:', {
+                      //   segmentCount: data.timeline.length,
+                      //   totalDuration: data.timeline.length > 0 ? data.timeline[data.timeline.length - 1].endSec : 0,
+                      // });
+                      setPodcastTimeline(data.timeline);
+                    } else if (!data?.timeline) {
+                      // console.warn('[ContentTransformer] No timeline returned from audio generation');
+                    }
+                  }}
+                  language={language}
+                />
+              )}
+            </div>
+
+            {hasCurrentLanguageAudio(language) && (
               <>
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                   <AudioPlayer
                     employeeId={employee?.user_id}
                     processedModuleId={module.processed_module_id}
                     moduleId={module.original_module_id}
-                    audioUrl={module.audio_url}
+                    audioUrl={language === 'hinglish' ? (module.audio_url_hinglish || module.audio_url) : module.audio_url}
                     onTimeUpdate={(current, duration, playbackRate) => handleTimeUpdate(current, duration, playbackRate)}
                     onPlayExtra={handleResetTranscript}
                     className="w-full"
                   />
-                </div>
-
-                <div className="flex gap-2 justify-end">
-                  <button
-                    onClick={async () => {
-                      setLanguage('en');
-                      const res = await fetch(`/api/tts?processed_module_id=${module.processed_module_id}&language=en`);
-                      const data = await res.json();
-                      if (res.ok && data.audioUrl) {
-                        onAudioGenerated(data.audioUrl);
-                      }
-                    }}
-                    className={clsx(
-                      'px-3 py-1 rounded text-xs font-medium transition-all',
-                      language === 'en'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                    )}
-                  >
-                    English
-                  </button>
-                  <button
-                    onClick={async () => {
-                      setLanguage('hi');
-                      const res = await fetch(`/api/tts?processed_module_id=${module.processed_module_id}&language=hi`);
-                      const data = await res.json();
-                      if (res.ok && data.audioUrl) {
-                        onAudioGenerated(data.audioUrl);
-                      }
-                    }}
-                    className={clsx(
-                      'px-3 py-1 rounded text-xs font-medium transition-all',
-                      language === 'hi'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                    )}
-                  >
-                    हिंदी
-                  </button>
                 </div>
 
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -1123,7 +1198,7 @@ function ContentTransformer({
                                 <div className="flex justify-start">
                                   <div className="rounded-lg px-4 py-2 bg-gray-100 text-gray-600 rounded-bl-none max-w-2xl">
                                     <div className="font-semibold text-xs mb-2 opacity-75">
-                                      {prev.speaker === 'sarah' ? 'Sarah' : 'Mark'}
+                                      {getSpeakerDisplayName(prev.speaker)}
                                     </div>
                                     <p className="whitespace-normal break-words leading-relaxed text-sm">{prev.text}</p>
                                   </div>
@@ -1133,17 +1208,18 @@ function ContentTransformer({
                           }
                           // Show current segment
                           const curr = podcastTimeline[activeSegmentIndex];
+                          const isHost = curr.speaker === 'sarah' || curr.speaker === 'pooja';
                           segments.push(
                             <div key={`curr-${activeSegmentIndex}`}>
-                              <div className={clsx('flex', curr.speaker === 'sarah' ? 'justify-start' : 'justify-end')}>
+                              <div className={clsx('flex', isHost ? 'justify-start' : 'justify-end')}>
                                 <div className={clsx(
                                   'rounded-lg px-4 py-2 max-w-2xl font-semibold ring-2 ring-blue-500 transition-all duration-300 ease-out',
-                                  curr.speaker === 'sarah'
+                                  isHost
                                     ? 'bg-blue-100 text-blue-900 rounded-bl-none'
                                     : 'bg-green-100 text-green-900 rounded-br-none'
                                 )}>
                                   <div className="font-semibold text-xs mb-2 opacity-75">
-                                    {curr.speaker === 'sarah' ? 'Sarah (now)' : 'Mark (now)'}
+                                    {getSpeakerDisplayName(curr.speaker)} (now)
                                   </div>
                                   <p className="whitespace-normal break-words leading-relaxed text-base">{curr.text}</p>
                                 </div>
@@ -1153,12 +1229,13 @@ function ContentTransformer({
                           // Show next segment if available
                           if (activeSegmentIndex < podcastTimeline.length - 1) {
                             const next = podcastTimeline[activeSegmentIndex + 1];
+                            const isNextHost = next.speaker === 'sarah' || next.speaker === 'pooja';
                             segments.push(
                               <div key={`next-${activeSegmentIndex + 1}`} className="opacity-50 transition-all duration-300 ease-out">
-                                <div className={clsx('flex', next.speaker === 'sarah' ? 'justify-start' : 'justify-end')}>
+                                <div className={clsx('flex', isNextHost ? 'justify-start' : 'justify-end')}>
                                   <div className="rounded-lg px-4 py-2 bg-gray-100 text-gray-600 rounded-br-none max-w-2xl">
                                     <div className="font-semibold text-xs mb-2 opacity-75">
-                                      {next.speaker === 'sarah' ? 'Sarah' : 'Mark'}
+                                      {getSpeakerDisplayName(next.speaker)}
                                     </div>
                                     <p className="whitespace-normal break-words leading-relaxed text-sm">{next.text}</p>
                                   </div>
@@ -1215,18 +1292,14 @@ function ContentTransformer({
                       )}
 
                       {!infographicLoading && (
-                        <InfographicCards sections={infographicSections} />
+                        <div>
+                              <InfographicCards sections={infographicSections} />
+                        </div>
                       )}
                     </div>
                   )}
 
-                  {selectedOption === 'infographics' && (
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="text-4xl">🛠️</div>
-                      <div className="text-lg font-semibold">Infographics coming soon</div>
-                      <div className="text-sm text-slate-500">We're working on more visual summaries — stay tuned.</div>
-                    </div>
-                  )}
+                  {/* 'infographic' (singular) is used to show generated sections inline */}
 
               {selectedOption === 'mindmap' && (
                 <div>
@@ -1537,7 +1610,7 @@ function formatContent(content: string) {
 // Add GenerateAudioButton component
 
 
-function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string, onAudioGenerated: (url: string, timeline?: any) => void }) {
+function GenerateAudioButton({ moduleId, onAudioGenerated, language = 'en' }: { moduleId: string, onAudioGenerated: (url: string, data?: { transcript?: string; timeline?: any; language?: 'en' | 'hinglish' }) => void, language?: 'en' | 'hinglish' }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1545,12 +1618,31 @@ function GenerateAudioButton({ moduleId, onAudioGenerated }: { moduleId: string,
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/tts?processed_module_id=${moduleId}`);
-      const data = await res.json();
-      if (res.ok && data.audioUrl) {
-        onAudioGenerated(data.audioUrl, data.podcastTimeline);
+      if (language === 'hinglish') {
+        // Hinglish generation implementation
+        const res = await fetch(`/api/tts?processed_module_id=${moduleId}&language=hinglish`);
+        const data = await res.json();
+        if (res.ok && data.audioUrl) {
+          onAudioGenerated(data.audioUrl, {
+            transcript: data.podcastTranscript,
+            timeline: data.podcastTimeline,
+            language: 'hinglish'
+          });
+        } else {
+          setError(data.error || 'Failed to generate Hinglish audio');
+        }
       } else {
-        setError(data.error || 'Failed to generate audio');
+        const res = await fetch(`/api/tts?processed_module_id=${moduleId}&language=en`);
+        const data = await res.json();
+        if (res.ok && data.audioUrl) {
+          onAudioGenerated(data.audioUrl, {
+            transcript: data.podcastTranscript,
+            timeline: data.podcastTimeline,
+            language: 'en'
+          });
+        } else {
+          setError(data.error || 'Failed to generate audio');
+        }
       }
     } catch (e: any) {
       setError(e?.message || 'Error generating audio');
@@ -1609,4 +1701,72 @@ function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string,
       {error && <div className="text-red-600 mt-2">{error}</div>}
     </div>
   );
+}
+
+// Helper: escape XML-sensitive characters for safe insertion into SVG
+function escapeXml(unsafe: string) {
+  if (!unsafe) return '';
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+// Build a simple 16:9 infographic SVG string from sections.
+// sections: array of { heading: string, points: string[] }
+function buildInfographicSVG(sections: any[], title: string) {
+  const w = 1920;
+  const h = 1080;
+  const marginX = 120;
+  const startY = 160;
+  const boxHeight = 220;
+  const gapY = 28;
+  const maxSections = 4;
+  const items = Array.isArray(sections) ? sections.slice(0, maxSections) : [];
+
+  const header = escapeXml(title || 'Infographic');
+
+  const colors = ['#E8F4FF', '#EFFCF0', '#FFF7E8', '#F6F0FF'];
+
+  const rects = items.map((s: any, i: number) => {
+    const y = startY + i * (boxHeight + gapY);
+    const heading = escapeXml(String(s.heading || '').slice(0, 80));
+    const points = Array.isArray(s.points) ? s.points : (typeof s.points === 'string' ? [s.points] : []);
+    // Render up to 6 bullet points
+    const bullets = (points || []).slice(0, 6).map((p: any, idx: number) => {
+      const px = marginX + 32;
+      const py = y + 80 + idx * 30;
+      const txt = escapeXml(String(p || '').replace(/\s+/g, ' ').trim()).slice(0, 120);
+      return `<text x="${px}" y="${py}" font-family="Inter, Arial, sans-serif" font-size="20" fill="#1f2937">• ${txt}</text>`;
+    }).join('\n');
+
+    const color = colors[i % colors.length];
+
+    return `
+      <g>
+        <rect x="${marginX}" y="${y}" rx="18" ry="18" width="${w - marginX * 2}" height="${boxHeight}" fill="${color}" stroke="#D1D5DB" stroke-width="1" />
+        <text x="${marginX + 28}" y="${y + 46}" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="700" fill="#0f172a">${heading}</text>
+        ${bullets}
+      </g>
+    `;
+  }).join('\n');
+
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+  <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <style>
+      .title { font-family: Inter, Arial, sans-serif; font-size:48px; font-weight:800; fill:#0b3b66 }
+    </style>
+    <rect width="100%" height="100%" fill="#ffffff" />
+    <g>
+      <text x="${marginX}" y="88" class="title">${header}</text>
+    </g>
+    ${rects}
+    <g>
+      <text x="${marginX}" y="${h - 48}" font-family="Inter, Arial, sans-serif" font-size="14" fill="#6b7280">Boost Productivity • Generated by Lucid</text>
+    </g>
+  </svg>`;
+
+  return svg;
 }

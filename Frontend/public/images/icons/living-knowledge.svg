@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true">
+  <!-- Rounded blue square (slightly larger corner radius) -->
+  <rect width="64" height="64" rx="14" fill="#2563EB" />
+
+  <!-- Book glyph: two white pages with a narrow blue gap/spine -->
+  <g transform="translate(0,0)" fill="none" stroke="none">
+    <!-- left page -->
+    <path fill="#fff" d="M20 20c2-1 6-1 9 0v12c-3-1-7-1-9 0v-12z" />
+    <!-- right page -->
+    <path fill="#fff" d="M35 20c-2-1-6-1-9 0v12c3-1 7-1 9 0v-12z" />
+    <!-- narrow spine/gap -->
+    <rect x="28" y="20" width="4" height="12" fill="#2563EB" rx="1" />
+  </g>
+</svg>

@@ -54,7 +54,7 @@ export async function logError(payload: {
       const { error: rpcErr } = await supabaseAdmin.rpc('log_error_dedupe', { p: row });
       if (rpcErr) {
         // RPC not available or failed. Fallback to a plain insert using only known columns
-        console.error('logError: rpc error, falling back to plain insert', rpcErr);
+        // console.error('logError: rpc error, falling back to plain insert', rpcErr);
         const fallbackRow: any = {
           email_id: row.email_id,
           error: row.error,

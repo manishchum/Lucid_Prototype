@@ -1,8 +1,81 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import * as XLSX from 'xlsx';
+import path from 'path';
+import { promises as fs } from 'fs';
+import nodefs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+
+/**
+ * Downloads file from Supabase storage URL and extracts text content
+ */
+async function downloadAndExtractFileContent(fileUrl: string): Promise<string> {
+  let tempFilePath: string | undefined;
+  
+  try {
+    // Remove token from URL
+    const cleanUrl = fileUrl.split('?token=')[0];
+    
+    // Download file
+    const response = await fetch(cleanUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to download file: ${response.statusText}`);
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    
+    // Determine file type from URL
+    const fileName = cleanUrl.split('/').pop() || 'unknown';
+    const isSpreadsheet = fileName.match(/\.(xlsx|xls|csv)$/i);
+    const isPdf = fileName.match(/\.pdf$/i);
+    
+    if (isSpreadsheet) {
+      // Extract spreadsheet content
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      let extractedText = `Spreadsheet Content from ${fileName}:\n\n`;
+      
+      workbook.SheetNames.forEach((sheetName: string) => {
+        extractedText += `\n=== Sheet: ${sheetName} ===\n`;
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+        jsonData.forEach((row: any, idx: number) => {
+          if (Array.isArray(row) && row.length > 0) {
+            extractedText += `Row ${idx + 1}: ${row.join(' | ')}\n`;
+          }
+        });
+      });
+      
+      return extractedText;
+    } else if (isPdf) {
+      // For PDFs, save temp file and use pdf-parse or similar
+      const tempDir = process.platform === "win32" ? (process.env.TEMP || "C:\\Windows\\Temp") : "/tmp";
+      tempFilePath = path.join(tempDir, `${uuidv4()}_${fileName}`);
+      await fs.writeFile(tempFilePath, buffer);
+      
+      // You'll need to add pdf-parse: npm install pdf-parse
+      const pdfParse = require('pdf-parse');
+      const pdfData = await pdfParse(buffer);
+      return `PDF Content from ${fileName}:\n\n${pdfData.text}`;
+      
+      // Fallback if pdf-parse not available
+      return `[PDF file detected: ${fileName}. Content extraction requires pdf-parse library.]`;
+    } else {
+      // Assume text-based file
+      return buffer.toString('utf-8');
+    }
+  } catch (error) {
+    console.error('Error downloading/extracting file:', error);
+    return `[Error extracting file content: ${error}]`;
+  } finally {
+    if (tempFilePath) {
+      await fs.unlink(tempFilePath).catch(() => {});
+    }
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,7 +84,7 @@ export async function POST(req: NextRequest) {
     // Build query for processed_modules with empty content
     let query = supabase
       .from("processed_modules")
-      .select("processed_module_id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives)")
+      .select("processed_module_id, title, content, original_module_id, learning_style")
       .or("content.is.null,content.eq.'',content.eq.\"\"");
     
     // If moduleId is provided, filter by original_module_id
@@ -26,8 +99,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // console.log(`Fetched ${modules?.length || 0} modules for content generation.`);
-
+    const{trainingData} = await supabase
+    .from("training_modules")
+    .select("*")
+    .eq("module_id",moduleId)
+    .single();
     let updated = 0;
     for (const mod of modules || []) {
       try {
@@ -35,8 +111,15 @@ export async function POST(req: NextRequest) {
         let topics: string[] = [];
         let objectives: string[] = [];
         let globalObjectives: string[] = [];
+        let originalFileContent = "";
+        
         if (Array.isArray(mod.training_modules)) {
           for (const tm of mod.training_modules) {
+            // Download and extract file content if file_url exists
+            if (trainingData.file_url) {
+              originalFileContent = await downloadAndExtractFileContent(trainingData.file_url);
+            }
+            
             if (Array.isArray(tm.ai_modules)) {
               for (const aimod of tm.ai_modules) {
                 if (Array.isArray(aimod.topics)) {
@@ -52,12 +135,14 @@ export async function POST(req: NextRequest) {
             }
           }
         }
+        
         topics = [...new Set(topics)];
         objectives = [...new Set(objectives)];
         globalObjectives = [...new Set(globalObjectives)];
         if (objectives.length === 0 && globalObjectives.length > 0) {
           objectives = globalObjectives;
         }
+        
         const topicsText = topics.length > 0
           ? `Topics for this module:\n${topics.map((topic: string, idx: number) => `${idx + 1}. ${topic}`).join("\n")}`
           : "";
@@ -65,94 +150,88 @@ export async function POST(req: NextRequest) {
           ? `Objectives for this module:\n${objectives.map((obj: string, idx: number) => `${idx + 1}. ${obj}`).join("\n")}`
           : "";
 
-        // Compose prompt for the learning style of this row
+        // Add original file content to prompt if available
+        const fileContentSection = originalFileContent 
+          ? `\n\n**Original Source Material:**\nBelow is the content from the original training document. You MUST use this as the primary source of information. Elaborate and expand on the concepts presented here while preserving the exact meaning, terminology, and specific details mentioned in the document. Do not introduce new concepts that aren't present in this source material.\n\n---\n${originalFileContent}\n---\n\n`
+          : "";
+
         const style = mod.learning_style;
-        const stylePrompt = `You are an expert instructional designer. Your task is to write a complete, self-contained training module for employees, as if it were a chapter in a professional textbook.
+        const stylePrompt = `You are an expert Instructional Designer and Technical Writer. Your task is to write a complete, self-contained training module for employees, formatted as a high-end professional e-learning chapter.
 
-Module Title: "${mod.title}"
-${topicsText}
-${objectivesText}
+**Module Context:**
+* **Module Title:** "${mod.title}"
+* **Topics to Cover:** ${topicsText}
+* **Target Objectives:** ${objectivesText}
+* **Learning Style Focus:** ${style}
 
-Instructions:
-1. Structure the content with clear sections using these EXACT section headers (use these exact labels):
-   - Start with "Learning Objectives:" followed by a numbered list of 3-5 objectives
-   - Create AT LEAST 2-3 main content sections using "Section 1: [descriptive title]", "Section 2: [descriptive title]", etc.
-   - After EACH section, include a corresponding activity: "Activity 1: [descriptive title]", "Activity 2: [descriptive title]", etc.
-   - End with "Module Summary:" for the conclusion
-   
-2. For EACH section, provide:
-   - Detailed explanations (2-4 paragraphs minimum)
-   - Practical examples and real-world scenarios
-   - Key concepts and frameworks
-   - Best practices and tips
-   
-3. For EACH activity, provide:
-   - Clear objectives for the activity
-   - Step-by-step instructions (numbered steps)
-   - Expected outcomes
-   - Reflection questions or discussion prompts
-   - Estimated time to complete (e.g., "Time: 15 minutes")
-   
-4. Ensure comprehensive coverage:
-   - Each section should be substantial (300-500 words)
-   - Activities should be practical and hands-on
-   - Connect each section to real workplace scenarios
-   - Use concrete examples from business settings
+${fileContentSection}
 
-5. Adapt the content for the following Gregorc learning style: ${style}
-  - CS (Concrete Sequential): Use hands-on activities, clear instructions, logical sequence, deadlines, and factual information with checklists.
-  - CR (Concrete Random): Encourage experimentation, discovery, trial-and-error, flexibility, and problem-solving with open-ended tasks.
-  - AS (Abstract Sequential): Focus on analysis, intellectual exploration, theoretical models, research, and analytical activities.
-  - AR (Abstract Random): Foster reflection, emotional connection, group discussion, collaborative activities, and personal engagement.
-  
-6. Format each section clearly:
-   - Use the section headers mentioned above (Learning Objectives:, Section 1:, Activity 1:, etc.)
-   - Separate each major section with a blank line
-   - Use clear paragraph breaks within sections
-   - Use bullet points (•) or numbered lists (1., 2., 3.) where appropriate
-   - NEVER use Markdown formatting (no # headings, no **, no backticks)
-   - NEVER include learning style codes (CS, CR, AS, AR) in the content
+**Core Instructions:**
+1.  **Content Fidelity:** ${originalFileContent ? "You MUST base your content on the original source material provided above. Expand and elaborate on the existing content while maintaining its exact meaning, terminology, and key points. Do not deviate from the source material's intent." : "Create comprehensive content based on the topics and objectives provided."}
+2.  **Tone & Style:** Professional, engaging, and instructive. Adapt the delivery to the specific Learning Style provided below.
+3.  **Visual Formatting (Strict Requirement):**
+    * Use **Markdown** extensively to create visual hierarchy (H2 '##', H3 '###').
+    * Use **Bold text** to emphasize key terms and takeaways.
+    * Use **Tables** to compare concepts or list steps where appropriate.
+    * Use **Blockquotes** ('>') for tips, warnings, or key definitions.
+    * Use **Horizontal Rules** ('---') to separate sections.
+4.  **Visual Aids:** Insert specific image tags where a diagram or illustration would aid understanding. Do not use them just for decoration; they must be instructive.
 
-EXAMPLE STRUCTURE (follow this pattern):
+**Learning Style Adaptation (${style}):**
+* **If CS (Concrete Sequential):** Use structured checklists, step-by-step tables, clear deadlines, and factual headings.
+* **If CR (Concrete Random):** Use problem-solving scenarios, "Try this" experiments, and open-ended formatting.
+* **If AS (Abstract Sequential):** Use logic flowcharts (text-based), theoretical models, comparisons, and deep analysis.
+* **If AR (Abstract Random):** Use group scenarios, emotional context, narrative examples, and collaborative prompts.
 
-Learning Objectives:
-1. [First objective]
-2. [Second objective]
-3. [Third objective]
+---
 
-Section 1: Introduction to [Topic]
-[Detailed explanation paragraph 1...]
-[Detailed explanation paragraph 2...]
-[Examples and scenarios...]
-[Key takeaways...]
+**REQUIRED STRUCTURE:**
 
-Activity 1: [Activity Name]
-Objective: [What learners will achieve]
-Time: 20 minutes
-Instructions:
-1. [Step 1]
-2. [Step 2]
-3. [Step 3]
-Reflection: [Questions for thinking]
+## Learning Objectives
+(Provide a numbered list of 3-5 clear, measurable objectives${originalFileContent ? " based on the source material" : ""}).
 
-Section 2: [Next Major Topic]
-[Detailed content...]
+---
 
-Activity 2: [Next Activity]
-[Activity content...]
+## Section 1: [Descriptive Title]
+(Minimum 300 words).
+* **Concept:** Explain the core concept in depth${originalFileContent ? " as presented in the source document" : ""}.
+* **Real-World Context:** Provide specific business examples${originalFileContent ? " referenced in the source or aligned with it" : ""}.
+* **Visual:** Insert a relevant tag here.
+* **Key Takeaway:** Use a blockquote for the most important point.
 
-Section 3: [Advanced Concepts]
-[Detailed content...]
+### Activity 1: [Activity Name]
+* **Objective:** What will the learner achieve?
+* **Time:** [Estimated time]
+* **Instructions:** (Numbered steps).
+* **Reflection/Output:** (Specific question or deliverable).
 
-Activity 3: [Practical Application]
-[Activity content...]
+---
 
-Module Summary:
-[Comprehensive summary of all key points...]
+## Section 2: [Descriptive Title]
+(Minimum 300 words).
+* **Deep Dive:** Explore the next topic or a more advanced aspect${originalFileContent ? " from the source material" : ""}.
+* **Comparison/Data:** Use a **Table** here to compare strategies, pros/cons, or data points.
+* **Scenario:** A detailed workplace scenario applying this concept.
 
-IMPORTANT: Create AT LEAST 2-3 full sections with corresponding activities. Make the content rich, practical, and workplace-relevant.`;
+### Activity 2: [Activity Name]
+* **Objective:** What will the learner achieve?
+* **Time:** [Estimated time]
+* **Instructions:** (Numbered steps).
+* **Reflection/Output:** (Specific question or deliverable).
+
+---
+
+(Continue for 2-5 sections total...)
+
+---
+
+## Module Summary
+(A comprehensive wrap-up of the module. Use bullet points to summarize the top 3-5 takeaways${originalFileContent ? " from the source material" : ""}).
+
+## Next Steps
+(A specific call to action for the learner to apply this knowledge immediately).`;
         
-        // console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
+        console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
         
         const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
         const result = await model.generateContent(stylePrompt);
@@ -161,11 +240,9 @@ IMPORTANT: Create AT LEAST 2-3 full sections with corresponding activities. Make
         
         // Clean the response to remove any potential markdown artifacts
         if (aiContent) {
-          // Remove markdown code blocks if present
           if (aiContent.includes('```')) {
             aiContent = aiContent.replace(/```[\s\S]*?```/g, '');
           }
-          // Remove any leading/trailing whitespace
           aiContent = aiContent.trim();
         }
         
@@ -174,45 +251,124 @@ IMPORTANT: Create AT LEAST 2-3 full sections with corresponding activities. Make
           continue;
         }
 
+        // Helper to extract JSON between markers or first JSON object/array
+        const extractJson = (text: string | undefined) => {
+          if (!text) return null;
+          const m = text.match(/BEGIN_JSON\s*([\s\S]*?)\s*END_JSON/im);
+          if (m && m[1]) {
+            try { return JSON.parse(m[1]); } catch (e) { return null; }
+          }
+          const objMatch = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/m);
+          if (objMatch && objMatch[0]) {
+            try { return JSON.parse(objMatch[0]); } catch (e) { return null; }
+          }
+          return null;
+        };
+
+        let parsedJson = extractJson(aiContent);
+        // retry once if parse failed
+        if (!parsedJson) {
+          try {
+            console.warn('[generate-module-content] initial JSON parse failed; retrying with stricter prompt');
+            const retryPrompt = `The previous response did not follow instructions. Return ONLY the JSON between BEGIN_JSON and END_JSON using the exact shape requested earlier. Do not include any other text.\n\nStudy Text:\n${topicsText}\n${objectivesText}\n${mod.content || ''}`;
+            const retryResult = await model.generateContent(retryPrompt);
+            const retryResp = await retryResult.response;
+            const retryText = retryResp.text();
+            parsedJson = extractJson(retryText);
+            if (!parsedJson) console.warn('[generate-module-content] retry failed to produce valid JSON');
+          } catch (e) {
+            console.warn('[generate-module-content] retry threw error', e);
+          }
+        }
+
         // Sanitize AI output to remove common Markdown artifacts that are distracting
         const sanitize = (text: string) => {
           if (!text) return text;
           let s = text;
-          // Remove fenced code blocks
           s = s.replace(/```[\s\S]*?```/g, "");
-          // Remove ATX headings (e.g. # Heading)
           s = s.replace(/^#{1,6}\s*/gm, "");
-          // Remove setext-style underlined headings (==== or ----)
           s = s.replace(/^[=-]{2,}\s*$/gm, "");
-          // Replace Markdown horizontal rule lines (---, ___, ***) with a plain-text divider
           s = s.replace(/^(-{3,}|_{3,}|\*{3,})\s*$/gm, "\n────────────────────────────────\n");
-          // Remove inline code backticks
           s = s.replace(/`([^`]+)`/g, "$1");
-          // Remove bold/italic markers (simple cases)
           s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
-          s = s.replace(/\*([^*]+)\*/g, "$1");
+          s = s.replace(/\*([^*]+)\*\*/g, "$1");
           s = s.replace(/__([^_]+)__/g, "$1");
           s = s.replace(/_([^_]+)_/g, "$1");
-          // Collapse excessive blank lines
           s = s.replace(/\n{3,}/g, "\n\n");
           return s.trim();
         };
 
         const cleanedContent = sanitize(aiContent);
-        if (!cleanedContent) {
+
+        // If we were able to parse JSON, convert the JSON into the exact textual layout
+        let finalContent = cleanedContent;
+        if (parsedJson) {
+          const toTextModule = (json: any) => {
+            const parts: string[] = [];
+            if (json.title) parts.push(`${json.title}`);
+
+            if (Array.isArray(json.learning_objectives) && json.learning_objectives.length) {
+              parts.push(`\nLearning Objectives:`);
+              json.learning_objectives.forEach((lo: any, idx: number) => {
+                parts.push(`${idx + 1}. ${String(lo).trim()}`);
+              });
+            }
+
+            if (Array.isArray(json.sections)) {
+              json.sections.forEach((sec: any, idx: number) => {
+                const secIndex = idx + 1;
+                parts.push(`\nSection ${secIndex}: ${sec.heading || ""}`);
+                if (sec.body) parts.push(`${sec.body}`);
+
+                const act = sec.activity || {};
+                parts.push(`\nActivity ${secIndex}: ${act.title || ""}`);
+                if (act.objective) parts.push(`Objective: ${act.objective}`);
+                if (act.time) parts.push(`Time: ${act.time}`);
+                if (Array.isArray(act.instructions) && act.instructions.length) {
+                  parts.push(`Instructions:`);
+                  act.instructions.forEach((ins: any) => parts.push(`- ${String(ins).trim()}`));
+                }
+                if (Array.isArray(act.reflection_questions) && act.reflection_questions.length) {
+                  parts.push(`Reflection Questions:`);
+                  act.reflection_questions.forEach((q: any) => parts.push(`- ${String(q).trim()}`));
+                }
+              });
+            }
+
+            if (json.module_summary) {
+              parts.push(`\nModule Summary:\n${json.module_summary}`);
+            }
+
+            return parts.join("\n");
+          };
+
+          try {
+            const converted = toTextModule(parsedJson);
+            const convertedSanitized = sanitize(converted);
+            if (convertedSanitized && convertedSanitized.length > 0) {
+              finalContent = convertedSanitized;
+            }
+          } catch (e) {
+            console.warn(`[generate-module-content] failed to convert parsed JSON to text for module ${mod.processed_module_id}:`, e);
+          }
+        }
+
+        if (!finalContent) {
           console.warn(`Sanitized content empty for module: ${mod.processed_module_id} style: ${style}`);
           continue;
         }
-        // Update the processed_modules row for this module and learning style
+        
+        // Update the processed_modules row
         const { error: updateError } = await supabase
           .from("processed_modules")
-          .update({ content: cleanedContent })
+          .update({ content: finalContent })
           .eq("processed_module_id", mod.processed_module_id);
+          
         if (updateError) {
           console.error(`Failed to update content for module ${mod.processed_module_id} style ${style}:`, updateError);
         } else {
           updated++;
-          // console.log(`Updated module ${mod.processed_module_id} with AI content for style ${style}.`);
+          console.log(`Updated module ${mod.processed_module_id} with AI content for style ${style}.`);
         }
       } catch (err) {
         console.error(`Error processing module ${mod.processed_module_id}:`, err);
