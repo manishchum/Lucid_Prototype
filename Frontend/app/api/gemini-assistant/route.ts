@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     }
 
     // call Gemini (single model preference)
-    const gResp = await callGemini(userPrompt, { candidateModels: [geminiModel], maxOutputTokens: 1200 })
+    const gResp = await callGemini(geminiModel, )
     if (!gResp || !gResp.ok || !gResp.data) {
       const err = (gResp && !gResp?.ok) || 'unknown_gemini_error'
       console.error('[gemini-assistant] gemini error', err)
@@ -102,8 +102,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ answer: fallback || `I couldn't synthesize an answer.`, llm_model_used: null, llm_error: [{ model: `gemini:${geminiModel}`, error: err }] })
     }
 
-    // Prefer the normalized text (callGemini sets data.text) but fall back to raw candidates
-    const cand = (gResp.data && (gResp.data.text || gResp.data.candidates?.[0]?.content || gResp.data.output?.[0]?.content)) || ''
+    const cand = gResp.data.candidates?.[0]?.content || gResp.data.output?.[0]?.content || ''
     const answer = (cand || '').toString().trim()
 
     if (intent === 'ask_doubt' && userId) {

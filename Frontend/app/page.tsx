@@ -94,7 +94,7 @@ export default function LandingPage() {
           
           {/* Adjusted Heading Sizes for better fit */}
           <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-700">
-            <h1 className="text-5xl md:text-7xl lg:text-[88px] font-black tracking-tighter leading-[0.85] text-[#0F172A]">
+            <h1 className="text-5xl md:text-6xl lg:text-[72px] font-black tracking-tighter leading-[0.9] text-[#0F172A]">
               Accelerate Your <br /> Workforce <br />
               <span className="bg-clip-text text-transparent bg-gradient-to-r from-[#2563EB] via-[#6366F1] to-[#9333EA]">
                 For Peak Performance
@@ -105,17 +105,17 @@ export default function LandingPage() {
             </p>
           </div>
 
+          {/* Centered CTA with equal spacing above and below */}
+          <div className="flex justify-center my-8">
+            <Link href="/signup" className="inline-flex items-center justify-center px-10 py-4 bg-gradient-to-r from-[#2563EB] via-[#6366F1] to-[#9333EA] text-white rounded-full text-xl font-black shadow-xl hover:scale-105 transition-all">
+              Explore Lucid <ArrowRight size={20} className="ml-2" />
+            </Link>
+          </div>
+
           {/* Feature Card (Optimized padding and spacing) */}
           <div className="max-w-[1000px] mx-auto bg-white rounded-[32px] p-8 md:p-10 shadow-[0_20px_50px_-12px_rgba(59,102,245,0.1)] border border-slate-50 relative mt-4">
             <div className="flex flex-col items-center">
               
-              {/* Overlapping CTA (shifted slightly below) */}
-              <div className="absolute -top-2 left-1/2 -translate-x-1/2">
-                <Link href="/signup" className="inline-flex items-center justify-center px-10 py-4 bg-gradient-to-r from-[#2563EB] via-[#6366F1] to-[#9333EA] text-white rounded-full text-xl font-black shadow-xl hover:scale-105 transition-all">
-                  Explore Lucid <ArrowRight size={20} className="ml-2" />
-                </Link>
-              </div>
-
               <div className="w-full space-y-8 mt-8">
                 {/* Row 1 */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">

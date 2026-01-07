@@ -920,7 +920,7 @@ function ContentTransformer({
             )}
           >
             <div className="text-3xl mb-3">🎧</div>
-            <div className="font-bold text-slate-900 text-sm">Audio Guide</div>
+            <div className="font-bold text-slate-900 text-sm">Podcast</div>
             <div className="text-slate-500 text-xs mt-1">Listen on the go</div>
           </div>
 
@@ -1056,7 +1056,7 @@ function ContentTransformer({
           </div>
 
           {/* Infographics button removed - keep only Flash cards button */}
-          <div
+          {/*<div
             onClick={() => setSelectedOption('roleplay')}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
@@ -1068,7 +1068,7 @@ function ContentTransformer({
             <div className="text-3xl mb-3">🎭</div>
             <div className="font-bold text-slate-900 text-sm">Role-playing Exercise</div>
             <div className="text-slate-500 text-xs mt-1">Role Play</div>
-          </div>
+          </div> */}
 
         </div>
 

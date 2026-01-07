@@ -251,7 +251,37 @@ ${fileContentSection}
           continue;
         }
 
-        // Sanitize AI output
+        // Helper to extract JSON between markers or first JSON object/array
+        const extractJson = (text: string | undefined) => {
+          if (!text) return null;
+          const m = text.match(/BEGIN_JSON\s*([\s\S]*?)\s*END_JSON/im);
+          if (m && m[1]) {
+            try { return JSON.parse(m[1]); } catch (e) { return null; }
+          }
+          const objMatch = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/m);
+          if (objMatch && objMatch[0]) {
+            try { return JSON.parse(objMatch[0]); } catch (e) { return null; }
+          }
+          return null;
+        };
+
+        let parsedJson = extractJson(aiContent);
+        // retry once if parse failed
+        if (!parsedJson) {
+          try {
+            console.warn('[generate-module-content] initial JSON parse failed; retrying with stricter prompt');
+            const retryPrompt = `The previous response did not follow instructions. Return ONLY the JSON between BEGIN_JSON and END_JSON using the exact shape requested earlier. Do not include any other text.\n\nStudy Text:\n${topicsText}\n${objectivesText}\n${mod.content || ''}`;
+            const retryResult = await model.generateContent(retryPrompt);
+            const retryResp = await retryResult.response;
+            const retryText = retryResp.text();
+            parsedJson = extractJson(retryText);
+            if (!parsedJson) console.warn('[generate-module-content] retry failed to produce valid JSON');
+          } catch (e) {
+            console.warn('[generate-module-content] retry threw error', e);
+          }
+        }
+
+        // Sanitize AI output to remove common Markdown artifacts that are distracting
         const sanitize = (text: string) => {
           if (!text) return text;
           let s = text;
@@ -269,7 +299,61 @@ ${fileContentSection}
         };
 
         const cleanedContent = sanitize(aiContent);
-        if (!cleanedContent) {
+
+        // If we were able to parse JSON, convert the JSON into the exact textual layout
+        let finalContent = cleanedContent;
+        if (parsedJson) {
+          const toTextModule = (json: any) => {
+            const parts: string[] = [];
+            if (json.title) parts.push(`${json.title}`);
+
+            if (Array.isArray(json.learning_objectives) && json.learning_objectives.length) {
+              parts.push(`\nLearning Objectives:`);
+              json.learning_objectives.forEach((lo: any, idx: number) => {
+                parts.push(`${idx + 1}. ${String(lo).trim()}`);
+              });
+            }
+
+            if (Array.isArray(json.sections)) {
+              json.sections.forEach((sec: any, idx: number) => {
+                const secIndex = idx + 1;
+                parts.push(`\nSection ${secIndex}: ${sec.heading || ""}`);
+                if (sec.body) parts.push(`${sec.body}`);
+
+                const act = sec.activity || {};
+                parts.push(`\nActivity ${secIndex}: ${act.title || ""}`);
+                if (act.objective) parts.push(`Objective: ${act.objective}`);
+                if (act.time) parts.push(`Time: ${act.time}`);
+                if (Array.isArray(act.instructions) && act.instructions.length) {
+                  parts.push(`Instructions:`);
+                  act.instructions.forEach((ins: any) => parts.push(`- ${String(ins).trim()}`));
+                }
+                if (Array.isArray(act.reflection_questions) && act.reflection_questions.length) {
+                  parts.push(`Reflection Questions:`);
+                  act.reflection_questions.forEach((q: any) => parts.push(`- ${String(q).trim()}`));
+                }
+              });
+            }
+
+            if (json.module_summary) {
+              parts.push(`\nModule Summary:\n${json.module_summary}`);
+            }
+
+            return parts.join("\n");
+          };
+
+          try {
+            const converted = toTextModule(parsedJson);
+            const convertedSanitized = sanitize(converted);
+            if (convertedSanitized && convertedSanitized.length > 0) {
+              finalContent = convertedSanitized;
+            }
+          } catch (e) {
+            console.warn(`[generate-module-content] failed to convert parsed JSON to text for module ${mod.processed_module_id}:`, e);
+          }
+        }
+
+        if (!finalContent) {
           console.warn(`Sanitized content empty for module: ${mod.processed_module_id} style: ${style}`);
           continue;
         }
@@ -277,7 +361,7 @@ ${fileContentSection}
         // Update the processed_modules row
         const { error: updateError } = await supabase
           .from("processed_modules")
-          .update({ content: cleanedContent })
+          .update({ content: finalContent })
           .eq("processed_module_id", mod.processed_module_id);
           
         if (updateError) {
