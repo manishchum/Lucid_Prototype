@@ -67,7 +67,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       } catch (e) {
         console.error('[module] employee fetch error', e);
       }
-      const selectCols = "processed_module_id, title, content, audio_url, audio_url_hinglish, original_module_id, learning_style, user_id, podcast_timeline, podcast_timeline_hinglish, podcast_transcript, podcast_transcript_hinglish,video_url";
+      const selectCols = "processed_module_id, title, content, audio_url, audio_url_hinglish, original_module_id, learning_style, user_id, podcast_timeline, podcast_timeline_hinglish, podcast_transcript, podcast_transcript_hinglish,video_url, mindmap_data, flashcard_data";
       let data: any = null;
 
       // First try: direct lookup by processed_module_id (this is what we pass from training plan)
@@ -218,6 +218,55 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
     }
   };
 
+  // const handleSendChat = async (e: FormEvent<HTMLFormElement>) => {
+  //   e.preventDefault();
+  //   if (!chatInput.trim() || chatLoading || !module?.processed_module_id) return;
+
+  //   const userMessage = chatInput.trim();
+  //   setChatInput('');
+
+  //   const newUserMessage = { role: 'user' as const, content: userMessage };
+  //   setUserChatHistory((prev) => [...prev, newUserMessage]);
+  //   setChatLoading(true);
+
+  //   try {
+  //     const response = await fetch('/api/module-chat', {
+  //       method: 'POST',
+  //       headers: { 'Content-Type': 'application/json' },
+  //       body: JSON.stringify({
+  //         processed_module_id: module.processed_module_id,
+  //         user_message: userMessage,
+  //         chat_history: userChatHistory,
+  //       }),
+  //     });
+
+  //     const data = await response.json();
+
+  //     if (response.ok && data.message) {
+  //       setUserChatHistory((prev) => [...prev, { role: 'assistant', content: data.message }]);
+  //     } else {
+  //       setUserChatHistory((prev) => [
+  //         ...prev,
+  //         {
+  //           role: 'assistant',
+  //           content: 'Sorry, I encountered an error. Please try again.',
+  //         },
+  //       ]);
+  //     }
+  //   } catch (error) {
+  //     console.error('Chat error:', error);
+  //     setUserChatHistory((prev) => [
+  //       ...prev,
+  //       {
+  //         role: 'assistant',
+  //         content: 'Sorry, I encountered an error. Please try again.',
+  //       },
+  //     ]);
+  //   } finally {
+  //     setChatLoading(false);
+  //   }
+  // };
+
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center">Loading module content...</div>;
   }
@@ -298,6 +347,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                     setModule((m: any) => ({ ...m, video_url: url }));
                     setHasVideo(true);
                   }}
+                  onModuleUpdate={setModule}
                 />
 
                 <ContentCards content={module.content || ''} />
@@ -705,6 +755,7 @@ function ContentTransformer({
   hasVideo,
   setHasVideo,
   onVideoGenerated,
+  onModuleUpdate,
 }: any) {
   // Check if audio exists for each language
   const hasEnglishAudio = !!(module.audio_url && module.podcast_transcript && module.podcast_timeline);
@@ -941,9 +992,24 @@ function ContentTransformer({
           <div
             onClick={async () => {
               setSelectedOption('mindmap');
-              setMindmapData(null);
               setMindmapLoading(true);
+              
               try {
+                // Check if mindmap data already exists in the module
+                if (module.mindmap_data) {
+                  console.log('[mindmap] Using cached mindmap data');
+                  let cachedData = module.mindmap_data;
+                  if (typeof cachedData === 'string') {
+                    cachedData = JSON.parse(cachedData);
+                  }
+                  setMindmapData(cachedData);
+                  setMindmapLoading(false);
+                  return;
+                }
+
+                // Generate new mindmap if not cached
+                console.log('[mindmap] Generating new mindmap');
+                setMindmapData(null);
                 const studyText = plainTranscript || module.content || '';
                 const res = await fetch('/api/generate-mindmap', {
                   method: 'POST',
@@ -961,6 +1027,26 @@ function ContentTransformer({
 
                 if (res.ok && data && data.nodes && data.edges) {
                   setMindmapData(data);
+                  
+                  // Save mindmap data to Supabase
+                  try {
+                    const { error: updateError } = await supabase
+                      .from('processed_modules')
+                      .update({ mindmap_data: data })
+                      .eq('processed_module_id', module.processed_module_id);
+                    
+                    if (updateError) {
+                      console.error('[mindmap] Failed to save mindmap to database:', updateError);
+                    } else {
+                      console.log('[mindmap] Mindmap saved to database successfully');
+                      // Update local module state
+                      if (onModuleUpdate) {
+                        onModuleUpdate((prev: any) => ({ ...prev, mindmap_data: data }));
+                      }
+                    }
+                  } catch (saveError) {
+                    console.error('[mindmap] Error saving mindmap:', saveError);
+                  }
                 } else {
                   console.error('[mindmap] generation failed', data);
                   setMindmapData(null);
@@ -995,6 +1081,24 @@ function ContentTransformer({
 
               try {
                 setInfographicLoading(true);
+                
+                // Check if flashcard data already exists in the module (cache)
+                if (module.flashcard_data) {
+                  console.log('[flashcards] Using cached flashcard data');
+                  let cachedData = module.flashcard_data;
+                  if (typeof cachedData === 'string') {
+                    cachedData = JSON.parse(cachedData);
+                  }
+                  if (Array.isArray(cachedData) && cachedData.length > 0) {
+                    setInfographicSections(cachedData);
+                    setInfographicLoading(false);
+                    setSelectedOption('infographic');
+                    return;
+                  }
+                }
+
+                // Generate new flashcards if not cached
+                console.log('[flashcards] Generating new flashcards');
                 const studyText = plainTranscript || module.content || '';
                 console.log('[infographic] starting fetch, studyText length:', (studyText || '').length);
                 const res = await fetch('/api/generate-flashcards-gemini', {
@@ -1026,6 +1130,26 @@ function ContentTransformer({
                   // Expecting an array of { heading, points }
                   if (Array.isArray(data)) {
                     setInfographicSections(data);
+                    
+                    // Save flashcard data to Supabase
+                    try {
+                      const { error: updateError } = await supabase
+                        .from('processed_modules')
+                        .update({ flashcard_data: data })
+                        .eq('processed_module_id', module.processed_module_id);
+                      
+                      if (updateError) {
+                        console.error('[flashcards] Failed to save flashcards to database:', updateError);
+                      } else {
+                        console.log('[flashcards] Flashcards saved to database successfully');
+                        // Update local module state
+                        if (onModuleUpdate) {
+                          onModuleUpdate((prev: any) => ({ ...prev, flashcard_data: data }));
+                        }
+                      }
+                    } catch (saveError) {
+                      console.error('[flashcards] Error saving flashcards:', saveError);
+                    }
                   } else if (data && data.error) {
                     setInfographicSections([{ heading: 'Infographic generation failed', points: [data.error || data.detail || 'See console for details'] }]);
                   } else {
@@ -1465,9 +1589,12 @@ function formatContent(content: string) {
           // Found the list
           if (nextEl.tagName === 'UL' || nextEl.tagName === 'OL') {
             const wrapper = document.createElement('div');
-            wrapper.setAttribute('class', 'mb-6 rounded-lg border border-blue-200 bg-blue-50 p-6');
+            wrapper.setAttribute('class', 'mb-6 rounded-lg p-6 shadow-sm');
+            wrapper.style.border = '2px solid #3B66F5';
+            wrapper.style.backgroundColor = '#F5F8FF';
             const header = document.createElement('h3');
-            header.setAttribute('class', 'text-lg font-bold mb-4 text-blue-900');
+            header.setAttribute('class', 'text-lg font-bold mb-4');
+            header.style.color = '#3B66F5';
             header.textContent = 'Learning Objectives';
             wrapper.appendChild(header);
             wrapper.appendChild(nextEl);
@@ -1505,14 +1632,21 @@ function formatContent(content: string) {
       // Create card wrapper per kind
       const wrapper = document.createElement('div');
       if (info.kind === 'objectives') {
-        wrapper.setAttribute('class', 'mb-8 rounded-xl border border-blue-200 bg-blue-50 p-6 shadow-sm');
+        wrapper.setAttribute('class', 'mb-8 rounded-xl p-6 shadow-sm');
+        wrapper.style.border = '2px solid #3B66F5';
+        wrapper.style.backgroundColor = '#F5F8FF';
       } else {
         wrapper.setAttribute('class', 'mb-8 rounded-xl border border-gray-200 bg-white p-6 shadow-sm');
       }
 
       // Create card title
       const titleEl = document.createElement(info.kind === 'module' ? 'h1' : 'h2');
-      titleEl.setAttribute('class', info.kind === 'module' ? 'text-3xl font-bold mb-4 text-gray-900' : 'text-2xl font-bold mb-4 text-gray-900');
+      if (info.kind === 'objectives') {
+        titleEl.setAttribute('class', 'text-2xl font-bold mb-4');
+        titleEl.style.color = '#3B66F5';
+      } else {
+        titleEl.setAttribute('class', info.kind === 'module' ? 'text-3xl font-bold mb-4 text-gray-900' : 'text-2xl font-bold mb-4 text-gray-900');
+      }
       titleEl.textContent = info.kind === 'module' ? info.title : info.title;
       wrapper.appendChild(titleEl);
 

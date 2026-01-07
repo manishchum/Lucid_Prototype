@@ -65,12 +65,12 @@ export default function LandingPage() {
           <span className="text-xl font-black text-[#0F172A] tracking-tighter">Lucid</span>
         </div>
         
-          <div className="hidden md:flex items-center absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+          {/* <div className="hidden md:flex items-center absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
           <div className="flex items-center gap-10">
             <a href="#features" className="text-sm font-bold text-slate-500 hover:text-[#2563EB] transition-colors">Features</a>
             <a href="#pricing" className="text-sm font-bold text-slate-500 hover:text-[#2563EB] transition-colors">Pricing</a>
           </div>
-        </div>
+        </div> */}
         
         <div className="hidden md:flex items-center gap-4">
           <Link href="/login" className="text-sm font-bold text-slate-600 hover:text-blue-600 px-3 py-2">Log In</Link>

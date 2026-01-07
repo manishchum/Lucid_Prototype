@@ -2,6 +2,7 @@
 "use client"
 
 import React, { useRef, useState, useEffect } from "react"
+import { Download } from 'lucide-react'
 
 export type InfographicSection = {
   heading: string
@@ -213,7 +214,9 @@ export default function InfographicCards({ sections }: Props) {
     <section aria-label="Infographic cards" className="py-0 relative overflow-visible">
       {/* Download button above the cards */}
       <div className="mb-3 flex justify-end pr-3">
-        <button onClick={exportAsPNG} className="bg-white px-3 py-1 rounded shadow text-sm border" title="Download flashcards as PNG">Download</button>
+        <button onClick={exportAsPNG} className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center" title="Download flashcards image">
+          <Download size={16} />
+        </button>
       </div>
 
       {/* scroller has modest horizontal padding; arrows will be positioned outside the scroller so they don't overlap cards */}
