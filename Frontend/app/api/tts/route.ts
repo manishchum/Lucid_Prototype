@@ -463,6 +463,7 @@ export async function GET(request: NextRequest) {
     const legacy = url.searchParams.get('module_id');
     const language = (url.searchParams.get('language') || 'en') as 'en' | 'hinglish';
     const moduleId = processed || legacy;
+    const language = url.searchParams.get('language') || 'en';
 
     let targetId = moduleId;
     if (!targetId) {
