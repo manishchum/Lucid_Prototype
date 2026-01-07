@@ -466,15 +466,13 @@ export async function POST(request: NextRequest) {
       "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
       "REMEMBER: Based on the assessment score percentage, you MUST include the minimum number of modules specified above. For a score of 23%, you MUST include at least 4-5 modules.\n\n" +
       "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n" +
-      "The 'plan' object MUST contain a 'modules' array with AT LEAST the minimum number of modules based on the score.\n" +
-      "Example plan structure:\n" +
+      "JSON format:\n" +  
       "{\n" +
       "  \"plan\": {\n" +
       "    \"modules\": [\n" +
       "      { \"title\": \"Module Name\", \"recommended_time\": 5, \"order\": 1 },\n" +
       "      { \"title\": \"Module Name 2\", \"recommended_time\": 5, \"order\": 2 },\n" +
-      "      { \"title\": \"Module Name 3\", \"recommended_time\": 5, \"order\": 3 },\n" +
-      "      { \"title\": \"Module Name 4\", \"recommended_time\": 5, \"order\": 4 }\n" +
+      "       \"and so on...\\n" +
       "    ],\n" +
       "    \"tips\": \"...\"\n" +
       "  },\n" +
