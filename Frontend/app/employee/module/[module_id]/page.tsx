@@ -161,8 +161,13 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       }
       setLoading(false);
     };
-    if (moduleId) fetchModule();
-  }, [moduleId]);
+    if (!moduleId) return;
+    if (authLoading) return;     // wait for auth
+  if (!user) return;
+
+    
+  fetchModule();
+  }, [moduleId,user,authLoading]);
 
   const handleSendChat = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
