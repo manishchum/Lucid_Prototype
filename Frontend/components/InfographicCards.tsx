@@ -214,7 +214,7 @@ export default function InfographicCards({ sections }: Props) {
     <section aria-label="Infographic cards" className="py-0 relative overflow-visible">
       {/* Download button above the cards */}
       <div className="mb-3 flex justify-end pr-3">
-        <button onClick={exportAsPNG} className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center" title="Download flashcards as PNG">
+        <button onClick={exportAsPNG} className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center" title="Download flashcards image">
           <Download size={16} />
         </button>
       </div>
