@@ -96,6 +96,17 @@ export default function EmployeeWelcome() {
     }
   }, [user, authLoading, router]);
 
+  // Refresh data when the page becomes visible again (so progress updates after completing a module elsewhere)
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !authLoading && user) {
+        checkEmployeeAccess();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [authLoading, user]);
+
   const checkEmployeeAccess = async () => {
     if (!user?.email) return;
     try {
@@ -151,9 +162,10 @@ export default function EmployeeWelcome() {
         } catch (e) { /* ignore */ }
 
         const pIds = pMods?.map((m: any) => m.processed_module_id) || [];
+        // Fetch module_progress and include the linked processed_modules row so we can map back to original module ids
         const { data: pProg } = await supabase
           .from('module_progress')
-          .select('*')
+          .select('*, processed_modules(processed_module_id, original_module_id)')
           .eq('user_id', employeeData.user_id)
           .in('processed_module_id', pIds);
 
@@ -162,7 +174,7 @@ export default function EmployeeWelcome() {
           console.log('[debug] module_progress (pProg):', pProg);
         } catch (e) { /* ignore */ }
 
-        const completedCount = pProg?.filter((p: any) => p.completed_at).length || 0;
+  const completedCount = pProg?.filter((p: any) => p.completed_at).length || 0;
         const prog = mIds.length > 0 ? Math.round((completedCount / mIds.length) * 100) : 0;
         setProgressPercentage(prog);
         if (employeeData.company_id) await fetchCompanyStats(employeeData.company_id, employeeData.user_id, prog);
@@ -183,6 +195,25 @@ export default function EmployeeWelcome() {
           }
         });
 
+        // Build quick lookups so we can attach per-module progress
+        const progressByProcessedId: Record<string, any> = {};
+        const progressByOriginalId: Record<string, any> = {};
+        (pProg || []).forEach((pp: any) => {
+          if (!pp) return;
+          if (pp.processed_module_id) progressByProcessedId[String(pp.processed_module_id)] = pp;
+          // If the joined processed_modules object exists, map by its original_module_id as well
+          if (pp.processed_modules && pp.processed_modules.original_module_id) {
+            progressByOriginalId[String(pp.processed_modules.original_module_id)] = pp;
+          }
+        });
+
+        const processedIdLookup: Record<string, string> = {};
+        (pMods || []).forEach((pm: any) => {
+          if (!pm) return;
+          if (pm.processed_module_id) processedIdLookup[String(pm.processed_module_id)] = String(pm.processed_module_id);
+          if (pm.original_module_id) processedIdLookup[String(pm.original_module_id)] = String(pm.processed_module_id || pm.original_module_id);
+        });
+
         const mappedAssigned = assignedPlans.map((p: any) => {
           const adminName = p.module_name || p.module_title || p.title || (p.module && (p.module.name || p.module.title)) || null;
           const resolvedTitle =
@@ -193,16 +224,23 @@ export default function EmployeeWelcome() {
             adminName ||
             `Module ${p.module_id}`;
 
+          // determine per-module progress (0 or 100) by resolving processed_module_id and checking module_progress
+          const resolvedProcessedId = processedIdLookup[String(p.module_id)] || String(p.module_id);
+          const progEntry = (resolvedProcessedId && progressByProcessedId[resolvedProcessedId]) || progressByOriginalId[String(p.module_id)] || null;
+          const percentComplete = progEntry && progEntry.completed_at ? 100 : 0;
+
           return {
-              id: p.module_id,
-              title: resolvedTitle,
-              moduleName: adminName,
-              // Preserve whether admin/learning_plan has baseline enabled for this module
-              hasBaseline: (p.baseline_assessment === 1 || p.baseline_assessment === true),
-              // will compute baselinePending below once we know what the user has completed
-              baselinePending: false,
-              baselineAssessmentId: null,
-            };
+            id: p.module_id,
+            title: resolvedTitle,
+            moduleName: adminName,
+            // per-module percent complete (0 or 100 for now)
+            percentComplete,
+            // Preserve whether admin/learning_plan has baseline enabled for this module
+            hasBaseline: (p.baseline_assessment === 1 || p.baseline_assessment === true),
+            // will compute baselinePending below once we know what the user has completed
+            baselinePending: false,
+            baselineAssessmentId: null,
+          };
         });
 
         // TEMP LOG: mapped assigned modules
@@ -469,7 +507,7 @@ export default function EmployeeWelcome() {
                       <div key={m.id} className="flex items-center gap-6 p-6 bg-white">
                         <div className="flex items-center gap-4 min-w-0">
                           <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
-                            0%
+                            {m.percentComplete != null ? `${m.percentComplete}%` : '0%'}
                           </div>
 
                           <div className="min-w-0">
