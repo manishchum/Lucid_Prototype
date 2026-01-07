@@ -566,9 +566,20 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           .createSignedUrl(storagePath, 24 * 60 * 60); // 24 hours expiry
 
         if (error) {
-          console.error('Failed to generate signed URL:', error);
-          setError('Failed to open training module');
-          return;
+          // If signed URL generation fails (for example due to an expired/invalid JWT),
+          // fallback to opening the stored content_url directly so the admin can still
+          // access the file while we investigate auth/token issues.
+          console.warn('Failed to generate signed URL:', error);
+
+          try {
+            // Try opening the original URL as a best-effort fallback.
+            window.open(module.content_url, '_blank');
+            return;
+          } catch (openErr) {
+            console.error('Failed to open fallback content URL:', openErr);
+            setError('Failed to open training module');
+            return;
+          }
         }
 
         // Open the fresh signed URL in a new tab
