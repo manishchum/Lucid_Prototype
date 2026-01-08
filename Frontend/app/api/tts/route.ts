@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
+import os from 'os';
+import fs from 'fs';
 import fetch from 'node-fetch';
 import { callGemini } from '@/lib/gemini-helper';
 
@@ -16,6 +18,32 @@ export const dynamic = 'force-dynamic';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+
+const base64Key = process.env.GOOGLE_TTS_JSON;
+let credentialsPath: string | undefined;
+if (base64Key) {
+  try {
+    const decoded = Buffer.from(base64Key, 'base64').toString('utf8');
+    const tempPath = os.tmpdir() + `/google-credentials-${Date.now()}.json`;
+    fs.writeFileSync(tempPath, decoded, { encoding: 'utf8' });
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = tempPath;
+    credentialsPath = tempPath;
+    console.log('[TTS API] Decoded Google credentials from GOOGLE_TTS_JSON and set GOOGLE_APPLICATION_CREDENTIALS');
+  } catch (e) {
+    console.error('[TTS API] Failed to decode/write Google credentials:', e);
+  }
+} else {
+  console.warn('[TTS API] GOOGLE_TTS_JSON not set.');
+}
+
+if (!supabaseUrl) {
+  console.warn('[TTS API] NEXT_PUBLIC_SUPABASE_URL is not set');
+}
+if (!serviceKey) {
+  console.warn('[TTS API] SUPABASE_SERVICE_ROLE_KEY is not set. Storage/DB writes may fail due to RLS.');
+}
+
 
 if (!supabaseUrl) {
   console.warn('[TTS API] NEXT_PUBLIC_SUPABASE_URL is not set');
@@ -463,7 +491,7 @@ export async function GET(request: NextRequest) {
     const legacy = url.searchParams.get('module_id');
     const language = (url.searchParams.get('language') || 'en') as 'en' | 'hinglish';
     const moduleId = processed || legacy;
-    const language = url.searchParams.get('language') || 'en';
+    // const language = url.searchParams.get('language') || 'en';
 
     let targetId = moduleId;
     if (!targetId) {

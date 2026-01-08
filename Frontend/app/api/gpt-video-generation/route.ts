@@ -20,6 +20,28 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+
+const base64Key = process.env.GOOGLE_TTS_JSON;
+let credentialsPath: string | undefined;
+if (base64Key) {
+  try {
+    const decoded = Buffer.from(base64Key, 'base64').toString('utf8');
+    const tempPath = os.tmpdir() + `/google-credentials-${Date.now()}.json`;
+    const fs = require('fs');
+    fs.writeFileSync(tempPath, decoded, { encoding: 'utf8' });
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = tempPath;
+    credentialsPath = tempPath;
+    console.log('[TTS API] Decoded Google credentials from GOOGLE_TTS_JSON and set GOOGLE_APPLICATION_CREDENTIALS');
+  } catch (e) {
+    console.error('[TTS API] Failed to decode/write Google credentials:', e);
+  }
+} else {
+  console.warn('[TTS API] GOOGLE_TTS_JSON not set.');
+}
+
+
+
+
 const BUCKET = "module-visuals";
 
 /* ------------------------------------------------------------------ */
