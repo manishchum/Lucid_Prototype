@@ -1,7 +1,7 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from "@/lib/supabase";
 import MCQQuiz from "./mcq-quiz";
@@ -15,7 +15,7 @@ interface TrainingModule {
   ai_modules: string | null;
 }
 
-const AssessmentPage = () => {
+const AssessmentContent = () => {
   const { user } = useAuth();
   const [modules, setModules] = useState<TrainingModule[]>([]);
   const searchParams = useSearchParams();
@@ -165,7 +165,7 @@ const AssessmentPage = () => {
       }
     };
     if (modules.length > 0) getMCQQuiz();
-  }, [modules, user]);
+  }, [modules, user, searchParams]);
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({
@@ -444,30 +444,7 @@ const AssessmentPage = () => {
                             
                             
                             return (
-                              <div>
-                                {/* <button
-                                  onClick={() => toggleSection(sectionKey)}
-                                  className="w-full px-6 py-4 flex items-center justify-between hover:opacity-80 transition-opacity"
-                                >
-                                  <h4 className="text-lg font-semibold text-gray-900 text-left">
-                                    {sectionTitle}
-                                  </h4>
-                                  {isExpanded ? (
-                                    <ChevronUp className="w-5 h-5 text-gray-600 flex-shrink-0" />
-                                  ) : (
-                                    <ChevronDown className="w-5 h-5 text-gray-600 flex-shrink-0" />
-                                  )}
-                                </button> */}
-                                {/* {isExpanded && (
-                                  <div className="px-6 pb-4">
-                                    <div 
-                                      className="prose prose-sm max-w-none text-gray-700"
-                                      dangerouslySetInnerHTML={{ 
-                                        __html: formatContent(sections[sectionTitle])
-                                      }}
-                                    />
-                                  </div>
-                                )} */}
+                              <div key={sectionKey}>
                               </div>
                             );
                           })}
@@ -569,6 +546,21 @@ const AssessmentPage = () => {
         </div>
       </div>
     </div>
+  );
+};
+
+const AssessmentPage = () => {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading assessment...</p>
+        </div>
+      </div>
+    }>
+      <AssessmentContent />
+    </Suspense>
   );
 };
 
