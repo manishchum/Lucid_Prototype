@@ -1,3 +1,5 @@
+"use client"
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import os from 'os';
@@ -8,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import puppeteer from 'puppeteer';
 import ffmpeg from 'fluent-ffmpeg';
 import textToSpeech from "@google-cloud/text-to-speech";
+import { useSearchParams } from 'next/navigation';
 
 // Do not import ffmpeg-static at module scope (Next bundler may package binary incorrectly).
 
@@ -355,9 +358,9 @@ async function synthesizeAndStore(processedModuleId: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const url = new URL(request.url);
-    const processed = url.searchParams.get('processed_module_id');
-    const legacy = url.searchParams.get('module_id');
+    // const url = new URL(request.url);
+    const processed = useSearchParams().get('processed_module_id');
+    const legacy = useSearchParams().get('module_id');
     const moduleId = processed || legacy;
 
     let targetId = moduleId;
