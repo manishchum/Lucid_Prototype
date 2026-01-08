@@ -1,10 +1,8 @@
-"use client"
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 export const runtime = 'nodejs';
 import { NextRequest } from 'next/server';
-import { useSearchParams } from 'next/navigation';
 export const dynamic = 'force-dynamic';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -17,8 +15,13 @@ const supabaseService = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
 export async function GET(request: NextRequest) {
   try {
     // const urlObj = new URL(req.url);
-    const path = useSearchParams().get('path');
-    const externalUrl = useSearchParams().get('url');
+    // const path = useSearchParams().get('path');
+    // const externalUrl = useSearchParams().get('url');
+
+    
+    const searchParams = request.nextUrl.searchParams;
+    const path = searchParams.get('path') || '';
+    const externalUrl = searchParams.get('url') || '';
 
     let fetchUrl: string | null = null;
     if (externalUrl) {
