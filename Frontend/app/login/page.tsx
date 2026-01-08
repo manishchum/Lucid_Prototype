@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { signInWithPopup } from "firebase/auth"
 import Link from "next/link"
@@ -16,7 +16,7 @@ import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import bcrypt from "bcryptjs"
 
-export default function LoginPage() {
+function LoginContent() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
@@ -24,7 +24,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { login } = useAuth() // Get the login function from auth context
+  const { login } = useAuth()
 
   useEffect(() => {
     const urlError = searchParams.get("error")
@@ -46,18 +46,16 @@ export default function LoginPage() {
   }, [searchParams])
 
   const checkUserAccess = async (userEmail: string) => {
-    // First, get the user from the users table
     const { data: userData, error: userError } = await supabase
       .from("users")
       .select("user_id")
       .eq("email", userEmail)
       .maybeSingle()
-    // console.log(userData)
+
     if (userError || !userData) {
       throw new Error("Access denied. Your email is not in the allowed users list.")
     }
 
-    // Then, get the user's role assignments with role names
     const { data: roleData, error: roleError } = await supabase
       .from("user_role_assignments")
       .select(`
@@ -68,13 +66,10 @@ export default function LoginPage() {
       `)
       .eq("user_id", userData.user_id)
 
-      // console.log("Role Data ")
-      // console.log(roleData)
     if (roleError || !roleData || roleData.length === 0) {
       throw new Error("Access denied. No roles assigned to this user.")
     }
 
-    // Extract role names from the response
     //@ts-ignore
     const userRoles = roleData.map(assignment => assignment.roles?.name).filter(Boolean)
 
@@ -90,7 +85,6 @@ export default function LoginPage() {
     setError("")
 
     try {
-      // Get user from database
       const { data: userData, error: userError } = await supabase
         .from("users")
         .select("user_id, email, password, name")
@@ -101,21 +95,17 @@ export default function LoginPage() {
         throw new Error("Invalid email or password")
       }
 
-      // Check if password exists (for users who signed up with email/password)
       if (!userData.password) {
         throw new Error("This account uses Google sign-in. Please use 'Continue with Google' button.")
       }
 
-      // Verify password
       const isPasswordValid = await bcrypt.compare(password, userData.password)
       if (!isPasswordValid) {
         throw new Error("Invalid email or password")
       }
 
-      // Check user access and get roles
       const userAccessData = await checkUserAccess(email)
 
-      // Create a user object that matches what the auth context expects
       const userForContext = {
         uid: userData.user_id,
         email: userData.email,
@@ -123,16 +113,13 @@ export default function LoginPage() {
         name: userData.name
       }
 
-      // Set user in auth context
       await login(userForContext)
 
-  // Redirect all users to the employee dashboard
-  try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
-  router.push('/employee/welcome')
+      try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
+      router.push('/employee/welcome')
     } catch (error: any) {
       setError(error.message)
       try {
-        // send a log entry for login failure
         await fetch('/api/logs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -161,19 +148,13 @@ export default function LoginPage() {
     let result = null
     try {
       result = await signInWithPopup(auth, googleProvider)
-    // console.log(result)
       
-      // Check user access and get roles
       const userData = await checkUserAccess(result.user.email!)
-
-    // console.log(userData)
       
-      // Set user in auth context (Google sign-in should automatically do this via Firebase)
       await login(result.user)
 
-  // Redirect all users to the employee dashboard
-  try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
-  router.push('/employee/welcome')
+      try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
+      router.push('/employee/welcome')
     } catch (error: any) {
       if (error.message.includes("Access denied")) {
         setError("Access denied. Your Google account email is not in the allowed users list.")
@@ -206,16 +187,13 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Back Button */}
         <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-800 mb-6 transition-colors">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Home
         </Link>
 
-        {/* Login Card */}
         <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
           <CardHeader className="text-center pb-8">
-            {/* Logo */}
             <div className="flex items-center justify-center space-x-2 mb-6">
               <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
                 <Brain className="w-6 h-6 text-white" />
@@ -338,7 +316,6 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        {/* Footer */}
         <div className="text-center mt-8">
           <p className="text-sm text-gray-500">
             Secure login powered by Lucid Learning Platform
@@ -346,5 +323,20 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   )
 }

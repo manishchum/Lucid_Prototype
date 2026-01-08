@@ -1,5 +1,3 @@
-"use client"
-
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
@@ -7,7 +5,7 @@ import os from 'os';
 import fs from 'fs';
 import fetch from 'node-fetch';
 import { callGemini } from '@/lib/gemini-helper';
-import { useSearchParams } from 'next/navigation';
+// import { useSearchParams } from 'next/navigation';
 
 
 // Using Google Cloud Text-to-Speech REST API with service account credentials
@@ -490,9 +488,10 @@ async function synthesizeAndStore(processedModuleId: string, language: 'en' | 'h
 export async function GET(request: NextRequest) {
   try {
     // const url = new URL(request.url);
-    const processed = useSearchParams().get('processed_module_id');
-    const legacy = useSearchParams().get('module_id');
-    const language = (useSearchParams().get('language') || 'en') as 'en' | 'hinglish';
+    const searchParams = request.nextUrl.searchParams;
+    const processed = searchParams.get('processed_module_id');
+    const legacy = searchParams.get('module_id');
+    const language = (searchParams.get('language') || 'en') as 'en' | 'hinglish';
     const moduleId = processed || legacy;
     // const language = url.searchParams.get('language') || 'en';
 
