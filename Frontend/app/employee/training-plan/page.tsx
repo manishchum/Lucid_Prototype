@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Card,
@@ -16,11 +16,7 @@ import { supabase } from "@/lib/supabase";
 import EmployeeNavigation from "@/components/employee-navigation";
 import { Users, ChevronLeft } from "lucide-react";
 
-export default function TrainingPlanPage() {
-  // Track completed modules for the user
-  const [completedModules, setCompletedModules] = useState<string[]>([]);
-  const [actualUserId, setActualUserId] = useState<string | null>(null);
-
+function TrainingPlanContent() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -36,6 +32,8 @@ export default function TrainingPlanPage() {
   const [contentLoadingModuleId, setContentLoadingModuleId] = useState<string | null>(null);
   const [quizLoadingModuleId, setQuizLoadingModuleId] = useState<string | null>(null);
   const [moduleBaselineStatus, setModuleBaselineStatus] = useState<Map<string, boolean>>(new Map());
+  const [completedModules, setCompletedModules] = useState<string[]>([]);
+  const [actualUserId, setActualUserId] = useState<string | null>(null);
 
   // Fetch completed modules from Supabase (same logic as employee/welcome)
   useEffect(() => {
@@ -931,5 +929,20 @@ export default function TrainingPlanPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function TrainingPlanPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading training plan...</p>
+        </div>
+      </div>
+    }>
+      <TrainingPlanContent />
+    </Suspense>
   );
 }
