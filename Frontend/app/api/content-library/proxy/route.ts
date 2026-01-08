@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+import { NextRequest } from 'next/server';
+import { useSearchParams } from 'next/navigation';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
@@ -8,11 +12,11 @@ const supabaseService = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
 
-export async function GET(req: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const urlObj = new URL(req.url);
-    const path = urlObj.searchParams.get('path');
-    const externalUrl = urlObj.searchParams.get('url');
+    // const urlObj = new URL(req.url);
+    const path = useSearchParams().get('path');
+    const externalUrl = useSearchParams().get('url');
 
     let fetchUrl: string | null = null;
     if (externalUrl) {
