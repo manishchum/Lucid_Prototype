@@ -1,3 +1,5 @@
+"use client"
+
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '../../../../lib/supabase'
 import { useSearchParams } from 'next/navigation'
