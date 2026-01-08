@@ -7,6 +7,7 @@ import EmployeeLayout from '@/components/employee-layout';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
+export const dynamic = "force-dynamic";
 
 export default function ContentLibraryPage() {
   const { user, loading } = useAuth();
