@@ -1,10 +1,16 @@
+
+
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '../../../../lib/supabase'
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    const url = new URL(request.url)
-    const userId = url.searchParams.get('user_id')
+    // const url = new URL(request.url)
+    // const userId = useSearchParams().get('user_id')
+    
+    const searchParams = request.nextUrl.searchParams;
+    const userId = searchParams.get('user_id') || '';
     if (!userId) return NextResponse.json({ error: 'user_id required' }, { status: 400 })
 
     const { data, error } = await supabase.from('chatbot_user_interactions').select('ask_doubt').eq('user_id', userId).single()
