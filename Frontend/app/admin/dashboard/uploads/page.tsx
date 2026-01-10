@@ -375,122 +375,122 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
 }
 
 // KPI Definitions Upload Component
-function KPIDefinitionsUpload({ companyId }: { companyId?: string }) {
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string[][]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<KPIUploadResult | null>(null);
-  const [error, setError] = useState("");
+// function KPIDefinitionsUpload({ companyId }: { companyId?: string }) {
+//   const [file, setFile] = useState<File | null>(null);
+//   const [preview, setPreview] = useState<string[][]>([]);
+//   const [uploading, setUploading] = useState(false);
+//   const [result, setResult] = useState<KPIUploadResult | null>(null);
+//   const [error, setError] = useState("");
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    setResult(null);
-    setError("");
-    const f = e.target.files?.[0] || null;
-    setFile(f);
-    if (!f) return setPreview([]);
-    try {
-      const arrayBuffer = await f.arrayBuffer();
-      if (f.name.endsWith(".csv")) {
-        const text = new TextDecoder().decode(arrayBuffer);
-        const rows = text.split(/\r?\n/).map(line => line.split(",").map(cell => cell.trim()));
-        setPreview(rows.slice(0, 10));
-      } else if (f.name.endsWith(".xlsx")) {
-        const xlsx = await import("xlsx");
-        const workbook = xlsx.read(arrayBuffer, { type: "array" });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = xlsx.utils.sheet_to_json(sheet, { header: 1 });
-        setPreview((rows as string[][]).slice(0, 10));
-      } else {
-        setError("Unsupported file type. Only CSV or XLSX allowed.");
-        setPreview([]);
-      }
-    } catch (err) {
-      setError("Failed to parse file for preview.");
-      setPreview([]);
-    }
-  };
+//   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+//     setResult(null);
+//     setError("");
+//     const f = e.target.files?.[0] || null;
+//     setFile(f);
+//     if (!f) return setPreview([]);
+//     try {
+//       const arrayBuffer = await f.arrayBuffer();
+//       if (f.name.endsWith(".csv")) {
+//         const text = new TextDecoder().decode(arrayBuffer);
+//         const rows = text.split(/\r?\n/).map(line => line.split(",").map(cell => cell.trim()));
+//         setPreview(rows.slice(0, 10));
+//       } else if (f.name.endsWith(".xlsx")) {
+//         const xlsx = await import("xlsx");
+//         const workbook = xlsx.read(arrayBuffer, { type: "array" });
+//         const sheet = workbook.Sheets[workbook.SheetNames[0]];
+//         const rows = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+//         setPreview((rows as string[][]).slice(0, 10));
+//       } else {
+//         setError("Unsupported file type. Only CSV or XLSX allowed.");
+//         setPreview([]);
+//       }
+//     } catch (err) {
+//       setError("Failed to parse file for preview.");
+//       setPreview([]);
+//     }
+//   };
 
-  const handleUpload = async () => {
-    if (!file || !companyId) return;
-    setUploading(true);
-    setResult(null);
-    setError("");
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/admin/kpi/upload-definitions", {
-        method: "POST",
-        body: formData,
-        headers: { "x-company-id": companyId },
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setError(json.error || "Upload failed");
-      } else {
-        setResult(json);
-      }
-    } catch (err) {
-      setError("Upload failed.");
-    } finally {
-      setUploading(false);
-    }
-  };
+//   const handleUpload = async () => {
+//     if (!file || !companyId) return;
+//     setUploading(true);
+//     setResult(null);
+//     setError("");
+//     try {
+//       const formData = new FormData();
+//       formData.append("file", file);
+//       const res = await fetch("/api/admin/kpi/upload-definitions", {
+//         method: "POST",
+//         body: formData,
+//         headers: { "x-company-id": companyId },
+//       });
+//       const json = await res.json();
+//       if (!res.ok) {
+//         setError(json.error || "Upload failed");
+//       } else {
+//         setResult(json);
+//       }
+//     } catch (err) {
+//       setError("Upload failed.");
+//     } finally {
+//       setUploading(false);
+//     }
+//   };
 
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-2 items-center mb-2">
-        <Input type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
-        <Button onClick={handleUpload} disabled={!file || uploading}>
-          {uploading ? "Uploading..." : "Upload"}
-        </Button>
-      </div>
+//   return (
+//     <div className="space-y-4">
+//       <div className="flex gap-2 items-center mb-2">
+//         <Input type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
+//         <Button onClick={handleUpload} disabled={!file || uploading}>
+//           {uploading ? "Uploading..." : "Upload"}
+//         </Button>
+//       </div>
 
-      <div className="text-xs text-gray-500">
-        Expected format: kpi_name, description, category, target_value, unit
-      </div>
+//       <div className="text-xs text-gray-500">
+//         Expected format: kpi_name, description, category, target_value, unit
+//       </div>
 
-      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+//       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
 
-      {preview.length > 0 && (
-        <div className="mb-2">
-          <div className="font-semibold mb-1">Preview (first 10 rows):</div>
-          <div className="border rounded max-h-40 overflow-auto">
-            <table className="text-sm border-collapse w-full">
-              <tbody>
-                {preview.map((row, i) => (
-                  <tr key={i} className={i === 0 ? "bg-gray-50" : ""}>
-                    {row.map((cell, j) => (
-                      <td key={j} className="border px-2 py-1 text-xs">{cell}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+//       {preview.length > 0 && (
+//         <div className="mb-2">
+//           <div className="font-semibold mb-1">Preview (first 10 rows):</div>
+//           <div className="border rounded max-h-40 overflow-auto">
+//             <table className="text-sm border-collapse w-full">
+//               <tbody>
+//                 {preview.map((row, i) => (
+//                   <tr key={i} className={i === 0 ? "bg-gray-50" : ""}>
+//                     {row.map((cell, j) => (
+//                       <td key={j} className="border px-2 py-1 text-xs">{cell}</td>
+//                     ))}
+//                   </tr>
+//                 ))}
+//               </tbody>
+//             </table>
+//           </div>
+//         </div>
+//       )}
 
-      {result && (
-        <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded">
-          <div className="font-semibold text-green-800">Upload Result:</div>
-          <div className="text-sm text-green-700">
-            Created: {result.created || 0}, Updated: {result.updated || 0}
-          </div>
-          {result.skipped && result.skipped.length > 0 && (
-            <div className="mt-1 text-xs text-gray-600">
-              Skipped rows:
-              <ul className="ml-4">
-                {result.skipped.map((s, i) => (
-                  <li key={i}>Row {s.row}: {s.reason}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+//       {result && (
+//         <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded">
+//           <div className="font-semibold text-green-800">Upload Result:</div>
+//           <div className="text-sm text-green-700">
+//             Created: {result.created || 0}, Updated: {result.updated || 0}
+//           </div>
+//           {result.skipped && result.skipped.length > 0 && (
+//             <div className="mt-1 text-xs text-gray-600">
+//               Skipped rows:
+//               <ul className="ml-4">
+//                 {result.skipped.map((s, i) => (
+//                   <li key={i}>Row {s.row}: {s.reason}</li>
+//                 ))}
+//               </ul>
+//             </div>
+//           )}
+//         </div>
+//       )}
+//     </div>
+//   );
+// }
 
 // Training Content Management Component
 function TrainingContentManagement({ companyId, adminId }: { companyId: string; adminId: string }) {
@@ -704,9 +704,9 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       </div>
 
       {/* Uploaded Files List */}
-      <div className="border-t pt-4">
+      {/* <div className="border-t pt-4">
         <UploadedFilesList companyId={companyId} />
-      </div>
+      </div> */}
     </div>
   );
 }
@@ -802,12 +802,12 @@ export default function UploadsPage() {
   return (
     <div className="space-y-6">
       <div className="border-b border-gray-200 pb-4">
-        <h1 className="text-2xl font-bold text-gray-900">KPI & Content Uploads</h1>
-        <p className="text-gray-600 mt-1">Upload KPI data and training content for your organization</p>
+        <h1 className="text-2xl font-bold text-gray-900">Content Uploads</h1>
+        <p className="text-gray-600 mt-1">Upload training content for your organization</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* KPI Scores Upload */}
+      {/* <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        KPI Scores Upload
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center">
@@ -836,7 +836,7 @@ export default function UploadsPage() {
           </CardContent>
         </Card>
 
-        {/* KPI Definitions Upload */}
+        KPI Definitions Upload
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center">
@@ -864,7 +864,7 @@ export default function UploadsPage() {
             <KPIDefinitionsUpload companyId={admin.company_id} />
           </CardContent>
         </Card>
-      </div>
+      </div> */}
 
       {/* Training Content Management */}
       <Card>

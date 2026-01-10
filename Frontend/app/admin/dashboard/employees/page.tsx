@@ -543,14 +543,14 @@ export default function EmployeesPage() {
           <Users className="w-4 h-4 mr-2" />
           User Management
         </Button>
-        <Button
+        {/* <Button
           variant={showAssignmentsView ? "default" : "ghost"}
           onClick={() => setShowAssignmentsView(true)}
           className="border-b-2 border-transparent data-[active=true]:border-blue-500"
         >
           <BookOpen className="w-4 h-4 mr-2" />
           Learning Plan Assignments
-        </Button>
+        </Button> */}
       </div>
 
       {!showAssignmentsView ? (
@@ -612,20 +612,42 @@ export default function EmployeesPage() {
 
           {/* Search and Filter Section */}
           <Card>
+          <Card className="bg-blue-50 border-blue-200">
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <span className="text-blue-800 font-medium">
+                    {selectedUsers.length} user{selectedUsers.length !== 1 ? 's' : ''} selected
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedUsers([])}
+                    className="text-blue-600 border-blue-300"
+                  >
+                    Clear Selection
+                  </Button>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={handleBulkAssignModules}
+                    disabled={selectedUsers.length === 0}
+                    className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    <BookOpen className="w-4 h-4 mr-2" />
+                    Assign Modules
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center">
+                {/* <CardTitle className="flex items-center">
                   <Filter className="w-5 h-5 mr-2" />
                   Filter & Search Users
                 </CardTitle>
-                <Button
-                  variant="outline"
-                  onClick={() => setShowFilters(!showFilters)}
-                  className="flex items-center gap-2"
-                >
-                  {showFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  {showFilters ? 'Hide Filters' : 'Show Filters'}
-                </Button>
+                 */}
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -640,6 +662,14 @@ export default function EmployeesPage() {
                     className="pl-10"
                   />
                 </div>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowFilters(!showFilters)}
+                  className="flex items-center gap-2"
+                >
+                  {showFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  {showFilters ? 'Hide Filters' : 'Show Filters'}
+                </Button>
                 {(searchTerm || selectedDepartment !== 'all' || selectedStatus !== 'all' || selectedRole !== 'all') && (
                   <Button variant="outline" onClick={clearFilters}>
                     Clear Filters
@@ -880,38 +910,10 @@ export default function EmployeesPage() {
                 )}
               </div>
             </CardContent>
-          </Card>
+          
 
           {/* Bulk Actions Bar - always visible; enable button only when selection > 0 */}
-          <Card className="bg-blue-50 border-blue-200">
-            <CardContent className="py-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <span className="text-blue-800 font-medium">
-                    {selectedUsers.length} user{selectedUsers.length !== 1 ? 's' : ''} selected
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSelectedUsers([])}
-                    className="text-blue-600 border-blue-300"
-                  >
-                    Clear Selection
-                  </Button>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleBulkAssignModules}
-                    disabled={selectedUsers.length === 0}
-                    className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:pointer-events-none"
-                  >
-                    <BookOpen className="w-4 h-4 mr-2" />
-                    Assign Modules
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          
 
           {/* User List */}
           <Card>
@@ -1046,6 +1048,7 @@ export default function EmployeesPage() {
                 </div>
               )}
             </CardContent>
+          </Card>
           </Card>
         </>
       ) : (
