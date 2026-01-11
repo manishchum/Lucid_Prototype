@@ -156,7 +156,7 @@ export async function POST(req: NextRequest) {
           : "";
 
         const style = mod.learning_style;
-        const stylePrompt = `You are an expert Instructional Designer and Technical Writer. Your task is to write a complete, self-contained training module for employees, formatted as a high-end professional e-learning chapter.
+        const stylePrompt = `You are an expert Instructional Designer and Technical Writer. Your task is to write a complete, self-contained training module for employees, formatted as a high-end professional e-learning chapter with rich HTML formatting.
 
 **Module Context:**
 * **Module Title:** "${mod.title}"
@@ -169,67 +169,145 @@ ${fileContentSection}
 **Core Instructions:**
 1.  **Content Fidelity:** ${originalFileContent ? "You MUST base your content on the original source material provided above. Expand and elaborate on the existing content while maintaining its exact meaning, terminology, and key points. Do not deviate from the source material's intent." : "Create comprehensive content based on the topics and objectives provided."}
 2.  **Tone & Style:** Professional, engaging, and instructive. Adapt the delivery to the specific Learning Style provided below.
-3.  **Visual Formatting (Strict Requirement):**
-    * Use **Markdown** extensively to create visual hierarchy (H2 '##', H3 '###').
-    * Use **Bold text** to emphasize key terms and takeaways.
-    * Use **Tables** to compare concepts or list steps where appropriate.
-    * Use **Blockquotes** ('>') for tips, warnings, or key definitions.
-    * Use **Horizontal Rules** ('---') to separate sections.
-4.  **Visual Aids:** Insert specific image tags where a diagram or illustration would aid understanding. Do not use them just for decoration; they must be instructive.
+3.  **HTML Formatting (STRICT REQUIREMENT):**
+    * Use semantic HTML5 elements: <h2>, <h3>, <p>, <strong>, <em>, <table>, <ul>, <ol>, <li>, <blockquote>, <section>, <article>.
+    * For tables: Use proper <table>, <thead>, <tbody>, <tr>, <th>, <td> tags. Add data-comparison="true" attribute to comparison tables.
+    * For callouts/tips: Use <div class="callout tip">, <div class="callout warning">, or <div class="callout definition">.
+    * For lists: Use <ul> for unordered and <ol> for ordered lists with proper <li> items.
+    * For key takeaways: Use <blockquote class="key-takeaway">.
+    * NO Markdown syntax - output pure HTML only. Do NOT use **, ##, ---, etc.
+    * Do NOT wrap everything in a single <div> - use semantic section organization.
+4.  **Table Requirements (CRITICAL):**
+    * When comparing concepts, create comparison tables with clear headers and rows.
+    * When listing steps, create step tables with Step #, Action, and Details columns.
+    * When presenting data, use appropriate data visualization tables.
+    * Tables MUST use <thead> for headers and <tbody> for content.
+    * Each table MUST have a descriptive <caption> element or preceding context.
+5.  **Visual Aids:** Insert descriptive <img> tags with data-type="diagram", data-type="chart", data-type="infographic" attributes and clear alt text. These will be replaced with actual assets later. Do not use them just for decoration.
 
 **Learning Style Adaptation (${style}):**
-* **If CS (Concrete Sequential):** Use structured checklists, step-by-step tables, clear deadlines, and factual headings.
-* **If CR (Concrete Random):** Use problem-solving scenarios, "Try this" experiments, and open-ended formatting.
-* **If AS (Abstract Sequential):** Use logic flowcharts (text-based), theoretical models, comparisons, and deep analysis.
-* **If AR (Abstract Random):** Use group scenarios, emotional context, narrative examples, and collaborative prompts.
+* **If CS (Concrete Sequential):** Use structured step tables, numbered lists, clear procedural content with checkpoints, and factual headings.
+* **If CR (Concrete Random):** Use problem-solving scenarios, interactive prompts, open-ended formatting, and "Try this" sections.
+* **If AS (Abstract Sequential):** Use comparison tables, theoretical models, logical frameworks, data tables, and deep analysis.
+* **If AR (Abstract Random):** Use group scenario sections, emotional context, narrative examples, collaborative prompts, and discussion tables.
 
 ---
 
-**REQUIRED STRUCTURE:**
+**REQUIRED HTML STRUCTURE:**
 
-## Learning Objectives
-(Provide a numbered list of 3-5 clear, measurable objectives${originalFileContent ? " based on the source material" : ""}).
+<section class="learning-objectives">
+<h2>Learning Objectives</h2>
+<ol>
+<li>Clear, measurable objective 1${originalFileContent ? " based on the source material" : ""}</li>
+<li>Clear, measurable objective 2</li>
+<li>Clear, measurable objective 3</li>
+</ol>
+</section>
+
+<section class="module-section">
+<h2>Section 1: [Descriptive Title]</h2>
+
+<h3>Concept</h3>
+<p>Explain the core concept in depth${originalFileContent ? " as presented in the source document" : ""}. Use 300+ words with clear explanations.</p>
+
+<h3>Real-World Context</h3>
+<p>Provide specific business examples${originalFileContent ? " referenced in the source or aligned with it" : ""}. Include practical applications.</p>
+
+<h3>Key Points Comparison</h3>
+<table>
+<thead>
+<tr><th>Aspect</th><th>Description</th><th>Example</th></tr>
+</thead>
+<tbody>
+<tr><td>Point 1</td><td>Details</td><td>Example</td></tr>
+</tbody>
+</table>
+
+<blockquote class="key-takeaway"><strong>Key Takeaway:</strong> State the most important point from this section.</blockquote>
+</section>
+
+<section class="activity">
+<h3>Activity 1: [Activity Name]</h3>
+<p><strong>Objective:</strong> What will the learner achieve?</p>
+<p><strong>Time:</strong> [Estimated time]</p>
+<h4>Instructions</h4>
+<ol>
+<li>First instruction step</li>
+<li>Second instruction step</li>
+<li>Reflection question or deliverable</li>
+</ol>
+</section>
+
+(Continue with Section 2, 3, etc. following the same HTML structure with tables, comparisons, and activities)
+
+<section class="module-section">
+<h2>Section 2: [Descriptive Title]</h2>
+
+<h3>Deep Dive</h3>
+<p>Explore the next topic or a more advanced aspect${originalFileContent ? " from the source material" : ""}. Use 300+ words with detailed analysis.</p>
+
+<h3>Comparison/Strategy Analysis</h3>
+<table data-comparison="true">
+<thead>
+<tr><th>Strategy</th><th>Pros</th><th>Cons</th><th>Best For</th></tr>
+</thead>
+<tbody>
+<tr><td>Approach 1</td><td>Benefits</td><td>Limitations</td><td>Use case</td></tr>
+<tr><td>Approach 2</td><td>Benefits</td><td>Limitations</td><td>Use case</td></tr>
+</tbody>
+</table>
+
+<h3>Workplace Scenario</h3>
+<p>A detailed realistic scenario showing how this concept applies in a professional context. Include specific details and outcomes.</p>
+</section>
+
+<section class="activity">
+<h3>Activity 2: [Activity Name]</h3>
+<p><strong>Objective:</strong> What will the learner achieve?</p>
+<p><strong>Time:</strong> [Estimated time]</p>
+<h4>Instructions</h4>
+<ol>
+<li>First instruction step</li>
+<li>Second instruction step</li>
+<li>Third step with reflection question</li>
+</ol>
+</section>
+
+(Continue for 2-5 sections total, each following the pattern above with tables where appropriate for comparisons, procedures, or data...)
+
+<section class="module-summary">
+<h2>Module Summary</h2>
+<h3>Key Takeaways</h3>
+<ul>
+<li>Takeaway 1${originalFileContent ? " from the source material" : ""}</li>
+<li>Takeaway 2</li>
+<li>Takeaway 3</li>
+<li>Takeaway 4</li>
+<li>Takeaway 5</li>
+</ul>
+</section>
+
+<section class="next-steps">
+<h2>Next Steps</h2>
+<p>A specific, actionable call to action for the learner to immediately apply this knowledge in their role. Include concrete examples and timelines.</p>
+<div class="callout tip">
+<strong>Pro Tip:</strong> Include a specific action the learner should take within the next week.
+</div>
+</section>
 
 ---
 
-## Section 1: [Descriptive Title]
-(Minimum 300 words).
-* **Concept:** Explain the core concept in depth${originalFileContent ? " as presented in the source document" : ""}.
-* **Real-World Context:** Provide specific business examples${originalFileContent ? " referenced in the source or aligned with it" : ""}.
-* **Visual:** Insert a relevant tag here.
-* **Key Takeaway:** Use a blockquote for the most important point.
-
-### Activity 1: [Activity Name]
-* **Objective:** What will the learner achieve?
-* **Time:** [Estimated time]
-* **Instructions:** (Numbered steps).
-* **Reflection/Output:** (Specific question or deliverable).
-
----
-
-## Section 2: [Descriptive Title]
-(Minimum 300 words).
-* **Deep Dive:** Explore the next topic or a more advanced aspect${originalFileContent ? " from the source material" : ""}.
-* **Comparison/Data:** Use a **Table** here to compare strategies, pros/cons, or data points.
-* **Scenario:** A detailed workplace scenario applying this concept.
-
-### Activity 2: [Activity Name]
-* **Objective:** What will the learner achieve?
-* **Time:** [Estimated time]
-* **Instructions:** (Numbered steps).
-* **Reflection/Output:** (Specific question or deliverable).
-
----
-
-(Continue for 2-5 sections total...)
-
----
-
-## Module Summary
-(A comprehensive wrap-up of the module. Use bullet points to summarize the top 3-5 takeaways${originalFileContent ? " from the source material" : ""}).
-
-## Next Steps
-(A specific call to action for the learner to apply this knowledge immediately).`;
+**IMPORTANT REMINDERS:**
+- Output ONLY valid HTML5, no Markdown syntax.
+- Ensure proper semantic structure with <section>, <h2>, <h3>, <p>, <table>, <ul>, <ol> tags.
+- Do NOT output any markdown characters like #, ##, ***, ---, >, etc.
+- Do NOT output code blocks with \`\`\`.
+- Do NOT use any markdown formatting - use HTML only.
+- All tables MUST have proper <thead> and <tbody> structure.
+- All lists MUST use <ul>/<ol> with <li> elements.
+- All emphasis MUST use <strong> or <em> tags, NOT ** or * symbols.
+- Close all HTML tags properly.
+- Generate 3-5 comprehensive sections, each with supporting tables or structured content where appropriate.`;
         
         console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
         

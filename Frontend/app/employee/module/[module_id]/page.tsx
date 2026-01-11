@@ -544,11 +544,155 @@ function parseContentIntoSections(content: string) {
     return sections;
   }
 
+  // Check if content is HTML (contains HTML tags)
+  const isHTML = /<[^>]+>/.test(content);
+
+  if (isHTML) {
+    // Parse HTML content
+    return parseHTMLContent(content);
+  } else {
+    // Parse markdown-style content (legacy fallback)
+    return parseMarkdownContent(content);
+  }
+}
+
+function parseHTMLContent(content: string) {
+  const sections: Array<{ type: string; title: string; content: string }> = [];
+
+  // Create a temporary DOM parser
+  if (typeof window === 'undefined') {
+    // Server-side: return raw content as single section
+    return [{ type: 'intro', title: '', content }];
+  }
+
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(content, 'text/html');
+
+    // Extract sections from HTML structure
+    const htmlSections = doc.querySelectorAll('section');
+    
+    if (htmlSections.length === 0) {
+      // No semantic sections, parse by h2 headings
+      return parseHTMLByHeadings(doc);
+    }
+
+    // Parse by semantic sections
+    htmlSections.forEach((section) => {
+      const classList = section.className;
+      let type = 'section';
+      
+      if (classList.includes('learning-objectives')) {
+        type = 'objectives';
+      } else if (classList.includes('activity')) {
+        type = 'activity';
+      } else if (classList.includes('module-section')) {
+        type = 'section';
+      } else if (classList.includes('module-summary')) {
+        type = 'summary';
+      } else if (classList.includes('next-steps')) {
+        type = 'conclusion';
+      }
+
+      // Extract title from h2 or h3
+      const h2 = section.querySelector('h2');
+      const h3 = section.querySelector('h3');
+      const title = (h2?.textContent || h3?.textContent || '').trim();
+
+      // Get inner HTML
+      const sectionHTML = section.innerHTML;
+
+      if (sectionHTML.trim()) {
+        sections.push({
+          type,
+          title,
+          content: sectionHTML
+        });
+      }
+    });
+
+    // If sections were extracted, return them
+    if (sections.length > 0) {
+      return sections;
+    }
+
+    // Fallback: parse by h2 headings
+    return parseHTMLByHeadings(doc);
+  } catch (error) {
+    console.error('Error parsing HTML content:', error);
+    // Fallback to raw content
+    return [{ type: 'intro', title: '', content }];
+  }
+}
+
+function parseHTMLByHeadings(doc: Document) {
+  const sections: Array<{ type: string; title: string; content: string }> = [];
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = doc.body.innerHTML;
+
+  let currentSection: { type: string; title: string; html: HTMLElement } | null = null;
+
+  const children = Array.from(wrapper.children);
+
+  for (const child of children) {
+    if (child.tagName === 'H2') {
+      // Start new section
+      if (currentSection) {
+        sections.push({
+          type: getTypeFromHeading(currentSection.html),
+          title: currentSection.html.querySelector('h2')?.textContent || '',
+          content: currentSection.html.innerHTML
+        });
+      }
+
+      currentSection = {
+        type: 'section',
+        title: child.textContent || '',
+        html: document.createElement('div')
+      };
+
+      currentSection.html.appendChild(child.cloneNode(true));
+    } else if (currentSection) {
+      currentSection.html.appendChild(child.cloneNode(true));
+    } else {
+      // Content before first h2
+      const div = document.createElement('div');
+      div.appendChild(child.cloneNode(true));
+      sections.push({
+        type: 'intro',
+        title: '',
+        content: div.innerHTML
+      });
+    }
+  }
+
+  // Add last section
+  if (currentSection) {
+    sections.push({
+      type: getTypeFromHeading(currentSection.html),
+      title: currentSection.html.querySelector('h2')?.textContent || '',
+      content: currentSection.html.innerHTML
+    });
+  }
+
+  return sections;
+}
+
+function getTypeFromHeading(element: HTMLElement): string {
+  const text = element.textContent?.toLowerCase() || '';
+  if (text.includes('objective')) return 'objectives';
+  if (text.includes('activity')) return 'activity';
+  if (text.includes('summary')) return 'summary';
+  if (text.includes('next steps')) return 'conclusion';
+  return 'section';
+}
+
+function parseMarkdownContent(content: string) {
+  const sections: Array<{ type: string; title: string; content: string }> = [];
+
   // Clean up learning style codes from content first
   content = content.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
   content = content.replace(/\b(CS|CR|AS|AR)\b/g, '');
-
-  // Split by major headings - more flexible patterns
 
   const lines = content.split('\n');
   let currentSection: { type: string; title: string; content: string } | null = null;
@@ -558,10 +702,8 @@ function parseContentIntoSections(content: string) {
     if (listBuffer && currentSection) {
       const tag = listBuffer.type;
       if (tag === 'ul') {
-        // Use bullet emoji for each item
         currentSection.content += `<ul>${listBuffer.items.map((item) => `<li><span style='font-size:1.1em;margin-right:0.5em;'>•</span>${item}</li>`).join('')}</ul>\n`;
       } else {
-        // Use number emoji for each item (1️⃣, 2️⃣, ... up to 10)
         const numEmojis = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
         currentSection.content += `<ol>${listBuffer.items.map((item, idx) => `<li><span style='font-size:1.1em;margin-right:0.5em;'>${numEmojis[idx] || (idx+1)+'.'}</span>${item}</li>`).join('')}</ol>\n`;
       }
@@ -583,14 +725,10 @@ function parseContentIntoSections(content: string) {
       continue;
     }
 
-    // Check for Learning Objectives
-
     if (line.match(/^Learning Objectives?:/i)) {
       startSection({ type: 'objectives', title: 'Learning Objectives', content: '' });
       continue;
     }
-
-    // Check for Section headings (Section 1:, Section 2:, etc.)
 
     const sectionMatch = line.match(/^Section\s+(\d+)\s*:\s*(.+)$/i);
     if (sectionMatch) {
@@ -602,8 +740,6 @@ function parseContentIntoSections(content: string) {
       continue;
     }
 
-    // Check for Activity headings (Activity 1:, Activity 2:, etc.)
-
     const activityMatch = line.match(/^Activity\s+(\d+)\s*:\s*(.+)$/i);
     if (activityMatch) {
       startSection({ 
@@ -614,13 +750,10 @@ function parseContentIntoSections(content: string) {
       continue;
     }
 
-    // Check for Module Summary
-
     if (line.match(/^Module Summary:/i)) {
       startSection({ type: 'summary', title: 'Module Summary', content: '' });
       continue;
     }
-    // Check for Discussion Prompts
 
     if (line.match(/^Discussion Prompts?:/i)) {
       startSection({ type: 'discussion', title: 'Discussion Prompts', content: '' });
@@ -658,8 +791,6 @@ function parseContentIntoSections(content: string) {
   if (currentSection && currentSection.content.trim()) {
     sections.push(currentSection);
   }
-
-  // If no sections were created, put all content in one section
 
   if (sections.length === 0 && content.trim()) {
     sections.push({ type: 'intro', title: '', content: content });
@@ -1485,7 +1616,160 @@ function formatContent(content: string) {
     }
   } catch { }
 
-  // Lightweight markdown-like to HTML - enhanced for plain text
+  // Check if content is already HTML
+  if (/<[^>]+>/.test(content)) {
+    // It's HTML content - style it appropriately
+    return styleHTMLContent(content);
+  }
+
+  // Legacy markdown-to-HTML conversion for backward compatibility
+  return styleMarkdownContent(content);
+}
+
+function styleHTMLContent(content: string): string {
+  // Create a temporary container to work with HTML
+  if (typeof window === 'undefined') {
+    // Server-side fallback
+    return sanitizeHTML(content);
+  }
+
+  try {
+    const container = document.createElement('div');
+    container.innerHTML = sanitizeHTML(content);
+
+    // Style tables with Tailwind classes
+    const tables = container.querySelectorAll('table');
+    tables.forEach((table) => {
+      table.className = 'w-full border-collapse border border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
+      
+      // Style table headers
+      const headers = table.querySelectorAll('thead th, thead td');
+      headers.forEach((header) => {
+        header.className = 'bg-blue-50 border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900 text-sm';
+      });
+
+      // Style table body
+      const cells = table.querySelectorAll('tbody td, tbody th');
+      cells.forEach((cell, idx) => {
+        const isEvenRow = Math.floor(idx / (table.querySelectorAll('tbody tr')[0]?.children.length || 1)) % 2;
+        cell.className = `border border-gray-300 px-4 py-3 text-gray-800 text-sm ${isEvenRow ? 'bg-white' : 'bg-gray-50'}`;
+      });
+    });
+
+    // Style headings
+    container.querySelectorAll('h1').forEach((h) => {
+      h.className = 'text-3xl font-bold mt-8 mb-4 text-gray-900';
+    });
+    container.querySelectorAll('h2').forEach((h) => {
+      h.className = 'text-2xl font-bold mt-8 mb-4 text-gray-900 pb-2 border-b border-gray-200';
+    });
+    container.querySelectorAll('h3').forEach((h) => {
+      h.className = 'text-xl font-semibold mt-6 mb-3 text-gray-800';
+    });
+    container.querySelectorAll('h4').forEach((h) => {
+      h.className = 'text-lg font-semibold mt-5 mb-2 text-gray-700';
+    });
+
+    // Style paragraphs
+    container.querySelectorAll('p').forEach((p) => {
+      if (!p.className) {
+        p.className = 'mb-4 text-gray-700 leading-relaxed';
+      }
+    });
+
+    // Style lists
+    container.querySelectorAll('ul').forEach((ul) => {
+      ul.className = 'list-disc list-inside mb-4 space-y-2 text-gray-700 ml-4';
+    });
+    container.querySelectorAll('ol').forEach((ol) => {
+      ol.className = 'list-decimal list-inside mb-4 space-y-2 text-gray-700 ml-4';
+    });
+    container.querySelectorAll('li').forEach((li) => {
+      if (!li.className) {
+        li.className = 'mb-2';
+      }
+    });
+
+    // Style blockquotes and callouts
+    container.querySelectorAll('blockquote').forEach((bq) => {
+      if (bq.className.includes('key-takeaway')) {
+        bq.className = 'border-l-4 border-blue-500 bg-blue-50 p-4 rounded-r-lg mb-6 italic text-gray-800';
+      } else {
+        bq.className = 'border-l-4 border-gray-400 bg-gray-50 p-4 rounded-r-lg mb-6 text-gray-700';
+      }
+    });
+
+    // Style callout divs
+    container.querySelectorAll('div').forEach((div) => {
+      if (div.className.includes('callout')) {
+        let bgColor = 'bg-blue-50';
+        let borderColor = 'border-blue-300';
+        let titleColor = 'text-blue-900';
+
+        if (div.className.includes('warning')) {
+          bgColor = 'bg-yellow-50';
+          borderColor = 'border-yellow-300';
+          titleColor = 'text-yellow-900';
+        } else if (div.className.includes('tip')) {
+          bgColor = 'bg-green-50';
+          borderColor = 'border-green-300';
+          titleColor = 'text-green-900';
+        } else if (div.className.includes('definition')) {
+          bgColor = 'bg-purple-50';
+          borderColor = 'border-purple-300';
+          titleColor = 'text-purple-900';
+        }
+
+        div.className = `${bgColor} border-l-4 ${borderColor} p-4 rounded-r-lg mb-4`;
+        
+        // Style strong tags inside callouts as titles
+        const strong = div.querySelector('strong');
+        if (strong) {
+          strong.className = `${titleColor} font-bold`;
+        }
+      }
+    });
+
+    // Style strong and em tags
+    container.querySelectorAll('strong').forEach((s) => {
+      if (!s.className) {
+        s.className = 'font-semibold text-gray-900';
+      }
+    });
+    container.querySelectorAll('em').forEach((e) => {
+      if (!e.className) {
+        e.className = 'italic text-gray-700';
+      }
+    });
+
+    // Style code blocks and inline code
+    container.querySelectorAll('code').forEach((code) => {
+      if (code.parentElement?.tagName === 'PRE') {
+        code.className = 'text-sm font-mono';
+      } else {
+        code.className = 'bg-gray-100 px-2 py-1 rounded text-sm font-mono text-red-700';
+      }
+    });
+    container.querySelectorAll('pre').forEach((pre) => {
+      pre.className = 'bg-gray-100 p-4 rounded-lg my-4 overflow-x-auto border border-gray-300';
+    });
+
+    // Style images with alt text as diagrams
+    container.querySelectorAll('img').forEach((img) => {
+      img.className = 'max-w-full h-auto rounded-lg border border-gray-300 my-4 shadow-sm';
+      if (!img.alt) {
+        img.alt = 'Content diagram';
+      }
+    });
+
+    return container.innerHTML;
+  } catch (error) {
+    console.error('Error styling HTML content:', error);
+    return sanitizeHTML(content);
+  }
+}
+
+function styleMarkdownContent(content: string): string {
   // Remove visual divider lines made of underscores/dashes before formatting
   let formatted = content
     .replace(/^\s*[_\-—–=]{3,}\s*$/gm, '')
@@ -1520,176 +1804,37 @@ function formatContent(content: string) {
   formatted = formatted.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
   formatted = formatted.replace(/\b(CS|CR|AS|AR)\b(?=\W|$)/g, '');
 
-  // Wrap specific sections into callout cards (client-side safe)
-  if (typeof window !== 'undefined') {
-    const container = document.createElement('div');
-    container.innerHTML = formatted;
+  return formatted;
+}
 
-    const wrapFollowingList = (labelRegex: RegExp, classes: string, title: string) => {
-      const paragraphs = Array.from(container.querySelectorAll('p'));
-      for (const p of paragraphs) {
-        const text = p.textContent?.trim() || '';
-        if (labelRegex.test(text)) {
-          const next = p.nextElementSibling;
-          if (next && (next.tagName === 'UL' || next.tagName === 'OL')) {
-            const wrapper = document.createElement('div');
-            wrapper.setAttribute('class', classes);
-            const header = document.createElement('h3');
-            header.setAttribute('class', 'text-lg font-bold mb-4');
-            header.textContent = title;
-            wrapper.appendChild(header);
-            wrapper.appendChild(next);
-            p.replaceWith(wrapper);
-          }
-        }
-      }
-    };
-
-    const wrapFollowingParagraph = (labelRegex: RegExp, classes: string, title: string) => {
-      const paragraphs = Array.from(container.querySelectorAll('p'));
-      for (const p of paragraphs) {
-        const text = p.textContent?.trim() || '';
-        if (labelRegex.test(text)) {
-          const next = p.nextElementSibling;
-          if (next && next.tagName === 'P') {
-            const wrapper = document.createElement('div');
-            wrapper.setAttribute('class', classes);
-            const header = document.createElement('h3');
-            header.setAttribute('class', 'text-lg font-bold mb-4');
-            header.textContent = title;
-            const body = document.createElement('p');
-            body.setAttribute('class', 'leading-relaxed');
-            body.innerHTML = next.innerHTML;
-            wrapper.appendChild(header);
-            wrapper.appendChild(body);
-            next.replaceWith(wrapper);
-            p.remove();
-          }
-        }
-      }
-    };
-
-    // Wrap Learning Objectives: find heading and following list in card
-    const allParas = Array.from(container.querySelectorAll('p, ul, ol, li, div'));
-    let i = 0;
-    while (i < allParas.length) {
-      const el = allParas[i];
-      const text = el.textContent?.trim() || '';
-
-      if (el.tagName === 'P' && text.match(/^Learning Objectives?:/i)) {
-        // Found objectives heading; look for following list
-        let nextIdx = i + 1;
-        while (nextIdx < allParas.length) {
-          const nextEl = allParas[nextIdx];
-          // Skip divider lines
-          if (nextEl.tagName === 'P' && nextEl.textContent?.trim().match(/^[_\-—–=]{3,}$/)) {
-            nextIdx++;
-            continue;
-          }
-          // Found the list
-          if (nextEl.tagName === 'UL' || nextEl.tagName === 'OL') {
-            const wrapper = document.createElement('div');
-            wrapper.setAttribute('class', 'mb-6 rounded-lg p-6 shadow-sm');
-            wrapper.style.border = '2px solid #3B66F5';
-            wrapper.style.backgroundColor = '#F5F8FF';
-            const header = document.createElement('h3');
-            header.setAttribute('class', 'text-lg font-bold mb-4');
-            header.style.color = '#3B66F5';
-            header.textContent = 'Learning Objectives';
-            wrapper.appendChild(header);
-            wrapper.appendChild(nextEl);
-            el.replaceWith(wrapper);
-            break;
-          }
-          nextIdx++;
-        }
-        break;
-      }
-      i++;
-    }
-
-    // Wrap main sections into standalone cards: Module Title, Objectives, Section n:
-    const isHeaderPara = (p: Element): { kind: 'module' | 'objectives' | 'section' | null; title: string } => {
-      const text = p.textContent?.trim() || '';
-      let m;
-      if ((m = text.match(/^Module\s*Title:\s*(.+)$/i))) {
-        return { kind: 'module', title: m[1] };
-      }
-      if ((m = text.match(/^Section\s*(\d+)\s*:\s*(.+)$/i))) {
-        return { kind: 'section', title: `Section ${m[1]}: ${m[2]}` };
-      }
-      if ((m = text.match(/^Module\s*Summary\s*and\s*Next\s*Steps$/i))) {
-        return { kind: 'section', title: 'Module Summary and Next Steps' };
-      }
-      return { kind: null, title: '' };
-    };
-
-    const paragraphs = Array.from(container.querySelectorAll('p'));
-    for (const p of paragraphs) {
-      const info = isHeaderPara(p);
-      if (!info.kind) continue;
-
-      // Create card wrapper per kind
-      const wrapper = document.createElement('div');
-      if (info.kind === 'objectives') {
-        wrapper.setAttribute('class', 'mb-8 rounded-xl p-6 shadow-sm');
-        wrapper.style.border = '2px solid #3B66F5';
-        wrapper.style.backgroundColor = '#F5F8FF';
-      } else {
-        wrapper.setAttribute('class', 'mb-8 rounded-xl border border-gray-200 bg-white p-6 shadow-sm');
-      }
-
-      // Create card title
-      const titleEl = document.createElement(info.kind === 'module' ? 'h1' : 'h2');
-      if (info.kind === 'objectives') {
-        titleEl.setAttribute('class', 'text-2xl font-bold mb-4');
-        titleEl.style.color = '#3B66F5';
-      } else {
-        titleEl.setAttribute('class', info.kind === 'module' ? 'text-3xl font-bold mb-4 text-gray-900' : 'text-2xl font-bold mb-4 text-gray-900');
-      }
-      titleEl.textContent = info.kind === 'module' ? info.title : info.title;
-      wrapper.appendChild(titleEl);
-
-      // Move following siblings into the card until the next header paragraph
-      let next: Element | null = p.nextElementSibling as Element | null;
-      const isHeaderMatch = (el: Element | null) => {
-        if (!el || el.tagName !== 'P') return false;
-        const t = el.textContent?.trim() || '';
-        return /^(Module\s*Title:|Objectives:?|Section\s*\d+\s*:)/i.test(t);
-      };
-      while (next && !isHeaderMatch(next)) {
-        const move = next;
-        next = next.nextElementSibling as Element | null;
-        wrapper.appendChild(move);
-      }
-
-      // Replace the header paragraph with the card
-      p.replaceWith(wrapper);
-    }
-
-    // Remove any lingering divider lines paragraphs (just underscores/dashes/etc)
-    Array.from(container.querySelectorAll('p')).forEach(p => {
-      const t = p.textContent?.trim() || '';
-      if (/^[_\-—–=]{3,}$/.test(t)) {
-        p.remove();
-      }
-    });
-
-    // Bold sub-headings: make leading label before colon bold (e.g., "Definition:")
-    Array.from(container.querySelectorAll('p')).forEach(p => {
-      const text = p.textContent || '';
-      const match = text.match(/^([A-Z][^:]{2,}):\s*(.*)$/);
-      if (match) {
-        const label = match[1] + ':';
-        const rest = match[2] || '';
-        p.innerHTML = `<strong class="font-semibold text-gray-900">${label}</strong> ${rest}`;
-      }
-    });
-
-    formatted = container.innerHTML;
+function sanitizeHTML(html: string): string {
+  // Create a temporary container to parse and clean HTML
+  if (typeof window === 'undefined') {
+    return html;
   }
 
-  return formatted;
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    // Remove script and style tags
+    doc.querySelectorAll('script, style').forEach(el => el.remove());
+
+    // Remove dangerous attributes
+    doc.querySelectorAll('*').forEach(el => {
+      const dangerousAttrs = ['onclick', 'onload', 'onerror', 'onmouseover', 'onmouseout', 'javascript'];
+      Array.from(el.attributes).forEach(attr => {
+        if (dangerousAttrs.some(dangerous => attr.name.toLowerCase().includes(dangerous) || attr.value.includes('javascript:'))) {
+          el.removeAttribute(attr.name);
+        }
+      });
+    });
+
+    return doc.body.innerHTML;
+  } catch (error) {
+    console.error('Error sanitizing HTML:', error);
+    return html;
+  }
 }
 
 // Add GenerateAudioButton component
