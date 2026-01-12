@@ -510,20 +510,20 @@ function ContentCards({ content }: { content: string }) {
         >
           {section.title && (
             <div className="flex items-center gap-3 mb-6">
-              {section.type === 'objectives' && <Lightbulb className="w-6 h-6 text-blue-600" />}
-              {section.type === 'activity' && <Zap className="w-6 h-6 text-green-600" />}
+              {/* {section.type === 'objectives' && <Lightbulb className="w-6 h-6 text-blue-600" />} */}
+              {/* {section.type === 'activity' && <Zap className="w-6 h-6 text-green-600" />}
               {section.type === 'summary' && <BookOpen className="w-6 h-6 text-purple-600" />}
-              {section.type === 'discussion' && <Info className="w-6 h-6 text-orange-600" />}
+              {section.type === 'discussion' && <Info className="w-6 h-6 text-orange-600" />} */}
               <h2 className={clsx(
                 "font-bold",
                 section.type === 'objectives' ? 'text-2xl text-blue-900' :
-                  section.type === 'section' ? 'text-2xl text-gray-900' :
+                  // section.type === 'section' ? 'text-2xl text-gray-900' :
                     section.type === 'activity' ? 'text-xl text-green-900' :
                       section.type === 'summary' ? 'text-xl text-purple-900' :
                         section.type === 'discussion' ? 'text-xl text-orange-900' :
-                          'text-xl text-gray-900'
+                          ' text-gray-800'
               )}>
-                {section.title}
+                {/* {section.title} */}
               </h2>
             </div>
           )}
