@@ -206,7 +206,7 @@ const EmployeeNavigation = ({
             {isCollapsed && <NavTooltip label="Home" />}
           </div>
 
-          {!isCollapsed && <div className="pt-6 pb-2 px-4 text-[10px] font-black text-[#1E293B] uppercase tracking-[0.2em] opacity-60">Learning Plan</div>}
+          {!isCollapsed && <div className="pt-6 pb-2 px-4 text-[10px] font-black text-[#1E293B] uppercase tracking-[0.2em] opacity-60">Performance Sprint</div>}
 
           {/* Training Plan (Dropdown) */}
           <div className="relative group">
@@ -216,11 +216,11 @@ const EmployeeNavigation = ({
             >
               <div className="flex items-center gap-3.5">
                 <BookOpen size={20} className="shrink-0" />
-                {!isCollapsed && <span className="text-[15px] font-medium">Learning Plan</span>}
+                {!isCollapsed && <span className="text-[15px] font-medium">Performance Sprint</span>}
               </div>
               {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${coursesOpen ? '' : '-rotate-90'}`} />}
             </button>
-            {isCollapsed && <NavTooltip label="Learning Plan" />}
+            {isCollapsed && <NavTooltip label="Performance Sprint" />}
             
             {coursesOpen && !isCollapsed && (
               <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
@@ -268,10 +268,10 @@ const EmployeeNavigation = ({
             )}
           </div>
 
-          {/* Admin Panel */}
+          {/* Console */}
           {isAdmin && (
             <>
-              {!isCollapsed && <div className="pt-8 pb-2 px-4 text-[10px] font-black text-[#1E293B] uppercase tracking-[0.2em] opacity-60">Admin Panel</div>}
+              {!isCollapsed && <div className="pt-8 pb-2 px-4 text-[10px] font-black text-[#1E293B] uppercase tracking-[0.2em] opacity-60">Console Panel</div>}
               <div className="relative group">
                 <button 
                   onClick={() => isCollapsed ? handleNavigate('/admin/dashboard/analytics') : setAdminDropdownOpen(!adminDropdownOpen)} 
@@ -279,11 +279,11 @@ const EmployeeNavigation = ({
                 >
                   <div className="flex items-center gap-3.5">
                     <Shield size={20} className="shrink-0" />
-                    {!isCollapsed && <span className="text-[15px] font-medium">Admin Panel</span>}
+                    {!isCollapsed && <span className="text-[15px] font-medium">Console</span>}
                   </div>
                   {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${adminDropdownOpen ? '' : '-rotate-90'}`} />}
                 </button>
-                {isCollapsed && <NavTooltip label="Admin Panel" />}
+                {isCollapsed && <NavTooltip label="Console" />}
                 {adminDropdownOpen && !isCollapsed && (
                   <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
                     {[

@@ -226,7 +226,7 @@ export default function EmployeeWelcome() {
   };
 
   const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
-    if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your learning plan and earned the SME tag!");
+    if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint and earned the SME tag!");
     else setNudgeMessage(`💪 Great start! Complete your training to join ${completed} successful colleagues!`);
   };
 
@@ -322,7 +322,7 @@ export default function EmployeeWelcome() {
                       {learningStyle}
                     </div>
                     <div className="flex-1">
-                      <h4 className="text-lg font-extrabold text-slate-900">Your Learning Style</h4>
+                      <h4 className="text-lg font-extrabold text-slate-900">Your Performance Sprint</h4>
                       <div className="mt-2 text-slate-500">
                         <LearningStyleBlurb styleCode={learningStyle} />
                       </div>
@@ -334,7 +334,7 @@ export default function EmployeeWelcome() {
                 ) : (
                   <div className="flex items-center justify-between relative">
                     <div className="max-w-md">
-                      <h4 className="text-xl font-black text-slate-900 mb-2">Discover Your Learning Style</h4>
+                      <h4 className="text-xl font-black text-slate-900 mb-2">Discover Your Performance Sprint</h4>
                       <p className="text-slate-500 font-medium">Take our 5-minute cognitive survey to unlock your personalized training path.</p>
                     </div>
                     
@@ -420,10 +420,14 @@ export default function EmployeeWelcome() {
                     <h5 className="text-lg font-bold text-slate-900">Modules are currently locked</h5>
                     <p className="text-slate-500 text-sm max-w-xs mt-2 font-medium">Complete your learning preference survey to access your baseline and training plan.</p>
                   </div>
+                ) : assignedModules.length === 0 ? (
+                  <div className="py-16 flex flex-col items-center text-center px-8">
+                    <p className="text-slate-500 text-base font-medium">No Modules Assigned</p>
+                  </div>
                 ) : (
                   <div className="divide-y divide-slate-50">
                     {assignedModules.map((m) => (
-                      <div key={m.id} className="flex items-center gap-6 p-6 bg-white">
+                      <div key={m.id} className="flex flex-col md:flex-row items-center gap-6 p-6 bg-white">
                         <div className="flex items-center gap-4 min-w-0">
                           {/* <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
                             0%
@@ -438,7 +442,7 @@ export default function EmployeeWelcome() {
                           </div>
                         </div>
 
-                        <div className="ml-auto flex items-center gap-3">
+                        <div className="flex items-center justify-center gap-3 w-full md:w-auto md:ml-auto">
                           {/* Only show Baseline button when admin/learning_plan enables baseline for this module */}
                           {m.hasBaseline ? (
                             <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-4 py-2 rounded-md border border-slate-200 text-sm font-bold text-slate-700 bg-white hover:bg-slate-50">
@@ -447,7 +451,7 @@ export default function EmployeeWelcome() {
                           ) : null}
 
                           <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-5 py-2 rounded-md bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
-                            Learning Plan
+                            Performance Sprint
                           </button>
                         </div>
                       </div>

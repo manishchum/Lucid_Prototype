@@ -142,9 +142,9 @@ export default function AdminLoginForm() {
         <div className="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
           <Building2 className="w-8 h-8 text-blue-600" />
         </div>
-        <CardTitle className="text-2xl">{isLogin ? "Admin Login" : "Create Admin Account"}</CardTitle>
+        <CardTitle className="text-2xl">{isLogin ? "Console Login" : "Create Console Account"}</CardTitle>
         <CardDescription>
-          {isLogin ? "Sign in to your admin dashboard" : "Set up your company and admin account"}
+          {isLogin ? "Sign in to your console" : "Set up your company and console account"}
         </CardDescription>
       </CardHeader>
       <CardContent>

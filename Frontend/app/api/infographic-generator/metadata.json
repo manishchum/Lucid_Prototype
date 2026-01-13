@@ -1,0 +1,5 @@
+{
+  "name": "Infographic Generator",
+  "description": "Upload a document and this application will generate a professional and visually appealing infographic summarizing the key points, inspired by financial field guides.",
+  "requestFramePermissions": []
+}

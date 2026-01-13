@@ -8,10 +8,11 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
 import { ChevronLeft, Info, Lightbulb, BookOpen, Zap } from "lucide-react";
-import InfographicCards from '@/components/InfographicCards'
+import FlashcardCards from '@/components/FlashcardCards'
 import MindmapViewer from '@/components/MindmapViewer'
 import clsx from "clsx";
 import { useAuth } from "@/contexts/auth-context";
+import jsPDF from 'jspdf';
 
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
   const { user, loading: authLoading, logout } = useAuth()
@@ -902,13 +903,15 @@ function ContentTransformer({
   };
   const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
   const [language, setLanguage] = useState<'en' | 'hinglish'>('en');
-  const [selectedOption, setSelectedOption] = useState<'audio' | 'infographic' | 'infographics' | 'mindmap' | 'video' | 'roleplay'>('audio');
+  const [selectedOption, setSelectedOption] = useState<'audio' | 'flashcard' | 'flashcards' | 'mindmap' | 'video' | 'roleplay' | 'infographic'>('audio');
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [audioOpen, setAudioOpen] = useState(false);
-  const [infographicSections, setInfographicSections] = useState<any[] | null>(null);
-  const [infographicLoading, setInfographicLoading] = useState(false);
+  const [flashcardSections, setFlashcardSections] = useState<any[] | null>(null);
+  const [flashcardLoading, setFlashcardLoading] = useState(false);
   const [mindmapData, setMindmapData] = useState<any | null>(null);
   const [mindmapLoading, setMindmapLoading] = useState(false);
+  const [infographicData, setInfographicData] = useState<any | null>(null);
+  const [infographicLoading, setInfographicLoading] = useState(false);
 
   // Roleplay-specific state
   const [roleplayPersona, setRoleplayPersona] = useState<string>('Coach');
@@ -1079,12 +1082,12 @@ function ContentTransformer({
             ✨
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-slate-900">AI Content Transformer</h2>
+            <h2 className="text-2xl font-bold text-slate-900">Content Transformer</h2>
             <p className="text-slate-600 text-sm mt-1">Convert this learning journey into your preferred format.</p>
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-5 gap-4 mb-6">
           <div
             onClick={() => {
               if (selectedOption === 'audio') {
@@ -1201,17 +1204,17 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Structured concepts</div>
           </div>
 
-          {/* Flash cards (previously Infographic) */}
+          {/* Flash cards */}
           <div
             onClick={async () => {
               // If already generated, just open the view
-              if (infographicSections && infographicSections.length > 0) {
-                setSelectedOption('infographic');
+              if (flashcardSections && flashcardSections.length > 0) {
+                setSelectedOption('flashcard');
                 return;
               }
 
               try {
-                setInfographicLoading(true);
+                setFlashcardLoading(true);
                 
                 // Check if flashcard data already exists in the module (cache)
                 if (module.flashcard_data) {
@@ -1221,9 +1224,9 @@ function ContentTransformer({
                     cachedData = JSON.parse(cachedData);
                   }
                   if (Array.isArray(cachedData) && cachedData.length > 0) {
-                    setInfographicSections(cachedData);
-                    setInfographicLoading(false);
-                    setSelectedOption('infographic');
+                    setFlashcardSections(cachedData);
+                    setFlashcardLoading(false);
+                    setSelectedOption('flashcard');
                     return;
                   }
                 }
@@ -1231,7 +1234,7 @@ function ContentTransformer({
                 // Generate new flashcards if not cached
                 console.log('[flashcards] Generating new flashcards');
                 const studyText = plainTranscript || module.content || '';
-                console.log('[infographic] starting fetch, studyText length:', (studyText || '').length);
+                console.log('[flashcards] starting fetch, studyText length:', (studyText || '').length);
                 const res = await fetch('/api/generate-flashcards-gemini', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -1240,13 +1243,13 @@ function ContentTransformer({
 
                 // Read raw text for debugging first, then attempt to parse JSON
                 const raw = await res.clone().text();
-                console.log('[infographic] fetch status:', res.status, 'raw preview:', raw.slice(0, 400));
+                console.log('[flashcards] fetch status:', res.status, 'raw preview:', raw.slice(0, 400));
 
                 let data: any = null;
                 try {
                   data = await res.json();
                 } catch (parseErr) {
-                  console.error('[infographic] failed to parse JSON from response, parseErr:', parseErr);
+                  console.error('[flashcards] failed to parse JSON from response, parseErr:', parseErr);
                   // fallback: try to parse raw substring
                   try {
                     data = JSON.parse(raw);
@@ -1255,12 +1258,12 @@ function ContentTransformer({
                   }
                 }
 
-                console.log('[infographic] parsed response:', data);
+                console.log('[flashcards] parsed response:', data);
 
                 if (res.ok) {
                   // Expecting an array of { heading, points }
                   if (Array.isArray(data)) {
-                    setInfographicSections(data);
+                    setFlashcardSections(data);
                     
                     // Save flashcard data to Supabase
                     try {
@@ -1282,35 +1285,112 @@ function ContentTransformer({
                       console.error('[flashcards] Error saving flashcards:', saveError);
                     }
                   } else if (data && data.error) {
-                    setInfographicSections([{ heading: 'Infographic generation failed', points: [data.error || data.detail || 'See console for details'] }]);
+                    setFlashcardSections([{ heading: 'Flashcard generation failed', points: [data.error || data.detail || 'See console for details'] }]);
                   } else {
-                    setInfographicSections([{ heading: 'Infographic: unexpected response', points: [JSON.stringify(data).slice(0, 300)] }]);
+                    setFlashcardSections([{ heading: 'Flashcard: unexpected response', points: [JSON.stringify(data).slice(0, 300)] }]);
                   }
                 } else {
                   // Surface error to the UI so the user sees feedback instead of a silent failure
-                  setInfographicSections([{ heading: 'Infographic generation failed', points: [data?.error || data?.detail || 'See console for details'] }]);
-                  console.error('Infographic generation failed', data);
+                  setFlashcardSections([{ heading: 'Flashcard generation failed', points: [data?.error || data?.detail || 'See console for details'] }]);
+                  console.error('Flashcard generation failed', data);
                 }
               } catch (e) {
-                console.error('Error generating infographic', e);
+                console.error('Error generating flashcards', e);
               } finally {
-                setInfographicLoading(false);
-                setSelectedOption('infographic');
+                setFlashcardLoading(false);
+                setSelectedOption('flashcard');
               }
             }}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
-              selectedOption === 'infographic'
+              selectedOption === 'flashcard'
                 ? 'bg-slate-50 border-green-500 shadow-lg'
                 : 'bg-white border-slate-300 hover:border-slate-400'
             )}
           >
             <div className="text-3xl mb-3">🃏</div>
             <div className="font-bold text-slate-900 text-sm">Flash cards</div>
-            <div className="text-slate-500 text-xs mt-1">Visual summary</div>
+            <div className="text-slate-500 text-xs mt-1">Quick revision</div>
           </div>
 
-          {/* Infographics button removed - keep only Flash cards button */}
+          {/* Infographic button */}
+          <div
+            onClick={async () => {
+              // If already generated, just open the view
+              if (infographicData) {
+                setSelectedOption('infographic');
+                return;
+              }
+
+              try {
+                setInfographicLoading(true);
+                setSelectedOption('infographic');
+                
+                console.log('[infographic] Starting generation...');
+                console.log('[infographic] Module title:', module.title);
+                console.log('[infographic] Content length:', (module.content || '').length);
+                
+                const contentText = module.content || '';
+                
+                if (!contentText) {
+                  console.error('[infographic] No content available');
+                  alert('No content available to generate visual guide');
+                  setInfographicLoading(false);
+                  return;
+                }
+                
+                console.log('[infographic] Calling API...');
+                const res = await fetch('/api/generate-infographic', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ content: contentText, title: module.title }),
+                });
+
+                console.log('[infographic] API response status:', res.status);
+                
+                const raw = await res.clone().text();
+                console.log('[infographic] Raw response preview:', raw.slice(0, 500));
+
+                let data: any = null;
+                try {
+                  data = await res.json();
+                  console.log('[infographic] Parsed data:', data);
+                } catch (parseErr) {
+                  console.error('[infographic] Failed to parse JSON:', parseErr);
+                  console.error('[infographic] Raw response:', raw);
+                  alert('Failed to parse server response. Check console for details.');
+                  data = null;
+                }
+
+                if (res.ok && data && !data.error) {
+                  console.log('[infographic] Successfully generated!');
+                  setInfographicData(data);
+                } else {
+                  console.error('[infographic] Generation failed:', data);
+                  alert(`Failed to generate visual guide: ${data?.error || 'Unknown error'}`);
+                  setInfographicData(null);
+                }
+              } catch (e: any) {
+                console.error('[infographic] Error:', e);
+                alert(`Error generating visual guide: ${e.message || 'Unknown error'}`);
+                setInfographicData(null);
+              } finally {
+                setInfographicLoading(false);
+              }
+            }}
+            className={clsx(
+              'rounded-xl p-5 cursor-pointer transition-all border-2',
+              selectedOption === 'infographic'
+                ? 'bg-slate-50 border-purple-500 shadow-lg'
+                : 'bg-white border-slate-300 hover:border-slate-400'
+            )}
+          >
+            <div className="text-3xl mb-3">📊</div>
+            <div className="font-bold text-slate-900 text-sm">Visual Guide</div>
+            <div className="text-slate-500 text-xs mt-1">Structured overview</div>
+          </div>
+
+          {/* Flashcards button removed - keep only Flash cards button */}
           {/*<div
             onClick={() => setSelectedOption('roleplay')}
             className={clsx(
@@ -1488,24 +1568,24 @@ function ContentTransformer({
         {selectedOption !== 'audio' && selectedOption !== 'video' && (
           <div className="rounded-xl border border-slate-200 bg-white p-12 text-left">
             <div className="text-slate-600 text-sm text-left">
-                  {selectedOption === 'infographic' && (
+                  {selectedOption === 'flashcard' && (
                     <div>
-                      {infographicLoading && (
+                      {flashcardLoading && (
                         <div className="flex flex-col items-center">
                           <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
-                          <div>Generating infographic...</div>
+                          <div>Generating flashcards...</div>
                         </div>
                       )}
 
-                      {!infographicLoading && (
+                      {!flashcardLoading && (
                         <div>
-                              <InfographicCards sections={infographicSections} />
+                              <FlashcardCards sections={flashcardSections} />
                         </div>
                       )}
                     </div>
                   )}
 
-                  {/* 'infographic' (singular) is used to show generated sections inline */}
+                  {/* 'flashcard' (singular) is used to show generated sections inline */}
 
               {selectedOption === 'mindmap' && (
                 <div>
@@ -1527,6 +1607,229 @@ function ContentTransformer({
                   )}
 
                   {/* Debug preview removed */}
+                </div>
+              )}
+
+              {selectedOption === 'infographic' && (
+                <div>
+                  {infographicLoading && (
+                    <div className="flex flex-col items-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
+                      <div>Generating visual guide...</div>
+                    </div>
+                  )}
+
+                  {!infographicLoading && infographicData && (
+                    <div className="w-full rounded-lg border p-4 bg-white">
+                      {/* Header with title and download button */}
+                      <div className="mb-4 flex items-center justify-between">
+                        <h3 className="text-2xl font-bold flex-1 text-center">{infographicData.title}</h3>
+                        <button
+                          onClick={() => {
+                            try {
+                              const pdf = new jsPDF();
+                              const pageWidth = pdf.internal.pageSize.getWidth();
+                              const pageHeight = pdf.internal.pageSize.getHeight();
+                              const margin = 20;
+                              let yPosition = margin;
+
+                              // Title
+                              pdf.setFontSize(18);
+                              pdf.setFont('helvetica', 'bold');
+                              const titleLines = pdf.splitTextToSize(infographicData.title, pageWidth - 2 * margin);
+                              pdf.text(titleLines, pageWidth / 2, yPosition, { align: 'center' });
+                              yPosition += titleLines.length * 10 + 10;
+
+                              // Helper function to check if new page is needed
+                              const checkPageBreak = (requiredSpace: number) => {
+                                if (yPosition + requiredSpace > pageHeight - margin) {
+                                  pdf.addPage();
+                                  yPosition = margin;
+                                  return true;
+                                }
+                                return false;
+                              };
+
+                              // Main sections
+                              if (infographicData.sections) {
+                                infographicData.sections.forEach((section: any) => {
+                                  checkPageBreak(40);
+                                  
+                                  // Section title
+                                  pdf.setFontSize(14);
+                                  pdf.setFont('helvetica', 'bold');
+                                  pdf.text(section.title, margin, yPosition);
+                                  yPosition += 10;
+
+                                  // Section points
+                                  if (section.points) {
+                                    pdf.setFontSize(10);
+                                    section.points.forEach((point: any) => {
+                                      checkPageBreak(20);
+                                      pdf.setFont('helvetica', 'bold');
+                                      const pointTitle = pdf.splitTextToSize(`• ${point.title}`, pageWidth - 2 * margin - 10);
+                                      pdf.text(pointTitle, margin + 5, yPosition);
+                                      yPosition += pointTitle.length * 5 + 2;
+                                      
+                                      pdf.setFont('helvetica', 'normal');
+                                      const pointText = pdf.splitTextToSize(point.text, pageWidth - 2 * margin - 10);
+                                      pdf.text(pointText, margin + 5, yPosition);
+                                      yPosition += pointText.length * 5 + 5;
+                                    });
+                                  }
+
+                                  // Sub-sections
+                                  if (section.subSections) {
+                                    section.subSections.forEach((sub: any) => {
+                                      checkPageBreak(30);
+                                      
+                                      pdf.setFontSize(12);
+                                      pdf.setFont('helvetica', 'bold');
+                                      pdf.text(sub.title, margin + 10, yPosition);
+                                      yPosition += 8;
+
+                                      if (sub.points) {
+                                        pdf.setFontSize(9);
+                                        sub.points.forEach((subPoint: any) => {
+                                          checkPageBreak(15);
+                                          pdf.setFont('helvetica', 'bold');
+                                          const subTitle = pdf.splitTextToSize(`  - ${subPoint.title}`, pageWidth - 2 * margin - 15);
+                                          pdf.text(subTitle, margin + 15, yPosition);
+                                          yPosition += subTitle.length * 4 + 2;
+                                          
+                                          pdf.setFont('helvetica', 'normal');
+                                          const subText = pdf.splitTextToSize(subPoint.text, pageWidth - 2 * margin - 15);
+                                          pdf.text(subText, margin + 15, yPosition);
+                                          yPosition += subText.length * 4 + 4;
+                                        });
+                                      }
+                                    });
+                                  }
+
+                                  yPosition += 10;
+                                });
+                              }
+
+                              // Critical flags
+                              if (infographicData.criticalFlags && infographicData.criticalFlags.flags) {
+                                checkPageBreak(40);
+                                
+                                pdf.setFontSize(14);
+                                pdf.setFont('helvetica', 'bold');
+                                pdf.setTextColor(220, 38, 38); // Red color
+                                pdf.text(infographicData.criticalFlags.title || 'Critical Red Flags', margin, yPosition);
+                                pdf.setTextColor(0, 0, 0); // Reset to black
+                                yPosition += 10;
+
+                                pdf.setFontSize(10);
+                                infographicData.criticalFlags.flags.forEach((flag: any) => {
+                                  checkPageBreak(25);
+                                  
+                                  pdf.setFont('helvetica', 'bold');
+                                  const flagTitle = pdf.splitTextToSize(`⚠ ${flag.title}`, pageWidth - 2 * margin - 5);
+                                  pdf.text(flagTitle, margin + 5, yPosition);
+                                  yPosition += flagTitle.length * 5 + 2;
+
+                                  if (flag.value) {
+                                    pdf.setFont('helvetica', 'bold');
+                                    pdf.text(flag.value, margin + 5, yPosition);
+                                    yPosition += 7;
+                                  }
+
+                                  pdf.setFont('helvetica', 'normal');
+                                  const flagText = pdf.splitTextToSize(flag.text, pageWidth - 2 * margin - 5);
+                                  pdf.text(flagText, margin + 5, yPosition);
+                                  yPosition += flagText.length * 5 + 8;
+                                });
+                              }
+
+                              // Save the PDF
+                              const fileName = `${infographicData.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_visual_guide.pdf`;
+                              pdf.save(fileName);
+                            } catch (error) {
+                              console.error('Error generating PDF:', error);
+                              alert('Failed to generate PDF. Please try again.');
+                            }
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </div>
+                      
+                      {/* Main sections */}
+                      {infographicData.sections && infographicData.sections.map((section: any, sIdx: number) => (
+                        <div key={sIdx} className="mb-8 pb-8">
+                          <div className="flex items-center gap-3 mb-4">
+                            <div className="text-3xl">{section.icon === 'umbrella' ? '☂️' : '📋'}</div>
+                            <h4 className="text-xl font-bold text-gray-900">{section.title}</h4>
+                          </div>
+                          
+                          {section.points && section.points.map((point: any, pIdx: number) => (
+                            <div key={pIdx} className="ml-12 mb-3">
+                              <div className="font-semibold text-gray-800">{point.title}</div>
+                              <div className="text-gray-600 text-sm">{point.text}</div>
+                            </div>
+                          ))}
+                          
+                          {/* Sub-sections */}
+                          {section.subSections && (
+                            <div className="grid grid-cols-3 gap-4 mt-6 ml-12">
+                              {section.subSections.map((sub: any, subIdx: number) => (
+                                <div 
+                                  key={subIdx} 
+                                  className={clsx(
+                                    'rounded-xl p-5 border-2',
+                                    sub.color === 'blue' ? 'bg-blue-50 border-blue-300' :
+                                    sub.color === 'green' ? 'bg-green-50 border-green-300' :
+                                    'bg-yellow-50 border-yellow-300'
+                                  )}
+                                >
+                                  <div className="text-2xl mb-2">
+                                    {sub.icon === 'person' ? '👤' : sub.icon === 'property' ? '🏠' : '⏰'}
+                                  </div>
+                                  <h5 className="font-bold text-gray-900 mb-3">{sub.title}</h5>
+                                  {sub.points && sub.points.map((p: any, pIdx: number) => (
+                                    <div key={pIdx} className="mb-2">
+                                      <div className="font-semibold text-sm">{p.title}:</div>
+                                      <div className="text-xs text-gray-700">{p.text}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      
+                      {/* Critical Flags */}
+                      {infographicData.criticalFlags && (
+                        <div className="mt-8 pt-8">
+                          <h4 className="text-xl font-bold text-red-600 mb-6">{infographicData.criticalFlags.title}</h4>
+                          <div className="grid grid-cols-3 gap-4">
+                            {infographicData.criticalFlags.flags && infographicData.criticalFlags.flags.map((flag: any, fIdx: number) => (
+                              <div key={fIdx} className="bg-red-50 border-2 border-red-300 rounded-xl p-5">
+                                <div className="text-3xl mb-2">
+                                  {flag.icon === 'mismatch' ? '💰' : flag.icon === 'gauge' ? '📊' : '📄'}
+                                </div>
+                                <h5 className="font-bold text-gray-900 mb-2">{flag.title}</h5>
+                                {flag.value && (
+                                  <div className="text-2xl font-bold text-red-600 mb-2">{flag.value}</div>
+                                )}
+                                <p className="text-sm text-gray-700">{flag.text}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!infographicLoading && !infographicData && (
+                    <div className="text-sm text-gray-500">Click the Visual Guide tile to generate the structured overview.</div>
+                  )}
                 </div>
               )}
 
@@ -1944,9 +2247,9 @@ function escapeXml(unsafe: string) {
     .replace(/'/g, '&apos;');
 }
 
-// Build a simple 16:9 infographic SVG string from sections.
+// Build a simple 16:9 flashcard SVG string from sections.
 // sections: array of { heading: string, points: string[] }
-function buildInfographicSVG(sections: any[], title: string) {
+function buildFlashcardSVG(sections: any[], title: string) {
   const w = 1920;
   const h = 1080;
   const marginX = 120;
@@ -1956,7 +2259,7 @@ function buildInfographicSVG(sections: any[], title: string) {
   const maxSections = 4;
   const items = Array.isArray(sections) ? sections.slice(0, maxSections) : [];
 
-  const header = escapeXml(title || 'Infographic');
+  const header = escapeXml(title || 'Flashcard');
 
   const colors = ['#E8F4FF', '#EFFCF0', '#FFF7E8', '#F6F0FF'];
 
