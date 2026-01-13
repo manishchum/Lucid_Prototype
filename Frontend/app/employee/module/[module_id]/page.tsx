@@ -67,7 +67,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       } catch (e) {
         console.error('[module] employee fetch error', e);
       }
-      const selectCols = "processed_module_id, title, content, audio_url, audio_url_hinglish, original_module_id, learning_style, user_id, podcast_timeline, podcast_timeline_hinglish, podcast_transcript, podcast_transcript_hinglish,video_url, mindmap_data, flashcard_data";
+      const selectCols = "processed_module_id, title, content, audio_url, audio_url_hinglish, original_module_id, learning_style, podcast_timeline, podcast_timeline_hinglish, podcast_transcript, podcast_transcript_hinglish,video_url, mindmap_data, flashcard_data";
       let data: any = null;
 
       // First try: direct lookup by processed_module_id (this is what we pass from training plan)
@@ -79,7 +79,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         .from('processed_modules')
         .select(selectCols)
         .eq('processed_module_id', moduleId)
-        .eq('user_id', empObj?.user_id || '')
+        // .eq('user_id', empObj?.user_id || '')
         .maybeSingle();
 
       if (directError) {
@@ -93,7 +93,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           .from('processed_modules')
           .select(selectCols)
           .eq('original_module_id', moduleId)
-          .eq('user_id', empObj?.user_id || '')
+          // .eq('user_id', empObj?.user_id || '')
           .maybeSingle();
 
         if (origError) {
@@ -108,14 +108,14 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         if (!data.content || data.content.trim() === '') {
           setGeneratingContent(true);
           try {
-            const genResponse = await fetch('/api/generate-module-content', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                moduleId: data.original_module_id
-              }),
-            });
-            if (genResponse.ok) {
+            // const genResponse = await fetch('/api/generate-module-content', {
+            //   method: 'POST',
+            //   headers: { 'Content-Type': 'application/json' },
+            //   body: JSON.stringify({
+            //     moduleId: data.original_module_id
+            //   }),
+            // });
+            // if (genResponse.ok) {
               await new Promise(resolve => setTimeout(resolve, 2000));
               const { data: refreshedData } = await supabase
                 .from('processed_modules')
@@ -124,7 +124,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                 .maybeSingle();
               if (refreshedData && refreshedData.content) {
                 data = refreshedData;
-              }
+              // }
             }
           } catch (genError) {
             console.error('[module] Error triggering content generation:', genError);

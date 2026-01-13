@@ -1,20 +1,26 @@
 // Standalone version of generate-module-content for VM worker
 const { createClient } = require('@supabase/supabase-js');
-const OpenAI = require('openai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-async function generateModuleContent() {
-  // Fetch all processed_modules with empty or placeholder content
-  const { data: modules, error } = await supabase
+async function generateModuleContent({ moduleId = null } = {}) {
+  // Fetch all processed_modules with empty or placeholder content (optionally scoped by moduleId)
+  let query = supabase
     .from('processed_modules')
     .select('processed_module_id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives)')
     .or('content.is.null,content.eq.\'\',content.eq.""');
+
+  if (moduleId) {
+    query = query.eq('original_module_id', moduleId);
+  }
+
+  const { data: modules, error } = await query;
 
   if (error) {
     console.error('Supabase fetch error:', error);
@@ -62,52 +68,128 @@ async function generateModuleContent() {
 
       // Compose prompt for the learning style of this row
       const style = mod.learning_style;
-      const stylePrompt = `You are an expert instructional designer. Your task is to write a complete, self-contained training module for employees, as if it were a chapter in a professional textbook.
+      const stylePrompt = `You are an expert Instructional Designer and Technical Writer. Your task is to write a complete, self-contained training module for employees, formatted as a high-end professional e-learning chapter with rich HTML formatting.
 
-Module Title: "${mod.title}"
-${topicsText}
-${objectivesText}
+**Module Context:**
+* **Module Title:** "${mod.title}"
+* **Topics to Cover:** ${topicsText}
+* **Target Objectives:** ${objectivesText}
+* **Learning Style Focus:** ${style}
 
-Instructions:
-1. Structure the content with clear sections, logical flow, and progressive depth (from basic to advanced).
-2. For each topic and objective, provide:
-  - Detailed explanations
-  - Practical examples and case studies
-  - Step-by-step exercises and activities
-  - Actionable tips and best practices
-3. Ensure the module is fully self-contained: all information, context, and learning activities must be included so the learner does not need to reference any other material.
-4. Adapt the content for the following learning style: ${style}
-  - If style is "CS": Use hands-on activities, clear instructions, logical sequence, deadlines, and factual information.
-  - If style is "CR": Encourage experimentation, discovery, trial-and-error, flexibility, and problem-solving.
-  - If style is "AS": Focus on analysis, intellectual exploration, theoretical models, and independent research.
-  - If style is "AR": Foster reflection, emotional connection, group harmony, open-ended activities, and personal engagement.
-5. Write in a professional, engaging, and instructional tone suitable for new hires in a corporate setting.
-6. Output only the full module content, ready for direct use in training. Do not include meta commentary or instructions—just the content itself.
-7. IMPORTANT FORMATTING REQUIREMENTS:
-   - Use clear section headers with actual bold text (do NOT use markdown like **text** or ## symbols)
-   - Format headers as: [HEADER TEXT IN CAPITAL OR TITLE CASE] followed by a new line
-   - Use plain, clean text throughout - no markdown symbols, no asterisks, no hyphens for lists
-   - Use numbered lists (1. 2. 3.) for step-by-step content
-   - Use bullet points with simple dashes (dash space) for non-sequential items
-   - CRITICAL: NEVER include learning style codes (CS, CR, AS, AR) anywhere in the content - not in titles, not in parentheses, not anywhere
-   - Do not add any abbreviations or codes after activity titles or section names
-   - Break content into digestible paragraphs
-   - Make it engaging and consumable for busy professionals
+**Core Instructions:**
+1.  **Content Fidelity:** Create comprehensive content based on the topics and objectives provided.
+2.  **Tone & Style:** Professional, engaging, and instructive. Adapt the delivery to the specific Learning Style provided below.
+3.  **HTML Formatting (STRICT REQUIREMENT):**
+    * Use semantic HTML5 elements: <h2>, <h3>, <p>, <strong>, <em>, <table>, <ul>, <ol>, <li>, <blockquote>, <section>, <article>.
+    * For tables: Use proper <table>, <thead>, <tbody>, <tr>, <th>, <td> tags. Add data-comparison="true" attribute to comparison tables.
+    * For callouts/tips: Use <div class="callout tip">, <div class="callout warning">, or <div class="callout definition">.
+    * For lists: Use <ul> for unordered and <ol> for ordered lists with proper <li> items.
+    * For key takeaways: Use <blockquote class="key-takeaway">.
+    * NO Markdown syntax - output pure HTML only. Do NOT use **, ##, ---, etc.
+    * Do NOT wrap everything in a single <div> - use semantic section organization.
+4.  **Table Requirements (CRITICAL):**
+    * When comparing concepts, create comparison tables with clear headers and rows.
+    * When listing steps, create step tables with Step #, Action, and Details columns.
+    * When presenting data, use appropriate data visualization tables.
+    * Tables MUST use <thead> for headers and <tbody> for content.
+    * Each table MUST have a descriptive <caption> element or preceding context.
+5.  **Visual Aids:** Insert descriptive <img> tags with data-type="diagram", data-type="chart", data-type="infographic" attributes and clear alt text. These will be replaced with actual assets later. Do not use them just for decoration.
 
-Goal: The output should be a comprehensive, ready-to-use training module that fully addresses the topics and objectives, tailored to the specified learning style, and suitable for direct delivery to learners with clean, professional formatting.`;
-      // console.log(`Calling OpenAI for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [
-          { role: 'system', content: 'You are an expert corporate trainer and instructional designer.' },
-          { role: 'user', content: stylePrompt },
-        ],
-        max_tokens: 8000,
-        temperature: 0.7,
-      });
-      let aiContent = completion.choices[0]?.message?.content?.trim() || '';
+**Learning Style Adaptation (${style}):**
+* **If CS (Concrete Sequential):** Use structured step tables, numbered lists, clear procedural content with checkpoints, and factual headings.
+* **If CR (Concrete Random):** Use problem-solving scenarios, interactive prompts, open-ended formatting, and "Try this" sections.
+* **If AS (Abstract Sequential):** Use comparison tables, theoretical models, logical frameworks, data tables, and deep analysis.
+* **If AR (Abstract Random):** Use group scenario sections, emotional context, narrative examples, collaborative prompts, and discussion tables.
+
+---
+
+**REQUIRED HTML STRUCTURE:**
+
+<section class="learning-objectives">
+<h2>Learning Objectives</h2>
+<ol>
+<li>Clear, measurable objective 1</li>
+<li>Clear, measurable objective 2</li>
+<li>Clear, measurable objective 3</li>
+</ol>
+</section>
+
+<section class="module-section">
+<h2>Section 1: [Descriptive Title]</h2>
+
+<h3>Concept</h3>
+<p>Explain the core concept in depth. Use 300+ words with clear explanations.</p>
+
+<h3>Real-World Context</h3>
+<p>Provide specific business examples. Include practical applications.</p>
+
+<h3>Key Points Comparison</h3>
+<table>
+<thead>
+<tr><th>Aspect</th><th>Description</th><th>Example</th></tr>
+</thead>
+<tbody>
+<tr><td>Point 1</td><td>Details</td><td>Example</td></tr>
+</tbody>
+</table>
+
+<blockquote class="key-takeaway"><strong>Key Takeaway:</strong> State the most important point from this section.</blockquote>
+</section>
+
+<section class="activity">
+<h3>Activity 1: [Activity Name]</h3>
+<p><strong>Objective:</strong> What will the learner achieve?</p>
+<p><strong>Time:</strong> [Estimated time]</p>
+<h4>Instructions</h4>
+<ol>
+<li>First instruction step</li>
+<li>Second instruction step</li>
+<li>Reflection question or deliverable</li>
+</ol>
+</section>
+
+(Continue with Section 2, 3, etc. following the same HTML structure with tables, comparisons, and activities)
+
+<section class="module-summary">
+<h2>Module Summary</h2>
+<h3>Key Takeaways</h3>
+<ul>
+<li>Takeaway 1</li>
+<li>Takeaway 2</li>
+<li>Takeaway 3</li>
+</ul>
+</section>
+
+---
+
+**IMPORTANT REMINDERS:**
+- Output ONLY valid HTML5, no Markdown syntax.
+- Ensure proper semantic structure with <section>, <h2>, <h3>, <p>, <table>, <ul>, <ol> tags.
+- Do NOT output any markdown characters like #, ##, ***, ---, >, etc.
+- Do NOT output code blocks with \`\`\`.
+- Do NOT use any markdown formatting - use HTML only.
+- All tables MUST have proper <thead> and <tbody> structure.
+- All lists MUST use <ul>/<ol> with <li> elements.
+- All emphasis MUST use <strong> or <em> tags, NOT ** or * symbols.
+- Close all HTML tags properly.
+- Generate 3-5 comprehensive sections, each with supporting tables or structured content where appropriate.`;
+      console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+      const result = await model.generateContent(stylePrompt);
+      const response = await result.response;
+      let aiContent = response.text();
+      
+      // Clean the response to remove any potential markdown code blocks
+      if (aiContent) {
+        if (aiContent.includes('```html')) {
+          aiContent = aiContent.replace(/```html\n?/g, '').replace(/```\n?/g, '');
+        } else if (aiContent.includes('```')) {
+          aiContent = aiContent.replace(/```[\s\S]*?```/g, '');
+        }
+        aiContent = aiContent.trim();
+      }
       if (!aiContent) {
-        console.warn(`No content generated for module: ${mod.module_id} style: ${style}`);
+        console.warn(`No content generated for module: ${mod.processed_module_id} style: ${style}`);
         continue;
       }
       
@@ -117,7 +199,8 @@ Goal: The output should be a comprehensive, ready-to-use training module that fu
       // Upsert the content using processed_module_id as the conflict key.
       const { data: upserted, error: updateError } = await supabase
         .from('processed_modules')
-        .upsert({ processed_module_id: mod.processed_module_id, content: aiContent }, { onConflict: 'processed_module_id' })
+        .update({ content: aiContent })
+        .eq('processed_module_id', mod.processed_module_id)
         .select('processed_module_id');
       if (updateError) {
         console.error(`Failed to upsert content for processed_module ${mod.processed_module_id} style ${style}:`, updateError);
@@ -127,6 +210,7 @@ Goal: The output should be a comprehensive, ready-to-use training module that fu
       }
     } catch (err) {
       console.error(`Error processing module ${mod.module_id}:`, err);
+      console.error(`Error processing module ${mod.processed_module_id}:`, err);
     }
   }
 
