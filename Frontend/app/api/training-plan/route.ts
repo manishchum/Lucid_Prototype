@@ -265,13 +265,13 @@ export async function POST(request: NextRequest) {
 
     // If any plan exists for this user/module combination, return it (regardless of assessment hash)
     // This ensures learning plans remain stable once created
-    // if (existingPlan && existingPlan.plan_json) {
-    //   // console.log("[Training Plan API] Existing plan found - returning stable plan without regeneration");
-    //   try {
-    //     await ensureProcessedModulesForPlan(user_id, company_id, existingPlan.plan_json);
-    //   } catch (e) {
-    //     console.error("[Training Plan API] ensureProcessedModulesForPlan failed on existing plan:", e);
-    //   }
+    if (existingPlan && existingPlan.plan_json) {
+      // console.log("[Training Plan API] Existing plan found - returning stable plan without regeneration");
+      try {
+        // await ensureProcessedModulesForPlan(user_id, company_id, existingPlan.plan_json);
+      } catch (e) {
+        console.error("[Training Plan API] ensureProcessedModulesForPlan failed on existing plan:", e);
+      }
 
       return NextResponse.json({
         plan: existingPlan.plan_json,
