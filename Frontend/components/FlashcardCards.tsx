@@ -4,17 +4,17 @@
 import React, { useRef, useState, useEffect } from "react"
 import { Download } from 'lucide-react'
 
-export type InfographicSection = {
+export type FlashcardSection = {
   heading: string
   points: string[]
   icon?: string
 }
 
 type Props = {
-  sections?: InfographicSection[] | null
+  sections?: FlashcardSection[] | null
 }
 
-export default function InfographicCards({ sections }: Props) {
+export default function FlashcardCards({ sections }: Props) {
   const items = (sections && Array.isArray(sections) ? sections.slice(0, 6) : [])
 
   if (!items || items.length === 0) return (
@@ -211,7 +211,7 @@ export default function InfographicCards({ sections }: Props) {
   }
 
   return (
-    <section aria-label="Infographic cards" className="py-0 relative overflow-visible">
+    <section aria-label="Flashcard cards" className="py-0 relative overflow-visible">
       {/* Download button above the cards */}
       <div className="mb-3 flex justify-end pr-3">
         <button onClick={exportAsPNG} className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center" title="Download flashcards image">
@@ -223,7 +223,7 @@ export default function InfographicCards({ sections }: Props) {
       <div
         ref={scrollerRef}
         // hide native scrolling and prevent touch/drag; movement will be via arrow buttons only
-        className="flex gap-4 overflow-x-hidden no-scrollbar infographic-scroller px-3 py-0"
+        className="flex gap-4 overflow-x-hidden no-scrollbar flashcard-scroller px-3 py-0"
         onWheel={(e) => e.preventDefault()}
         onTouchMove={(e) => e.preventDefault()}
       >

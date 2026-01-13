@@ -184,7 +184,7 @@ export default function EmployeesPage() {
       );
 
       if (!hasAdminRole) {
-        setError("Admin access required");
+        setError("Console access required");
         return;
       }
 
@@ -549,7 +549,7 @@ export default function EmployeesPage() {
           className="border-b-2 border-transparent data-[active=true]:border-blue-500"
         >
           <BookOpen className="w-4 h-4 mr-2" />
-          Learning Plan Assignments
+          Performance Sprint Assignments
         </Button> */}
       </div>
 
@@ -2138,11 +2138,11 @@ function LearningPlanAssignmentsView({ learningPlans, users, trainingModules, co
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Learning Plan Assignments</CardTitle>
-        <CardDescription>View and manage learning plan assignments</CardDescription>
+        <CardTitle>Performance Sprint Assignments</CardTitle>
+        <CardDescription>View and manage Performance Sprint assignments</CardDescription>
       </CardHeader>
       <CardContent>
-        <p className="text-gray-600 py-8 text-center">Learning plan assignments view coming soon</p>
+        <p className="text-gray-600 py-8 text-center">Performance Sprint assignments view coming soon</p>
       </CardContent>
     </Card>
   );
@@ -2295,7 +2295,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       if (insertError) {
         // Handle potential race condition duplicates
         if (insertError.code === '23505') {
-          setError('Some assignments were created by another admin while you were selecting. Please refresh and try again.');
+          setError('Some assignments were created by another console while you were selecting. Please refresh and try again.');
         } else {
           throw insertError;
         }
@@ -2439,32 +2439,34 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                 <div className="border border-gray-300 rounded-md max-h-64 overflow-y-auto">
                   <div className="p-3 space-y-3">
                     {modules.map(module => (
-                      <label
+                      <div
                         key={module.module_id}
-                        className="submodule-card submodule-card--compact cursor-pointer flex items-center gap-4"
+                        className="submodule-card submodule-card--compact grid grid-cols-[1fr_auto_1fr] items-center gap-4"
                       >
-                        <input
-                          type="checkbox"
-                          checked={selectedModules.includes(module.module_id)}
-                          onChange={() => handleModuleToggle(module.module_id)}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-gray-900">{module.title}</div>
-                          {module.description && (
-                            <p className="text-sm text-gray-600 mt-1">{module.description}</p>
-                          )}
-                          <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
-                            <span className="bg-gray-100 px-2 py-1 rounded">
-                              {formatContentType(module.content_type)}
-                            </span>
-                            <span>
-                              Created: {new Date(module.created_at).toLocaleDateString()}
-                            </span>
+                        <label className="flex items-center gap-4 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedModules.includes(module.module_id)}
+                            onChange={() => handleModuleToggle(module.module_id)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-gray-900">{module.title}</div>
+                            {module.description && (
+                              <p className="text-sm text-gray-600 mt-1">{module.description}</p>
+                            )}
+                            <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+                              <span className="bg-gray-100 px-2 py-1 rounded">
+                                {formatContentType(module.content_type)}
+                              </span>
+                              <span>
+                                Created: {new Date(module.created_at).toLocaleDateString()}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                        {/* Individual Baseline Assessment Toggle */}
-                        <div className="flex items-center gap-3 ml-4">
+                        </label>
+                        {/* Individual Baseline Assessment Toggle - Centered */}
+                        <div className="flex items-center gap-3 flex-shrink-0">
                           <Label className="text-xs font-medium text-gray-600">Baseline Assessment</Label>
                           <label className="flex items-center cursor-pointer">
                             <div className="relative">
@@ -2477,12 +2479,12 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                                 }}
                                 className="sr-only"
                               />
-                              <div className={`w-9 h-5 rounded-full transition-colors ${
+                              <div className={`w-9 h-5 rounded-full transition-colors flex items-center ${
                                 moduleBaselineSettings[module.module_id] ? 'bg-blue-600' : 'bg-gray-300'
                               }`}>
                                 <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${
                                   moduleBaselineSettings[module.module_id] ? 'translate-x-4' : 'translate-x-0.5'
-                                } mt-0.5`}></div>
+                                }`}></div>
                               </div>
                             </div>
                           </label>
@@ -2490,7 +2492,8 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                             {moduleBaselineSettings[module.module_id] ? 'Required' : 'Optional'}
                           </span>
                         </div>
-                      </label>
+                        <div></div>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -2533,7 +2536,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                   to <strong>{selectedUsers.length}</strong> user{selectedUsers.length === 1 ? '' : 's'}.
                 </p>
                 <p className="text-sm text-gray-600 mt-1">
-                  This will create <strong>{selectedModules.length * selectedUsers.length}</strong> learning plan assignments.
+                  This will create <strong>{selectedModules.length * selectedUsers.length}</strong> Performance Sprint assignments.
                 </p>
                 <div className="mt-2">
                   <p className="text-sm text-gray-600">
