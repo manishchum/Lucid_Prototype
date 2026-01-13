@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import crypto from "crypto";
-import ensureProcessedModulesForPlan from "@/lib/processedModulesHelper";
+// import ensureProcessedModulesForPlan from "@/lib/processedModulesHelper";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
           try {
             // console.log("Plan Content")
             // console.log(planContent)
-            await ensureProcessedModulesForPlan(user_id, company_id, planContent);
+            // await ensureProcessedModulesForPlan(user_id, company_id, planContent);
           } catch (e) {
             console.error('Error ensuring processed modules for existing plan:', e);
           }
@@ -310,7 +310,7 @@ export async function POST(request: NextRequest) {
           .from("processed_modules")
           .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
           .eq("original_module_id", module_id)
-          .eq("user_id", user_id);
+          // .eq("user_id", user_id);
 
         if (modError) {
           console.error("[Training Plan API] Error fetching processed module:", modError);
@@ -370,7 +370,7 @@ export async function POST(request: NextRequest) {
           .from("processed_modules")
           .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
           .in("original_module_id", tmIds)
-          .eq("user_id", user_id);
+          // .eq("user_id", user_id);
         if (modError) {
           console.error("[Training Plan API] Error fetching modules:", modError);
           return NextResponse.json({ error: modError.message }, { status: 500 });
