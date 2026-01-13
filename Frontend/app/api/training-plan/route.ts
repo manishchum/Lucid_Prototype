@@ -667,11 +667,11 @@ const prompt1 = "You are an expert corporate trainer. Given the following assess
     // console.log("[Training Plan API] Plan saved successfully.");
 
     // Ensure processed_modules exist for modules in the newly saved plan
-    try {
-      await ensureProcessedModulesForPlan(user_id, company_id, plan);
-    } catch (e) {
-      console.error("[Training Plan API] ensureProcessedModulesForPlan failed after save:", e);
-    }
+    // try {
+    //   await ensureProcessedModulesForPlan(user_id, company_id, plan);
+    // } catch (e) {
+    //   console.error("[Training Plan API] ensureProcessedModulesForPlan failed after save:", e);
+    // }
 
     // Always return parsed plan and reasoning
     return NextResponse.json({ plan, reasoning });

@@ -21,6 +21,7 @@ const API_BASE_URL = process.env.INTERNAL_API_BASE_URL;
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 
+
 async function processJobs() {
   console.log('Worker started. Polling for jobs every 5 seconds...');
   while (true) {
@@ -52,7 +53,7 @@ async function processJobs() {
         console.log(`[JOB] Running migration for module_id=${job.module_id}`);
         const migrateResult = await migrateProcessedModules({ moduleId: job.module_id });
         console.log(`[JOB] Migration completed:`, migrateResult.message);
-        
+
         console.log(`[JOB] Running content generation for module_id=${job.module_id}`);
         const genResult = await generateModuleContent({ moduleId: job.module_id });
         console.log(`[JOB] Content generation completed:`, genResult.message);
