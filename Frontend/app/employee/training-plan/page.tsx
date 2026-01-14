@@ -387,7 +387,7 @@ function TrainingPlanContent() {
           .from("processed_modules")
           .select("processed_module_id")
           .ilike("title", moduleName)
-          .eq("user_id", actualUserId)
+          // .eq("user_id", actualUserId)
           .limit(1)
           .maybeSingle();
         if (pmByTitle?.processed_module_id) {
@@ -796,7 +796,7 @@ function TrainingPlanContent() {
                             //   mod
                             // );
                             setContentLoadingModuleId(mod.processed_module_id);
-                            const navId = await resolveModuleId(mod);
+                            const  navId = await resolveModuleId(mod);
                             // console.log(
                             //   "[training-plan] Resolved module id:",
                             //   navId
