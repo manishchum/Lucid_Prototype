@@ -543,7 +543,7 @@ export default function MindmapViewer({
             <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
               <feDropShadow dx="0" dy="2" stdDeviation="4" floodColor="#000" floodOpacity="0.12" />
             </filter>
-            {/* gradients matching infographic cards (soft blue and soft purple) */}
+            {/* gradients matching flashcard cards (soft blue and soft purple) */}
             <linearGradient id="grad-blue" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="#EFF6FF" />
               <stop offset="100%" stopColor="#EEF2FF" />

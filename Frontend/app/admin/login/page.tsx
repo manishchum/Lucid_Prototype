@@ -71,7 +71,7 @@ export default function AdminLogin() {
           </div>
           
           {/* Title */}
-          <h1 className="text-4xl font-bold mb-4">Admin Dashboard</h1>
+          <h1 className="text-4xl font-bold mb-4">Console Dashboard</h1>
           
           {/* Description */}
           <p className="text-lg text-blue-100 mb-8 leading-relaxed">
