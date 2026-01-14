@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
 import EmployeeNavigation from "@/components/employee-navigation";
+import MCQQuiz from "../../assessment/mcq-quiz";
 
 export default function ModuleQuizPage({ params }: { params: { module_id: string } }) {
   const { user, loading: authLoading } = useAuth();
@@ -241,11 +242,11 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         }
       }
       if (!learningStyle) {
-        setError('Could not determine your learning style.');
+        setError('Could not determine your Performance Sprint.');
         setLoading(false);
         return;
       }
-      // 1. Try to fetch existing quiz for this module and learning style
+      // 1. Try to fetch existing quiz for this module and Performance Sprint
       let query = supabase
         .from("assessments")
         .select("assessment_id, questions, processed_modules!inner(original_module_id,user_id)")

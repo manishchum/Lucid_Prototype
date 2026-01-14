@@ -201,12 +201,10 @@ const EmployeeNavigation = ({
               className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/welcome') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
             >
               <LayoutGrid size={20} className="shrink-0" />
-              {!isCollapsed && <span className="text-[15px]">Home</span>}
+              {!isCollapsed && <span className="text-[15px] font-bold">Home</span>}
             </button>
             {isCollapsed && <NavTooltip label="Home" />}
           </div>
-
-          {!isCollapsed && <div className="pt-6 pb-2 px-4 text-[10px] font-black text-[#1E293B] uppercase tracking-[0.2em] opacity-60">Learning Plan</div>}
 
           {/* Training Plan (Dropdown) */}
           <div className="relative group">
@@ -216,11 +214,11 @@ const EmployeeNavigation = ({
             >
               <div className="flex items-center gap-3.5">
                 <BookOpen size={20} className="shrink-0" />
-                {!isCollapsed && <span className="text-[15px] font-medium">Learning Plan</span>}
+                {!isCollapsed && <span className="text-[15px] font-bold">Performance Sprint</span>}
               </div>
               {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${coursesOpen ? '' : '-rotate-90'}`} />}
             </button>
-            {isCollapsed && <NavTooltip label="Learning Plan" />}
+            {isCollapsed && <NavTooltip label="Performance Sprint" />}
             
             {coursesOpen && !isCollapsed && (
               <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
@@ -249,7 +247,7 @@ const EmployeeNavigation = ({
               className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/score-history') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
             >
               <FileText size={20} className="shrink-0" />
-              {!isCollapsed && <span className="text-[15px]">Reports</span>}
+              {!isCollapsed && <span className="text-[15px] font-bold">Reports</span>}
             </button>
             {isCollapsed && <NavTooltip label="Reports" />}
             {/* One-shot toast shown to the right of Reports when an assessment/quiz result was just produced */}
@@ -268,10 +266,10 @@ const EmployeeNavigation = ({
             )}
           </div>
 
-          {/* Admin Panel */}
+          {/* Console */}
           {isAdmin && (
             <>
-              {!isCollapsed && <div className="pt-8 pb-2 px-4 text-[10px] font-black text-[#1E293B] uppercase tracking-[0.2em] opacity-60">Admin Panel</div>}
+              
               <div className="relative group">
                 <button 
                   onClick={() => isCollapsed ? handleNavigate('/admin/dashboard/analytics') : setAdminDropdownOpen(!adminDropdownOpen)} 
@@ -279,11 +277,11 @@ const EmployeeNavigation = ({
                 >
                   <div className="flex items-center gap-3.5">
                     <Shield size={20} className="shrink-0" />
-                    {!isCollapsed && <span className="text-[15px] font-medium">Admin Panel</span>}
+                    {!isCollapsed && <span className="text-[15px] font-bold">Console</span>}
                   </div>
                   {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${adminDropdownOpen ? '' : '-rotate-90'}`} />}
                 </button>
-                {isCollapsed && <NavTooltip label="Admin Panel" />}
+                {isCollapsed && <NavTooltip label="Console" />}
                 {adminDropdownOpen && !isCollapsed && (
                   <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
                     {[
@@ -308,7 +306,7 @@ const EmployeeNavigation = ({
           )}
 
           {/* KPI Panel */}
-          {!isCollapsed && <div className="pt-8 pb-2 px-4 text-[10px] font-black text-[#1E293B] uppercase tracking-[0.2em] opacity-60">KPI</div>}
+          
           <div className="relative group">
             <button 
               onClick={() => isCollapsed ? handleNavigate('/kpi') : setKpiDropdownOpen(!kpiDropdownOpen)} 
@@ -316,7 +314,7 @@ const EmployeeNavigation = ({
             >
               <div className="flex items-center gap-3.5">
                 <TrendingUp size={20} className="shrink-0" />
-                {!isCollapsed && <span className="text-[15px] font-medium">KPI</span>}
+                {!isCollapsed && <span className="text-[15px] font-bold">KPI</span>}
               </div>
               {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${kpiDropdownOpen ? '' : '-rotate-90'}`} />}
             </button>
@@ -326,8 +324,8 @@ const EmployeeNavigation = ({
                 {[
                     { href: "/kpi/intelligence", label: "KPI Intelligence", icon: TrendingUp },
                     { href: "/kpi/configuration", label: "KPI Configuration", icon: SettingsIcon },
-                    // { href: "/kpi/turbocharge", label: "KPI TurboCharge", icon: Zap },
-                    // { href: "/kpi/workforce-overview", label: "Workforce Overview", icon: UsersRound },
+                    { href: "/kpi/turbocharge", label: "KPI TurboCharge", icon: Zap },
+                    { href: "/kpi/workforce-overview", label: "Workforce Overview", icon: UsersRound },
                 ].map((item) => (
                     <button
                         key={item.label}

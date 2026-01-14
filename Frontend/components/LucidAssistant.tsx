@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from 'next/navigation'
 import { MessageSquare, X, Send, HelpCircle, FileText, ClipboardList, Upload } from "lucide-react";
+import VoiceInput from './VoiceInput';
 // AssistantTabs removed - restore original inline chat UI
 
 export default function LucidAssistant() {
@@ -157,6 +158,15 @@ export default function LucidAssistant() {
     setMode(null)
     setMessages([])
   }
+
+  const handleVoiceTranscription = (transcribedText: string) => {
+    // Populate the text input with transcribed text
+    setInput(transcribedText);
+    // Focus the input so user can see the text and edit if needed
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 100);
+  };
 
 
   const handleMenuChoice = async (choice: number) => {
@@ -354,6 +364,12 @@ export default function LucidAssistant() {
                   )}
                 </div>
               )}
+
+              {/* Voice Input Button */}
+              <VoiceInput 
+                onTranscription={handleVoiceTranscription}
+                disabled={loading}
+              />
 
               <button onClick={send} style={{ width: 40, height: 40, borderRadius: 999, background: '#2563eb', border: 'none', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} aria-label="Send">
                 <Send size={16} />
