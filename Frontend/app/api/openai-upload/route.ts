@@ -6,32 +6,81 @@ import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { supabase } from "../../../lib/supabase";
 import * as XLSX from "xlsx";
+import CloudConvert from "cloudconvert";
+
+const cloudConvert = new CloudConvert(process.env.CLOUDCONVERT_API_KEY || "");
+
+async function convertDocToPdf(inputPath: string, outputPath: string) {
+  if (!process.env.CLOUDCONVERT_API_KEY) {
+    throw new Error("CLOUDCONVERT_API_KEY is not set for document conversion.");
+  }
+
+  const job = await cloudConvert.jobs.create({
+    tasks: {
+      "upload-file": { operation: "import/upload" },
+      "convert-file": { operation: "convert", input: "upload-file", output_format: "pdf" },
+      "export-file": { operation: "export/url", input: "convert-file" },
+    },
+  });
+
+  const uploadTask: any = job.tasks.find((task: any) => task.name === "upload-file");
+  if (!uploadTask) throw new Error("CloudConvert upload task missing.");
+
+  await cloudConvert.tasks.upload(uploadTask, nodefs.createReadStream(inputPath));
+
+  const completedJob = await cloudConvert.jobs.wait(job.id);
+  const exportTask: any = completedJob.tasks.find((task: any) => task.name === "export-file");
+  const fileUrl = exportTask?.result?.files?.[0]?.url;
+  if (!fileUrl) throw new Error("CloudConvert export URL missing.");
+
+  console.log(`[convertDocToPdf] Converted PDF URL: ${fileUrl}`);
+
+  const response = await fetch(fileUrl);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  await fs.writeFile(outputPath, buffer);
+}
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const INSTRUCTION_PROMPT = `You are an expert instructional designer. Your job is to decompose any single learning asset (text, slide deck, video series, mixed media, or course) into a clear sequence of self-contained learning modules that together cover the entire subject matter. Follow these exact steps and output formats. Do not deviate.
+const INSTRUCTION_PROMPT = `You are an expert instructional designer. Your job is to decompose a learning asset into a clear sequence of self-contained learning modules. CRITICAL RULES:
+
+⚠️ STRICTLY FOLLOW THESE RULES:
+1. **ONLY USE SOURCE MATERIAL** - Every module, topic, and objective MUST be derived from the provided content. Do NOT add, infer, or extrapolate information outside the source.
+2. **ACCURATE MODULE TITLES** - Use descriptive titles directly reflecting the source content (e.g., "Introduction to REST API Architecture" not "API Basics").
+3. **EXTRACT TOPICS FROM SOURCE** - List only topics explicitly mentioned or directly implied in the source material.
+4. **GROUND OBJECTIVES IN SOURCE** - Each objective must state what learners will know/do based on content present in the source.
+5. **NO HALLUCINATION** - Do not create, assume, or infer learning outcomes not supported by the source material.
 
 Processing steps (apply exactly):
 1. Identify Overall Learning Goal
-  - State a single concise end competency or performance outcome learners should achieve after completing the whole module. Phrase it as a measurable competency (e.g., "Create, test, and deploy a REST API that meets company security standards").
+  - State the single end competency learners achieve after completing ALL modules, derived ONLY from source content.
 2. Segment into Themes
-  - Read the content and cluster related ideas into one single module
+  - Cluster related ideas from the SOURCE into natural, self-contained modules.
 3. Apply One Core Idea Rule
-  - Ensure each module is centered on one core concept. If a module contains unrelated ideas, split it.
+  - Each module centers on ONE core concept from the source. If a module mixes unrelated source topics, split it.
 4. Apply Module Splitting Checks (for every module)
-  - Time-to-Mastery Rule: estimate how much complex the topic is. If high complexity, split.
-  - Single-Outcome Rule: if module yields more than one distinct learning outcome, split into separate modules.
-  - Cognitive Load Rule: if the module introduces >3–5 new concepts, split into smaller modules.
-  - For each module, list which (if any) rules triggered a split and what you did.
+  - Time-to-Mastery Rule: If the source topic is complex, split into smaller modules.
+  - Single-Outcome Rule: Split if the source presents multiple distinct learning outcomes.
+  - Cognitive Load Rule: Split if the source introduces >3–5 new concepts at once.
+  - For each module, list which rules triggered a split based on SOURCE ANALYSIS.
 5. Arrange Modules Logically
-  - Order modules from foundational → intermediate → advanced, or simple → complex. Provide sequencing rationale.
+  - Order from foundational → intermediate → advanced based on the SOURCE structure.
+  - Provide sequencing rationale based on source material flow.
 6. Validate Module Independence
-  - For each module, ensure it is self-contained and delivers one clear learning outcome that can be assessed independently.
+  - Ensure each module is self-contained using only source content and delivers one clear learning outcome assessable from the source.
 
-Additional instructions to maximize quality:
-- If source is incomplete or ambiguous, list specific clarifying questions to help refine modulization (e.g., target proficiency level, mandatory compliance items, preferred duration).
-- Keep module durations realistic for active learning (typical module: 45–60 minutes reading time unless justified).
-- Ensure nothing from the source that is a distinct subject-matter point is omitted; explicitly call out any gaps between source content and the stated Overall Learning Goal.
+Output format for each module:
+#### Module [#]: [Accurate Title from Source]
+**Topics:**
+- [topic explicitly in source]
+- [topic explicitly in source]
+
+**Objectives:**
+- Learners will [action] [concept from source]
+- Learners will [action] [concept from source]
+
+⚠️ IF SOURCE IS INCOMPLETE: List clarifying questions about missing context (e.g., target proficiency, compliance requirements) but DO NOT INVENT CONTENT.
+⚠️ NEVER EXTRAPOLATE: Strictly bind all content to source material. Gaps in source = gaps in modules, not invention.
 `;
 
 // Type guard for assistant message content blocks that carry text
@@ -237,7 +286,23 @@ async function handleFileUpload(req: Request) {
     const arrayBuffer = await file.arrayBuffer();
     await fs.writeFile(tempFilePath, Buffer.from(arrayBuffer));
 
+    const isDocx = file.name.match(/\.docx$/i);
+    const isDoc = file.name.match(/\.doc$/i);
     const isSpreadsheet = file.name.match(/\.(xlsx|xls|csv)$/i);
+
+    // Convert .doc or .docx to PDF using CloudConvert (no local LibreOffice dependency)
+    if (isDocx || isDoc) {
+      try {
+        const pdfPath = tempFilePath.replace(/\.docx?$/i, '.pdf');
+        await convertDocToPdf(tempFilePath, pdfPath);
+        await fs.unlink(tempFilePath).catch(() => {});
+        tempFilePath = pdfPath;
+        console.log(`Converted ${file.name} to PDF for processing via CloudConvert`);
+      } catch (conversionError) {
+        console.error('CloudConvert conversion failed:', conversionError);
+        throw new Error('Failed to convert document to PDF via CloudConvert.');
+      }
+    }
 
     if (isSpreadsheet) {
       const fileBuffer = await fs.readFile(tempFilePath);

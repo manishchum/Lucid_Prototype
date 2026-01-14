@@ -215,7 +215,7 @@ export async function POST(request: NextRequest) {
           .from('processed_modules')
           .select('processed_module_id, title, content, original_module_id, learning_style')
           .eq('original_module_id', moduleId)
-          .eq('user_id',reqUserId)
+          // .eq('user_id',reqUserId)
         // console.log(moduleId) 
         // console.log(pmByOriginal)
         // console.log("______________")
@@ -226,7 +226,7 @@ export async function POST(request: NextRequest) {
           .from('processed_modules')
           .select('processed_module_id, title, content, original_module_id, learning_style')
           .eq('processed_module_id', moduleId)
-          .eq('user_id',reqUserId)
+          // .eq('user_id',reqUserId)
 
           module_idd = pmByOriginal
         }
@@ -273,7 +273,7 @@ export async function POST(request: NextRequest) {
             title: trainingModule.title,
             content: trainingModule.gpt_summary || trainingModule.content,
             learning_style: learningStyle,
-            user_id: reqUserId || null
+            // user_id: reqUserId || null
           })
           .select('processed_module_id')
           .single();
@@ -506,7 +506,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
     .from('processed_modules')
     .select('processed_module_id, original_module_id')
     .in('original_module_id', moduleIds)
-    .eq("user_id",user_id || null);
+    // .eq("user_id",user_id || null);
 
   if (processedError) console.warn('[gpt-mcq-quiz] lookup processed_modules warning:', processedError);
 
@@ -531,7 +531,7 @@ Objectives: ${JSON.stringify([moduleContent])}`;
         title: tm.title || null,
         content: tm.gpt_summary || null,
         learning_style: userLearningStyle || null,
-        user_id:user_id || null
+        // user_id:user_id || null
       };
     });
     // console.log(inserts);
