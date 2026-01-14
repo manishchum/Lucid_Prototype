@@ -1,0 +1,569 @@
+'use client'
+
+import React, { useState, useEffect } from 'react';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { 
+  TrendingUp, 
+  Users, 
+  ChevronDown, 
+  Target,
+  FileText,
+  Smartphone,
+  PlayCircle,
+  BarChart3,
+  Filter
+} from 'lucide-react';
+import EmployeeNavigation from '@/components/employee-navigation';
+import { supabase } from '@/lib/supabase';
+
+interface ModuleAssignment {
+  module_name: string;
+  count: number;
+  color: string;
+}
+
+interface KPIMapping {
+  kpi_name: string;
+  target: string;
+  description: string;
+  modules: Array<{
+    name: string;
+    type: 'SOP' | 'VIDEO' | 'SIMULATION';
+    correlation: 'High' | 'Medium' | 'Low';
+    icon: any;
+  }>;
+}
+
+export default function WorkforceOverview() {
+  const [functions, setFunctions] = useState<Array<{ function_id: string; function_name: string }>>([]);
+  const [subFunctions, setSubFunctions] = useState<Array<{ sub_function_id: string; sub_function_name: string }>>([]);
+  const [titles, setTitles] = useState<Array<{ title_id: string; title_name: string }>>([]);
+  
+  const [selectedFunctionId, setSelectedFunctionId] = useState<string>('');
+  const [selectedSubFunctionId, setSelectedSubFunctionId] = useState<string>('');
+  const [selectedTitleId, setSelectedTitleId] = useState<string>('');
+  
+  const [loading, setLoading] = useState(true);
+  const [activeEmployees, setActiveEmployees] = useState({ count: 0, region: 'All Regions' });
+  const [moduleAssignments, setModuleAssignments] = useState<ModuleAssignment[]>([]);
+  const [kpiMappings, setKpiMappings] = useState<KPIMapping[]>([]);
+
+  useEffect(() => {
+    loadFilters();
+  }, []);
+
+  useEffect(() => {
+    if (selectedFunctionId) {
+      loadSubFunctions(selectedFunctionId);
+    } else {
+      // When "All" functions is selected, clear sub-functions and titles
+      setSubFunctions([]);
+      setSelectedSubFunctionId('');
+      setTitles([]);
+      setSelectedTitleId('');
+    }
+  }, [selectedFunctionId]);
+
+  useEffect(() => {
+    if (selectedSubFunctionId) {
+      loadTitles(selectedSubFunctionId);
+    } else if (selectedFunctionId) {
+      // When "All" sub-functions is selected but a function is selected, clear titles
+      setTitles([]);
+      setSelectedTitleId('');
+    }
+  }, [selectedSubFunctionId]);
+
+  useEffect(() => {
+    if (selectedFunctionId || selectedSubFunctionId || selectedTitleId) {
+      fetchData();
+    }
+  }, [selectedFunctionId, selectedSubFunctionId, selectedTitleId]);
+
+  const loadFilters = async () => {
+    try {
+      const { data: functionsData } = await supabase
+        .from('function')
+        .select('function_id, function_name')
+        .eq('is_active', true)
+        .order('function_name');
+
+      if (functionsData && functionsData.length > 0) {
+        setFunctions(functionsData);
+        setSelectedFunctionId(''); // Start with "All" selected
+      }
+    } catch (error) {
+      console.error('Error loading filters:', error);
+    }
+  };
+
+  const loadSubFunctions = async (functionId: string) => {
+    try {
+      const { data: subFunctionsData } = await supabase
+        .from('sub_function')
+        .select('sub_function_id, sub_function_name')
+        .eq('function_id', functionId)
+        .eq('is_active', true)
+        .order('sub_function_name');
+
+      if (subFunctionsData && subFunctionsData.length > 0) {
+        setSubFunctions(subFunctionsData);
+        setSelectedSubFunctionId(''); // Start with "All" selected
+      } else {
+        setSubFunctions([]);
+        setSelectedSubFunctionId('');
+      }
+    } catch (error) {
+      console.error('Error loading sub-functions:', error);
+    }
+  };
+
+  const loadTitles = async (subFunctionId: string) => {
+    try {
+      const { data: titlesData } = await supabase
+        .from('titles')
+        .select('title_id, title_name')
+        .eq('sub_function_id', subFunctionId)
+        .eq('is_active', true)
+        .order('title_name');
+
+      if (titlesData && titlesData.length > 0) {
+        setTitles(titlesData);
+        setSelectedTitleId(''); // Start with "All" selected
+      } else {
+        setTitles([]);
+        setSelectedTitleId('');
+      }
+    } catch (error) {
+      console.error('Error loading titles:', error);
+    }
+  };
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      await Promise.all([
+        fetchActiveEmployees(),
+        fetchModuleAssignments(),
+        fetchKPIMappings()
+      ]);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchActiveEmployees = async () => {
+    try {
+      let query = supabase
+        .from('users')
+        .select('user_id, name, function_id, sub_function_id, title_id')
+        .eq('is_active', true)
+        .eq('employment_status', 'ACTIVE');
+
+      // Only apply filters if they are selected (not empty string)
+      if (selectedTitleId) {
+        query = query.eq('title_id', selectedTitleId);
+      } else if (selectedSubFunctionId) {
+        query = query.eq('sub_function_id', selectedSubFunctionId);
+      } else if (selectedFunctionId) {
+        query = query.eq('function_id', selectedFunctionId);
+      }
+      // If all are empty, query returns all active employees
+
+      const { data, count } = await query;
+
+      setActiveEmployees({
+        count: count || data?.length || 0,
+        region: 'All Regions'
+      });
+    } catch (error) {
+      console.error('Error fetching active employees:', error);
+    }
+  };
+
+  const fetchModuleAssignments = async () => {
+    try {
+      let userQuery = supabase
+        .from('users')
+        .select('user_id')
+        .eq('is_active', true)
+        .eq('employment_status', 'ACTIVE');
+
+      // Only apply filters if they are selected (not empty string)
+      if (selectedTitleId) {
+        userQuery = userQuery.eq('title_id', selectedTitleId);
+      } else if (selectedSubFunctionId) {
+        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
+      } else if (selectedFunctionId) {
+        userQuery = userQuery.eq('function_id', selectedFunctionId);
+      }
+      // If all are empty, query returns all active employees
+
+      const { data: users } = await userQuery;
+      console.log(users)
+      const userIds = users?.map(u => u.user_id) || [];
+
+      if (userIds.length === 0) {
+        setModuleAssignments([]);
+        return;
+      }
+
+      const { data: learningPlans } = await supabase
+        .from('learning_plan')
+        .select('module_id, user_id, status')
+        .in('user_id', userIds)
+        .in('status', ['ASSIGNED', 'IN_PROGRESS']);
+
+      if (!learningPlans || learningPlans.length === 0) {
+        setModuleAssignments([]);
+        return;
+      }
+
+      const moduleIds = [...new Set(learningPlans.map(lp => lp.module_id))];
+      const { data: modules } = await supabase
+        .from('training_modules')
+        .select('module_id, title')
+        .in('module_id', moduleIds);
+
+      const moduleCounts = learningPlans.reduce((acc: any, lp) => {
+        const moduleId = lp.module_id;
+        acc[moduleId] = (acc[moduleId] || 0) + 1;
+        return acc;
+      }, {});
+
+      const colors = ['#818CF8', '#C084FC', '#60A5FA', '#34D399', '#FBBF24'];
+      const assignments = Object.entries(moduleCounts)
+        .map(([moduleId, count], idx) => {
+          const module = modules?.find(m => m.module_id === moduleId);
+          return {
+            module_name: module?.title || 'Unknown Module',
+            count: count as number,
+            color: colors[idx % colors.length]
+          };
+        })
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+
+      setModuleAssignments(assignments);
+    } catch (error) {
+      console.error('Error fetching module assignments:', error);
+    }
+  };
+
+  const fetchKPIMappings = async () => {
+    try {
+      let kpiQuery = supabase
+        .from('kpis')
+        .select('kpi_id, name, description, target, datatype');
+
+      // Only apply filters if they are selected (not empty string)
+      if (selectedTitleId) {
+        kpiQuery = kpiQuery.eq('title_id', selectedTitleId);
+      } else if (selectedSubFunctionId) {
+        kpiQuery = kpiQuery.eq('sub_function_id', selectedSubFunctionId);
+      } else if (selectedFunctionId) {
+        kpiQuery = kpiQuery.eq('function_id', selectedFunctionId);
+      }
+      // If all are empty, query returns all KPIs
+
+      const { data: kpis } = await kpiQuery.limit(10);
+
+      if (!kpis || kpis.length === 0) {
+        setKpiMappings([]);
+        return;
+      }
+
+      const { data: modules } = await supabase
+        .from('training_modules')
+        .select('module_id, title, content_type')
+        .limit(20);
+
+      const mappings: KPIMapping[] = kpis.map(kpi => {
+        const relatedModules = (modules || [])
+          .slice(0, 3)
+          .map(module => ({
+            name: module.title || 'Untitled Module',
+            type: (module.content_type === 'pdf' ? 'SOP' : 
+                   module.content_type === 'video' ? 'VIDEO' : 
+                   'SIMULATION') as 'SOP' | 'VIDEO' | 'SIMULATION',
+            correlation: 'High' as 'High' | 'Medium' | 'Low',
+            icon: module.content_type === 'pdf' ? FileText :
+                  module.content_type === 'video' ? PlayCircle :
+                  Smartphone
+          }));
+
+        const targetValue = kpi.target ? `Target: ${kpi.target}${kpi.datatype === 'percentage' ? '%' : ''}` : 'No target set';
+
+        return {
+          kpi_name: kpi.name,
+          target: targetValue,
+          description: kpi.description || 'Performance gap in this metric triggers the associated modules on the right.',
+          modules: relatedModules
+        };
+      });
+
+      setKpiMappings(mappings);
+    } catch (error) {
+      console.error('Error fetching KPI mappings:', error);
+    }
+  };
+
+  const getModuleTypeStyles = (type: string) => {
+    switch (type) {
+      case 'SOP':
+        return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+      case 'VIDEO':
+        return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+      case 'SIMULATION':
+        return 'bg-teal-500/10 text-teal-400 border-teal-500/20';
+      default:
+        return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+    }
+  };
+
+  const getTotalAssignments = () => moduleAssignments.reduce((sum, m) => sum + m.count, 0);
+  const maxCount = moduleAssignments.length > 0 ? Math.max(...moduleAssignments.map(m => m.count)) : 1;
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex">
+      <EmployeeNavigation />
+      
+      <main className="flex-1 lg:ml-[280px] p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Workforce Overview</h1>
+            <p className="text-gray-600 text-sm">Real-time workforce competency distribution and learning allocation.</p>
+          </div>
+          
+          <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6">
+            <Filter size={16} className="mr-2" />
+            Export Report
+          </Button>
+        </div>
+
+        {/* Role Analysis Section */}
+        <Card className="bg-white border-gray-200 shadow-sm p-6">
+          <div className="flex items-center gap-2 mb-6">
+            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+            <h2 className="text-sm font-bold text-blue-600 uppercase tracking-wider">Role Analysis</h2>
+          </div>
+
+          <h3 className="text-2xl font-bold text-gray-900 mb-4">Functional Capability Matrix</h3>
+          <p className="text-gray-600 text-sm mb-6">Map business KPIs directly to learning modules by role.</p>
+
+          {/* Filters */}
+          <div className="flex items-center gap-4 mb-8">
+            <div className="flex items-center gap-2 text-gray-600">
+              <Filter size={18} />
+              <span className="text-sm font-medium">Select Role:</span>
+            </div>
+            
+            <div className="flex items-center gap-3 flex-1">
+              <div className="flex-1">
+                <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Function</div>
+                <select 
+                  value={selectedFunctionId}
+                  onChange={(e) => setSelectedFunctionId(e.target.value)}
+                  className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">All Functions</option>
+                  {functions.map(func => (
+                    <option key={func.function_id} value={func.function_id}>{func.function_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex-1">
+                <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Sub-Function</div>
+                <select 
+                  value={selectedSubFunctionId}
+                  onChange={(e) => setSelectedSubFunctionId(e.target.value)}
+                  className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={!selectedFunctionId}
+                >
+                  <option value="">All Sub-Functions</option>
+                  {subFunctions.map(subFunc => (
+                    <option key={subFunc.sub_function_id} value={subFunc.sub_function_id}>{subFunc.sub_function_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex-1">
+                <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Role</div>
+                <select 
+                  value={selectedTitleId}
+                  onChange={(e) => setSelectedTitleId(e.target.value)}
+                  className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={!selectedSubFunctionId}
+                >
+                  <option value="">All Roles</option>
+                  {titles.map(title => (
+                    <option key={title.title_id} value={title.title_id}>{title.title_name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Content Grid */}
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-gray-500">Loading data...</div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-6">
+              {/* Module Assignments Distribution */}
+              <Card className="bg-gray-50 border-gray-200 shadow-sm p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-2">
+                    <BarChart3 size={20} className="text-blue-600" />
+                    <h3 className="text-lg font-bold text-gray-900">Module Assignments Distribution</h3>
+                  </div>
+                  <span className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-full text-xs font-bold border border-blue-200">
+                    REAL-TIME ALLOCATION
+                  </span>
+                </div>
+
+                {/* Bar Chart */}
+                {moduleAssignments.length > 0 ? (
+                  <div className="space-y-4 mb-6">
+                    {moduleAssignments.map((module, idx) => (
+                      <div key={idx}>
+                        <div className="flex items-center justify-between text-sm mb-2">
+                          <span className="text-gray-700 font-medium truncate">{module.module_name}</span>
+                          <span className="text-gray-900 font-bold">{module.count}</span>
+                        </div>
+                        <div className="relative h-8 bg-gray-200 rounded-lg overflow-hidden">
+                          <div 
+                            className="absolute inset-y-0 left-0 rounded-lg transition-all duration-500"
+                            style={{ 
+                              width: `${(module.count / maxCount) * 100}%`,
+                              background: `linear-gradient(90deg, ${module.color}80, ${module.color})`
+                            }}
+                          />
+                          <div className="absolute inset-0 flex items-center justify-end px-3">
+                            <span className="text-xs font-bold text-gray-900">{Math.round((module.count / getTotalAssignments()) * 100)}%</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">No module assignments found</div>
+                )}
+
+                {/* Legend */}
+                {moduleAssignments.length > 0 && (
+                  <div className="flex items-center gap-6 pt-4 border-t border-gray-300">
+                    <div className="text-xs text-gray-500">Scale: 0</div>
+                    <div className="flex-1 flex justify-center gap-6">
+                      {[1, 2, 3].map(n => (
+                        <div key={n} className="text-xs text-gray-500">{n}</div>
+                      ))}
+                    </div>
+                    <div className="text-xs text-gray-500">4</div>
+                  </div>
+                )}
+              </Card>
+
+              {/* Active Employees */}
+              <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200 shadow-sm p-6 flex flex-col items-center justify-center">
+                <div className="w-24 h-24 rounded-full bg-white/80 shadow-lg flex items-center justify-center mb-6 relative">
+                  <Users size={40} className="text-blue-600" />
+                  <div className="absolute inset-0 rounded-full border-4 border-blue-400/30 animate-pulse"></div>
+                </div>
+                
+                <div className="text-center">
+                  <div className="text-6xl font-bold text-gray-900 mb-2">{activeEmployees.count}</div>
+                  <div className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-1">Active Employees</div>
+                  <div className="text-xs text-blue-600 font-medium">{activeEmployees.region}</div>
+                </div>
+              </Card>
+            </div>
+          )}
+        </Card>
+
+        {/* KPI to Learning Module Mapping */}
+        <Card className="bg-white border-gray-200 shadow-sm p-6">
+          <div className="flex items-center gap-2 mb-6">
+            <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center">
+              <Target size={18} className="text-blue-600" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900">KPI to Learning Module Mapping</h3>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-gray-500">Loading KPI mappings...</div>
+            </div>
+          ) : kpiMappings.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">No KPIs found for this role</div>
+          ) : (
+            <div className="grid grid-cols-2 gap-6">
+              {/* Business KPI (Role) Column */}
+              <div>
+                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">
+                  Business KPI (Role)
+                </div>
+                <div className="space-y-6">
+                  {kpiMappings.map((kpi, idx) => (
+                    <Card key={idx} className="bg-gray-50 border-gray-200 shadow-sm p-6">
+                      <h4 className="text-lg font-bold text-gray-900 mb-2">{kpi.kpi_name}</h4>
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-2 h-2 rounded-full bg-gray-400"></div>
+                        <span className="text-sm text-gray-600">{kpi.target}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 leading-relaxed">{kpi.description}</p>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+
+              {/* Mapped Learning Modules Column */}
+              <div>
+                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">
+                  Mapped Learning Modules
+                </div>
+                <div className="space-y-6">
+                  {kpiMappings.map((kpi, idx) => (
+                    <div key={idx} className="space-y-3">
+                      {kpi.modules.length > 0 ? (
+                        kpi.modules.map((module, moduleIdx) => (
+                          <Card key={moduleIdx} className="bg-white border-gray-200 shadow-sm p-4 hover:border-blue-300 hover:shadow transition-all">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-lg ${getModuleTypeStyles(module.type).split(' ')[0]} flex items-center justify-center shrink-0`}>
+                                <module.icon size={20} className={getModuleTypeStyles(module.type).split(' ')[1]} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <h5 className="text-sm font-semibold text-gray-900 mb-1 truncate">{module.name}</h5>
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-2 py-1 rounded text-xs font-bold border ${getModuleTypeStyles(module.type)}`}>
+                                    {module.type}
+                                  </span>
+                                  <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
+                                    Correlation: {module.correlation}
+                                    <TrendingUp size={12} />
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </Card>
+                        ))
+                      ) : (
+                        <div className="text-sm text-gray-500 italic p-4">No modules mapped yet</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+      </main>
+    </div>
+  );
+}
