@@ -46,7 +46,9 @@ ${historyContext ? `Previous conversation:\n${historyContext}\n` : ''}
 
 User's question: ${user_message}
 
-Please provide a helpful, concise response based on the module content. If the question is not related to the module, politely redirect the user to ask questions about the module content.`;
+Please provide a helpful, concise response based on the module content. If the question is not related to the module, politely redirect the user to ask questions about the module content.
+Provide response in plain text. DO NOT include any HTML or markdown formatting. DO NOT ADD BOLD UNDERLINES OR ITALICS.
+`;
 
     // Call Gemini API
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
