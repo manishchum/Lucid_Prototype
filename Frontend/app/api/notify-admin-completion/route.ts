@@ -103,7 +103,7 @@ const generateAdminNotificationTemplate = (
               <li>💪 Team capability and expertise is expanding</li>
             </ul>
             
-            <p>Want to track more progress and analytics? Access your admin dashboard:</p>
+            <p>Want to track more progress and analytics? Access your console dashboard:</p>
             
             <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" class="cta-button">
               View Dashboard →
@@ -126,7 +126,7 @@ const generateAdminNotificationTemplate = (
     text: `
       Module Completion Notification
       
-      Hello Admin,
+      Hello,
       
       An employee has successfully completed a training module:
       
@@ -136,7 +136,7 @@ const generateAdminNotificationTemplate = (
       Module: ${moduleTitle}
       Completed: ${completionDate}
       
-      Access your admin dashboard: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/login
+      Access your console: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/login
       
       Best regards,
       The Lucid Learning System

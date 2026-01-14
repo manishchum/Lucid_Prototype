@@ -15,7 +15,18 @@
     display: none; /* Chrome, Safari, Opera */
   }
 
-  /* Stronger, scroller-specific rule for the infographic scroller to ensure scrollbars are hidden */
+  /* Stronger, scroller-specific rule for the flashcard scroller to ensure scrollbars are hidden */
+  .flashcard-scroller {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .flashcard-scroller::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+  }
+
+  /* Legacy support for old infographic naming */
   .infographic-scroller {
     -ms-overflow-style: none; /* IE and Edge */
     scrollbar-width: none; /* Firefox */

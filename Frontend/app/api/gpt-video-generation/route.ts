@@ -360,12 +360,12 @@ async function composeScene(background: string, overlay: string, avatar: string,
 async function generateVideo(processedModuleId: string): Promise<string> {
   let { data: module } = await supabase
     .from("processed_modules")
-    .select("content, user_id, title, processed_module_id")
+    .select("content, title, processed_module_id")
     .eq("processed_module_id", processedModuleId)
     .single();
 
   if (!module) {
-    const { data: fallback } = await supabase.from("processed_modules").select("content, user_id, title, processed_module_id").eq("original_module_id", processedModuleId).single();
+    const { data: fallback } = await supabase.from("processed_modules").select("content, title, processed_module_id").eq("original_module_id", processedModuleId).single();
     module = fallback;
   }
   if (!module) throw new Error("Module not found");
