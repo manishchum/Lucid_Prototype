@@ -7,12 +7,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
-import { ChevronLeft, Info, Lightbulb, BookOpen, Zap } from "lucide-react";
+import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download } from "lucide-react";
 import FlashcardCards from '@/components/FlashcardCards'
 import MindmapViewer from '@/components/MindmapViewer'
 import clsx from "clsx";
 import { useAuth } from "@/contexts/auth-context";
 import jsPDF from 'jspdf';
+import VoiceInput from '@/components/VoiceInput';
 
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
   const { user, loading: authLoading, logout } = useAuth()
@@ -68,7 +69,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       } catch (e) {
         console.error('[module] employee fetch error', e);
       }
-      const selectCols = "processed_module_id, title, content, audio_url, audio_url_hinglish, original_module_id, learning_style, podcast_timeline, podcast_timeline_hinglish, podcast_transcript, podcast_transcript_hinglish,video_url, mindmap_data, flashcard_data";
+      const selectCols = "processed_module_id, title, content, audio_url, audio_url_hinglish, original_module_id, learning_style, podcast_timeline, podcast_timeline_hinglish, podcast_transcript, podcast_transcript_hinglish,video_url, mindmap_data, flashcard_data, infographic_data";
       let data: any = null;
 
       // First try: direct lookup by processed_module_id (this is what we pass from training plan)
@@ -217,6 +218,10 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
     } finally {
       setChatLoading(false);
     }
+  };
+
+  const handleVoiceTranscription = (text: string) => {
+    setChatInput(text);
   };
 
   // const handleSendChat = async (e: FormEvent<HTMLFormElement>) => {
@@ -417,6 +422,10 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       >
                         📎
                       </button>
+                      <VoiceInput 
+                        onTranscription={handleVoiceTranscription}
+                        disabled={chatLoading}
+                      />
                       <input
                         type="text"
                         value={chatInput}
@@ -1215,6 +1224,7 @@ function ContentTransformer({
 
               try {
                 setFlashcardLoading(true);
+                setSelectedOption('flashcard');
                 
                 // Check if flashcard data already exists in the module (cache)
                 if (module.flashcard_data) {
@@ -1226,7 +1236,6 @@ function ContentTransformer({
                   if (Array.isArray(cachedData) && cachedData.length > 0) {
                     setFlashcardSections(cachedData);
                     setFlashcardLoading(false);
-                    setSelectedOption('flashcard');
                     return;
                   }
                 }
@@ -1298,7 +1307,6 @@ function ContentTransformer({
                 console.error('Error generating flashcards', e);
               } finally {
                 setFlashcardLoading(false);
-                setSelectedOption('flashcard');
               }
             }}
             className={clsx(
@@ -1329,6 +1337,21 @@ function ContentTransformer({
                 console.log('[infographic] Starting generation...');
                 console.log('[infographic] Module title:', module.title);
                 console.log('[infographic] Content length:', (module.content || '').length);
+                console.log('[infographic] Processed module ID:', module.processed_module_id);
+                
+                // Check if infographic data already exists in the module (cache)
+                if (module.infographic_data) {
+                  console.log('[infographic] Using cached infographic data');
+                  let cachedData = module.infographic_data;
+                  if (typeof cachedData === 'string') {
+                    cachedData = JSON.parse(cachedData);
+                  }
+                  if (cachedData && (cachedData.title || cachedData.sections)) {
+                    setInfographicData(cachedData);
+                    setInfographicLoading(false);
+                    return;
+                  }
+                }
                 
                 const contentText = module.content || '';
                 
@@ -1343,7 +1366,11 @@ function ContentTransformer({
                 const res = await fetch('/api/generate-infographic', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ content: contentText, title: module.title }),
+                  body: JSON.stringify({ 
+                    content: contentText, 
+                    title: module.title,
+                    processed_module_id: module.processed_module_id 
+                  }),
                 });
 
                 console.log('[infographic] API response status:', res.status);
@@ -1751,11 +1778,10 @@ function ContentTransformer({
                               alert('Failed to generate PDF. Please try again.');
                             }
                           }}
-                          className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
+                          className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center"
+                          title="Download visual guide PDF"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
-                          </svg>
+                          <Download size={16} />
                         </button>
                       </div>
                       
@@ -1781,10 +1807,10 @@ function ContentTransformer({
                                 <div 
                                   key={subIdx} 
                                   className={clsx(
-                                    'rounded-xl p-5 border-2',
-                                    sub.color === 'blue' ? 'bg-blue-50 border-blue-300' :
-                                    sub.color === 'green' ? 'bg-green-50 border-green-300' :
-                                    'bg-yellow-50 border-yellow-300'
+                                    'rounded-xl p-5',
+                                    sub.color === 'blue' ? 'bg-blue-50' :
+                                    sub.color === 'green' ? 'bg-green-50' :
+                                    'bg-yellow-50'
                                   )}
                                 >
                                   <div className="text-2xl mb-2">
