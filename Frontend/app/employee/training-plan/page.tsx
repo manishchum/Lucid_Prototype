@@ -387,7 +387,7 @@ function TrainingPlanContent() {
           .from("processed_modules")
           .select("processed_module_id")
           .ilike("title", moduleName)
-          .eq("user_id", actualUserId)
+          // .eq("user_id", actualUserId)
           .limit(1)
           .maybeSingle();
         if (pmByTitle?.processed_module_id) {
@@ -430,7 +430,7 @@ function TrainingPlanContent() {
               </h2>
               <p className="text-gray-700 mb-6">
                 {baselineMessage ||
-                  "Please complete the baseline assessment before accessing your personalized learning plan."}
+                  "Please complete the baseline assessment before accessing your personalized Performance Sprint."}
               </p>
               <div className="flex gap-4">
                 <Button
@@ -606,7 +606,7 @@ function TrainingPlanContent() {
                 <Users className="w-8 h-8 text-green-600 mr-3" />
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">
-                    Learner's Learning Plan
+                    Learner's Performance Sprint
                   </h1>
                 </div>
               </div>
@@ -636,7 +636,7 @@ function TrainingPlanContent() {
             <CardHeader>
               <CardTitle>Your Roadmap to Mastery</CardTitle>
               <CardDescription>
-                Learning Plan which works for you
+                Performance Sprint which works for you
               </CardDescription>
               {/* Progress Summary */}
               <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 via-white to-purple-50 rounded-lg">
@@ -777,7 +777,7 @@ function TrainingPlanContent() {
                           <div className="mt-6 mb-6 p-6 bg-yellow-50 rounded-xl border border-yellow-200 shadow-sm">
                             <div className="font-bold text-xl mb-2 text-yellow-900">Tips for Success</div>
                             {showFallback ? (
-                              <div className="text-yellow-800 text-sm">Use these quick tips to get the most from your learning plan.</div>
+                              <div className="text-yellow-800 text-sm">Use these quick tips to get the most from your Performance Sprint.</div>
                             ) : (
                               <div className="text-yellow-800 text-sm whitespace-pre-line">{tipsText}</div>
                             )}
@@ -796,7 +796,7 @@ function TrainingPlanContent() {
                             //   mod
                             // );
                             setContentLoadingModuleId(mod.processed_module_id);
-                            const navId = await resolveModuleId(mod);
+                            const  navId = await resolveModuleId(mod);
                             // console.log(
                             //   "[training-plan] Resolved module id:",
                             //   navId

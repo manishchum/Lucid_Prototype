@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import crypto from "crypto";
-import ensureProcessedModulesForPlan from "@/lib/processedModulesHelper";
+// import ensureProcessedModulesForPlan from "@/lib/processedModulesHelper";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
           try {
             // console.log("Plan Content")
             // console.log(planContent)
-            await ensureProcessedModulesForPlan(user_id, company_id, planContent);
+            // await ensureProcessedModulesForPlan(user_id, company_id, planContent);
           } catch (e) {
             console.error('Error ensuring processed modules for existing plan:', e);
           }
@@ -268,7 +268,7 @@ export async function POST(request: NextRequest) {
     if (existingPlan && existingPlan.plan_json) {
       // console.log("[Training Plan API] Existing plan found - returning stable plan without regeneration");
       try {
-        await ensureProcessedModulesForPlan(user_id, company_id, existingPlan.plan_json);
+        // await ensureProcessedModulesForPlan(user_id, company_id, existingPlan.plan_json);
       } catch (e) {
         console.error("[Training Plan API] ensureProcessedModulesForPlan failed on existing plan:", e);
       }
@@ -310,7 +310,7 @@ export async function POST(request: NextRequest) {
           .from("processed_modules")
           .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
           .eq("original_module_id", module_id)
-          .eq("user_id", user_id);
+          // .eq("user_id", user_id);
 
         if (modError) {
           console.error("[Training Plan API] Error fetching processed module:", modError);
@@ -370,7 +370,7 @@ export async function POST(request: NextRequest) {
           .from("processed_modules")
           .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
           .in("original_module_id", tmIds)
-          .eq("user_id", user_id);
+          // .eq("user_id", user_id);
         if (modError) {
           console.error("[Training Plan API] Error fetching modules:", modError);
           return NextResponse.json({ error: modError.message }, { status: 500 });
@@ -667,11 +667,11 @@ const prompt1 = "You are an expert corporate trainer. Given the following assess
     // console.log("[Training Plan API] Plan saved successfully.");
 
     // Ensure processed_modules exist for modules in the newly saved plan
-    try {
-      await ensureProcessedModulesForPlan(user_id, company_id, plan);
-    } catch (e) {
-      console.error("[Training Plan API] ensureProcessedModulesForPlan failed after save:", e);
-    }
+    // try {
+    //   await ensureProcessedModulesForPlan(user_id, company_id, plan);
+    // } catch (e) {
+    //   console.error("[Training Plan API] ensureProcessedModulesForPlan failed after save:", e);
+    // }
 
     // Always return parsed plan and reasoning
     return NextResponse.json({ plan, reasoning });

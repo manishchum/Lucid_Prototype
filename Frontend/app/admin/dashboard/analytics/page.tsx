@@ -1625,7 +1625,7 @@ export default function AnalyticsPage() {
   if (!admin) {
     return (
       <div className="text-center py-12">
-        <p className="text-red-600">Access denied. Admin privileges required.</p>
+        <p className="text-red-600">Access denied. Console privileges required.</p>
       </div>
     );
   }

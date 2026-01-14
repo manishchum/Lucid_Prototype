@@ -34,7 +34,7 @@ export default function LandingPage() {
     },
     {
       title: 'Adaptive Pathways',
-      description: 'Dynamic journeys based on performance & learning style',
+      description: 'Dynamic journeys based on performance & Performance Sprint',
       icon: <Map size={20} />,
       color: 'bg-[#2563EB]'
     },
