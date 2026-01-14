@@ -56,6 +56,7 @@ export default function EmployeeWelcome() {
   const [progressPercentage, setProgressPercentage] = useState<number>(0);
   const [showLoginToast, setShowLoginToast] = useState<boolean>(false);
   const [isNavOverlay, setIsNavOverlay] = useState<boolean>(false);
+  const [showAllModules, setShowAllModules] = useState<boolean>(false);
   
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
@@ -322,7 +323,7 @@ export default function EmployeeWelcome() {
                       {learningStyle}
                     </div>
                     <div className="flex-1">
-                      <h4 className="text-lg font-extrabold text-slate-900">Your Performance Sprint</h4>
+                      <h4 className="text-lg font-extrabold text-slate-900">Your Learning Approach</h4>
                       <div className="mt-2 text-slate-500">
                         <LearningStyleBlurb styleCode={learningStyle} />
                       </div>
@@ -334,7 +335,8 @@ export default function EmployeeWelcome() {
                 ) : (
                   <div className="flex items-center justify-between relative">
                     <div className="max-w-md">
-                      <h4 className="text-xl font-black text-slate-900 mb-2">Discover Your Performance Sprint</h4>
+                      <h4 className="text-xl font-black text-slate-900 mb-2">Discover Your Learning Style
+                      </h4>
                       <p className="text-slate-500 font-medium">Take our 5-minute cognitive survey to unlock your personalized training path.</p>
                     </div>
                     
@@ -425,37 +427,61 @@ export default function EmployeeWelcome() {
                     <p className="text-slate-500 text-base font-medium">No Modules Assigned</p>
                   </div>
                 ) : (
-                  <div className="divide-y divide-slate-50">
-                    {assignedModules.map((m) => (
-                      <div key={m.id} className="flex flex-col md:flex-row items-center gap-6 p-6 bg-white">
-                        <div className="flex items-center gap-4 min-w-0">
-                          {/* <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
-                            0%
-                          </div> */}
+                  <div>
+                    <div className={`divide-y divide-slate-50 ${showAllModules ? 'max-h-[500px] overflow-y-auto' : ''}`}>
+                      {(showAllModules ? assignedModules : assignedModules.slice(0, 3)).map((m) => (
+                        <div key={m.id} className="flex flex-col md:flex-row items-center gap-6 p-6 bg-white">
+                          <div className="flex items-center gap-4 min-w-0">
+                            {/* <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
+                              0%
+                            </div> */}
 
-                          <div className="min-w-0">
-                            <p className="text-lg font-extrabold text-slate-900 truncate max-w-[70vw] md:max-w-[40vw]">{m.title || `Module ${m.id}`}</p>
-                            {m.moduleName && (
-                              <div className="text-sm text-slate-500 truncate mt-1">{m.moduleName}</div>
-                            )}
-                            {/* <p className="text-xs font-black text-blue-600 uppercase tracking-wide mt-1">Baseline Pending</p> */}
+                            <div className="min-w-0">
+                              <p className="text-lg font-extrabold text-slate-900 truncate max-w-[70vw] md:max-w-[40vw]">{m.title || `Module ${m.id}`}</p>
+                              {m.moduleName && (
+                                <div className="text-sm text-slate-500 truncate mt-1">{m.moduleName}</div>
+                              )}
+                              {/* <p className="text-xs font-black text-blue-600 uppercase tracking-wide mt-1">Baseline Pending</p> */}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-center gap-3 w-full md:w-auto md:ml-auto">
+                            {/* Only show Baseline button when admin/learning_plan enables baseline for this module */}
+                            {m.hasBaseline ? (
+                              <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-4 py-2 rounded-md border border-slate-200 text-sm font-bold text-slate-700 bg-white hover:bg-slate-50">
+                                Baseline
+                              </button>
+                            ) : null}
+
+                            <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-5 py-2 rounded-md bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
+                              Start Your Sprint
+                            </button>
                           </div>
                         </div>
-
-                        <div className="flex items-center justify-center gap-3 w-full md:w-auto md:ml-auto">
-                          {/* Only show Baseline button when admin/learning_plan enables baseline for this module */}
-                          {m.hasBaseline ? (
-                            <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-4 py-2 rounded-md border border-slate-200 text-sm font-bold text-slate-700 bg-white hover:bg-slate-50">
-                              Baseline
-                            </button>
-                          ) : null}
-
-                          <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-5 py-2 rounded-md bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
-                            Performance Sprint
-                          </button>
-                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* Show More / Show Less button */}
+                    {assignedModules.length > 3 && (
+                      <div className="p-6 bg-slate-50/50 flex justify-start">
+                        <button
+                          onClick={() => setShowAllModules(!showAllModules)}
+                          className="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-all flex items-center gap-1.5"
+                        >
+                          {showAllModules ? (
+                            <>
+                              Show Less
+                              <ChevronDown size={14} className="rotate-180 transition-transform" />
+                            </>
+                          ) : (
+                            <>
+                              Show More
+                              <ChevronDown size={14} className="transition-transform" />
+                            </>
+                          )}
+                        </button>
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </CardContent>
