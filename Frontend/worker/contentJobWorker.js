@@ -8,8 +8,8 @@ const path = require('path');
 // Import local API functions to avoid Vercel timeouts
 console.log('Loading migrate-processed-modules...');
 const { migrateProcessedModules } = require(path.join(__dirname, 'api/migrate-processed-modules'));
-console.log('Loading start-content-generation...');
-const { startContentGeneration } = require(path.join(__dirname, 'api/start-content-generation'));
+// console.log('Loading start-content-generation...');
+// const { startContentGeneration } = require(path.join(__dirname, 'api/start-content-generation'));
 console.log('Loading generate-module-content...');
 const { generateModuleContent } = require(path.join(__dirname, 'api/generate-module-content'));
 console.log('All modules loaded successfully.');
