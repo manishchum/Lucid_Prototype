@@ -324,8 +324,8 @@ const EmployeeNavigation = ({
                 {[
                     { href: "/kpi/intelligence", label: "KPI Intelligence", icon: TrendingUp },
                     { href: "/kpi/configuration", label: "KPI Configuration", icon: SettingsIcon },
-                    // { href: "/kpi/turbocharge", label: "KPI TurboCharge", icon: Zap },
-                    // { href: "/kpi/workforce-overview", label: "Workforce Overview", icon: UsersRound },
+                    { href: "/kpi/turbocharge", label: "KPI TurboCharge", icon: Zap },
+                    { href: "/kpi/workforce-overview", label: "Workforce Overview", icon: UsersRound },
                 ].map((item) => (
                     <button
                         key={item.label}

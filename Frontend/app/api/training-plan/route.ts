@@ -434,6 +434,26 @@ export async function POST(request: NextRequest) {
           return `KPI: ${desc}, Score: ${score}, Benchmark: ${benchmark}, Datatype: ${datatype}`;
         }).join("\n");
     }
+
+    // Determine module count constraints based on available modules
+    const availableModuleCount = modules.length;
+    let moduleRequirements = "";
+    if (availableModuleCount === 0) {
+      moduleRequirements = "- No modules are currently available. Inform the user that no training modules match their needs.";
+    } else if (availableModuleCount === 1) {
+      moduleRequirements = "- For all scores: Recommend the 1 available module. Allocate time based on score (2-6 hours).";
+    } else if (availableModuleCount === 2) {
+      moduleRequirements = "- For all scores: Recommend both available modules if needed. Allocate 3-5 hours per module based on score severity.";
+    } else {
+      // 3+ modules available - use original logic
+      moduleRequirements = 
+        "- For scores 0-30%: Recommend MINIMUM 3-4 modules (or all if fewer available). Allocate 5-6 hours per module.\n" +
+        "- For scores 31-50%: Recommend MINIMUM 2-3 modules (or all if fewer available). Allocate 4-5 hours per module.\n" +
+        "- For scores 51-70%: Recommend 2-3 modules. Allocate 3-4 hours per module.\n" +
+        "- For scores 71-85%: Recommend 1-2 modules. Allocate 2-3 hours per module.\n" +
+        "- For scores 86-100%: Recommend 1-2 modules. Allocate 2 hours per module.";
+    }
+
 const prompt1 = "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan. If KPI scores (description, score, benchmark, and datatype) are available, use them; otherwise, rely only on baseline assessments.\n\n" +
       geminiText + "\n\n" +
       (kpiText ? kpiText + "\n\n" : "") +
@@ -441,22 +461,19 @@ const prompt1 = "You are an expert corporate trainer. Given the following assess
       "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
       
       "CRITICAL MODULE SELECTION REQUIREMENTS - MUST FOLLOW:\n" +
-      "- For scores 0-30%: YOU MUST recommend MINIMUM 4-5 modules, NO EXCEPTIONS. Allocate 5-6 hours per module.\n" +
-      "- For scores 31-50%: YOU MUST recommend MINIMUM 3-4 modules. Allocate 4-5 hours per module.\n" +
-      "- For scores 51-70%: Recommend 3 modules minimum. Allocate 3-4 hours per module.\n" +
-      "- For scores 71-85%: Recommend 2-3 modules. Allocate 2-3 hours per module.\n" +
-      "- For scores 86-100%: Recommend 1-2 modules. Allocate 2 hours per module.\n" +
-      "- NEVER recommend only 1 module for low scores (below 50%). This is MANDATORY.\n" +
+      moduleRequirements + "\n" +
+      "- NEVER recommend modules that are NOT in the Available Modules list.\n" +
+      "- NEVER generate, invent, or assume modules that don't exist.\n" +
+      "- NEVER recommend only 1 module for low scores (below 50%) if more are available.\n" +
       "- Each module must include: title (or name), recommended_time (in hours), and order.\n" +
       "- Prioritize modules addressing the most critical skill gaps shown in the assessment.\n\n" +
       "The plan should:\n" +
       "- Identify weak areas based on scores, benchmarks, datatypes, and feedback\n" +
-      "- Select MULTIPLE modules from the Available Modules list (minimum based on score ranges above)\n" +
+      "- Select modules ONLY from the Available Modules list\n" +
       "- Map each selected module to specific weaknesses\n" +
       "- Specify study order, recommended time per module (in hours)\n" +
       "- Include actionable tips and recommendations\n" +
-      "- Ensure all recommendations align with the employee's learning style\n" +
-      "- IMPORTANT: For scores below 30%, you MUST include at least 4 modules in the plan.modules array.\n\n" +
+      "- Ensure all recommendations align with the employee's learning style\n\n" +
       "KPI Comparison Instructions:\n" +
       "- For each KPI, compare the employee's score to the benchmark using the provided datatype.\n" +
       "- If datatype is 'percentage', treat both score and benchmark as percentages out of 100.\n" +
@@ -472,8 +489,7 @@ const prompt1 = "You are an expert corporate trainer. Given the following assess
       "  \"plan\": {\n" +
       "    \"modules\": [\n" +
       "      { \"title\": \"Module Name\", \"recommended_time\": 5, \"order\": 1 },\n" +
-      "      { \"title\": \"Module Name 2\", \"recommended_time\": 5, \"order\": 2 },\n" +
-      "       \"and so on...\\n" +
+      "      { \"title\": \"Module Name 2\", \"recommended_time\": 5, \"order\": 2 }\n" +
       "    ],\n" +
       "    \"tips\": \"...\"\n" +
       "  },\n" +
@@ -483,18 +499,15 @@ const prompt1 = "You are an expert corporate trainer. Given the following assess
       "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"kpi_influence\": string,\n  \"overall_strategy\": string\n}\n" +
       "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
 
-      const prompt2 = "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan. If KPI scores (description, score, benchmark, and datatype) are available, use them; otherwise, rely only on baseline assessments.\n\n" +
+      const prompt2 = "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan.\n\n" +
       geminiText + "\n\n" +
-      (kpiText ? kpiText + "\n\n" : "") +
       "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n" +
       "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
       
       "CRITICAL MODULE SELECTION REQUIREMENTS - MUST FOLLOW:\n" +
-      "YOU MUST recommend MINIMUM 3-4 modules. Allocate 4-5 hours per module.\n" +
-      "IF THERE ARE LESS MODULES AVAILABLE GENERATE MORE MODULES TO MEET THE MINIMUM REQUIREMENT.\n" +
-      "THE MODULES YOU GENERATE MUST BE RELEVANT TO THE TOPIC AND SIMILAR IN STYLE TO THE AVAILABLE MODULES.\n\n" +
-
-      "- NEVER recommend only 1 module for low scores (below 50%). This is MANDATORY.\n" +
+      moduleRequirements + "\n" +
+      "- NEVER recommend modules that are NOT in the Available Modules list.\n" +
+      "- NEVER generate, invent, or assume modules that don't exist.\n" +
       "- Each module must include: title (or name), recommended_time (in hours), and order.\n" +
       "- Prioritize modules addressing the most critical skill gaps shown in the assessment.\n\n" +
       "The plan should:\n" +
@@ -503,7 +516,7 @@ const prompt1 = "You are an expert corporate trainer. Given the following assess
       "- Include actionable tips and recommendations\n" +
       "- Ensure all recommendations align with the employee's learning style\n" +
       
-      "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, learning style, and KPI factors (including benchmark and datatype) influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, learning style, and KPIs (including benchmark and datatype)\n- Explicitly explain how the score, benchmark, and datatype influenced the number of modules and total study hours.\n\n" +
+      "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, and learning style factors influenced your choices\n- For each module, justify the recommended time duration based on the employee's needs, weaknesses, and learning style\n\n" +
       "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
       "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n" +
       "JSON format:\n" +  
@@ -511,15 +524,14 @@ const prompt1 = "You are an expert corporate trainer. Given the following assess
       "  \"plan\": {\n" +
       "    \"modules\": [\n" +
       "      { \"title\": \"Module Name\", \"recommended_time\": 5, \"order\": 1 },\n" +
-      "      { \"title\": \"Module Name 2\", \"recommended_time\": 5, \"order\": 2 },\n" +
-      "       \"and so on...\\n" +
+      "      { \"title\": \"Module Name 2\", \"recommended_time\": 5, \"order\": 2 }\n" +
       "    ],\n" +
       "    \"tips\": \"...\"\n" +
       "  },\n" +
       "  \"reasoning\": { ... }\n" +
       "}\n" +
       "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
-      "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"kpi_influence\": string,\n  \"overall_strategy\": string\n}\n" +
+      "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"overall_strategy\": string\n}\n" +
       "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
 
 
@@ -639,6 +651,35 @@ const prompt1 = "You are an expert corporate trainer. Given the following assess
     };
 
     plan = sanitizePlan(plan);
+
+    // Deduplicate modules by title - keep only the first occurrence
+    const deduplicateModules = (p: any) => {
+      if (!p || !Array.isArray(p.modules)) return p;
+      
+      const seen = new Set<string>();
+      const deduplicated = p.modules.filter((module: any) => {
+        const title = module.title?.trim().toLowerCase();
+        if (!title) return false;
+        if (seen.has(title)) {
+          console.log(`[Training Plan API] Removing duplicate module: ${module.title}`);
+          return false;
+        }
+        seen.add(title);
+        return true;
+      });
+
+      // Reorder by the order field
+      deduplicated.sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+
+      // Update order field to be sequential (1, 2, 3, ...)
+      deduplicated.forEach((module: any, index: number) => {
+        module.order = index + 1;
+      });
+
+      return { ...p, modules: deduplicated };
+    };
+
+    plan = deduplicateModules(plan);
     // console.log("[Training Plan API] Parsed plan:", plan);
     // console.log("[Training Plan API] Parsed reasoning:", reasoning);
 

@@ -14,6 +14,7 @@ import clsx from "clsx";
 import { useAuth } from "@/contexts/auth-context";
 import jsPDF from 'jspdf';
 import VoiceInput from '@/components/VoiceInput';
+import VoiceOutput from '@/components/VoiceOutput';
 
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
   const { user, loading: authLoading, logout } = useAuth()
@@ -372,10 +373,13 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                           <div
                             key={idx}
                             className={clsx(
-                              'flex',
+                              'flex items-end gap-2',
                               msg.role === 'user' ? 'justify-end' : 'justify-start'
                             )}
                           >
+                            {msg.role === 'assistant' && (
+                              <VoiceOutput text={msg.content} disabled={chatLoading} />
+                            )}
                             <div
                               className={clsx(
                                 'rounded-lg px-4 py-3 max-w-3xl',
