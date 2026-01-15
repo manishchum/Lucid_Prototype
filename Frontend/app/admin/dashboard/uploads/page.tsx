@@ -63,8 +63,9 @@ function ContentUpload({
         if (!extractRes.ok) throw new Error('Transcription failed');
         const { extractedText } = await extractRes.json();
 
-        // Step 2: Process text with GPT
-        await fetch('/api/openai-upload', {
+        // Step 2: Process text with GPT - Now calling backend API
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+        await fetch(`${backendUrl}/api/openai-upload`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: extractedText, moduleId })
@@ -75,7 +76,8 @@ function ContentUpload({
         formData.append('file', file);
         formData.append('moduleId', moduleId);
 
-        await fetch('/api/openai-upload', {
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+        await fetch(`${backendUrl}/api/openai-upload`, {
           method: 'POST',
           body: formData
         });
