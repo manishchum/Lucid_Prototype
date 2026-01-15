@@ -23,7 +23,7 @@ This implementation adds Speech-to-Text functionality to the Lucid Assistant usi
 
 ## Environment Setup
 
-Add to your `.env.local`:
+Add to your `.env`:
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
 ```
