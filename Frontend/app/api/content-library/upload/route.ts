@@ -87,15 +87,12 @@ export async function POST(req: Request) {
           continue;
         }
 
-        // Create a signed URL for the uploaded object
-        const { data: signedUrlData, error: signedUrlError } = await supabaseService.storage.from('content library').createSignedUrl(storageData.path, 60 * 60);
+        // Create a public URL for the uploaded object
+        // const { data: signedUrlData, error: signedUrlError } = await supabaseService.storage.from('content library').createSignedUrl(storageData.path, 60 * 60);
+
         let fileUrl = '';
-        if (signedUrlError) {
-          const { data: publicData } = supabaseService.storage.from('content library').getPublicUrl(storageData.path);
-          fileUrl = publicData?.publicUrl || '';
-        } else {
-          fileUrl = signedUrlData?.signedUrl || '';
-        }
+        const { data: publicData } = supabaseService.storage.from('content library').getPublicUrl(storageData.path);
+        fileUrl = publicData?.publicUrl || '';
 
         const childPayload: any = {
           // Use the admin-provided groupTitle (module name) as the title for each child

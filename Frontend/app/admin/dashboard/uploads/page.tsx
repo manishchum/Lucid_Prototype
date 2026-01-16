@@ -27,6 +27,103 @@ type KPIUploadResult = {
   affectedEmployees?: string[];
 };
 
+
+
+// Smart File Viewer Dialig
+function FileViewerDialog({
+  isOpen,
+  onClose,
+  url,
+  title,
+  type
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  url: string | null;
+  title: string;
+  type: string;
+}) {
+  if (!url) return null;
+
+  const isOfficeFile = (mimeType: string) => {
+    return [
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // docx
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation', // pptx
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
+      'application/vnd.ms-excel', // xls
+      'text/csv' // csv
+    ].includes(mimeType) || url.match(/\.(docx|pptx|xlsx|csv)$/i);
+  };
+
+  const isPDF = (mimeType: string) => mimeType === 'application/pdf' || url.match(/\.pdf$/i);
+  const isImage = (mimeType: string) => mimeType.startsWith('image/') || url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+  const isVideo = (mimeType: string) => mimeType.startsWith('video/') || url.match(/\.(mp4|webm|ogg)$/i);
+
+  let content;
+
+  if (isOfficeFile(type)) {
+    const encodedUrl = encodeURIComponent(url);
+    content = (
+      <iframe
+        src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodedUrl}`}
+        width="100%"
+        height="100%"
+        className="border-none w-full h-[80vh]"
+      />
+    );
+  } else if (isPDF(type)) {
+    content = (
+      <iframe
+        src={url}
+        width="100%"
+        height="100%"
+        className="border-none w-full h-[80vh]"
+      />
+    );
+  } else if (isImage(type)) {
+    content = (
+      <div className="flex items-center justify-center h-full bg-black/5 p-4">
+        <img src={url} alt={title} className="max-w-full max-h-[80vh] object-contain shadow-lg rounded-md" />
+      </div>
+    );
+  } else if (isVideo(type)) {
+    content = (
+      <div className="flex items-center justify-center h-full bg-black">
+        <video src={url} controls className="max-w-full max-h-[80vh]" />
+      </div>
+    );
+  } else {
+    content = (
+      <div className="flex flex-col items-center justify-center h-[50vh] text-center p-8">
+        <FileText className="w-16 h-16 text-gray-400 mb-4" />
+        <p className="text-lg font-medium text-gray-900 mb-2">Preview not available</p>
+        <p className="text-gray-500 mb-6">This file type cannot be previewed directly.</p>
+        <Button asChild>
+          <a href={url} download target="_blank" rel="noopener noreferrer">
+            <Download className="w-4 h-4 mr-2" />
+            Download File
+          </a>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-5xl w-[95vw] h-[90vh] flex flex-col p-6">
+        <DialogHeader className="flex-shrink-0 mb-4">
+          <div className="flex items-center justify-between pr-8">
+            <DialogTitle className="truncate text-xl">{title}</DialogTitle>
+          </div>
+        </DialogHeader>
+        <div className="flex-1 overflow-hidden min-h-0 bg-white rounded-md border text-clip">
+          {content}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Placeholder ContentUpload Component
 function ContentUpload({
   companyId,
@@ -590,17 +687,21 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
         console.log(`[ViewModule] Generating signed URL for bucket: '${bucketName}', path: '${storagePath}'`);
 
-        // Generate a fresh signed URL with longer expiry (24 hours)
-        const { data, error } = await supabase
+        // Generate a public URL
+        const { data } = supabase
           .storage
           .from(bucketName)
-          .createSignedUrl(storagePath, 24 * 60 * 60);
+          .getPublicUrl(storagePath);
 
-        if (error) {
+        // getPublicUrl doesn't return an error object in the same way, 
+        // it returns a URL structure even if it might not exist.
+        // We can check if data.publicUrl is valid.
+
+        if (!data || !data.publicUrl) {
           // If signed URL generation fails (for example due to an expired/invalid JWT),
           // fallback to opening the stored content_url directly so the admin can still
           // access the file while we investigate auth/token issues.
-          console.warn('Failed to generate signed URL:', error);
+          console.warn('Failed to generate public URL');
 
           try {
             // Try opening the original URL as a best-effort fallback.
@@ -613,10 +714,10 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           }
         }
 
-        console.log('[ViewModule] Generated signed URL:', data.signedUrl);
+        console.log('[ViewModule] Generated public URL:', data.publicUrl);
 
         // Set state to open viewer
-        setViewingUrl(data.signedUrl);
+        setViewingUrl(data.publicUrl);
         setViewingTitle(module.title);
         setViewingType(module.content_type || 'application/pdf');
       } else {
@@ -627,6 +728,12 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       console.error('Failed to view module:', error);
       setError('Failed to open training module');
     }
+  };
+
+  const closeViewer = () => {
+    setViewingUrl(null);
+    setViewingTitle('');
+    setViewingType('');
   };
 
   const handleDeleteModule = async (moduleId: string) => {
@@ -742,6 +849,15 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       {/* <div className="border-t pt-4">
         <UploadedFilesList companyId={companyId} />
       </div> */}
+
+      {/* Smart File Viewer Modal */}
+      <FileViewerDialog
+        isOpen={!!viewingUrl}
+        onClose={closeViewer}
+        url={viewingUrl}
+        title={viewingTitle}
+        type={viewingType}
+      />
     </div>
   );
 }
