@@ -35,6 +35,15 @@ export async function POST(request: NextRequest) {
       questions = typeof assessment.questions === 'string' 
         ? JSON.parse(assessment.questions) 
         : assessment.questions;
+
+      // Handle double-encoded JSON (e.g., "[ {...} ]" stored as a JSON string)
+      if (typeof questions === 'string') {
+        try {
+          questions = JSON.parse(questions);
+        } catch {
+          // ignore
+        }
+      }
     } catch (parseError) {
       console.error('❌ Error parsing assessment questions:', parseError);
       return NextResponse.json({ error: 'Invalid assessment questions format' }, { status: 500 });
@@ -201,20 +210,64 @@ Review the questions you missed and study the related concepts to improve your u
 
     // Save the assessment result
     // console.log('💾 Saving assessment result to database for user_id:', user_id, 'assessment_id:', assessment_id);
-    const { data: savedResult, error: saveError } = await supabase
+    const rowToSave = {
+      user_id: user_id,
+      assessment_id: assessment_id,
+      score: score,
+      max_score: maxScore,
+      answers: JSON.stringify(userAnswers),
+      feedback: aiFeedback,
+      question_feedback: JSON.stringify(questionFeedback),
+      completed_at: new Date().toISOString()
+    };
+
+    let savedResult: any = null;
+    let saveError: any = null;
+
+    // Prefer deterministic upsert if a suitable unique constraint exists.
+    const upsertAttempt = await supabase
       .from('employee_assessments')
-      .upsert({
-        user_id: user_id,
-        assessment_id: assessment_id,
-        score: score,
-        max_score: maxScore,
-        answers: JSON.stringify(userAnswers),
-        feedback: aiFeedback,
-        question_feedback: JSON.stringify(questionFeedback),
-        completed_at: new Date().toISOString()
-      })
+      .upsert(rowToSave, { onConflict: 'user_id,assessment_id' })
       .select()
       .single();
+
+    savedResult = upsertAttempt.data;
+    saveError = upsertAttempt.error;
+
+    // If the DB doesn't have a unique constraint for ON CONFLICT, fall back to update-if-exists.
+    if (saveError && (saveError as any).code === '42P10') {
+      console.warn('⚠️ employee_assessments upsert fell back (missing unique constraint):', saveError);
+
+      const existing = await supabase
+        .from('employee_assessments')
+        .select('employee_assessment_id')
+        .eq('user_id', user_id)
+        .eq('assessment_id', assessment_id)
+        .order('completed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existing.error) {
+        saveError = existing.error;
+      } else if (existing.data?.employee_assessment_id) {
+        const upd = await supabase
+          .from('employee_assessments')
+          .update(rowToSave)
+          .eq('employee_assessment_id', existing.data.employee_assessment_id)
+          .select()
+          .single();
+        savedResult = upd.data;
+        saveError = upd.error;
+      } else {
+        const ins = await supabase
+          .from('employee_assessments')
+          .insert(rowToSave)
+          .select()
+          .single();
+        savedResult = ins.data;
+        saveError = ins.error;
+      }
+    }
 
     if (saveError) {
       console.error('❌ Error saving assessment result:', saveError);

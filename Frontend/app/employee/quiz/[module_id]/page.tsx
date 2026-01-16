@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
 import EmployeeNavigation from "@/components/employee-navigation";
-import MCQQuiz from "../../assessment/mcq-quiz";
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 export default function ModuleQuizPage({ params }: { params: { module_id: string } }) {
   const { user, loading: authLoading } = useAuth();
@@ -89,7 +90,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     };
     let feedbackText = "";
     try {
-      const res = await fetch("/api/gpt-feedback", {
+      const res = await fetch(`${API_BASE}/api/gpt-feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -273,7 +274,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         return;
       }
       try {
-        const res = await fetch("/api/gpt-mcq-quiz", {
+        const res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ moduleId, learningStyle, userId }),
