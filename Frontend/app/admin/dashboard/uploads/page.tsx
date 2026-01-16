@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download } from "lucide-react";
+import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download, X } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatContentType } from '@/lib/contentType';
 
 interface Admin {
@@ -229,23 +230,23 @@ function UploadedFilesList({ companyId }: { companyId: string }) {
     return <div className="text-gray-500 italic">Loading files...</div>;
   }
 
-  return (
-    <div>
-      <h3 className="text-lg font-semibold mb-4">Uploaded Files in Storage</h3>
-      {files.length === 0 ? (
-        <p className="text-gray-400 italic">No storage files found</p>
-      ) : (
-        <div className="grid gap-2">
-          {files.map((file, idx) => (
-            <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded border text-sm">
-              <span className="truncate flex-1 mr-4">{file.name}</span>
-              <span className="text-gray-400 text-xs">{(file.metadata?.size / 1024 / 1024).toFixed(2)} MB</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  // return (
+  //   <div>
+  //     <h3 className="text-lg font-semibold mb-4">Uploaded Files in Storage</h3>
+  //     {files.length === 0 ? (
+  //       <p className="text-gray-400 italic">No storage files found</p>
+  //     ) : (
+  //       <div className="grid gap-2">
+  //         {files.map((file, idx) => (
+  //           <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded border text-sm">
+  //             <span className="truncate flex-1 mr-4">{file.name}</span>
+  //             <span className="text-gray-400 text-xs">{(file.metadata?.size / 1024 / 1024).toFixed(2)} MB</span>
+  //           </div>
+  //         ))}
+  //       </div>
+  //     )}
+  //   </div>
+  // );
 }
 
 // KPI Scores Upload Component
@@ -499,6 +500,9 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const [trainingModules, setTrainingModules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [viewingUrl, setViewingUrl] = useState<string | null>(null);
+  const [viewingTitle, setViewingTitle] = useState<string>('');
+  const [viewingType, setViewingType] = useState<string>('');
 
   useEffect(() => {
     if (companyId) {
@@ -545,27 +549,52 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     try {
       if (module.content_url) {
         // Extract the storage path from the content_url
-        // The URL format is like: https://...storage.../training-content/file-path?token=...
-        // We need to extract the file path and create a fresh signed URL
-
         const url = new URL(module.content_url);
         const pathSegments = url.pathname.split('/');
 
-        // Find the index where 'training-content' is and get everything after it
-        const trainingContentIndex = pathSegments.indexOf('training-content');
-        if (trainingContentIndex === -1) {
+        // Check for known buckets
+        // 1. content library
+        // 2. training-content
+
+        let bucketName = '';
+        let startIndex = -1;
+
+        // Find bucket in path
+        for (let i = 0; i < pathSegments.length; i++) {
+          const segment = decodeURIComponent(pathSegments[i]);
+          if (segment === 'content library') {
+            bucketName = 'content library';
+            startIndex = i;
+            break;
+          } else if (segment === 'training-content') {
+            bucketName = 'training-content';
+            startIndex = i;
+            break;
+          }
+        }
+
+        if (startIndex === -1 || !bucketName) {
           // If we can't extract the path, try opening the stored URL directly
-          window.open(module.content_url, '_blank');
+          // This might fail if the token is expired
+          setViewingUrl(module.content_url);
+          setViewingTitle(module.title);
+          setViewingType(module.content_type || 'application/pdf');
           return;
         }
 
-        const storagePath = pathSegments.slice(trainingContentIndex + 1).join('/');
+        // Get everything after the bucket name
+        // And DECODE it because createSignedUrl expects the actual keys (spaces, etc.)
+        // url.pathname is percent-encoded
+        const rawPath = pathSegments.slice(startIndex + 1).join('/');
+        const storagePath = decodeURIComponent(rawPath);
+
+        console.log(`[ViewModule] Generating signed URL for bucket: '${bucketName}', path: '${storagePath}'`);
 
         // Generate a fresh signed URL with longer expiry (24 hours)
         const { data, error } = await supabase
           .storage
-          .from('training-content')
-          .createSignedUrl(storagePath, 24 * 60 * 60); // 24 hours expiry
+          .from(bucketName)
+          .createSignedUrl(storagePath, 24 * 60 * 60);
 
         if (error) {
           // If signed URL generation fails (for example due to an expired/invalid JWT),
@@ -584,8 +613,12 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           }
         }
 
-        // Open the fresh signed URL in a new tab
-        window.open(data.signedUrl, '_blank');
+        console.log('[ViewModule] Generated signed URL:', data.signedUrl);
+
+        // Set state to open viewer
+        setViewingUrl(data.signedUrl);
+        setViewingTitle(module.title);
+        setViewingType(module.content_type || 'application/pdf');
       } else {
         console.error('No content URL found for module');
         setError('Training module file not found');
