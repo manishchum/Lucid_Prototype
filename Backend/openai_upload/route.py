@@ -296,7 +296,7 @@ async def processAndStoreResults(moduleId: str, message: str):
     else:
         print(f"[processAndStoreResults] Successfully updated {len(data)} row(s).")
 
-    baseUrl = os.getenv("INTERNAL_API_BASE_URL") or os.getenv("NEXT_PUBLIC_BASE_URL")
+    baseUrl = os.getenv("NEXT_PUBLIC_BACKEND_URL")
     if baseUrl:
         try:
             async with httpx.AsyncClient() as client:
