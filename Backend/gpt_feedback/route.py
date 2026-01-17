@@ -15,7 +15,7 @@ router = APIRouter()
 # Keep same initialization behavior
 genAI = genai
 genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
-baseUrl = os.getenv("INTERNAL_API_BASE_URL") or os.getenv("NEXT_PUBLIC_BASE_URL") or "http://localhost:3000"
+API_BASE=os.getenv("NEXT_PUBLIC_BACKEND_URL")
 
 # Default to local backend if not specified
 # default_base_url = f"http://{HOST}:{PORT}" if HOST and PORT else "http://localhost:8000"
@@ -57,7 +57,7 @@ async def POST(request: Request):
                 status_code=400
             )
 
-        submit_url = f"{baseUrl}/api/submit-assessment"
+        submit_url = f"{API_BASE}/api/submit-assessment"
         print("Submit URL:", submit_url)
 
         payload = {
