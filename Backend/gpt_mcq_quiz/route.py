@@ -280,12 +280,11 @@ async def POST(request: Request):
                         "content": trainingModule.get("gpt_summary") or trainingModule.get("content"),
                         "learning_style": learningStyle,
                     })
-                    .select("processed_module_id")
-                    .single()
                     .execute()
                 )
 
-                newProcessed = getattr(insertRes, "data", None)
+                inserted_data = getattr(insertRes, "data", [])
+                newProcessed = inserted_data[0] if isinstance(inserted_data, list) and len(inserted_data) > 0 else (inserted_data if isinstance(inserted_data, dict) else None)
                 insertErr = getattr(insertRes, "error", None)
 
                 if insertErr:

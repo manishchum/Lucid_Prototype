@@ -56,12 +56,15 @@ async def POST(req: Request):
             supabaseAdmin
             .table("content_jobs")
             .insert({"module_id": module_id, "status": "pending"})
-            .select("id, status")
-            .maybe_single()
             .execute()
         )
 
-        inserted = getattr(inserted_resp, "data", None)
+        inserted_data = getattr(inserted_resp, "data", [])
+        inserted = inserted_data[0] if isinstance(inserted_data, list) and len(inserted_data) > 0 else None
+        # In some versions, data might be a single dict if maybe_single was intended, 
+        # but execute() usually returns a list for insert.
+        if isinstance(inserted_data, dict):
+            inserted = inserted_data
         insertError = getattr(inserted_resp, "error", None)
 
         if insertError:

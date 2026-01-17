@@ -15,24 +15,10 @@ from fastapi.responses import JSONResponse
 
 from supabase import create_client, Client
 
-# CloudConvert setup - lazy init to avoid startup errors
-cloudConvert = None
 
-def get_cloudconvert_client():
-    """Configure and return cloudconvert module if API key is set."""
-    api_key = os.getenv("CLOUDCONVERT_API_KEY", "")
-    if not api_key:
-        return None
-    
-    try:
-        import cloudconvert
-        cloudconvert.configure(api_key=api_key, sandbox=False)
-        return cloudconvert
-    except Exception as e:
-        print(f"[openai_upload] CloudConvert import/init failed: {e}")
-        return None
 
 router = APIRouter()
+print("Loading openai_upload/route.py... Updated Logic Active")
 
 # -------------------------
 # Supabase client (same role as "../../../lib/supabase")
@@ -41,71 +27,7 @@ supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
 supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
 supabase: Client = create_client(supabase_url, supabase_key)
 
-# -------------------------
-# CloudConvert setup
-# -------------------------
 
-async def convertDocToPdf(inputPath: str, outputPath: str):
-    cloudconvert = get_cloudconvert_client()
-    if not cloudconvert:
-        raise Exception("CloudConvert client not initialized. Set CLOUDCONVERT_API_KEY environment variable.")
-
-    # Create a job with upload, convert, and export tasks
-    job = cloudconvert.Job.create(payload={
-        "tasks": {
-            "upload-file": {
-                "operation": "import/upload"
-            },
-            "convert-file": {
-                "operation": "convert",
-                "input": "upload-file",
-                "output_format": "pdf"
-            },
-            "export-file": {
-                "operation": "export/url",
-                "input": "convert-file"
-            }
-        }
-    })
-
-    # Find the upload task and upload the file
-    upload_task_id = job['tasks'][0]['id']
-    upload_task = cloudconvert.Task.find(id=upload_task_id)
-    
-    with open(inputPath, "rb") as f:
-        cloudconvert.Task.upload(file_name=inputPath, task=upload_task)
-
-    # Wait for the job to complete
-    completed_job = cloudconvert.Job.wait(id=job['id'])
-
-    # Get the export task and download the result
-    export_task = None
-    for task in completed_job.get("tasks", []):
-        if task.get("name") == "export-file":
-            export_task = task
-            break
-
-    if not export_task:
-        raise Exception("CloudConvert export task not found.")
-
-    result_file = export_task.get("result", {}).get("files", [])
-    if not result_file:
-        raise Exception("CloudConvert export URL missing.")
-
-    file_url = result_file[0].get("url")
-    if not file_url:
-        raise Exception("CloudConvert file URL is empty.")
-
-    print(f"[convertDocToPdf] Converted PDF URL: {file_url}")
-
-    # Download the PDF
-    async with httpx.AsyncClient() as client:
-        response = await client.get(file_url)
-        response.raise_for_status()
-        buffer = response.content
-
-    with open(outputPath, "wb") as out:
-        out.write(buffer)
 
 
 # -------------------------
@@ -342,6 +264,7 @@ async def handleTextUpload(req: Request):
 
 async def handleFileUpload(req: Request):
     tempFilePath: Optional[str] = None
+    print("[handleFileUpload] Processing file upload request...")
 
     try:
         form = await req.form()
@@ -362,19 +285,11 @@ async def handleFileUpload(req: Request):
         isSpreadsheet = re.search(r"\.(xlsx|xls|csv)$", file.filename, re.I)
 
         # Convert doc/docx to PDF via CloudConvert
-        if isDocx or isDoc:
-            try:
-                pdfPath = re.sub(r"\.docx?$", ".pdf", tempFilePath, flags=re.I)
-                await convertDocToPdf(tempFilePath, pdfPath)
-                try:
-                    os.unlink(tempFilePath)
-                except Exception:
-                    pass
-                tempFilePath = pdfPath
-                print(f"Converted {file.filename} to PDF for processing via CloudConvert")
-            except Exception as conversionError:
-                print("CloudConvert conversion failed:", conversionError)
-                raise Exception("Failed to convert document to PDF via CloudConvert.")
+        # Block .doc files as they are not supported by OpenAI directly
+        if isDoc:
+            raise Exception("DOC format is not supported. Please convert to DOCX or PDF.")
+        
+        # DOCX files will be handled by OpenAI Assistants API directly below
 
         if isSpreadsheet:
             extractedText = f"Spreadsheet Analysis: {file.filename}\n\n"

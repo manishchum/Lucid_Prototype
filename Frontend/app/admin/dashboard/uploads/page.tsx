@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download } from "lucide-react";
+import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download, X } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatContentType } from '@/lib/contentType';
 
 interface Admin {
@@ -25,6 +26,103 @@ type KPIUploadResult = {
   skipped?: { row: number; reason: string }[];
   affectedEmployees?: string[];
 };
+
+
+
+// Smart File Viewer Dialig
+function FileViewerDialog({
+  isOpen,
+  onClose,
+  url,
+  title,
+  type
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  url: string | null;
+  title: string;
+  type: string;
+}) {
+  if (!url) return null;
+
+  const isOfficeFile = (mimeType: string) => {
+    return [
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // docx
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation', // pptx
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
+      'application/vnd.ms-excel', // xls
+      'text/csv' // csv
+    ].includes(mimeType) || url.match(/\.(docx|pptx|xlsx|csv)$/i);
+  };
+
+  const isPDF = (mimeType: string) => mimeType === 'application/pdf' || url.match(/\.pdf$/i);
+  const isImage = (mimeType: string) => mimeType.startsWith('image/') || url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+  const isVideo = (mimeType: string) => mimeType.startsWith('video/') || url.match(/\.(mp4|webm|ogg)$/i);
+
+  let content;
+
+  if (isOfficeFile(type)) {
+    const encodedUrl = encodeURIComponent(url);
+    content = (
+      <iframe
+        src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodedUrl}`}
+        width="100%"
+        height="100%"
+        className="border-none w-full h-[80vh]"
+      />
+    );
+  } else if (isPDF(type)) {
+    content = (
+      <iframe
+        src={url}
+        width="100%"
+        height="100%"
+        className="border-none w-full h-[80vh]"
+      />
+    );
+  } else if (isImage(type)) {
+    content = (
+      <div className="flex items-center justify-center h-full bg-black/5 p-4">
+        <img src={url} alt={title} className="max-w-full max-h-[80vh] object-contain shadow-lg rounded-md" />
+      </div>
+    );
+  } else if (isVideo(type)) {
+    content = (
+      <div className="flex items-center justify-center h-full bg-black">
+        <video src={url} controls className="max-w-full max-h-[80vh]" />
+      </div>
+    );
+  } else {
+    content = (
+      <div className="flex flex-col items-center justify-center h-[50vh] text-center p-8">
+        <FileText className="w-16 h-16 text-gray-400 mb-4" />
+        <p className="text-lg font-medium text-gray-900 mb-2">Preview not available</p>
+        <p className="text-gray-500 mb-6">This file type cannot be previewed directly.</p>
+        <Button asChild>
+          <a href={url} download target="_blank" rel="noopener noreferrer">
+            <Download className="w-4 h-4 mr-2" />
+            Download File
+          </a>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-5xl w-[95vw] h-[90vh] flex flex-col p-6">
+        <DialogHeader className="flex-shrink-0 mb-4">
+          <div className="flex items-center justify-between pr-8">
+            <DialogTitle className="truncate text-xl">{title}</DialogTitle>
+          </div>
+        </DialogHeader>
+        <div className="flex-1 overflow-hidden min-h-0 bg-white rounded-md border text-clip">
+          {content}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // Placeholder ContentUpload Component
 function ContentUpload({
@@ -229,23 +327,23 @@ function UploadedFilesList({ companyId }: { companyId: string }) {
     return <div className="text-gray-500 italic">Loading files...</div>;
   }
 
-  return (
-    <div>
-      <h3 className="text-lg font-semibold mb-4">Uploaded Files in Storage</h3>
-      {files.length === 0 ? (
-        <p className="text-gray-400 italic">No storage files found</p>
-      ) : (
-        <div className="grid gap-2">
-          {files.map((file, idx) => (
-            <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded border text-sm">
-              <span className="truncate flex-1 mr-4">{file.name}</span>
-              <span className="text-gray-400 text-xs">{(file.metadata?.size / 1024 / 1024).toFixed(2)} MB</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  // return (
+  //   <div>
+  //     <h3 className="text-lg font-semibold mb-4">Uploaded Files in Storage</h3>
+  //     {files.length === 0 ? (
+  //       <p className="text-gray-400 italic">No storage files found</p>
+  //     ) : (
+  //       <div className="grid gap-2">
+  //         {files.map((file, idx) => (
+  //           <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded border text-sm">
+  //             <span className="truncate flex-1 mr-4">{file.name}</span>
+  //             <span className="text-gray-400 text-xs">{(file.metadata?.size / 1024 / 1024).toFixed(2)} MB</span>
+  //           </div>
+  //         ))}
+  //       </div>
+  //     )}
+  //   </div>
+  // );
 }
 
 // KPI Scores Upload Component
@@ -499,6 +597,9 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const [trainingModules, setTrainingModules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [viewingUrl, setViewingUrl] = useState<string | null>(null);
+  const [viewingTitle, setViewingTitle] = useState<string>('');
+  const [viewingType, setViewingType] = useState<string>('');
 
   useEffect(() => {
     if (companyId) {
@@ -545,33 +646,62 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     try {
       if (module.content_url) {
         // Extract the storage path from the content_url
-        // The URL format is like: https://...storage.../training-content/file-path?token=...
-        // We need to extract the file path and create a fresh signed URL
-
         const url = new URL(module.content_url);
         const pathSegments = url.pathname.split('/');
 
-        // Find the index where 'training-content' is and get everything after it
-        const trainingContentIndex = pathSegments.indexOf('training-content');
-        if (trainingContentIndex === -1) {
+        // Check for known buckets
+        // 1. content library
+        // 2. training-content
+
+        let bucketName = '';
+        let startIndex = -1;
+
+        // Find bucket in path
+        for (let i = 0; i < pathSegments.length; i++) {
+          const segment = decodeURIComponent(pathSegments[i]);
+          if (segment === 'content library') {
+            bucketName = 'content library';
+            startIndex = i;
+            break;
+          } else if (segment === 'training-content') {
+            bucketName = 'training-content';
+            startIndex = i;
+            break;
+          }
+        }
+
+        if (startIndex === -1 || !bucketName) {
           // If we can't extract the path, try opening the stored URL directly
-          window.open(module.content_url, '_blank');
+          // This might fail if the token is expired
+          setViewingUrl(module.content_url);
+          setViewingTitle(module.title);
+          setViewingType(module.content_type || 'application/pdf');
           return;
         }
 
-        const storagePath = pathSegments.slice(trainingContentIndex + 1).join('/');
+        // Get everything after the bucket name
+        // And DECODE it because createSignedUrl expects the actual keys (spaces, etc.)
+        // url.pathname is percent-encoded
+        const rawPath = pathSegments.slice(startIndex + 1).join('/');
+        const storagePath = decodeURIComponent(rawPath);
 
-        // Generate a fresh signed URL with longer expiry (24 hours)
-        const { data, error } = await supabase
+        console.log(`[ViewModule] Generating signed URL for bucket: '${bucketName}', path: '${storagePath}'`);
+
+        // Generate a public URL
+        const { data } = supabase
           .storage
-          .from('training-content')
-          .createSignedUrl(storagePath, 24 * 60 * 60); // 24 hours expiry
+          .from(bucketName)
+          .getPublicUrl(storagePath);
 
-        if (error) {
+        // getPublicUrl doesn't return an error object in the same way, 
+        // it returns a URL structure even if it might not exist.
+        // We can check if data.publicUrl is valid.
+
+        if (!data || !data.publicUrl) {
           // If signed URL generation fails (for example due to an expired/invalid JWT),
           // fallback to opening the stored content_url directly so the admin can still
           // access the file while we investigate auth/token issues.
-          console.warn('Failed to generate signed URL:', error);
+          console.warn('Failed to generate public URL');
 
           try {
             // Try opening the original URL as a best-effort fallback.
@@ -584,8 +714,12 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           }
         }
 
-        // Open the fresh signed URL in a new tab
-        window.open(data.signedUrl, '_blank');
+        console.log('[ViewModule] Generated public URL:', data.publicUrl);
+
+        // Set state to open viewer
+        setViewingUrl(data.publicUrl);
+        setViewingTitle(module.title);
+        setViewingType(module.content_type || 'application/pdf');
       } else {
         console.error('No content URL found for module');
         setError('Training module file not found');
@@ -594,6 +728,12 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       console.error('Failed to view module:', error);
       setError('Failed to open training module');
     }
+  };
+
+  const closeViewer = () => {
+    setViewingUrl(null);
+    setViewingTitle('');
+    setViewingType('');
   };
 
   const handleDeleteModule = async (moduleId: string) => {
@@ -709,6 +849,15 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       {/* <div className="border-t pt-4">
         <UploadedFilesList companyId={companyId} />
       </div> */}
+
+      {/* Smart File Viewer Modal */}
+      <FileViewerDialog
+        isOpen={!!viewingUrl}
+        onClose={closeViewer}
+        url={viewingUrl}
+        title={viewingTitle}
+        type={viewingType}
+      />
     </div>
   );
 }
