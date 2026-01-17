@@ -15,7 +15,8 @@ interface TrainingModule {
   ai_modules: string | null;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+const API_BASE_BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+const API_BASE_FRONTEND = process.env.INTERNAL_API_BASE_URL || "http://localhost:3000"
 
 const AssessmentContent = () => {
   const { user } = useAuth();
@@ -31,7 +32,7 @@ const AssessmentContent = () => {
   const [correctAnswers, setCorrectAnswers] = useState<any[]>([]);
   const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
-  const [expandedSections, setExpandedSections] = useState<{[key: string]: boolean}>({
+  const [expandedSections, setExpandedSections] = useState<{ [key: string]: boolean }>({
     learningStyle: false,
     howYouThrive: false,
     tips: false,
@@ -67,9 +68,9 @@ const AssessmentContent = () => {
         setModules(data || []);
         setCompanyId(companyId);
       } catch (err: any) {
-  setError("Failed to load modules: " + err.message);
-  // Add delay before clearing error
-  setTimeout(() => setError(""), 1200);
+        setError("Failed to load modules: " + err.message);
+        // Add delay before clearing error
+        setTimeout(() => setError(""), 1200);
       } finally {
         setLoading(false);
       }
@@ -96,7 +97,7 @@ const AssessmentContent = () => {
           employeeId = empData?.user_id || null;
         }
         if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
-        
+
         // If a moduleId query param is present, request a per-module quiz.
         const urlModuleId = searchParams.get('moduleId');
         let isBaselineRequest = false;
@@ -114,14 +115,14 @@ const AssessmentContent = () => {
           isBaselineRequest = Boolean(learningPlan && learningPlan.baseline_assessment === 1);
           // console.log(isBaselineRequest)
           // console.log")
-            // console.log("Inside the if statement for per-module quiz request.");
+          // console.log("Inside the if statement for per-module quiz request.");
           // console.log(urlModuleId)
-          res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
+          res = await fetch(`${API_BASE_FRONTEND}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
+            body: JSON.stringify({
               moduleIds: [urlModuleId],
-              companyId:companyId, 
+              companyId: companyId,
               user_id: employeeId,
               isBaseline: isBaselineRequest,
               assessmentType: isBaselineRequest ? 'baseline' : 'module'
@@ -130,11 +131,11 @@ const AssessmentContent = () => {
         } else {
           // Request a baseline quiz for all assigned modules (multi-module baseline)
           // console.log("Inside the else statement for per-module quiz request.");
-          res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
+          res = await fetch(`${API_BASE_BACKEND}/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              moduleIds: modules.map(m => m.module_id), 
+            body: JSON.stringify({
+              moduleIds: modules.map(m => m.module_id),
               companyId,
               isBaseline: true,
               assessmentType: 'baseline'
@@ -148,7 +149,7 @@ const AssessmentContent = () => {
         }
         const d = await res.json();
         // console.log('[Assessment] Baseline quiz result:', d);
-        
+
         // Prefer quizMapping (new backend behavior). Fall back to legacy d.quiz.
         let quizzes = [] as Array<{ moduleId: string; title?: string; questions: any[]; assessmentId?: string }>;
         const mapping = (d && Array.isArray(d.quizMapping)) ? d.quizMapping : null;
@@ -208,22 +209,22 @@ const AssessmentContent = () => {
     // Extract main title/header from the feedback
     const headerMatch = feedback.match(/^##\s*(.+?)(?:\n|$)/m);
     const mainTitle = headerMatch ? headerMatch[1].trim() : "Assessment Results";
-    
+
     // Parse sections from the feedback
-    const sections: {[key: string]: string} = {};
+    const sections: { [key: string]: string } = {};
     const sectionRegex = /###?\s*(.+?)(?:\n([\s\S]*?))?(?=###?|$)/g;
     let match;
-    
+
     while ((match = sectionRegex.exec(feedback)) !== null) {
       const title = match[1].trim();
       const content = match[2]?.trim() || '';
-      
+
       // Skip empty sections and the main header
       if (content && title !== mainTitle) {
         sections[title] = content;
       }
     }
-    
+
     return { mainTitle, sections };
   };
 
@@ -305,9 +306,9 @@ const AssessmentContent = () => {
             .insert({ type: 'baseline', company_id: companyId, original_module_id: urlModuleId, learning_style: null, questions: JSON.stringify(questionsForModule) })
             .select()
             .single();
-            assessmentId = newDef?.assessment_id || null;
-          }
-          // console.log(assessmentId)
+          assessmentId = newDef?.assessment_id || null;
+        }
+        // console.log(assessmentId)
       }
 
       // Log score in terminal
@@ -335,9 +336,9 @@ const AssessmentContent = () => {
       // console.log("Response from the /api/gpt-feedback endpoint:");
       // console.log(res)
       setFeedback(data.feedback || "");
-      
+
       setQuizQuestions(mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []);
-      
+
       const questions = mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || [];
       const answersData = questions.map((q: any, idx: number) => ({
         question: q.question,
@@ -355,7 +356,7 @@ const AssessmentContent = () => {
       } catch (e) {
         // ignore in server or privacy-restricted contexts
       }
-      
+
     } catch (err: any) {
       setFeedback("Could not generate feedback.");
     } finally {
@@ -366,10 +367,10 @@ const AssessmentContent = () => {
   return (
     <div className="min-h-screen w-full">
       <EmployeeNavigation showBack={true} showForward={false} />
-      
-      <div 
+
+      <div
         className="transition-all duration-300 ease-in-out py-10"
-        style={{ 
+        style={{
           marginLeft: 'var(--sidebar-width, 0px)',
         }}
       >
@@ -408,7 +409,7 @@ const AssessmentContent = () => {
                   const { mainTitle, sections } = parseFeedbackSections(feedback);
                   // console.log(feedback)
                   const sectionKeys = Object.keys(sections);
-                  
+
                   return (
                     <>
                       <div className="text-center mb-8">
@@ -440,7 +441,7 @@ const AssessmentContent = () => {
                           </div>
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-3">
-                          <div 
+                          <div
                             className="bg-gradient-to-r from-blue-500 to-green-500 h-3 rounded-full transition-all duration-500"
                             style={{ width: `${Math.round((score / (mcqQuestionsByModule[0]?.questions || []).length) * 100)}%` }}
                           />
@@ -454,7 +455,7 @@ const AssessmentContent = () => {
                           {sectionKeys.map((sectionTitle, idx) => {
                             const sectionKey = `section_${idx}`;
                             const isExpanded = expandedSections[sectionKey];
-                            
+
                             // Determine background color based on section
                             let bgColor = 'bg-blue-50';
                             let borderColor = 'border-blue-200';
@@ -468,8 +469,8 @@ const AssessmentContent = () => {
                               bgColor = 'bg-purple-50';
                               borderColor = 'border-purple-200';
                             }
-                            
-                            
+
+
                             return (
                               <div key={sectionKey}>
                               </div>
@@ -498,13 +499,12 @@ const AssessmentContent = () => {
                 {expandedSections.questions && (
                   <div className="p-8 space-y-6">
                     {correctAnswers.map((answer, idx) => (
-                      <div 
-                        key={idx} 
-                        className={`p-6 rounded-lg border-2 ${
-                          answer.isCorrect 
-                            ? 'bg-green-50 border-green-300' 
-                            : 'bg-red-50 border-red-300'
-                        }`}
+                      <div
+                        key={idx}
+                        className={`p-6 rounded-lg border-2 ${answer.isCorrect
+                          ? 'bg-green-50 border-green-300'
+                          : 'bg-red-50 border-red-300'
+                          }`}
                       >
                         <div className="flex items-start gap-3 mb-4">
                           {answer.isCorrect ? (
@@ -520,7 +520,7 @@ const AssessmentContent = () => {
                               </span>
                             </div>
                             <p className="text-gray-800 font-medium mb-4">{answer.question}</p>
-                            
+
                             <div className="space-y-2 mb-4">
                               <div className="flex items-center gap-2">
                                 <span className="font-semibold text-gray-700">Your answer:</span>
@@ -535,7 +535,7 @@ const AssessmentContent = () => {
                                 </div>
                               )}
                             </div>
-                            
+
                             {answer.explanation && (
                               <div className="flex items-start gap-2 mt-3 p-3 bg-white rounded border border-gray-200">
                                 <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />

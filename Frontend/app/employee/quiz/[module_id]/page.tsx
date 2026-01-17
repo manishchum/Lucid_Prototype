@@ -8,11 +8,12 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
 import EmployeeNavigation from "@/components/employee-navigation";
 
-const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+const API_BASE_BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL;
+const API_BASE_FRONTEND = process.env.INTERNAL_API_BASE_URL;
 
 export default function ModuleQuizPage({ params }: { params: { module_id: string } }) {
   const { user, loading: authLoading } = useAuth();
-  
+
   // Handler for navigation
   const handleNext = () => {
     if (currentPage < totalPages - 1) {
@@ -33,7 +34,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     // console.log("It is submitting")
     // console.log(quiz)
     // console.log(!Array.isArray(quiz))
-    if (!quiz ) return;
+    if (!quiz) return;
     // Ensure assessmentId is set before submission
     if (!assessmentId) {
       // console.log("Inside thse !assessmentId block")
@@ -70,7 +71,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           .eq('email', user.email)
           .single();
         employeeId = emp?.user_id || null;
-  employeeName = (user as any)?.displayName || user.email || null;
+        employeeName = (user as any)?.displayName || user.email || null;
       } catch (err) {
         // console.log('[QUIZ] Error fetching employee record:', err);
       }
@@ -144,7 +145,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resolvedModuleId, setResolvedModuleId] = useState<string | null>(null);
   const router = useRouter();
-  let  userId:any = null;
+  let userId: any = null;
   const questionsPerPage = 10;
   const totalPages = quiz ? Math.ceil(quiz.length / questionsPerPage) : 0;
   const currentQuestions = quiz ? quiz.slice(currentPage * questionsPerPage, (currentPage + 1) * questionsPerPage) : [];
@@ -188,7 +189,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     const fetchOrGenerateQuiz = async () => {
       setLoading(true);
       setError(null);
-      
+
       // Fetch module metadata and resolve canonical processed_module_id
       try {
         let moduleData: any = null;
@@ -215,7 +216,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       } catch (e) {
         // console.log('[quiz] module metadata fetch error', e);
       }
-      
+
       let learningStyle: string | null = null;
       if (!authLoading && user?.email) {
         // console.log("Inside the quiz tab")
@@ -226,8 +227,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             .select('user_id')
             .eq('email', user.email)
             .single();
-            userId = emp?.user_id || null;
-            // console.log(userId)
+          userId = emp?.user_id || null;
+          // console.log(userId)
           if (emp?.user_id) {
             const { data: styleData } = await supabase
               .from('employee_learning_style')
@@ -274,7 +275,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         return;
       }
       try {
-        const res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
+        const res = await fetch(`${API_BASE_FRONTEND}/api/gpt-mcq-quiz`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ moduleId, learningStyle, userId }),
@@ -291,12 +292,12 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             .eq("processed_module_id", moduleId)
             .eq("learning_style", learningStyle)
             .maybeSingle();
-            // console.log("This is the module id:", moduleId)
+          // console.log("This is the module id:", moduleId)
           // console.log('[QUIZ DEBUG] New assessment after quiz generation:', newAssessment);
           if (newAssessment && newAssessment.assessment_id) setAssessmentId(newAssessment.assessment_id);
-       
-       
-       
+
+
+
         } else {
           // console.log("Inside the else statment of result.quiz")
           setQuiz(null);
@@ -305,7 +306,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
 
 
 
-        
+
       } catch (err) {
         // console.log('[QUIZ DEBUG] Error during quiz generation:', err);
         setQuiz(null);
@@ -313,7 +314,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       }
       setLoading(false);
     };
-  if (!authLoading && user?.email && moduleId && moduleId !== 'undefined' && moduleId !== 'null') fetchOrGenerateQuiz();
+    if (!authLoading && user?.email && moduleId && moduleId !== 'undefined' && moduleId !== 'null') fetchOrGenerateQuiz();
   }, [user, authLoading, moduleId]);
 
   if (authLoading || loading) {
@@ -342,15 +343,15 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <EmployeeNavigation 
+      <EmployeeNavigation
         customBackPath={`/employee/module/${params.module_id}`}
         showForward={false}
       />
-      
+
       {/* Main content area that adapts to sidebar */}
-      <div 
+      <div
         className="transition-all duration-300 ease-in-out px-4 py-8"
-        style={{ 
+        style={{
           marginLeft: 'var(--sidebar-width, 0px)',
         }}
       >
@@ -363,198 +364,195 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             <ChevronLeft className="w-5 h-5" />
             Back
           </button>
-        
-        {!submitted ? (
-          <>
-            {/* Progress Header */}
-            <Card className="mb-6 shadow-lg border-t-4 border-t-transparent">
-              <CardHeader className="bg-gradient-to-r from-blue-50 via-white to-purple-50">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <CardTitle className="text-2xl font-bold text-gray-800">Test your Understanding: {moduleName}</CardTitle>
-                    {/* <CardDescription className="text-lg text-gray-600">
+
+          {!submitted ? (
+            <>
+              {/* Progress Header */}
+              <Card className="mb-6 shadow-lg border-t-4 border-t-transparent">
+                <CardHeader className="bg-gradient-to-r from-blue-50 via-white to-purple-50">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <CardTitle className="text-2xl font-bold text-gray-800">Test your Understanding: {moduleName}</CardTitle>
+                      {/* <CardDescription className="text-lg text-gray-600">
                       Test your knowledge on this module content
                     </CardDescription> */}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm text-gray-500 mb-1">Progress</div>
-                    <div className="text-2xl font-bold text-blue-600">
-                      {answeredQuestions}/{quiz?.length || 0}
                     </div>
-                  </div>
-                </div>
-                
-                {/* Progress Bar */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm text-gray-600">
-                    <span>Questions Answered</span>
-                    <span>{Math.round(progressPercentage)}% Complete</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-3 shadow-inner">
-                    <div 
-                      className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-500 shadow-sm"
-                      style={{ width: `${progressPercentage}%` }}
-                    ></div>
-                  </div>
-                </div>
-
-                {/* Page Indicator */}
-                {totalPages > 1 && (
-                  <div className="flex justify-center mt-4">
-                    <div className="flex space-x-2">
-                      {Array.from({ length: totalPages }).map((_, idx) => (
-                        <div
-                          key={idx}
-                          className={`w-3 h-3 rounded-full transition-colors ${
-                            idx === currentPage 
-                              ? 'bg-blue-500' 
-                              : idx < currentPage 
-                                ? 'bg-green-400' 
-                                : 'bg-gray-300'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </CardHeader>
-            </Card>
-
-            {/* Individual Question Cards */}
-            <div className="space-y-8">
-              {currentQuestions.map((q, idx) => {
-                const globalIdx = currentPage * questionsPerPage + idx;
-                const isAnswered = answers[globalIdx] !== -1 && answers[globalIdx] !== '';
-                
-                return (
-                  <Card key={globalIdx} className="shadow-lg">
-                    <CardContent className="p-6">
-                      <div className="font-medium text-base sm:text-lg mb-3">
-                        {globalIdx + 1}. {q.question}
+                    <div className="text-right">
+                      <div className="text-sm text-gray-500 mb-1">Progress</div>
+                      <div className="text-2xl font-bold text-blue-600">
+                        {answeredQuestions}/{quiz?.length || 0}
                       </div>
-                      
-                      {/* Answer Options */}
-                      {(Array.isArray(q.options) && q.options.length > 0) ? (
-                        <div className="space-y-2 mt-3">
-                          {q.options.map((opt: string, oIdx: number) => (
-                            <button
-                              key={oIdx}
-                              onClick={() => handleSelect(globalIdx, oIdx)}
-                              disabled={submitted}
-                              className={`w-full p-4 text-left border-2 rounded-lg transition-all duration-200 hover:shadow-md ${
-                                answers[globalIdx] === oIdx
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm text-gray-600">
+                      <span>Questions Answered</span>
+                      <span>{Math.round(progressPercentage)}% Complete</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-3 shadow-inner">
+                      <div
+                        className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-500 shadow-sm"
+                        style={{ width: `${progressPercentage}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  {/* Page Indicator */}
+                  {totalPages > 1 && (
+                    <div className="flex justify-center mt-4">
+                      <div className="flex space-x-2">
+                        {Array.from({ length: totalPages }).map((_, idx) => (
+                          <div
+                            key={idx}
+                            className={`w-3 h-3 rounded-full transition-colors ${idx === currentPage
+                              ? 'bg-blue-500'
+                              : idx < currentPage
+                                ? 'bg-green-400'
+                                : 'bg-gray-300'
+                              }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardHeader>
+              </Card>
+
+              {/* Individual Question Cards */}
+              <div className="space-y-8">
+                {currentQuestions.map((q, idx) => {
+                  const globalIdx = currentPage * questionsPerPage + idx;
+                  const isAnswered = answers[globalIdx] !== -1 && answers[globalIdx] !== '';
+
+                  return (
+                    <Card key={globalIdx} className="shadow-lg">
+                      <CardContent className="p-6">
+                        <div className="font-medium text-base sm:text-lg mb-3">
+                          {globalIdx + 1}. {q.question}
+                        </div>
+
+                        {/* Answer Options */}
+                        {(Array.isArray(q.options) && q.options.length > 0) ? (
+                          <div className="space-y-2 mt-3">
+                            {q.options.map((opt: string, oIdx: number) => (
+                              <button
+                                key={oIdx}
+                                onClick={() => handleSelect(globalIdx, oIdx)}
+                                disabled={submitted}
+                                className={`w-full p-4 text-left border-2 rounded-lg transition-all duration-200 hover:shadow-md ${answers[globalIdx] === oIdx
                                   ? "border-blue-500 bg-blue-50 shadow-sm"
                                   : "border-gray-200 hover:border-gray-300"
-                              } ${submitted ? "cursor-not-allowed" : "cursor-pointer"}`}
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                                  answers[globalIdx] === oIdx
+                                  } ${submitted ? "cursor-not-allowed" : "cursor-pointer"}`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${answers[globalIdx] === oIdx
                                     ? "border-blue-500 bg-blue-500"
                                     : "border-gray-300"
-                                }`}>
-                                  {answers[globalIdx] === oIdx && (
-                                    <div className="w-2 h-2 rounded-full bg-white"></div>
-                                  )}
+                                    }`}>
+                                    {answers[globalIdx] === oIdx && (
+                                      <div className="w-2 h-2 rounded-full bg-white"></div>
+                                    )}
+                                  </div>
+                                  <span className="text-sm sm:text-base">{opt}</span>
                                 </div>
-                                <span className="text-sm sm:text-base">{opt}</span>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-red-600 text-sm bg-red-50 p-3 rounded">
-                          No options available for this question.
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-
-            {/* Navigation */}
-            <div className="flex justify-between items-center mt-6">
-              <Button
-                variant="outline"
-                onClick={handlePrevious}
-                disabled={currentPage === 0}
-                className="px-6 py-3"
-              >
-                Previous
-              </Button>
-              
-              <div className="text-sm text-gray-500">
-                {totalPages > 1 && `Page ${currentPage + 1} of ${totalPages}`}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-red-600 text-sm bg-red-50 p-3 rounded">
+                            No options available for this question.
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
-              
-              {currentPage === totalPages - 1 ? (
+
+              {/* Navigation */}
+              <div className="flex justify-between items-center mt-6">
                 <Button
-                  onClick={handleSubmit}
-                  disabled={answers.some(a => a === -1 || a === '') || isSubmitting}
-                  className="px-8 py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
-                >
-                  {isSubmitting ? (
-                    <div className="flex items-center gap-2">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      Submitting...
-                    </div>
-                  ) : (
-                    'Submit Quiz'
-                  )}
-                </Button>
-              ) : (
-                <Button
-                  onClick={handleNext}
-                  disabled={currentQuestions.some((_, idx) => {
-                    const globalIdx = currentPage * questionsPerPage + idx;
-                    return answers[globalIdx] === -1 || answers[globalIdx] === '';
-                  })}
+                  variant="outline"
+                  onClick={handlePrevious}
+                  disabled={currentPage === 0}
                   className="px-6 py-3"
                 >
-                  Next
+                  Previous
                 </Button>
-              )}
-            </div>
-          </>
-        ) : (
-          /* Results Card */
-          <Card className="shadow-2xl border-t-4 border-t-green-500">
-            <CardHeader className="bg-gradient-to-r from-green-50 to-blue-50 text-center">
-              <CardTitle className="text-3xl font-bold text-gray-800 mb-2">
-                Quiz Complete! 🎉
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-8">
-              <div className="text-center mb-8">
-                <div className="text-6xl font-bold text-green-600 mb-2">
-                  {score !== null && maxScore !== null ? (
-                    `${Math.round((score / maxScore) * 100)}%`
-                  ) : (
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                      <span className="text-2xl">Grading...</span>
-                    </div>
-                  )}
+
+                <div className="text-sm text-gray-500">
+                  {totalPages > 1 && `Page ${currentPage + 1} of ${totalPages}`}
                 </div>
-                {score !== null && maxScore !== null && (
-                  <div className="text-xl text-gray-600 mb-6">
-                    You scored {score} out of {maxScore} questions correctly
-                  </div>
-                )}
-                
-                {feedback && (
+
+                {currentPage === totalPages - 1 ? (
                   <Button
-                    onClick={() => router.push('/employee/score-history')}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 text-lg font-semibold rounded-lg shadow-lg transition-all"
+                    onClick={handleSubmit}
+                    disabled={answers.some(a => a === -1 || a === '') || isSubmitting}
+                    className="px-8 py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
                   >
-                    View Full Report
+                    {isSubmitting ? (
+                      <div className="flex items-center gap-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Submitting...
+                      </div>
+                    ) : (
+                      'Submit Quiz'
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleNext}
+                    disabled={currentQuestions.some((_, idx) => {
+                      const globalIdx = currentPage * questionsPerPage + idx;
+                      return answers[globalIdx] === -1 || answers[globalIdx] === '';
+                    })}
+                    className="px-6 py-3"
+                  >
+                    Next
                   </Button>
                 )}
               </div>
-            </CardContent>
-          </Card>
-        )}
+            </>
+          ) : (
+            /* Results Card */
+            <Card className="shadow-2xl border-t-4 border-t-green-500">
+              <CardHeader className="bg-gradient-to-r from-green-50 to-blue-50 text-center">
+                <CardTitle className="text-3xl font-bold text-gray-800 mb-2">
+                  Quiz Complete! 🎉
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-8">
+                <div className="text-center mb-8">
+                  <div className="text-6xl font-bold text-green-600 mb-2">
+                    {score !== null && maxScore !== null ? (
+                      `${Math.round((score / maxScore) * 100)}%`
+                    ) : (
+                      <div className="flex items-center justify-center gap-2">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                        <span className="text-2xl">Grading...</span>
+                      </div>
+                    )}
+                  </div>
+                  {score !== null && maxScore !== null && (
+                    <div className="text-xl text-gray-600 mb-6">
+                      You scored {score} out of {maxScore} questions correctly
+                    </div>
+                  )}
+
+                  {feedback && (
+                    <Button
+                      onClick={() => router.push('/employee/score-history')}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 text-lg font-semibold rounded-lg shadow-lg transition-all"
+                    >
+                      View Full Report
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>
