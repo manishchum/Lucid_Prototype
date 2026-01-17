@@ -253,7 +253,7 @@ Review the questions you missed and study the related concepts to improve your u
         upsertRes = (
             supabase
             .table("employee_assessments")
-            .upsert(rowToSave, on_conflict="user_id,assessment_id")
+            .upsert(rowToSave)
             .execute()
         )
         savedResult = getattr(upsertRes, "data", None)
