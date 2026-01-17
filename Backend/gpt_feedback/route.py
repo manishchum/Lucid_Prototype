@@ -9,12 +9,17 @@ from supabase import create_client, Client
 import google.generativeai as genai
 
 
+# from config import HOST, PORT
 router = APIRouter()
 
 # Keep same initialization behavior
 genAI = genai
 genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
 baseUrl = os.getenv("INTERNAL_API_BASE_URL") or os.getenv("NEXT_PUBLIC_BASE_URL") or "http://localhost:3000"
+
+# Default to local backend if not specified
+# default_base_url = f"http://{HOST}:{PORT}" if HOST and PORT else "http://localhost:8000"
+# baseUrl = os.getenv("INTERNAL_API_BASE_URL") or os.getenv("NEXT_PUBLIC_BASE_URL") or default_base_url
 
 # Optional supabase init to match original imports (not used in this handler, but preserved)
 supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
