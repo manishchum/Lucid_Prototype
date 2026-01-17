@@ -209,7 +209,7 @@ async def POST(request: Request):
                 print("[gpt-mcq-quiz] lookup processed_modules by processed_module_id warning:", pmIdErr)
 
             if pmById and isinstance(pmById, list) and len(pmById) > 0 and pmById[0].get("processed_module_id"):
-                existingProcessed = pmById
+                existingProcessed = pmById[0]
                 processedModuleId = pmById[0].get("processed_module_id")
 
         except Exception as e:
@@ -353,7 +353,13 @@ async def POST(request: Request):
                 return JSONResponse(content={"quiz": existing.get("questions"), "assessmentId": existing.get("assessment_id")})
 
         # Compose prompt for per-module MCQ quiz
+        # Use full processed content to ensure questions match what user studied
         prompt = f"""You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom's Taxonomy.
+
+IMPORTANT: Generate questions ONLY from the content provided below. Do not add external knowledge or concepts not covered in the learning content.
+
+Learning Style Adaptation: {learningStyle}
+This content has been adapted for {learningStyle} learners. Generate questions that test understanding of the ACTUAL content provided, not general knowledge about the topic.
 
 Input: A learning asset (text, notes, or structured content).
 
@@ -384,6 +390,7 @@ Question Design Rules:
 - Provide 4 answer choices (A–D).
 - Clearly mark the correct answer.
 - Avoid ambiguity; test one concept per question. Ensure every concept is tested.
+- Questions MUST be based on the content below, not external knowledge.
 
 Return ONLY a valid JSON array of 10-13 question objects, with no extra text, markdown, code blocks, or formatting. Each object must include:
 {{
@@ -395,9 +402,12 @@ Return ONLY a valid JSON array of 10-13 question objects, with no extra text, ma
 }}
 
 Learning Content:
-Summary: {moduleTitle}
-Modules: {json.dumps([moduleTitle])}
-Objectives: {json.dumps([moduleContent])}"""
+Module Title: {moduleTitle}
+
+Full Content (adapted for {learningStyle} learners):
+{moduleContent}
+
+Generate questions that test understanding of THIS specific content only."""
 
         try:
             model = genai.GenerativeModel("gemini-2.5-flash-lite")
