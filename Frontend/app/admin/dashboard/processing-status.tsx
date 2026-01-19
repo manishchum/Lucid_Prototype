@@ -62,6 +62,8 @@ interface ContentGenerationProgressProps {
   moduleId: string
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL
+
 export function ContentGenerationProgress({ moduleId }: ContentGenerationProgressProps) {
   const [progress, setProgress] = useState(0)
   const [completed, setCompleted] = useState(0)
@@ -72,7 +74,7 @@ export function ContentGenerationProgress({ moduleId }: ContentGenerationProgres
     let interval: NodeJS.Timeout
     const fetchProgress = async () => {
       try {
-        const res = await fetch(`/api/content-generation-progress?module_id=${moduleId}`)
+        const res = await fetch(`${API_BASE}/api/content-generation-progress?module_id=${moduleId}`)
         const data = await res.json()
         setProgress(data.percent || 0)
         setCompleted(data.completed || 0)

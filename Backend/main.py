@@ -8,6 +8,7 @@ from gpt_mcq_quiz.route import router as gpt_mcq_quiz_router
 from gpt_feedback.route import router as gpt_feedback_router
 from submit_assessment.route import router as submit_assessment_router
 from training_plan.route import router as training_plan_router
+from content_generation_progress.route import router as content_generation_progress_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -41,7 +42,7 @@ app.include_router(gpt_mcq_quiz_router, prefix="/api", tags=["gpt-mcq-quiz"])
 app.include_router(gpt_feedback_router, prefix="/api", tags=["gpt-feedback"])
 app.include_router(submit_assessment_router, prefix="/api", tags=["submit-assessment"])
 app.include_router(training_plan_router, prefix="/api", tags=["training-plan"])
-
+app.include_router(content_generation_progress_router, prefix="/api", tags=["content-generation-progress"])
 
 if __name__ == "__main__":
     import uvicorn
