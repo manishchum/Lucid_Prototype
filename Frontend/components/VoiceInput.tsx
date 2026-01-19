@@ -1,22 +1,100 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Mic, Square } from 'lucide-react';
 
 interface VoiceInputProps {
   onTranscription: (text: string) => void;
   disabled?: boolean;
+  autoStart?: boolean; // New prop for auto-starting
 }
 
-export default function VoiceInput({ onTranscription, disabled }: VoiceInputProps) {
+export default function VoiceInput({ onTranscription, disabled, autoStart = false }: VoiceInputProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  // Auto-start recording when autoStart becomes true
+  useEffect(() => {
+    if (autoStart && !isRecording && !isProcessing && !disabled) {
+      console.log('🎤 Auto-starting recording...');
+      startRecording();
+    }
+  }, [autoStart, isRecording, isProcessing, disabled]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  const detectSilence = (stream: MediaStream) => {
+    const audioContext = new AudioContext();
+    const analyser = audioContext.createAnalyser();
+    const microphone = audioContext.createMediaStreamSource(stream);
+    
+    analyser.smoothingTimeConstant = 0.8;
+    analyser.fftSize = 1024;
+    
+    microphone.connect(analyser);
+    
+    audioContextRef.current = audioContext;
+    analyserRef.current = analyser;
+    
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    let lastSoundTime = Date.now();
+    const SILENCE_THRESHOLD = 10; // Volume threshold (0-255)
+    const SILENCE_DURATION = 2000; // 2 seconds of silence
+    
+    const checkAudioLevel = () => {
+      if (!isRecording) return;
+      
+      analyser.getByteFrequencyData(dataArray);
+      const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+      
+      if (average > SILENCE_THRESHOLD) {
+        // Sound detected, reset silence timer
+        lastSoundTime = Date.now();
+        if (silenceTimeoutRef.current) {
+          clearTimeout(silenceTimeoutRef.current);
+          silenceTimeoutRef.current = null;
+        }
+      } else {
+        // Silence detected
+        const silenceDuration = Date.now() - lastSoundTime;
+        
+        if (silenceDuration > SILENCE_DURATION && !silenceTimeoutRef.current) {
+          console.log('🔇 Silence detected, stopping recording...');
+          stopRecording();
+          return;
+        }
+      }
+      
+      requestAnimationFrame(checkAudioLevel);
+    };
+    
+    checkAudioLevel();
+  };
 
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: 'audio/webm',
       });
@@ -35,11 +113,23 @@ export default function VoiceInput({ onTranscription, disabled }: VoiceInputProp
         await transcribeAudio(audioBlob);
         
         // Stop all tracks
-        stream.getTracks().forEach(track => track.stop());
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+        }
+        
+        // Close audio context
+        if (audioContextRef.current) {
+          audioContextRef.current.close();
+          audioContextRef.current = null;
+        }
       };
 
       mediaRecorder.start();
       setIsRecording(true);
+      
+      // Start silence detection
+      detectSilence(stream);
     } catch (error) {
       console.error('Error starting recording:', error);
       alert('Could not access microphone. Please check permissions.');
@@ -50,6 +140,11 @@ export default function VoiceInput({ onTranscription, disabled }: VoiceInputProp
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
+      
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+        silenceTimeoutRef.current = null;
+      }
     }
   };
 

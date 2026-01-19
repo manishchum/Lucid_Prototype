@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabase";
 import EmployeeNavigation from "@/components/employee-navigation";
 import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
+import RolePlayReports from "@/components/roleplay/RolePlayReports";
 
 // Helper component to format question-specific feedback
 // Robust parsing of: JSON array, comma-separated quoted tokens, or free-form sections
@@ -249,6 +250,7 @@ export default function ScoreHistoryPage() {
   const [scoreHistory, setScoreHistory] = useState<any[]>([]);
   const [learningStyleData, setLearningStyleData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'assessments' | 'roleplay'>('assessments');
   // State to track which items are expanded (must be declared at the top level)
   const [expanded, setExpanded] = useState<{ [key: number]: boolean }>({});
   const [learningStyleExpanded, setLearningStyleExpanded] = useState<boolean>(false);
@@ -377,7 +379,32 @@ export default function ScoreHistoryPage() {
               <p className="text-slate-500 font-medium text-sm">Review your style & scores</p>
             </div>
           </div>
+
+          {/* Tabs Navigation */}
+          <div className="flex gap-2 mb-8">
+            <button
+              onClick={() => setActiveTab('assessments')}
+              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
+                activeTab === 'assessments'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              📚 Assessments
+            </button>
+            <button
+              onClick={() => setActiveTab('roleplay')}
+              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
+                activeTab === 'roleplay'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              🎭 Role-Play Sessions
+            </button>
+          </div>
         
+        {activeTab === 'assessments' && (
         <div className="grid gap-8">
         {/* Learning Style Section */}
         {learningStyleData ? (
@@ -594,6 +621,13 @@ export default function ScoreHistoryPage() {
           </CardContent>
         </Card>
         </div>
+        )}
+
+        {/* Role-Play Sessions Tab */}
+        {activeTab === 'roleplay' && employeeId && (
+          <RolePlayReports employeeId={employeeId} />
+        )}
+
         </div>
       </main>
     </div>

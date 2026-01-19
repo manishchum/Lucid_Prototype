@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { text } = await request.json();
+    const { text, voiceGender = 'female' } = await request.json();
 
     if (!text) {
       return NextResponse.json(
@@ -59,9 +59,23 @@ export async function POST(request: NextRequest) {
 
     console.log("[Text-to-Speech] Converting text to speech...");
     console.log("[Text-to-Speech] Text length:", text.length);
+    console.log("[Text-to-Speech] Voice gender:", voiceGender);
 
     // Get OAuth2 access token
     const accessToken = await getAccessToken();
+
+    // Select voice based on gender
+    const voiceConfig = voiceGender === 'male' 
+      ? {
+          languageCode: "en-US",
+          name: "en-US-Studio-M", // High quality male Studio voice
+          ssmlGender: "MALE"
+        }
+      : {
+          languageCode: "en-US",
+          name: "en-US-Studio-O", // High quality female Studio voice
+          ssmlGender: "FEMALE"
+        };
 
     // Use Google Cloud Text-to-Speech REST API
     const apiUrl = `https://texttospeech.googleapis.com/v1/text:synthesize`;
@@ -76,16 +90,13 @@ export async function POST(request: NextRequest) {
         input: {
           text: text
         },
-        voice: {
-          languageCode: "en-US",
-          name: "en-US-Neural2-F", // Female neural voice
-          ssmlGender: "FEMALE"
-        },
+        voice: voiceConfig,
         audioConfig: {
           audioEncoding: "MP3",
-          speakingRate: 1.0,
+          speakingRate: 0.95, // Slightly slower for better clarity
           pitch: 0.0,
-          volumeGainDb: 0.0
+          volumeGainDb: 2.0, // Increase volume slightly
+          sampleRateHertz: 24000 // Higher quality audio
         }
       }),
     });

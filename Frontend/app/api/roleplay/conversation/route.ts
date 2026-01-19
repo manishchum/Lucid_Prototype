@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { message, conversationHistory, scenarioTitle, scenarioRole, initialPrompt } = await request.json();
+    const { message, conversationHistory, scenarioTitle, scenarioRole, initialPrompt, tone } = await request.json();
 
     if (!message) {
       return NextResponse.json(
@@ -20,8 +20,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Define tone instructions
+    const toneInstructions = {
+      Friendly: 'Be warm, encouraging, and supportive in your responses. Show enthusiasm and positivity.',
+      Neutral: 'Maintain a professional and balanced demeanor. Be business-like but not cold.',
+      Aggressive: 'Be challenging, skeptical, and push back on ideas. Express doubts and raise tough objections.'
+    };
+
+    const toneInstruction = tone ? toneInstructions[tone as keyof typeof toneInstructions] : toneInstructions.Neutral;
+
     // Build the system prompt to keep AI in character
-    const systemPrompt = `You are roleplaying as a ${scenarioRole} in a "${scenarioTitle}" scenario.
+    const systemPrompt = `You are an expert role-play simulation engine.
+You are roleplaying as a ${scenarioRole} in a "${scenarioTitle}" scenario.
 
 CRITICAL RULES - YOU MUST FOLLOW THESE:
 1. STAY IN CHARACTER as the ${scenarioRole} at all times
@@ -34,6 +44,8 @@ CRITICAL RULES - YOU MUST FOLLOW THESE:
 8. If the user's pitch is unclear, express confusion or ask for clarification
 9. If the user handles objections well, gradually become more interested
 10. Challenge the user with realistic business concerns
+
+CHARACTER TONE: ${toneInstruction}
 
 Your character background: ${initialPrompt}
 

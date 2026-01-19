@@ -31,9 +31,9 @@ npm run dev
 
 ### ✅ Complete Integration
 - **Scenario Selection**: 4 pre-built role-play scenarios
-- **Voice Input**: Uses your existing Speech-to-Text service
-- **Text Input**: Type responses if preferred
-- **Voice Output**: Uses your existing Text-to-Speech service
+- **Continuous Conversation**: AI speaks first, then automatically listens for your response
+- **Automatic Voice Flow**: No clicking "send" - just speak naturally
+- **Real-time Audio**: AI responses are automatically spoken aloud
 - **AI Conversation**: Powered by Gemini 2.0 Flash
 - **Assessment Reports**: Automated performance analysis with scores and recommendations
 
@@ -42,28 +42,33 @@ npm run dev
 1. Navigate to any module
 2. Click **🎭 Role Play** button
 3. Select a scenario (Customer Complaint, Budget Negotiation, Sales Pitch, or Performance Review)
-4. Click "Start Role-Play"
-5. Have a conversation with the AI (voice or text)
-6. Click "End Session" when done
-7. Receive detailed assessment report with:
+4. Click **"Start Conversation"** button
+5. **AI speaks first automatically** - listen to the AI's opening statement
+6. **Your turn** - when AI finishes, a microphone appears - click it and speak
+7. **AI responds automatically** - AI thinks, then speaks its response
+8. **Conversation continues** - keep speaking back and forth naturally
+9. Click **"Stop Conversation"** or **"End Session"** when done
+10. Receive detailed assessment report with:
    - Overall performance score
    - Breakdown by skill (Communication, Objection Handling, Value Proposition, etc.)
    - Specific recommendations for improvement
 
-### 🎙️ Voice Capabilities
+### 🎙️ How the Conversation Works
 
-**Voice Input:**
-- Click microphone icon to toggle voice mode
-- Click the mic button to start recording
-- Speak your response
-- Click again to stop and transcribe
-- Automatically sends to AI for response
+**Automatic Flow:**
+1. Click "Start Conversation"
+2. AI automatically speaks its opening message
+3. After AI finishes speaking, microphone activates automatically
+4. Click the microphone and speak your response
+5. AI automatically processes, thinks, and speaks back
+6. Microphone activates again for your next response
+7. This continues in a natural back-and-forth rhythm
 
-**Voice Output:**
-- Every AI response includes a speaker icon
-- Click to hear the AI's response read aloud
-- Uses your existing Text-to-Speech service
-- Natural-sounding voice output
+**No Manual Clicking Required:**
+- You don't click "send" after each message
+- The conversation flows naturally like a real phone call
+- Just wait for the microphone to appear, then speak
+- AI automatically responds and continues the conversation
 
 ### 📊 Assessment Report
 

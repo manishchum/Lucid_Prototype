@@ -5,6 +5,8 @@ export interface Scenario {
   initialPrompt: string;
   role: string;
   difficulty: 'Easy' | 'Medium' | 'Hard';
+  userRole?: string;
+  tone?: 'Friendly' | 'Neutral' | 'Aggressive';
 }
 
 export interface AssessmentParameter {
@@ -26,4 +28,4 @@ export interface Message {
   timestamp: string;
 }
 
-export type AppScreen = 'scenarioSelection' | 'rolePlay' | 'assessmentReport';
+export type AppScreen = 'scenarioSelection' | 'config' | 'rolePlay' | 'assessmentReport';
