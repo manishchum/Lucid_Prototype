@@ -8,7 +8,6 @@ import { CheckCircle, XCircle, Clock, Award, BookOpen, TrendingUp } from 'lucide
 import { useAuth } from '@/contexts/auth-context';
 import AIFeedbackSections  from './ai-feedback-sections';
 
-const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 interface QuizQuestion {
   question: string;
   options: string[];
@@ -128,7 +127,7 @@ const Quiz: React.FC<QuizProps> = ({
       //   correctIndex: quiz[index]?.correctIndex
       // })));
 
-      const response = await fetch(`${API_BASE}/api/submit-assessment`, {
+      const response = await fetch('/api/submit-assessment', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
