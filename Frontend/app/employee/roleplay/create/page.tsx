@@ -141,9 +141,9 @@ export default function CreateRoleplayPage() {
   ];
 
   const tabs = [
-    { id: 'learner-brief', label: 'Learner brief', icon: '📝' },
+    { id: 'learner-brief', label: 'Learner Brief', icon: '📚' },
     { id: 'avatar-instructions', label: 'AI Coach Instructions', icon: '🎭' },
-    { id: 'end-conditions', label: 'End conditions', icon: '🏁' },
+    { id: 'end-conditions', label: 'End Conditions', icon: '🏁' },
     { id: 'evaluation', label: 'Evaluation parameters', icon: '📊' },
     { id: 'cutoff-score', label: 'Cut off score', icon: '🎯' },
     { id: 'reviewers', label: 'Reviewers', icon: '👥' },
@@ -476,13 +476,13 @@ In this exercise, you will interact with a virtual character to practice and imp
                     <div>
                       <h2 className="text-2xl font-bold text-slate-900 mb-2">AI Coach Instructions</h2>
                       <p className="text-slate-600 text-sm mb-6">
-                        Define the AI character's role, personality, and behavior guidelines.
+                        Define the AI Coach character's role, personality, and behavior guidelines.
                       </p>
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">
-                        AI Character Role *
+                        AI Coach Character Role *
                       </label>
                       <select
                         value={formData.aiRole}
@@ -500,13 +500,13 @@ In this exercise, you will interact with a virtual character to practice and imp
 
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Custom AI Role (if not listed above)
+                        Custom AI Coach Role (if not listed above)
                       </label>
                       <input
                         type="text"
                         value={formData.aiRole && !aiRoleOptions.includes(formData.aiRole) ? formData.aiRole : ''}
                         onChange={(e) => setFormData({ ...formData, aiRole: e.target.value })}
-                        placeholder="Enter a custom AI role"
+                        placeholder="Enter a custom AI Coachrole"
                         className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base"
                       />
                     </div>
@@ -528,12 +528,12 @@ In this exercise, you will interact with a virtual character to practice and imp
 
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">
-                        AI Personality Description
+                        AI Coach Personality Description
                       </label>
                       <textarea
                         value={formData.aiPersonality}
                         onChange={(e) => setFormData({ ...formData, aiPersonality: e.target.value })}
-                        placeholder="Describe how the AI should behave, e.g., 'A busy professional who needs clear and concise information. May ask follow-up questions to clarify points.'"
+                        placeholder="Describe how the AI Coach should behave, e.g., 'A busy professional who needs clear and concise information. May ask follow-up questions to clarify points.'"
                         rows={4}
                         className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base"
                       />
@@ -541,12 +541,12 @@ In this exercise, you will interact with a virtual character to practice and imp
 
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">
-                        AI's Opening Line *
+                        AI Coach's Opening Line *
                       </label>
                       <textarea
                         value={formData.initialPrompt}
                         onChange={(e) => setFormData({ ...formData, initialPrompt: e.target.value })}
-                        placeholder="What should the AI character say first? e.g., 'Hello, how can I help you today?' or 'Good morning. What would you like to discuss?'"
+                        placeholder="What should the AI Coach character say first? e.g., 'Hello, how can I help you today?' or 'Good morning. What would you like to discuss?'"
                         rows={3}
                         className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base"
                       />
@@ -554,7 +554,7 @@ In this exercise, you will interact with a virtual character to practice and imp
 
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">
-                        AI's Objectives & Guidelines
+                        AI Coach's Objectives & Guidelines
                       </label>
                       <textarea
                         value={formData.aiObjectives}

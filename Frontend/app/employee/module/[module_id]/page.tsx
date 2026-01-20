@@ -1421,6 +1421,26 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Structured overview</div>
           </div>
 
+          {/* Role Play button */}
+          <div
+            onClick={() => {
+              // Navigate to roleplay page using module data
+              if (module) {
+                const modId = module.processed_module_id || module.original_module_id;
+                const title = encodeURIComponent(module.title || 'Module');
+                window.location.href = `/employee/roleplay?moduleId=${modId}&moduleTitle=${title}`;
+              }
+            }}
+            className={clsx(
+              'rounded-xl p-5 cursor-pointer transition-all border-2',
+              'bg-white border-slate-300 hover:border-slate-400 hover:shadow-md'
+            )}
+          >
+            <div className="text-3xl mb-3">🎭</div>
+            <div className="font-bold text-slate-900 text-sm">Role Play</div>
+            <div className="text-slate-500 text-xs mt-1">Practice sales pitch</div>
+          </div>
+
         </div>
 
         {selectedOption === 'audio' && audioOpen && (

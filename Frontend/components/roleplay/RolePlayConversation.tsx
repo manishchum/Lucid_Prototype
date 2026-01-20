@@ -34,10 +34,52 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
   const videoRef = useRef<HTMLVideoElement>(null);
   const userResponseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isProcessingRef = useRef(false); // Lock to prevent concurrent processing
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
   // Keep ref in sync with state
   useEffect(() => {
     conversationActiveRef.current = conversationActive;
+  }, [conversationActive]);
+
+  // Enter fullscreen when conversation starts
+  useEffect(() => {
+    const enterFullscreen = async () => {
+      if (conversationActive && containerRef.current) {
+        try {
+          if (containerRef.current.requestFullscreen) {
+            await containerRef.current.requestFullscreen();
+          }
+          console.log('✅ Entered fullscreen mode');
+        } catch (error) {
+          console.error('❌ Error entering fullscreen:', error);
+        }
+      }
+    };
+
+    enterFullscreen();
+  }, [conversationActive]);
+
+  // Prevent exiting fullscreen during conversation
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement && conversationActive) {
+        // Re-enter fullscreen if user tries to exit during conversation
+        if (containerRef.current) {
+          containerRef.current.requestFullscreen().catch(err => {
+            console.error('Could not re-enter fullscreen:', err);
+          });
+        }
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
   }, [conversationActive]);
 
   // Fetch employee ID from Supabase when user changes
@@ -346,6 +388,55 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
     });
   };
 
+  // Upload video to Supabase storage
+  const uploadVideoToStorage = async (videoBlob: Blob, sessionId: string) => {
+    try {
+      console.log('📤 Uploading video to storage...');
+      
+      const fileName = `roleplay-sessions/${sessionId}/${Date.now()}.webm`;
+      
+      const { data, error } = await supabase.storage
+        .from('roleplay-videos')
+        .upload(fileName, videoBlob, {
+          contentType: 'video/webm',
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (error) {
+        console.error('❌ Error uploading video:', error);
+        return;
+      }
+
+      console.log('✅ Video uploaded successfully:', data);
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('roleplay-videos')
+        .getPublicUrl(fileName);
+
+      const publicUrl = urlData.publicUrl;
+      console.log('📹 Video public URL:', publicUrl);
+
+      // Update session with video URL
+      const { error: updateError } = await supabase
+        .from('roleplay_sessions')
+        .update({ video_url: publicUrl })
+        .eq('id', sessionId);
+
+      if (updateError) {
+        console.error('❌ Error updating session with video URL:', updateError);
+        return;
+      }
+
+      setVideoUrl(publicUrl);
+      console.log('✅ Session updated with video URL');
+      
+    } catch (error) {
+      console.error('❌ Error in uploadVideoToStorage:', error);
+    }
+  };
+
   // Start conversation
   const startConversation = async () => {
     console.log('Starting conversation...');
@@ -364,7 +455,7 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
           width: { ideal: 640 },
           height: { ideal: 480 }
         }, 
-        audio: false // We handle audio separately with VoiceInput
+        audio: true // Include audio for recording
       });
       console.log('🎥 Video stream obtained:', stream);
       console.log('🎥 Video tracks:', stream.getVideoTracks());
@@ -375,6 +466,41 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
         // Force play
         videoRef.current.play().catch(err => console.error('❌ Video play error:', err));
       }
+
+      // Start recording the video
+      try {
+        const mediaRecorder = new MediaRecorder(stream, {
+          mimeType: 'video/webm;codecs=vp9',
+        });
+        
+        mediaRecorderRef.current = mediaRecorder;
+        recordedChunksRef.current = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            recordedChunksRef.current.push(event.data);
+            console.log('📹 Video chunk recorded:', event.data.size, 'bytes');
+          }
+        };
+
+        mediaRecorder.onstop = async () => {
+          console.log('📹 Recording stopped, total chunks:', recordedChunksRef.current.length);
+          const videoBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+          console.log('📹 Video blob size:', videoBlob.size, 'bytes');
+          
+          // Upload video to storage
+          if (sessionId) {
+            await uploadVideoToStorage(videoBlob, sessionId);
+          }
+        };
+
+        mediaRecorder.start(1000); // Record in 1-second chunks
+        setIsRecording(true);
+        console.log('🔴 Video recording started');
+      } catch (recError) {
+        console.error('❌ Error starting video recording:', recError);
+      }
+
       console.log('✅ Video stream started successfully');
     } catch (error) {
       console.error('❌ Error starting video:', error);
@@ -459,11 +585,25 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
       currentAudio.currentTime = 0;
     }
     
+    // Stop video recording
+    if (mediaRecorderRef.current && isRecording) {
+      console.log('🛑 Stopping video recording...');
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+    
     // Stop video stream
     if (videoStream) {
       videoStream.getTracks().forEach(track => track.stop());
       setVideoStream(null);
       console.log('✅ Video stream stopped');
+    }
+
+    // Exit fullscreen
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(err => {
+        console.error('Could not exit fullscreen:', err);
+      });
     }
   };
 
@@ -597,8 +737,8 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
 
   return (
     <div 
+      ref={containerRef}
       className="fixed inset-0 bg-gray-900 flex flex-col z-50"
-      style={{ left: 'var(--sidebar-width, 0px)' }}
     >
       {/* Top Control Bar */}
       <div className="bg-gray-800 border-b border-gray-700 px-6 py-3 flex items-center justify-between">
@@ -647,21 +787,22 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
 
       {/* Main Content Area */}
       <div className="flex-1 flex">
-        {/* Left Side - AI Coach Avatar */}
+        {/* Left Side - LT Avatar */}
         <div className="w-1/2 bg-gradient-to-br from-purple-600 via-purple-500 to-indigo-600 flex items-center justify-center p-8 relative overflow-hidden">
-          {/* Animated background */}
-          <div className="absolute inset-0">
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-white/10 rounded-full ${isSpeaking ? 'animate-ping' : ''}`}></div>
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-white/5 rounded-full ${isSpeaking ? 'animate-pulse' : ''}`}></div>
-          </div>
-
           <div className="relative z-10 text-center">
-            {/* Large Avatar */}
-            <div className={`mx-auto w-64 h-64 rounded-full bg-white flex items-center justify-center shadow-2xl transition-all duration-300 overflow-hidden mb-6 ${isSpeaking ? 'scale-110 ring-8 ring-white/30' : 'scale-100'}`}>
-              <span className="text-8xl font-bold text-purple-600">AI</span>
+            {/* Large Avatar with animated background effects BEHIND it */}
+            <div className="relative mx-auto w-64 h-64 mb-6">
+              {/* Animated background effects - positioned absolutely behind the circle */}
+              <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-white/10 rounded-full ${isSpeaking ? 'animate-ping' : 'opacity-0'}`}></div>
+              <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-white/5 rounded-full ${isSpeaking ? 'animate-pulse' : 'opacity-0'}`}></div>
+              
+              {/* Avatar Circle - positioned on top with z-index */}
+              <div className={`relative z-10 w-64 h-64 rounded-full bg-white flex items-center justify-center shadow-2xl transition-all duration-300 ${isSpeaking ? 'scale-110 ring-8 ring-white/30' : 'scale-100'}`}>
+                <span className="text-8xl font-bold text-purple-600">LT</span>
+              </div>
             </div>
 
-            {/* AI Coach Name and Status */}
+            {/* LT Name and Status */}
             <div className="text-white">
               <h2 className="text-4xl font-bold mb-2">{scenario.role}</h2>
               <div className="flex items-center justify-center gap-3 mb-3">
@@ -693,11 +834,6 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
               <p className="text-purple-100 opacity-90 text-lg">
                 {scenario.difficulty} Difficulty • {scenario.tone || 'Neutral'} Tone
               </p>
-            </div>
-
-            {/* Name Label */}
-            <div className="absolute bottom-8 left-8 bg-purple-900/80 backdrop-blur-sm px-6 py-3 rounded-full">
-              <p className="text-white font-medium text-lg">AI Coach</p>
             </div>
           </div>
         </div>
@@ -769,7 +905,7 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
             <h3 className="text-3xl font-bold text-slate-900 mb-3">Ready to Start?</h3>
             <p className="text-slate-600 mb-8 text-lg">
               Click the button below to begin your role-play conversation. 
-              The AI coach will speak first, then it's your turn!
+              The LT will speak first, then it's your turn!
             </p>
             <Button 
               onClick={startConversation}

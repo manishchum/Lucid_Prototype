@@ -68,7 +68,7 @@ export default function RolePlayPage() {
         try {
           const scenario = JSON.parse(customScenarioData);
           setSelectedScenario(scenario);
-          setCurrentScreen('rolePlay');
+          setCurrentScreen('config'); // Show config page first
           // Clear the sessionStorage after loading
           sessionStorage.removeItem('customScenario');
         } catch (error) {
@@ -289,6 +289,14 @@ export default function RolePlayPage() {
         )}
 
         {/* Main Content */}
+        {currentScreen === 'config' && selectedScenario && (
+          <RoleplayConfigPage
+            scenario={selectedScenario}
+            onStart={handleConfigStart}
+            onBack={handleBackFromConfig}
+          />
+        )}
+
         {currentScreen === 'scenarioSelection' && (
           <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200">
             <h2 className="text-3xl font-bold text-gray-800 mb-2 text-center">

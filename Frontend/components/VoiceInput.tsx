@@ -167,15 +167,22 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
       }
 
       const data = await response.json();
+      console.log('[VoiceInput] Transcription response:', data);
       
-      if (data.text) {
+      if (data.text && data.text.trim()) {
+        console.log('[VoiceInput] ✅ Transcription successful:', data.text);
         onTranscription(data.text);
       } else {
-        throw new Error('No transcription returned');
+        console.warn('[VoiceInput] ⚠️ No speech detected in audio');
+        // Don't show alert for "no speech detected" - user might just not have spoken
+        // This is a normal scenario, not an error
       }
     } catch (error: any) {
-      console.error('Transcription error:', error);
-      alert(`Failed to transcribe audio: ${error.message}. Please check the console for details.`);
+      console.error('[VoiceInput] ❌ Transcription error:', error);
+      // Only show alert for actual API/network errors, not for "no speech detected"
+      if (!error.message?.includes('No speech detected')) {
+        alert(`Failed to transcribe audio: ${error.message}`);
+      }
     } finally {
       setIsProcessing(false);
     }

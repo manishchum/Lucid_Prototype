@@ -20,6 +20,75 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check if conversation is too short or incomplete (ended abruptly)
+    const userMessages = messages.filter((msg: any) => msg.sender === 'user');
+    const aiMessages = messages.filter((msg: any) => msg.sender === 'avatar');
+    
+    // If there are fewer than 3 exchanges or the conversation is very short, return zero score
+    const minExchanges = 3;
+    const minUserMessages = 2;
+    
+    if (userMessages.length < minUserMessages || messages.length < minExchanges * 2) {
+      console.log('⚠️ Conversation too short - returning zero score', {
+        totalMessages: messages.length,
+        userMessages: userMessages.length,
+        aiMessages: aiMessages.length
+      });
+      
+      return NextResponse.json({
+        overallScore: 0,
+        summary: "The conversation was ended abruptly or was too short to provide a meaningful assessment. Please complete a full roleplay session with at least 3-4 exchanges to receive proper feedback.",
+        parameters: [
+          {
+            name: "Communication Clarity",
+            score: 0,
+            feedback: "Insufficient conversation to evaluate communication skills."
+          },
+          {
+            name: "Eye Contact & Engagement",
+            score: 0,
+            feedback: "Session ended too early to assess engagement levels."
+          },
+          {
+            name: "Hand Gestures & Body Language",
+            score: 0,
+            feedback: "Not enough interaction to evaluate body language."
+          },
+          {
+            name: "Facial Expressions",
+            score: 0,
+            feedback: "Session too brief to assess facial expressions."
+          },
+          {
+            name: "Objection Handling",
+            score: 0,
+            feedback: "No sufficient interaction to evaluate objection handling."
+          },
+          {
+            name: "Value Proposition",
+            score: 0,
+            feedback: "Conversation ended before value proposition could be assessed."
+          },
+          {
+            name: "Active Listening",
+            score: 0,
+            feedback: "Insufficient dialogue to assess listening skills."
+          },
+          {
+            name: "Confidence & Professionalism",
+            score: 0,
+            feedback: "Not enough interaction to evaluate confidence and professionalism."
+          }
+        ],
+        recommendations: [
+          "Complete a full roleplay session without ending it prematurely.",
+          "Engage in at least 4-5 exchanges with the LT to demonstrate your skills.",
+          "Practice maintaining the conversation until a natural conclusion is reached.",
+          "Use the session duration effectively to showcase your abilities."
+        ]
+      });
+    }
+
     // Build conversation transcript
     const transcript = messages
       .map((msg: any) => `${msg.sender === 'user' ? 'User' : scenarioRole}: ${msg.text}`)

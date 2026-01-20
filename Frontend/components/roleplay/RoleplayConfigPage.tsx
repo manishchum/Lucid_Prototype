@@ -130,7 +130,7 @@ export default function RoleplayConfigPage({ scenario, onStart, onBack }: Rolepl
               <div>
                 <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-3">
                   <MessageSquare className="w-5 h-5 text-purple-600" />
-                  AI Coach Tone
+                  LT Tone
                 </label>
                 <div className="grid grid-cols-4 gap-3">
                   {['Friendly', 'Neutral', 'Professional', 'Challenging'].map((tone) => (

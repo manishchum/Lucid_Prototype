@@ -64,16 +64,16 @@ export async function POST(request: NextRequest) {
     // Get OAuth2 access token
     const accessToken = await getAccessToken();
 
-    // Select voice based on gender
+    // Select voice based on gender - Using Indian English accent (same as podcast)
     const voiceConfig = voiceGender === 'male' 
       ? {
-          languageCode: "en-US",
-          name: "en-US-Studio-M", // High quality male Studio voice
+          languageCode: "hi-IN",
+          name: "hi-IN-Chirp3-HD-Enceladus", // Indian English male voice (Rahul)
           ssmlGender: "MALE"
         }
       : {
-          languageCode: "en-US",
-          name: "en-US-Studio-O", // High quality female Studio voice
+          languageCode: "hi-IN",
+          name: "hi-IN-Chirp3-HD-Autonoe", // Indian English female voice (Pooja)
           ssmlGender: "FEMALE"
         };
 

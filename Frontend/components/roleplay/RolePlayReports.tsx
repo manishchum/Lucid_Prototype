@@ -25,6 +25,7 @@ interface RolePlaySession {
   completed_at: string;
   duration_seconds: number;
   message_count: number;
+  video_url?: string;
   roleplay_assessments: Array<{
     overall_score: number;
     summary: string;
@@ -251,6 +252,23 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
                     <h5 className="font-semibold text-slate-900 mb-2">Performance Summary</h5>
                     <p className="text-slate-700">{assessment.summary}</p>
                   </div>
+
+                  {/* Video Recording */}
+                  {session.video_url && (
+                    <div>
+                      <h5 className="font-semibold text-slate-900 mb-3">Session Recording</h5>
+                      <div className="bg-black rounded-lg overflow-hidden">
+                        <video 
+                          src={session.video_url} 
+                          controls 
+                          className="w-full"
+                          style={{ maxHeight: '400px' }}
+                        >
+                          Your browser does not support the video tag.
+                        </video>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Performance Breakdown */}
                   <div>
