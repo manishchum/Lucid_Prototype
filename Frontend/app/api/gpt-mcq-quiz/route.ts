@@ -438,7 +438,8 @@ Objectives: ${JSON.stringify([moduleContent])}`;
           type: 'module',
           processed_module_id: processedModuleId,
           questions: JSON.stringify(quiz),
-          learning_style: learningStyle
+          learning_style: learningStyle,
+          company_id: body.companyId || null
         });
         // console.log("Inserting data inside the assessment table")
         // console.log(insertResult)
@@ -668,7 +669,6 @@ Objectives: ${JSON.stringify([moduleContent])}`;
         .from('learning_plan')
         .select('user_id')
         .eq('company_id', companyId)
-        .eq('status', 'ASSIGNED');
       const users = Array.isArray(plans) ? plans.map((p: any) => p.user_id) : [];
       const bulkRows: any[] = [];
       for (const u of users) {

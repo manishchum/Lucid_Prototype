@@ -142,6 +142,8 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         setPlainTranscript(extractPlainText(data.content || ''));
         try {
           if (empObj?.user_id) {
+            console.log("Inside the module progress log 2")
+            console.log(data)
             await fetch('/api/module-progress', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -151,6 +153,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                 module_id: data.original_module_id,
                 started_at: new Date().toISOString(),
                 audio_url: data.audio_url,
+                completed_at: new Date().toISOString(),
                 viewOnly: true,
               }),
             });

@@ -50,10 +50,12 @@ export default function KPITurbocharge() {
   const [functions, setFunctions] = useState<Array<{ function_id: string; function_name: string }>>([]);
   const [subFunctions, setSubFunctions] = useState<Array<{ sub_function_id: string; sub_function_name: string }>>([]);
   const [titles, setTitles] = useState<Array<{ title_id: string; title_name: string }>>([]);
+  const [modules, setModules] = useState<Array<{ module_id: string; title: string }>>([]);
   
   const [selectedFunctionId, setSelectedFunctionId] = useState<string>('');
   const [selectedSubFunctionId, setSelectedSubFunctionId] = useState<string>('');
   const [selectedTitleId, setSelectedTitleId] = useState<string>('');
+  const [selectedModuleId, setSelectedModuleId] = useState<string>('');
   
   const [loading, setLoading] = useState(true);
   const [kpiData, setKpiData] = useState<KPIData[]>([]);
@@ -66,6 +68,7 @@ export default function KPITurbocharge() {
 
   useEffect(() => {
     loadFilters();
+    loadModules();
   }, []);
 
   useEffect(() => {
@@ -90,7 +93,7 @@ export default function KPITurbocharge() {
 
   useEffect(() => {
     fetchAllData();
-  }, [selectedFunctionId, selectedSubFunctionId, selectedTitleId]);
+  }, [selectedFunctionId, selectedSubFunctionId, selectedTitleId, selectedModuleId]);
 
   const loadFilters = async () => {
     try {
@@ -151,6 +154,21 @@ export default function KPITurbocharge() {
     }
   };
 
+  const loadModules = async () => {
+    try {
+      const { data: modulesData } = await supabase
+        .from('training_modules')
+        .select('module_id, title')
+        .order('title');
+
+      if (modulesData && modulesData.length > 0) {
+        setModules(modulesData);
+      }
+    } catch (error) {
+      console.error('Error loading modules:', error);
+    }
+  };
+
   const fetchAllData = async () => {
     setLoading(true);
     try {
@@ -159,7 +177,8 @@ export default function KPITurbocharge() {
         fetchModulePerformance(),
         fetchRecommendedActions(),
         fetchCorrelationData(),
-        calculateWorkforceReadiness()
+        // Call appropriate readiness calculation based on filter selection
+        selectedModuleId ? calculateWorkforceReadiness() : calculateOrganizationFunctionReadiness()
       ]);
       generateLucidAnalysis();
     } catch (error) {
@@ -286,11 +305,11 @@ export default function KPITurbocharge() {
       // Sort by impact score
       moduleStats.sort((a, b) => b.impact_score - a.impact_score);
 
-      // Top 3 performers
-      setTopModules(moduleStats.slice(0, 3));
+      // // Top 3 performers
+      // setTopModules(moduleStats.slice(0, 3));
 
-      // Bottom 2 that need optimization
-      setNeedsOptimization(moduleStats.slice(-2).reverse());
+      // // Bottom 2 that need optimization
+      // setNeedsOptimization(moduleStats.slice(-2).reverse());
 
     } catch (error) {
       console.error('Error fetching module performance:', error);
@@ -398,6 +417,27 @@ export default function KPITurbocharge() {
 
   const calculateWorkforceReadiness = async () => {
     try {
+      // Get modules based on filter
+      let modulesToProcess;
+      
+      if (selectedModuleId) {
+        // Single module selected - get only that module
+        modulesToProcess = [{ module_id: selectedModuleId }];
+      } else {
+        // No module filter - get all modules
+        const { data: allModules } = await supabase
+          .from('training_modules')
+          .select('module_id');
+        
+        modulesToProcess = allModules || [];
+      }
+
+      if (modulesToProcess.length === 0) {
+        setWorkforceReadiness({ score: 0, change: 0, status: 'No Modules Available' });
+        return;
+      }
+
+      // Get users based on selected filters
       let userQuery = supabase
         .from('users')
         .select('user_id')
@@ -416,26 +456,58 @@ export default function KPITurbocharge() {
       const userIds = users?.map(u => u.user_id) || [];
 
       if (userIds.length === 0) {
-        setWorkforceReadiness({ score: 0, change: 0, status: 'No Data' });
+        setWorkforceReadiness({ score: 0, change: 0, status: 'No Users Found' });
         return;
       }
 
-      const { data: learningPlans } = await supabase
-        .from('learning_plan')
-        .select('status, progress')
-        .in('user_id', userIds);
+      // Module-wise calculation
+      let totalReadyCount = 0;
+      let totalNotReadyCount = 0;
 
-      if (!learningPlans || learningPlans.length === 0) {
+      for (const module of modulesToProcess) {
+        let moduleReadyCount = 0;
+        let moduleNotReadyCount = 0;
+
+        for (const userId of userIds) {
+          // Get learning plan for this user and module
+          const { data: learningPlan } = await supabase
+            .from('learning_plan')
+            .select('overall_status, processed_module_ids')
+            .eq('user_id', userId)
+            .eq('module_id', module.module_id)
+            .single();
+
+          if (learningPlan) {
+            // Check if user has passed the module (overall_status is true)
+            if (learningPlan.overall_status === true) {
+              moduleReadyCount++;
+            } else {
+              // User has not passed - check processed_module_ids
+              if (learningPlan.processed_module_ids === null || learningPlan.processed_module_ids === '') {
+                // Don't count this user (not started yet)
+                continue;
+              } else {
+                // User has started but not passed
+                moduleNotReadyCount++;
+              }
+            }
+          }
+          // If no learning plan exists, don't count the user
+        }
+
+        totalReadyCount += moduleReadyCount;
+        totalNotReadyCount += moduleNotReadyCount;
+      }
+
+      const totalUsers = totalReadyCount + totalNotReadyCount;
+      
+      if (totalUsers === 0) {
         setWorkforceReadiness({ score: 0, change: 0, status: 'No Training Data' });
         return;
       }
 
-      const totalProgress = learningPlans.reduce((sum, lp) => sum + (lp.progress || 0), 0);
-      const avgProgress = totalProgress / learningPlans.length;
-      const completionRate = (learningPlans.filter(lp => lp.status === 'COMPLETED').length / learningPlans.length) * 100;
-      
-      const score = Math.round((avgProgress * 0.5) + (completionRate * 0.5));
-      const change = Math.round((Math.random() * 5) + 1); // Simulated improvement
+      const score = Math.round((totalReadyCount / totalUsers) * 100);
+      const change = Math.round((Math.random() * 5) + 1); // Simulated improvement - can be calculated from historical data
       
       let status = 'Developing';
       if (score >= 80) status = 'High Performance Zone';
@@ -445,6 +517,91 @@ export default function KPITurbocharge() {
       setWorkforceReadiness({ score, change, status });
     } catch (error) {
       console.error('Error calculating workforce readiness:', error);
+      setWorkforceReadiness({ score: 0, change: 0, status: 'Error' });
+    }
+  };
+
+  const calculateOrganizationFunctionReadiness = async () => {
+    try {
+      // Get users based on selected filters (function or organization level)
+      let userQuery = supabase
+        .from('users')
+        .select('user_id, ready_status')
+        .eq('is_active', true)
+        .eq('employment_status', 'ACTIVE');
+
+      if (selectedTitleId) {
+        userQuery = userQuery.eq('title_id', selectedTitleId);
+      } else if (selectedSubFunctionId) {
+        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
+      } else if (selectedFunctionId) {
+        userQuery = userQuery.eq('function_id', selectedFunctionId);
+      }
+
+      const { data: users } = await userQuery;
+
+      if (!users || users.length === 0) {
+        setWorkforceReadiness({ score: 0, change: 0, status: 'No Users Found' });
+        return;
+      }
+
+      let readyCount = 0;
+      let notReadyCount = 0;
+
+      // Check each user
+      for (const user of users) {
+        // Get all learning plans for this user
+        const { data: learningPlans, error } = await supabase
+          .from('learning_plan')
+          .select('module_id, overall_status, processed_module_ids')
+          .eq('user_id', user.user_id);
+
+        // Skip users who haven't generated any modules
+        if (!learningPlans || learningPlans.length === 0) {
+          continue;
+        }
+
+        // Filter out modules that haven't been started (processed_module_ids is null or empty)
+        const startedModules = learningPlans.filter(
+          lp => lp.processed_module_ids !== null && lp.processed_module_ids !== ''
+        );
+
+        // If no modules have been started, don't count this user
+        if (startedModules.length === 0) {
+          continue;
+        }
+
+        // Check if user has passed ALL their started modules
+        const allModulesPassed = startedModules.every(lp => lp.overall_status === true);
+
+        if (allModulesPassed) {
+          // User has completed all assigned modules
+          readyCount++;
+        } else {
+          // User has started but not completed all modules
+          notReadyCount++;
+        }
+      }
+
+      const totalUsers = readyCount + notReadyCount;
+
+      if (totalUsers === 0) {
+        setWorkforceReadiness({ score: 0, change: 0, status: 'No Training Data' });
+        return;
+      }
+
+      // Calculate readiness score
+      const score = Math.round((readyCount / totalUsers) * 100);
+      const change = Math.round((Math.random() * 5) + 1); // Simulated improvement - can be calculated from historical data
+      
+      let status = 'Developing';
+      if (score >= 80) status = 'High Performance Zone';
+      else if (score >= 60) status = 'On Track';
+      else if (score >= 40) status = 'Needs Attention';
+
+      setWorkforceReadiness({ score, change, status });
+    } catch (error) {
+      console.error('Error calculating organization/function readiness:', error);
       setWorkforceReadiness({ score: 0, change: 0, status: 'Error' });
     }
   };
@@ -597,6 +754,20 @@ export default function KPITurbocharge() {
                   <option value="">All Roles</option>
                   {titles.map(title => (
                     <option key={title.title_id} value={title.title_id}>{title.title_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex-1">
+                <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Module</div>
+                <select 
+                  value={selectedModuleId}
+                  onChange={(e) => setSelectedModuleId(e.target.value)}
+                  className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">All Modules</option>
+                  {modules.map(module => (
+                    <option key={module.module_id} value={module.module_id}>{module.title}</option>
                   ))}
                 </select>
               </div>

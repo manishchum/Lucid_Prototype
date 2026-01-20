@@ -34,18 +34,24 @@ function TrainingPlanContent() {
   const [moduleBaselineStatus, setModuleBaselineStatus] = useState<Map<string, boolean>>(new Map());
   const [completedModules, setCompletedModules] = useState<string[]>([]);
   const [actualUserId, setActualUserId] = useState<string | null>(null);
-
+  const [processedModuleIds, setProcessedModuleIds] = useState<string[]>([]);
+  let userId:any = null;
   // Fetch completed modules from Supabase (same logic as employee/welcome)
   useEffect(() => {
     // console.log("[training-plan] Fetching completed modules for user:", user?.email);
     async function fetchCompletedModules() {
       if (!user?.email) return;
+      console.log('Inside but escaped')
       // Get employee id
       const { data: employeeData } = await supabase
         .from("users")
         .select("user_id")
         .eq("email", user.email)
         .single();
+
+        console.log(employeeData)
+      userId = employeeData.user_id;
+      setActualUserId(employeeData.user_id);
       if (!employeeData?.user_id) return;
 
       // Get completed modules for employee (match employee/welcome logic)
@@ -65,7 +71,15 @@ function TrainingPlanContent() {
         // console.log(completedModules)
       }
     }
-    fetchCompletedModules();
+
+
+   fetchCompletedModules();
+    console.log(user)
+    console.log(userId)
+
+    if(!user||!actualUserId)return;
+    console.log(actualUserId)
+    // setActualUserId(employeeData.id);
   }, [user]);
 
   // Helper to render reasoning in a readable format
@@ -198,7 +212,11 @@ function TrainingPlanContent() {
       }
       // Store the actual user_id for use in resolveModuleId
       setActualUserId(employeeData.user_id);
-      
+      console.log(actualUserId)
+      userId = employeeData.user_id;
+      console.log(userId)
+      console.log(employeeData)
+      console.log("Inside the useEffect")
       // Fetch module-specific baseline requirements AND user's completion status
       try {
         const { data: modules } = await supabase
@@ -292,6 +310,7 @@ function TrainingPlanContent() {
       const requestBody: any = { user_id: employeeData.user_id };
       if (moduleId) {
         requestBody.module_id = moduleId;
+        requestBody.processedModuleIds = processedModuleIds;
       }
       // console.log("[training-plan] Fetching plan with body:", requestBody);
       const res = await fetch("/api/training-plan", {
@@ -351,6 +370,12 @@ function TrainingPlanContent() {
       } else {
         setReasoning(null);
       }
+
+      // Collect and save processed module IDs
+      if (result.plan?.modules) {
+        console.log("Inside the fetch plan")
+        await collectAndSaveProcessedModuleIds(result.plan.modules);
+      }
     } catch (err) {
       setPlan("Error fetching training plan.");
     } finally {
@@ -381,15 +406,18 @@ function TrainingPlanContent() {
 
       // 2) Otherwise, search processed_modules by title (for plan-only modules)
       const moduleName = mod?.title || mod?.name;
-      if (moduleName && actualUserId) {
+      console.log(moduleName);
+      console.log(userId)
+      if (moduleName) {
         // console.log("[resolveModuleId] Searching by title:", moduleName);
         const { data: pmByTitle } = await supabase
           .from("processed_modules")
           .select("processed_module_id")
-          .ilike("title", moduleName)
+          .eq('title', moduleName)
           // .eq("user_id", actualUserId)
           .limit(1)
           .maybeSingle();
+
         if (pmByTitle?.processed_module_id) {
           // console.log("[resolveModuleId] Found by title:", pmByTitle.processed_module_id);
           return pmByTitle.processed_module_id;
@@ -401,6 +429,59 @@ function TrainingPlanContent() {
       console.error("[resolveModuleId] Error:", e);
     }
     return null;
+  };
+
+  // Helper: collect all processed_module_ids and save to learning_plan table
+  const collectAndSaveProcessedModuleIds = async (modules: any[]) => {
+    try {
+      const ids: string[] = [];
+      for (const mod of modules) {
+        const resolvedId = await resolveModuleId(mod);
+        if (resolvedId) {
+          ids.push(resolvedId);
+        }
+      }
+      setProcessedModuleIds(ids);
+
+      // Save to learning_plan table
+      if (ids.length > 0 && userId && moduleId) {
+        const { error } = await supabase
+          .from("learning_plan")
+          .update({
+            user_id: userId,
+            module_id: moduleId,
+            processed_module_ids: ids,
+            status: 'IN_PROGRESS'
+          })
+          .eq('user_id', userId)
+          .eq('module_id', moduleId);
+
+        if (error) {
+          console.error("[collectAndSaveProcessedModuleIds] Error saving to learning_plan:", error);
+        } else {
+          // console.log("[collectAndSaveProcessedModuleIds] Successfully saved processed_module_ids:", ids);
+        }
+
+        console.log(ids)
+        for(const m of ids){
+          console.log("Inside the try catch second")
+        const{data:insertedData}=await supabase
+        .from("module_progress")
+        .upsert({
+          user_id:userId,
+          processed_module_id:m,
+        },
+        {
+          onConflict:'user_id, processed_module_id'
+        }
+      
+      )
+        // console.log(insertedData);
+      }
+      }
+    } catch (e) {
+      console.error("[collectAndSaveProcessedModuleIds] Error:", e);
+    }
   };
 
   if (authLoading || loading) {

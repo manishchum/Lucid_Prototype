@@ -19,6 +19,8 @@ export async function POST(request: NextRequest) {
       quiz_feedback
     } = body
 
+
+    
     // Handle both old and new parameter formats
     const userId = employeeId || user_id
     const processedModuleId = processed_module_id || moduleId
@@ -42,13 +44,15 @@ export async function POST(request: NextRequest) {
     // })
 
     // Check if there's already a progress record for this user and processed module
+    console.log("User id",userId)
     const { data: existingProgress, error: checkError } = await supabase
       .from('module_progress')
       .select('module_progress_id, completed_at, quiz_score')
       .eq('user_id', userId)
       .eq('processed_module_id', processedModuleId)
-      .maybeSingle()
 
+
+      console.log("Data of thej ust fetched existing progress",existingProgress)
     if (checkError && checkError.code !== 'PGRST116') {
       console.error('📚 DEBUG: Error checking existing progress:', checkError)
       return NextResponse.json(
@@ -61,11 +65,12 @@ export async function POST(request: NextRequest) {
     const completionTime = new Date().toISOString()
 
     if (existingProgress) {
-      // console.log('📚 DEBUG: Updating existing progress record:', existingProgress.module_progress_id)
+      console.log('📚 DEBUG: Updating existing progress record:', existingProgress[0].module_progress_id)
+      console.log("Module Id is :",moduleId)
+
       
       // Update existing progress record - only update columns that exist in the schema
       const updateData: any = {
-        completed_at: completionTime,
         quiz_score: score || null,
         quiz_feedback: feedback || null
       }
@@ -73,9 +78,7 @@ export async function POST(request: NextRequest) {
       const { data, error: updateError } = await supabase
         .from('module_progress')
         .update(updateData)
-        .eq('module_progress_id', existingProgress.module_progress_id)
-        .select()
-        .single()
+        .eq('module_progress_id', existingProgress[0].module_progress_id)
 
       if (updateError) {
         console.error('📚 DEBUG: Error updating module progress:', updateError)
@@ -84,7 +87,7 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         )
       }
-      progressData = data
+      progressData = data[0]
     } else {
       // console.log('📚 DEBUG: Creating new progress record')
       
@@ -98,11 +101,13 @@ export async function POST(request: NextRequest) {
         quiz_feedback: feedback || null
       }
 
+
+      console.log("Error not here")
+
       const { data, error: insertError } = await supabase
         .from('module_progress')
-        .insert(insertData)
-        .select()
-        .single()
+        .update(insertData)
+        .eq('module_progress_id', existingProgress[0].module_progress_id)
 
       if (insertError) {
         console.error('📚 DEBUG: Error creating module progress:', insertError)
@@ -116,6 +121,7 @@ export async function POST(request: NextRequest) {
 
     // console.log('📚 DEBUG: Module completion recorded successfully:', progressData)
 
+    console.log("Error outside the if")
     // Only send admin notification if this is a new completion (not an update)
     const isNewCompletion = !existingProgress?.completed_at
     if (isNewCompletion) {

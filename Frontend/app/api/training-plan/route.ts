@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     // console.log("POST Body of the training plan api route");
     const body = await request.json();
     // console.log(body)
-    const { user_id, module_id } = body;
+    const { user_id, module_id,processedModuleIds } = body;
 
     if (!user_id) {
       return NextResponse.json({ error: 'user_id is required' }, { status: 400 });
@@ -218,7 +218,7 @@ export async function POST(request: NextRequest) {
         feedback: row?.feedback ?? null,
       };
     });
-    console.log("[Training Plan API] Baseline percent assessments:", baselinePercentAssessments);
+    // console.log("[Training Plan API] Baseline percent assessments:", baselinePercentAssessments);
 
     // Compute hash only from baseline assessments so module quizzes don't change the plan
     // Include module_id in the hash when provided so cached plans are scoped per-module
@@ -349,7 +349,7 @@ export async function POST(request: NextRequest) {
       }
 
       console.log("Inside the if statement", company_id)
-      console.log("The modules are", modules)
+      // console.log("The modules are", modules)
     } else {
       console.log("Inside the else statement", company_id)
       // No specific module requested — fall back to previous behavior: fetch all company training modules
@@ -399,7 +399,7 @@ export async function POST(request: NextRequest) {
             // console.log("[Training Plan API] Using raw training modules as fallback");
           }
         }
-        console.log("The modules are", modules)
+        // console.log("The modules are", modules)
       } else {
         // console.log("[Training Plan API] No training modules found for company; proceeding with empty module list");
       }
@@ -701,10 +701,24 @@ const prompt1 = "You are an expert corporate trainer. Given the following assess
         // Assign provided module_id if present, otherwise fall back to null
         .insert({ user_id, plan_json: plan, reasoning: reasoning, status: "ASSIGNED", module_id: module_id ?? null, assessment_hash: assessmentHash });
     }
+    console.log("Inside the try catch")
     if (dbResult.error) {
       console.error("[Training Plan API] Error saving plan:", dbResult.error);
       return NextResponse.json({ error: dbResult.error.message }, { status: 500 });
     }
+  //   console.log("Outside the for loop")
+  //   console.log(processedModuleIds)
+  //   for(const m of processedModuleIds){
+  //     console.log("Inside the try catch second")
+  //   const{data:insertedData}=await supabase.from("module_progress")
+  //   .insert({
+  //     user_id,
+  //     module_id:m,
+  //     status:"NOT_STARTED"
+  //   })
+  //   console.log(insertedData);
+  
+  // }
     // console.log("[Training Plan API] Plan saved successfully.");
 
     // Ensure processed_modules exist for modules in the newly saved plan

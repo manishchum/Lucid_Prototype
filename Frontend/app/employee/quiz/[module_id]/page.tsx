@@ -10,6 +10,8 @@ import EmployeeNavigation from "@/components/employee-navigation";
 import MCQQuiz from "../../assessment/mcq-quiz";
 
 export default function ModuleQuizPage({ params }: { params: { module_id: string } }) {
+  let originalModuleId :any = null;
+
   const { user, loading: authLoading } = useAuth();
   
   // Handler for navigation
@@ -28,105 +30,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   };
 
   // Handler for quiz submission
-  const handleSubmit = async () => {
-    // console.log("It is submitting")
-    // console.log(quiz)
-    // console.log(!Array.isArray(quiz))
-    if (!quiz ) return;
-    // Ensure assessmentId is set before submission
-    if (!assessmentId) {
-      // console.log("Inside thse !assessmentId block")
-      setFeedback("Error: Could not identify assessment. Please refresh and try again.");
-      return;
-    }
-    setSubmitted(true);
-    setIsSubmitting(true);
-    // Normalize answers for MCQ questions (send selected option values, not indices)
-    // console.log("Outside the last return before userAnswers")
-    const userAnswers = answers.map((ans, i) => {
-      const q = quiz[i];
-      // For MCQ questions, send the selected option text, not the index
-      // If no answer selected (ans === -1), send empty string
-      if (typeof ans === 'number' && ans >= 0 && ans < q.options.length) {
-        // console.log("Inside the last return")
-        return q.options[ans];
-      }
-      // No valid answer selected
-      // console.log("Outside the last return")
-      return '';
-    });
-
-    // console.log('[QUIZ] Raw answers:', answers);
-    // console.log('[QUIZ] Converted userAnswers:', userAnswers);
-    // Always fetch user info before API call
-    let employeeId: string | null = null;
-    let employeeName: string | null = null;
-    if (!authLoading && user?.email) {
-      try {
-        const { data: emp } = await supabase
-          .from('users')
-          .select('user_id')
-          .eq('email', user.email)
-          .single();
-        employeeId = emp?.user_id || null;
-  employeeName = (user as any)?.displayName || user.email || null;
-      } catch (err) {
-        // console.log('[QUIZ] Error fetching employee record:', err);
-      }
-    }
-    if (!employeeId) {
-      setFeedback("Error: Could not identify employee. Please refresh and try again.");
-      return;
-    }
-    const payload = {
-      quiz,
-      userAnswers,
-      // Let the API score module quizzes using Gemini
-      user_id: employeeId,
-      employee_name: employeeName,
-      assessment_id: assessmentId,
-      modules: [{ module_id: moduleId }],
-    };
-    let feedbackText = "";
-    try {
-      const res = await fetch("/api/gpt-feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      // console.log(payload);
-      // console.log(res);
-      const result = await res.json();
-      feedbackText = result.feedback || "";
-      if (typeof result.score === 'number') setScore(result.score);
-      if (typeof result.maxScore === 'number') setMaxScore(result.maxScore);
-      setFeedback(feedbackText);
-      // Log quiz taken into module_progress
-      try {
-        // console.log(result);
-        await fetch('/api/module-progress', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: employeeId,
-            processed_module_id: resolvedModuleId || moduleId,
-            quiz_score: typeof result.score === 'number' ? result.score : null,
-            max_score: typeof result.maxScore === 'number' ? result.maxScore : quiz.length,
-            quiz_feedback: feedbackText,
-            completed_at: new Date().toISOString(),
-          }),
-        });
-      } catch (e) {
-        // console.log('[QUIZ] progress log error', e);
-      }
-    } catch (err) {
-      feedbackText = "Could not generate feedback.";
-      setFeedback(feedbackText);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
+  
   const moduleId = params.module_id;
   const [quiz, setQuiz] = useState<any[] | null>(null);
   const [moduleName, setModuleName] = useState<string>("Module Quiz");
@@ -144,6 +48,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   const [resolvedModuleId, setResolvedModuleId] = useState<string | null>(null);
   const router = useRouter();
   let  userId:any = null;
+  let companyId:any = null;
   const questionsPerPage = 10;
   const totalPages = quiz ? Math.ceil(quiz.length / questionsPerPage) : 0;
   const currentQuestions = quiz ? quiz.slice(currentPage * questionsPerPage, (currentPage + 1) * questionsPerPage) : [];
@@ -161,14 +66,14 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   };
 
   // Handler for open-ended text answers
-  const handleTextAnswer = (qIdx: number, value: string) => {
-    if (submitted) return;
-    setAnswers((prev) => {
-      const next = [...prev];
-      next[qIdx] = value;
-      return next;
-    });
-  };
+  // const handleTextAnswer = (qIdx: number, value: string) => {
+  //   if (submitted) return;
+  //   setAnswers((prev) => {
+  //     const next = [...prev];
+  //     next[qIdx] = value;
+  //     return next;
+  //   });
+  // };
 
   // Handler for quiz submission (already present)
   // ...existing handleSubmit function...
@@ -209,7 +114,9 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
 
         if (moduleData) {
           if (moduleData.title) setModuleName(moduleData.title);
+          if(moduleData.original_module_id) originalModuleId = moduleData.original_module_id;
           if (moduleData.processed_module_id) setResolvedModuleId(String(moduleData.processed_module_id));
+          console.log('Value of originalModuleId:', originalModuleId);
         }
       } catch (e) {
         // console.log('[quiz] module metadata fetch error', e);
@@ -222,10 +129,11 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         try {
           const { data: emp } = await supabase
             .from('users')
-            .select('user_id')
+            .select('user_id,company_id')
             .eq('email', user.email)
             .single();
             userId = emp?.user_id || null;
+            companyId = emp?.company_id || null;
             // console.log(userId)
           if (emp?.user_id) {
             const { data: styleData } = await supabase
@@ -276,7 +184,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         const res = await fetch("/api/gpt-mcq-quiz", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ moduleId, learningStyle, userId }),
+          body: JSON.stringify({ moduleId, learningStyle, userId,companyId }),
         });
         const result = await res.json();
         // console.log('[QUIZ DEBUG] /api/gpt-mcq-quiz result:', result);
@@ -314,6 +222,117 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     };
   if (!authLoading && user?.email && moduleId && moduleId !== 'undefined' && moduleId !== 'null') fetchOrGenerateQuiz();
   }, [user, authLoading, moduleId]);
+
+
+
+  const handleSubmit = async () => {
+   
+    if (!quiz ) return;
+    if (!assessmentId) {
+      setFeedback("Error: Could not identify assessment. Please refresh and try again.");
+      return;
+    }
+    setSubmitted(true);
+    setIsSubmitting(true);
+    const userAnswers = answers.map((ans, i) => {
+      const q = quiz[i];
+      if (typeof ans === 'number' && ans >= 0 && ans < q.options.length) {
+        return q.options[ans];
+      }
+      return '';
+    });
+
+    let employeeId: string | null = null;
+    let employeeName: string | null = null;
+    if (!authLoading && user?.email) {
+      try {
+        const { data: emp } = await supabase
+          .from('users')
+          .select('user_id')
+          .eq('email', user.email)
+          .single();
+        employeeId = emp?.user_id || null;
+  employeeName = (user as any)?.displayName || user.email || null;
+      } catch (err) {
+        console.log('[QUIZ] Error fetching employee record:', err);
+      }
+    }
+    if (!employeeId) {
+      setFeedback("Error: Could not identify employee. Please refresh and try again.");
+      return;
+    }
+    const payload = {
+      quiz,
+      userAnswers,
+      user_id: employeeId,
+      employee_name: employeeName,
+      assessment_id: assessmentId,
+      modules: [{ module_id: moduleId }],
+    };
+    let feedbackText = "";
+    try {
+      const res = await fetch("/api/gpt-feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      console.log("Inside the quiz page and the data is this",moduleId)
+      console.log(payload);
+      // console.log(res);
+      const result = await res.json();
+      feedbackText = result.feedback || "";
+      if (typeof result.score === 'number') setScore(result.score);
+      if (typeof result.maxScore === 'number') setMaxScore(result.maxScore);
+      setFeedback(feedbackText);
+
+      // Log quiz taken into module_progress
+      try {
+        const{data:originalModuleIID} = await supabase
+        .from('processed_modules')
+        .select('original_module_id')
+        .eq('processed_module_id', moduleId);
+
+
+        // .maybeSingle();
+        console.log(moduleId)
+        console.log("Original Module ID Query Result:", originalModuleIID);
+
+        originalModuleId = originalModuleIID[0]?.original_module_id;
+        console.log("Inside the module progress log")
+        console.log(moduleId)
+
+        console.log(originalModuleId)
+        // console.log(result);
+        await fetch('/api/module-progress', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: employeeId,
+            processed_module_id: resolvedModuleId || moduleId,
+            quiz_score: typeof result.score === 'number' ? result.score : null,
+            max_score: typeof result.maxScore === 'number' ? result.maxScore : quiz.length,
+            quiz_feedback: feedbackText,
+            completed_at: new Date().toISOString(),
+            viewOnly: false,
+            module_id: originalModuleId,
+          }),
+
+        });
+
+        console.log("Inside the try and it is successfull")
+      } catch (e) {
+        console.log('[QUIZ] progress log error', e);
+      }
+    } catch (err) {
+      feedbackText = "Could not generate feedback.";
+      setFeedback(feedbackText);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+
+
 
   if (authLoading || loading) {
     return (
