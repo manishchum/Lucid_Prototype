@@ -16,3 +16,4 @@ fastapi.middleware.cors
 fastapi
 fastapi.responses
 fastapi.requests
+Pillow
