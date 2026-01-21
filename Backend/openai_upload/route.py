@@ -392,18 +392,20 @@ async def processAndStoreResults(moduleId: str, message: str):
     baseUrl = os.getenv("NEXT_PUBLIC_BACKEND_URL")
     if baseUrl:
         try:
+            print(f"[processAndStoreResults] Calling start-content-generation for moduleId: {moduleId}")
+            print(json.dumps({"module_id": moduleId}))
             async with httpx.AsyncClient() as client:
                 await client.post(
                     f"{baseUrl}/api/start-content-generation",
                     headers={"Content-Type": "application/json"},
-                    content={"module_id": moduleId}
+                    content=json.dumps({"moduleId": moduleId})
                 )
         except Exception as e:
             print("Failed to call start-content-generation:", e)
             
-        print(ai_modules)
-        print(ai_topics)
-        print(ai_objectives)
+        # print(ai_modules)
+        # print(ai_topics)
+        # print(ai_objectives)
 
     return {"ai_modules": ai_modules, "ai_topics": ai_topics, "ai_objectives": ai_objectives, "supabaseResult": data}
 

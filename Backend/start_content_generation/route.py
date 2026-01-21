@@ -16,14 +16,17 @@ supabaseAdmin: Client = create_client(supabase_url, supabase_service_role_key)
 @router.post("/start-content-generation")
 async def POST(req: Request):
     try:
+        print("Received start-content-generation request")
         try:
             body = await req.json()
         except Exception:
             body = {}
 
-        module_id = body.get("module_id") or body.get("moduleId")
-
+        module_id = body.get("moduleId")
+        print("Received start-content-generation for module_id:", module_id)
         if (not module_id) or (not isinstance(module_id, str)) or module_id.strip() == "":
+            print("Invalid module_id in request")
+            
             return JSONResponse(content={"error": "Missing or invalid module_id"}, status_code=400)
 
         # Prevent duplicate jobs for the same module while pending/in-progress
