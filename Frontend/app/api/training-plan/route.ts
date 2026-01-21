@@ -1,737 +1,737 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import crypto from "crypto";
-// import ensureProcessedModulesForPlan from "@/lib/processedModulesHelper";
+// import { NextRequest, NextResponse } from "next/server";
+// import { supabase } from "@/lib/supabase";
+// import { GoogleGenerativeAI } from '@google/generative-ai';
+// import crypto from "crypto";
+// // import ensureProcessedModulesForPlan from "@/lib/processedModulesHelper";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+// const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
-export async function POST(request: NextRequest) {
+// export async function POST(request: NextRequest) {
 
-  try {
-    // console.log("POST Body of the training plan api route");
-    const body = await request.json();
-    // console.log(body)
-    const { user_id, module_id,processedModuleIds } = body;
+//   try {
+//     // console.log("POST Body of the training plan api route");
+//     const body = await request.json();
+//     // console.log(body)
+//     const { user_id, module_id,processedModuleIds } = body;
 
-    if (!user_id) {
-      return NextResponse.json({ error: 'user_id is required' }, { status: 400 });
-    }
+//     if (!user_id) {
+//       return NextResponse.json({ error: 'user_id is required' }, { status: 400 });
+//     }
 
-    // Resolve company_id upfront so all branches can ensure processed modules
-    let company_id = null;
-    {
-      const { data: empRecord, error: empError } = await supabase
-        .from("users")
-        .select("company_id")
-        .eq("user_id", user_id)
-        .maybeSingle();
-      if (empError || !empRecord?.company_id) {
-        console.error("[Training Plan API] Could not find company for employee");
-        return NextResponse.json({ error: "Could not find company for employee" }, { status: 400 });
-      }
-      company_id = empRecord.company_id;
-    }
-
-
-    const { data: checkForBaseline, error: userError } = await supabase
-      .from('learning_plan')
-      .select('baseline_assessment')
-      .eq('user_id', user_id)
-      .eq('module_id', module_id)
+//     // Resolve company_id upfront so all branches can ensure processed modules
+//     let company_id = null;
+//     {
+//       const { data: empRecord, error: empError } = await supabase
+//         .from("users")
+//         .select("company_id")
+//         .eq("user_id", user_id)
+//         .maybeSingle();
+//       if (empError || !empRecord?.company_id) {
+//         console.error("[Training Plan API] Could not find company for employee");
+//         return NextResponse.json({ error: "Could not find company for employee" }, { status: 400 });
+//       }
+//       company_id = empRecord.company_id;
+//     }
 
 
-    const { data: assessmentData, error: baselineError } = await supabase
-      .from('employee_assessments ')
-      .select('assessment_id,assessments!inner(type)')
-      .eq('user_id', user_id)
-      .eq('assessments.type', 'baseline')
+//     const { data: checkForBaseline, error: userError } = await supabase
+//       .from('learning_plan')
+//       .select('baseline_assessment')
+//       .eq('user_id', user_id)
+//       .eq('module_id', module_id)
 
 
-    // console.log("Check for baseline assessment data")
-    // console.log(assessmentData)
-    // console.log(checkForBaseline)
+//     const { data: assessmentData, error: baselineError } = await supabase
+//       .from('employee_assessments ')
+//       .select('assessment_id,assessments!inner(type)')
+//       .eq('user_id', user_id)
+//       .eq('assessments.type', 'baseline')
 
 
-    if (checkForBaseline && checkForBaseline[0].baseline_assessment == 1 && (!assessmentData || assessmentData.length == 0)) {
-      // console.log("User needs to complete baseline assessment first");
-      return NextResponse.json({ error: 'BASELINE_REQUIRED', message: 'Please complete the baseline assessment first.' }, { status: 403 });
-    }
+//     // console.log("Check for baseline assessment data")
+//     // console.log(assessmentData)
+//     // console.log(checkForBaseline)
 
 
-    // console.log("Baseline check data", checkForBaseline)
+//     if (checkForBaseline && checkForBaseline[0].baseline_assessment == 1 && (!assessmentData || assessmentData.length == 0)) {
+//       // console.log("User needs to complete baseline assessment first");
+//       return NextResponse.json({ error: 'BASELINE_REQUIRED', message: 'Please complete the baseline assessment first.' }, { status: 403 });
+//     }
 
 
-
-    if (userError) {
-      console.error('Error checking for baseline assessment:', userError);
-    }
-    // Check if we already have a learning plan for this user and module
-    if (module_id) {
-      // console.log("This is the module id inside the training plan api route")
-      // console.log(module_id)
-      const { data: existingPlan, error: planCheckError } = await supabase
-        .from('learning_plan')
-        .select('learning_plan_id, plan_json, status, reasoning')
-        .eq('user_id', user_id)
-        .eq('module_id', module_id)
-        .order('assigned_on', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      // console.log(existingPlan)
-      if (planCheckError && planCheckError.code !== 'PGRST116') {
-        console.error('Error checking existing plan:', planCheckError);
-      }
-      // console.log("This is the module id user has requested",module_id)
-
-      // If we found an existing plan, return it instead of generating a new one
-      if (existingPlan && existingPlan.plan_json) {
-        // console.log("This is the module id",module_id)
-        // console.log('Found existing learning plan for user:', user_id, 'module:', module_id);
-
-        let planContent;
-        try {
-          planContent = typeof existingPlan.plan_json === 'string'
-            ? JSON.parse(existingPlan.plan_json)
-            : existingPlan.plan_json;
-        } catch (e) {
-          // If plan_json is corrupted, we'll regenerate below
-          console.warn('Existing plan has corrupted JSON, will regenerate:', e);
-          planContent = null;
-        }
-
-        if (planContent) {
-          // Ensure processed modules exist for the existing plan (use resolved company_id)
-          try {
-            // console.log("Plan Content")
-            // console.log(planContent)
-            // await ensureProcessedModulesForPlan(user_id, company_id, planContent);
-          } catch (e) {
-            console.error('Error ensuring processed modules for existing plan:', e);
-          }
-
-          return NextResponse.json({
-            plan: planContent,
-            reasoning: existingPlan.reasoning,
-            planId: existingPlan.learning_plan_id,
-            status: existingPlan.status,
-            message: 'Using existing stable learning plan - no regeneration needed'
-          });
-        }
-      }
-    }
-
-    // If no existing plan found or module_id not provided, generate new plan
-    // console.log('Generating new learning plan for user:', user_id, module_id ? `module: ${module_id}` : '(all modules)');
-
-    // console.log("[Training Plan API] Request received");
-    const module_id_query = request.nextUrl?.searchParams?.get("module_id") || null;
-    // console.log("[Training Plan API] user_id:", user_id);
-    if (module_id_query) // console.log("[Training Plan API] module_id (query):", module_id_query);
-      // Validate Gemini API key early to avoid opaque 500s later
-      // console.log("The module id is not passed in the request")
-      // console.log(module_id)
-      // console.log(module_id_query)
-      if (!process.env.GEMINI_API_KEY) {
-        console.error("[Training Plan API] GEMINI_API_KEY is not set");
-        return NextResponse.json({ error: "Server misconfiguration: GEMINI_API_KEY is missing." }, { status: 500 });
-      }
-    // company_id already resolved above
-
-    // Note: Baseline requirement check removed from here as it's module-specific, not company-wide
-    // Individual modules may or may not require baseline assessments
-    // The frontend handles per-module baseline requirements based on module configuration
-    let baselineRequired = false;
-    try {
-      const { data: baselineDefs, error: baselineDefError } = await supabase
-        .from('assessments')
-        .select('assessment_id, type, employee_assessments!inner(user_id)')
-        .eq('type', 'baseline')
-        .eq('company_id', company_id)
-        .eq('employee_assessments.user_id', user_id)
-        ;
-      if (baselineDefError) {
-        console.error('[Training Plan API] Error fetching baseline assessment definitions:', baselineDefError);
-        // don't fail here; continue — but log so we can investigate
-      } else if (baselineDefs && baselineDefs.length > 0) {
-        // console.log(baselineDefs)
-        // console.log("These are baseline Defs")
-        baselineRequired = true;
-        // Ensure the employee has submitted at least one employee_assessments row for these baseline assessment ids
-        const baselineIds = baselineDefs.map((b: any) => b.assessment_id).filter(Boolean);
-        if (baselineIds.length > 0) {
-          const { data: userBaselines, error: userBaselineError } = await supabase
-            .from('employee_assessments')
-            .select('assessment_id')
-            .in('assessment_id', baselineIds)
-            .eq('user_id', user_id);
-          if (userBaselineError) {
-            console.error('[Training Plan API] Error checking employee baseline submissions:', userBaselineError);
-          } else if (!userBaselines || userBaselines.length === 0) {
-            // console.log('[Training Plan API] User has not completed required baseline assessment(s).');
-            return NextResponse.json({ error: 'BASELINE_REQUIRED', message: 'Please complete the baseline assessment first.' }, { status: 403 });
-          }
-        }
-      } else {
-        // console.log('[Training Plan API] No baseline assessments required for this company.');
-        baselineRequired = false;
-      }
-    } catch (e) {
-      console.error('[Training Plan API] Unexpected error while enforcing baseline requirement:', e);
-    }
-
-    // Fetch all assessments for this employee, including baseline
-    // console.log("[Training Plan API] Fetching assessments for employee...");
-    const { data: assessments, error: assessError } = await supabase
-      .from("employee_assessments")
-      .select("score, max_score, feedback, assessment_id, assessments(type, questions)")
-      .eq("user_id", user_id);
-    if (assessError) {
-      console.error("[Training Plan API] Error fetching assessments:", assessError);
-      return NextResponse.json({ error: assessError.message }, { status: 500 });
-    }
-    // console.log("[Training Plan API] Assessments:", assessments);
-
-    // Separate all baseline and all module assessments
-    const baselineAssessments = (assessments || []).filter((a: any) => {
-      const arr = Array.isArray(a?.assessments) ? a.assessments : [a?.assessments].filter(Boolean);
-      return arr.some((ass: any) => ass?.type === "baseline");
-    });
-    const moduleAssessments = (assessments || []).filter((a: any) => {
-      const arr = Array.isArray(a?.assessments) ? a.assessments : [a?.assessments].filter(Boolean);
-      return arr.some((ass: any) => ass?.type !== "baseline");
-    });
-    // console.log("[Training Plan API] Baseline assessments:", baselineAssessments);
-    // console.log("[Training Plan API] Module assessments:", moduleAssessments);
-
-    // Compute percentage-based baseline results for plan generation
-    const baselinePercentAssessments = (baselineAssessments || []).map((row: any) => {
-      const score = Number(row?.score ?? 0);
-      const max = Number(row?.max_score ?? 0);
-      const percent = max > 0 ? Math.round((score / max) * 100) : null;
-      return {
-        assessment_id: row?.assessment_id ?? null,
-        score,
-        max_score: max,
-        score_percent: percent, // used by GPT
-        feedback: row?.feedback ?? null,
-      };
-    });
-    // console.log("[Training Plan API] Baseline percent assessments:", baselinePercentAssessments);
-
-    // Compute hash only from baseline assessments so module quizzes don't change the plan
-    // Include module_id in the hash when provided so cached plans are scoped per-module
-    const assessmentHash = crypto.createHash("sha256")
-      .update(JSON.stringify({ baselinePercentAssessments, module_id: module_id ?? null }))
-      .digest("hex");
-    // console.log("[Training Plan API] assessmentHash:", assessmentHash);
-    // Step 1.5: Check if a learning plan already exists for this user (and module if provided)
-    // console.log("[Training Plan API] Checking for latest assigned learning plan...");
-    let existingPlan: any = null;
-    let existingPlanError: any = null;
-    try {
-      if (module_id) {
-        const ep = await supabase
-          .from("learning_plan")
-          .select("learning_plan_id, plan_json, reasoning, status, assessment_hash, module_id")
-          .eq("user_id", user_id)
-          .eq("module_id", module_id)
-          .eq("status", "ASSIGNED")
-          .order("learning_plan_id", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        existingPlan = ep.data;
-        existingPlanError = ep.error;
-      } else {
-        const ep = await supabase
-          .from("learning_plan")
-          .select("learning_plan_id, plan_json, reasoning, status, assessment_hash, module_id")
-          .eq("user_id", user_id)
-          .eq("status", "ASSIGNED")
-          .order("learning_plan_id", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        existingPlan = ep.data;
-        existingPlanError = ep.error;
-      }
-    } catch (e) {
-      existingPlanError = e;
-    }
-    if (existingPlanError && (existingPlanError as any).code !== "PGRST116") {
-      console.error("[Training Plan API] Error checking existing plan:", existingPlanError);
-      return NextResponse.json({ error: existingPlanError.message || String(existingPlanError) }, { status: 500 });
-    }
-
-    // If any plan exists for this user/module combination, return it (regardless of assessment hash)
-    // This ensures learning plans remain stable once created
-    if (existingPlan && existingPlan.plan_json) {
-      // console.log("[Training Plan API] Existing plan found - returning stable plan without regeneration");
-      try {
-        // await ensureProcessedModulesForPlan(user_id, company_id, existingPlan.plan_json);
-      } catch (e) {
-        console.error("[Training Plan API] ensureProcessedModulesForPlan failed on existing plan:", e);
-      }
-
-      return NextResponse.json({
-        plan: existingPlan.plan_json,
-        reasoning: existingPlan.reasoning,
-        message: "Using existing stable learning plan"
-      });
-    }
-
-    // Only generate new plan if NO plan exists at all
-    // console.log("[Training Plan API] No existing plan found - generating new plan");
-
-    // Fetch all processed modules for this company by joining training_modules, handling empty lists safely
-    // console.log("[Training Plan API] Fetching processed modules for company_id:", company_id);
-    let modules: any[] = [];
-    // If a specific module_id is provided, validate it belongs to the company and fetch only that processed module
-    if (module_id) {
-      try {
-        // First, validate that the module belongs to this company
-        const { data: moduleCheck, error: moduleCheckError } = await supabase
-          .from("training_modules")
-          .select("module_id, title")
-          .eq("module_id", module_id)
-          .eq("company_id", company_id)
-          .single();
-
-        if (moduleCheckError || !moduleCheck) {
-          console.error("[Training Plan API] Module not found or doesn't belong to company:", moduleCheckError);
-          return NextResponse.json({
-            error: "MODULE_NOT_FOUND",
-            message: "The specified module was not found or doesn't belong to your company."
-          }, { status: 404 });
-        }
-
-        // Fetch only the processed module for this specific training module
-        const { data: pmRows, error: modError } = await supabase
-          .from("processed_modules")
-          .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
-          .eq("original_module_id", module_id)
-          // .eq("user_id", user_id);
-
-        if (modError) {
-          console.error("[Training Plan API] Error fetching processed module:", modError);
-          return NextResponse.json({ error: modError.message }, { status: 500 });
-        }
-
-        modules = pmRows || [];
-
-        // If no processed modules found and baseline is not required, fetch raw training module as fallback
-        if (modules.length === 0 && !baselineRequired) {
-          // console.log("[Training Plan API] No processed modules found, baseline not required - using raw training module");
-          const { data: tmRows, error: tmError } = await supabase
-            .from("training_modules")
-            .select("module_id, title, gpt_summary,  company_id")
-            .eq("module_id", module_id)
-            .eq("company_id", company_id);
-
-          if (tmError) {
-            console.error("[Training Plan API] Error fetching training module fallback:", tmError);
-          } else if (tmRows && tmRows.length > 0) {
-            modules = tmRows.map((m: any) => ({
-              processed_module_id: m.module_id,
-              title: m.title,
-              content: m.gpt_summary,
-              original_module_id: m.module_id,
-              training_modules: { company_id: m.company_id }
-            }));
-            // console.log("[Training Plan API] Using raw training module as fallback");
-          }
-        }
-
-        // console.log("[Training Plan API] Filtered modules for module_id:", module_id, modules);
-      } catch (e) {
-        console.error("[Training Plan API] Unexpected error filtering module:", e);
-        return NextResponse.json({ error: String(e) }, { status: 500 });
-      }
-
-      console.log("Inside the if statement", company_id)
-      // console.log("The modules are", modules)
-    } else {
-      console.log("Inside the else statement", company_id)
-      // No specific module requested — fall back to previous behavior: fetch all company training modules
-      const { data: trainingModuleRows, error: tmError } = await supabase
-        .from("training_modules")
-        .select("module_id")
-        .eq("company_id", company_id);
-      if (tmError) {
-        console.error("[Training Plan API] Error fetching training modules:", tmError);
-        return NextResponse.json({ error: tmError.message }, { status: 500 });
-      }
-      const tmIds = (trainingModuleRows || []).map((m: any) => m.module_id);
-      // console.log("_______________________")
-      // console.log(tmIds)
-
-      if (tmIds.length > 0) {
-        const { data: pmRows, error: modError } = await supabase
-          .from("processed_modules")
-          .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
-          .in("original_module_id", tmIds)
-          // .eq("user_id", user_id);
-        if (modError) {
-          console.error("[Training Plan API] Error fetching modules:", modError);
-          return NextResponse.json({ error: modError.message }, { status: 500 });
-        }
-        modules = pmRows || [];
-
-        // If no processed modules found and baseline is not required, fetch raw training modules as fallback
-        if (modules.length === 0 && !baselineRequired) {
-          // console.log("[Training Plan API] No processed modules found, baseline not required - using raw training modules");
-          const { data: tmRows, error: tmFallbackError } = await supabase
-            .from("training_modules")
-            .select("module_id, title, content, company_id")
-            .in("module_id", tmIds)
-            .eq("company_id", company_id);
-
-          if (tmFallbackError) {
-            console.error("[Training Plan API] Error fetching training modules fallback:", tmFallbackError);
-          } else if (tmRows && tmRows.length > 0) {
-            modules = tmRows.map((m: any) => ({
-              processed_module_id: m.module_id,
-              title: m.title,
-              content: m.content,
-              original_module_id: m.module_id,
-              training_modules: { company_id: m.company_id }
-            }));
-            // console.log("[Training Plan API] Using raw training modules as fallback");
-          }
-        }
-        // console.log("The modules are", modules)
-      } else {
-        // console.log("[Training Plan API] No training modules found for company; proceeding with empty module list");
-      }
-    }
-    // console.log("[Training Plan API] Modules for company_id:", company_id, modules);
-
-    const { data: lsData, error: lsError } = await supabase
-      .from("employee_learning_style")
-      .select("learning_style, gemini_analysis")
-      .eq("user_id", user_id)
-      .single();
-    let geminiText = "";
-    if (lsData) {
-      geminiText = `Learning Style: ${lsData.learning_style}\nAnalysis: ${lsData.gemini_analysis}`;
-    }
+//     // console.log("Baseline check data", checkForBaseline)
 
 
 
-    // Fetch employee KPIs (description and score)
-    const { data: kpiRows, error: kpiError } = await supabase
-      .from("employee_kpi")
-      .select("score, kpis(description, benchmark, datatype)")
-      .eq("user_id", user_id);
-    let kpiText = "";
-    if (kpiRows && kpiRows.length > 0) {
-      kpiText = "Employee KPIs (description, score, benchmark, datatype):\n" +
-        kpiRows.map((row: any) => {
-          const desc = row.kpis?.description || "N/A";
-          const score = row.score;
-          const benchmark = row.kpis?.benchmark ?? "N/A";
-          const datatype = row.kpis?.datatype || "N/A";
-          return `KPI: ${desc}, Score: ${score}, Benchmark: ${benchmark}, Datatype: ${datatype}`;
-        }).join("\n");
-    }
+//     if (userError) {
+//       console.error('Error checking for baseline assessment:', userError);
+//     }
+//     // Check if we already have a learning plan for this user and module
+//     if (module_id) {
+//       // console.log("This is the module id inside the training plan api route")
+//       // console.log(module_id)
+//       const { data: existingPlan, error: planCheckError } = await supabase
+//         .from('learning_plan')
+//         .select('learning_plan_id, plan_json, status, reasoning')
+//         .eq('user_id', user_id)
+//         .eq('module_id', module_id)
+//         .order('assigned_on', { ascending: false })
+//         .limit(1)
+//         .maybeSingle();
 
-    // Determine module count constraints based on available modules
-    const availableModuleCount = modules.length;
-    let moduleRequirements = "";
-    if (availableModuleCount === 0) {
-      moduleRequirements = "- No modules are currently available. Inform the user that no training modules match their needs.";
-    } else if (availableModuleCount === 1) {
-      moduleRequirements = "- For all scores: Recommend the 1 available module. Allocate time based on score (2-6 hours).";
-    } else if (availableModuleCount === 2) {
-      moduleRequirements = "- For all scores: Recommend both available modules if needed. Allocate 3-5 hours per module based on score severity.";
-    } else {
-      // 3+ modules available - use original logic
-      moduleRequirements = 
-        "- For scores 0-30%: Recommend MINIMUM 3-4 modules (or all if fewer available). Allocate 5-6 hours per module.\n" +
-        "- For scores 31-50%: Recommend MINIMUM 2-3 modules (or all if fewer available). Allocate 4-5 hours per module.\n" +
-        "- For scores 51-70%: Recommend 2-3 modules. Allocate 3-4 hours per module.\n" +
-        "- For scores 71-85%: Recommend 1-2 modules. Allocate 2-3 hours per module.\n" +
-        "- For scores 86-100%: Recommend 1-2 modules. Allocate 2 hours per module.";
-    }
+//       // console.log(existingPlan)
+//       if (planCheckError && planCheckError.code !== 'PGRST116') {
+//         console.error('Error checking existing plan:', planCheckError);
+//       }
+//       // console.log("This is the module id user has requested",module_id)
 
-const prompt1 = "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan. If KPI scores (description, score, benchmark, and datatype) are available, use them; otherwise, rely only on baseline assessments.\n\n" +
-      geminiText + "\n\n" +
-      (kpiText ? kpiText + "\n\n" : "") +
-      "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n" +
-      "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
+//       // If we found an existing plan, return it instead of generating a new one
+//       if (existingPlan && existingPlan.plan_json) {
+//         // console.log("This is the module id",module_id)
+//         // console.log('Found existing learning plan for user:', user_id, 'module:', module_id);
+
+//         let planContent;
+//         try {
+//           planContent = typeof existingPlan.plan_json === 'string'
+//             ? JSON.parse(existingPlan.plan_json)
+//             : existingPlan.plan_json;
+//         } catch (e) {
+//           // If plan_json is corrupted, we'll regenerate below
+//           console.warn('Existing plan has corrupted JSON, will regenerate:', e);
+//           planContent = null;
+//         }
+
+//         if (planContent) {
+//           // Ensure processed modules exist for the existing plan (use resolved company_id)
+//           try {
+//             // console.log("Plan Content")
+//             // console.log(planContent)
+//             // await ensureProcessedModulesForPlan(user_id, company_id, planContent);
+//           } catch (e) {
+//             console.error('Error ensuring processed modules for existing plan:', e);
+//           }
+
+//           return NextResponse.json({
+//             plan: planContent,
+//             reasoning: existingPlan.reasoning,
+//             planId: existingPlan.learning_plan_id,
+//             status: existingPlan.status,
+//             message: 'Using existing stable learning plan - no regeneration needed'
+//           });
+//         }
+//       }
+//     }
+
+//     // If no existing plan found or module_id not provided, generate new plan
+//     // console.log('Generating new learning plan for user:', user_id, module_id ? `module: ${module_id}` : '(all modules)');
+
+//     // console.log("[Training Plan API] Request received");
+//     const module_id_query = request.nextUrl?.searchParams?.get("module_id") || null;
+//     // console.log("[Training Plan API] user_id:", user_id);
+//     if (module_id_query) // console.log("[Training Plan API] module_id (query):", module_id_query);
+//       // Validate Gemini API key early to avoid opaque 500s later
+//       // console.log("The module id is not passed in the request")
+//       // console.log(module_id)
+//       // console.log(module_id_query)
+//       if (!process.env.GEMINI_API_KEY) {
+//         console.error("[Training Plan API] GEMINI_API_KEY is not set");
+//         return NextResponse.json({ error: "Server misconfiguration: GEMINI_API_KEY is missing." }, { status: 500 });
+//       }
+//     // company_id already resolved above
+
+//     // Note: Baseline requirement check removed from here as it's module-specific, not company-wide
+//     // Individual modules may or may not require baseline assessments
+//     // The frontend handles per-module baseline requirements based on module configuration
+//     let baselineRequired = false;
+//     try {
+//       const { data: baselineDefs, error: baselineDefError } = await supabase
+//         .from('assessments')
+//         .select('assessment_id, type, employee_assessments!inner(user_id)')
+//         .eq('type', 'baseline')
+//         .eq('company_id', company_id)
+//         .eq('employee_assessments.user_id', user_id)
+//         ;
+//       if (baselineDefError) {
+//         console.error('[Training Plan API] Error fetching baseline assessment definitions:', baselineDefError);
+//         // don't fail here; continue — but log so we can investigate
+//       } else if (baselineDefs && baselineDefs.length > 0) {
+//         // console.log(baselineDefs)
+//         // console.log("These are baseline Defs")
+//         baselineRequired = true;
+//         // Ensure the employee has submitted at least one employee_assessments row for these baseline assessment ids
+//         const baselineIds = baselineDefs.map((b: any) => b.assessment_id).filter(Boolean);
+//         if (baselineIds.length > 0) {
+//           const { data: userBaselines, error: userBaselineError } = await supabase
+//             .from('employee_assessments')
+//             .select('assessment_id')
+//             .in('assessment_id', baselineIds)
+//             .eq('user_id', user_id);
+//           if (userBaselineError) {
+//             console.error('[Training Plan API] Error checking employee baseline submissions:', userBaselineError);
+//           } else if (!userBaselines || userBaselines.length === 0) {
+//             // console.log('[Training Plan API] User has not completed required baseline assessment(s).');
+//             return NextResponse.json({ error: 'BASELINE_REQUIRED', message: 'Please complete the baseline assessment first.' }, { status: 403 });
+//           }
+//         }
+//       } else {
+//         // console.log('[Training Plan API] No baseline assessments required for this company.');
+//         baselineRequired = false;
+//       }
+//     } catch (e) {
+//       console.error('[Training Plan API] Unexpected error while enforcing baseline requirement:', e);
+//     }
+
+//     // Fetch all assessments for this employee, including baseline
+//     // console.log("[Training Plan API] Fetching assessments for employee...");
+//     const { data: assessments, error: assessError } = await supabase
+//       .from("employee_assessments")
+//       .select("score, max_score, feedback, assessment_id, assessments(type, questions)")
+//       .eq("user_id", user_id);
+//     if (assessError) {
+//       console.error("[Training Plan API] Error fetching assessments:", assessError);
+//       return NextResponse.json({ error: assessError.message }, { status: 500 });
+//     }
+//     // console.log("[Training Plan API] Assessments:", assessments);
+
+//     // Separate all baseline and all module assessments
+//     const baselineAssessments = (assessments || []).filter((a: any) => {
+//       const arr = Array.isArray(a?.assessments) ? a.assessments : [a?.assessments].filter(Boolean);
+//       return arr.some((ass: any) => ass?.type === "baseline");
+//     });
+//     const moduleAssessments = (assessments || []).filter((a: any) => {
+//       const arr = Array.isArray(a?.assessments) ? a.assessments : [a?.assessments].filter(Boolean);
+//       return arr.some((ass: any) => ass?.type !== "baseline");
+//     });
+//     // console.log("[Training Plan API] Baseline assessments:", baselineAssessments);
+//     // console.log("[Training Plan API] Module assessments:", moduleAssessments);
+
+//     Compute percentage-based baseline results for plan generation
+//     const baselinePercentAssessments = (baselineAssessments || []).map((row: any) => {
+//       const score = Number(row?.score ?? 0);
+//       const max = Number(row?.max_score ?? 0);
+//       const percent = max > 0 ? Math.round((score / max) * 100) : null;
+//       return {
+//         assessment_id: row?.assessment_id ?? null,
+//         score,
+//         max_score: max,
+//         score_percent: percent, // used by GPT
+//         feedback: row?.feedback ?? null,
+//       };
+//     });
+//     console.log("[Training Plan API] Baseline percent assessments:", baselinePercentAssessments);
+
+//     // Compute hash only from baseline assessments so module quizzes don't change the plan
+//     // Include module_id in the hash when provided so cached plans are scoped per-module
+//     const assessmentHash = crypto.createHash("sha256")
+//       .update(JSON.stringify({ baselinePercentAssessments, module_id: module_id ?? null }))
+//       .digest("hex");
+//     // console.log("[Training Plan API] assessmentHash:", assessmentHash);
+//     // Step 1.5: Check if a learning plan already exists for this user (and module if provided)
+//     // console.log("[Training Plan API] Checking for latest assigned learning plan...");
+//     let existingPlan: any = null;
+//     let existingPlanError: any = null;
+//     try {
+//       if (module_id) {
+//         const ep = await supabase
+//           .from("learning_plan")
+//           .select("learning_plan_id, plan_json, reasoning, status, assessment_hash, module_id")
+//           .eq("user_id", user_id)
+//           .eq("module_id", module_id)
+//           .eq("status", "ASSIGNED")
+//           .order("learning_plan_id", { ascending: false })
+//           .limit(1)
+//           .maybeSingle();
+//         existingPlan = ep.data;
+//         existingPlanError = ep.error;
+//       } else {
+//         const ep = await supabase
+//           .from("learning_plan")
+//           .select("learning_plan_id, plan_json, reasoning, status, assessment_hash, module_id")
+//           .eq("user_id", user_id)
+//           .eq("status", "ASSIGNED")
+//           .order("learning_plan_id", { ascending: false })
+//           .limit(1)
+//           .maybeSingle();
+//         existingPlan = ep.data;
+//         existingPlanError = ep.error;
+//       }
+//     } catch (e) {
+//       existingPlanError = e;
+//     }
+//     if (existingPlanError && (existingPlanError as any).code !== "PGRST116") {
+//       console.error("[Training Plan API] Error checking existing plan:", existingPlanError);
+//       return NextResponse.json({ error: existingPlanError.message || String(existingPlanError) }, { status: 500 });
+//     }
+
+//     // If any plan exists for this user/module combination, return it (regardless of assessment hash)
+//     // This ensures learning plans remain stable once created
+//     if (existingPlan && existingPlan.plan_json) {
+//       // console.log("[Training Plan API] Existing plan found - returning stable plan without regeneration");
+//       try {
+//         // await ensureProcessedModulesForPlan(user_id, company_id, existingPlan.plan_json);
+//       } catch (e) {
+//         console.error("[Training Plan API] ensureProcessedModulesForPlan failed on existing plan:", e);
+//       }
+
+//       return NextResponse.json({
+//         plan: existingPlan.plan_json,
+//         reasoning: existingPlan.reasoning,
+//         message: "Using existing stable learning plan"
+//       });
+//     }
+
+//     // Only generate new plan if NO plan exists at all
+//     // console.log("[Training Plan API] No existing plan found - generating new plan");
+
+//     // Fetch all processed modules for this company by joining training_modules, handling empty lists safely
+//     // console.log("[Training Plan API] Fetching processed modules for company_id:", company_id);
+//     let modules: any[] = [];
+//     // If a specific module_id is provided, validate it belongs to the company and fetch only that processed module
+//     if (module_id) {
+//       try {
+//         // First, validate that the module belongs to this company
+//         const { data: moduleCheck, error: moduleCheckError } = await supabase
+//           .from("training_modules")
+//           .select("module_id, title")
+//           .eq("module_id", module_id)
+//           .eq("company_id", company_id)
+//           .single();
+
+//         if (moduleCheckError || !moduleCheck) {
+//           console.error("[Training Plan API] Module not found or doesn't belong to company:", moduleCheckError);
+//           return NextResponse.json({
+//             error: "MODULE_NOT_FOUND",
+//             message: "The specified module was not found or doesn't belong to your company."
+//           }, { status: 404 });
+//         }
+
+//         // Fetch only the processed module for this specific training module
+//         const { data: pmRows, error: modError } = await supabase
+//           .from("processed_modules")
+//           .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
+//           .eq("original_module_id", module_id)
+//           // .eq("user_id", user_id);
+
+//         if (modError) {
+//           console.error("[Training Plan API] Error fetching processed module:", modError);
+//           return NextResponse.json({ error: modError.message }, { status: 500 });
+//         }
+
+//         modules = pmRows || [];
+
+//         // If no processed modules found and baseline is not required, fetch raw training module as fallback
+//         if (modules.length === 0 && !baselineRequired) {
+//           // console.log("[Training Plan API] No processed modules found, baseline not required - using raw training module");
+//           const { data: tmRows, error: tmError } = await supabase
+//             .from("training_modules")
+//             .select("module_id, title, gpt_summary,  company_id")
+//             .eq("module_id", module_id)
+//             .eq("company_id", company_id);
+
+//           if (tmError) {
+//             console.error("[Training Plan API] Error fetching training module fallback:", tmError);
+//           } else if (tmRows && tmRows.length > 0) {
+//             modules = tmRows.map((m: any) => ({
+//               processed_module_id: m.module_id,
+//               title: m.title,
+//               content: m.gpt_summary,
+//               original_module_id: m.module_id,
+//               training_modules: { company_id: m.company_id }
+//             }));
+//             // console.log("[Training Plan API] Using raw training module as fallback");
+//           }
+//         }
+
+//         // console.log("[Training Plan API] Filtered modules for module_id:", module_id, modules);
+//       } catch (e) {
+//         console.error("[Training Plan API] Unexpected error filtering module:", e);
+//         return NextResponse.json({ error: String(e) }, { status: 500 });
+//       }
+
+//       console.log("Inside the if statement", company_id)
+//       // console.log("The modules are", modules)
+//     } else {
+//       console.log("Inside the else statement", company_id)
+//       // No specific module requested — fall back to previous behavior: fetch all company training modules
+//       const { data: trainingModuleRows, error: tmError } = await supabase
+//         .from("training_modules")
+//         .select("module_id")
+//         .eq("company_id", company_id);
+//       if (tmError) {
+//         console.error("[Training Plan API] Error fetching training modules:", tmError);
+//         return NextResponse.json({ error: tmError.message }, { status: 500 });
+//       }
+//       const tmIds = (trainingModuleRows || []).map((m: any) => m.module_id);
+//       // console.log("_______________________")
+//       console.log(tmIds)
+
+//       if (tmIds.length > 0) {
+//         const { data: pmRows, error: modError } = await supabase
+//           .from("processed_modules")
+//           .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
+//           .in("original_module_id", tmIds)
+//           // .eq("user_id", user_id);
+//         if (modError) {
+//           console.error("[Training Plan API] Error fetching modules:", modError);
+//           return NextResponse.json({ error: modError.message }, { status: 500 });
+//         }
+//         modules = pmRows || [];
+
+//         // If no processed modules found and baseline is not required, fetch raw training modules as fallback
+//         if (modules.length === 0 && !baselineRequired) {
+//           // console.log("[Training Plan API] No processed modules found, baseline not required - using raw training modules");
+//           const { data: tmRows, error: tmFallbackError } = await supabase
+//             .from("training_modules")
+//             .select("module_id, title, content, company_id")
+//             .in("module_id", tmIds)
+//             .eq("company_id", company_id);
+
+//           if (tmFallbackError) {
+//             console.error("[Training Plan API] Error fetching training modules fallback:", tmFallbackError);
+//           } else if (tmRows && tmRows.length > 0) {
+//             modules = tmRows.map((m: any) => ({
+//               processed_module_id: m.module_id,
+//               title: m.title,
+//               content: m.content,
+//               original_module_id: m.module_id,
+//               training_modules: { company_id: m.company_id }
+//             }));
+//             // console.log("[Training Plan API] Using raw training modules as fallback");
+//           }
+//         }
+//         // console.log("The modules are", modules)
+//       } else {
+//         // console.log("[Training Plan API] No training modules found for company; proceeding with empty module list");
+//       }
+//     }
+//     console.log("[Training Plan API] Modules for company_id:", company_id, modules);
+
+//     const { data: lsData, error: lsError } = await supabase
+//       .from("employee_learning_style")
+//       .select("learning_style, gemini_analysis")
+//       .eq("user_id", user_id)
+//       .single();
+//     let geminiText = "";
+//     if (lsData) {
+//       geminiText = `Learning Style: ${lsData.learning_style}\nAnalysis: ${lsData.gemini_analysis}`;
+//     }
+
+
+
+//     // Fetch employee KPIs (description and score)
+//     const { data: kpiRows, error: kpiError } = await supabase
+//       .from("employee_kpi")
+//       .select("score, kpis(description, benchmark, datatype)")
+//       .eq("user_id", user_id);
+//     let kpiText = "";
+//     if (kpiRows && kpiRows.length > 0) {
+//       kpiText = "Employee KPIs (description, score, benchmark, datatype):\n" +
+//         kpiRows.map((row: any) => {
+//           const desc = row.kpis?.description || "N/A";
+//           const score = row.score;
+//           const benchmark = row.kpis?.benchmark ?? "N/A";
+//           const datatype = row.kpis?.datatype || "N/A";
+//           return `KPI: ${desc}, Score: ${score}, Benchmark: ${benchmark}, Datatype: ${datatype}`;
+//         }).join("\n");
+//     }
+
+//     // Determine module count constraints based on available modules
+//     const availableModuleCount = modules.length;
+//     let moduleRequirements = "";
+//     if (availableModuleCount === 0) {
+//       moduleRequirements = "- No modules are currently available. Inform the user that no training modules match their needs.";
+//     } else if (availableModuleCount === 1) {
+//       moduleRequirements = "- For all scores: Recommend the 1 available module. Allocate time based on score (2-6 hours).";
+//     } else if (availableModuleCount === 2) {
+//       moduleRequirements = "- For all scores: Recommend both available modules if needed. Allocate 3-5 hours per module based on score severity.";
+//     } else {
+//       // 3+ modules available - use original logic
+//       moduleRequirements = 
+//         "- For scores 0-30%: Recommend MINIMUM 3-4 modules (or all if fewer available). Allocate 5-6 hours per module.\n" +
+//         "- For scores 31-50%: Recommend MINIMUM 2-3 modules (or all if fewer available). Allocate 4-5 hours per module.\n" +
+//         "- For scores 51-70%: Recommend 2-3 modules. Allocate 3-4 hours per module.\n" +
+//         "- For scores 71-85%: Recommend 1-2 modules. Allocate 2-3 hours per module.\n" +
+//         "- For scores 86-100%: Recommend 1-2 modules. Allocate 2 hours per module.";
+//     }
+
+// const prompt1 = "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan. If KPI scores (description, score, benchmark, and datatype) are available, use them; otherwise, rely only on baseline assessments.\n\n" +
+//       geminiText + "\n\n" +
+//       (kpiText ? kpiText + "\n\n" : "") +
+//       "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n" +
+//       "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
       
-      "CRITICAL MODULE SELECTION REQUIREMENTS - MUST FOLLOW:\n" +
-      moduleRequirements + "\n" +
-      "- NEVER recommend modules that are NOT in the Available Modules list.\n" +
-      "- NEVER generate, invent, or assume modules that don't exist.\n" +
-      "- NEVER recommend only 1 module for low scores (below 50%) if more are available.\n" +
-      "- Each module must include: title (or name), recommended_time (in hours), and order.\n" +
-      "- Prioritize modules addressing the most critical skill gaps shown in the assessment.\n\n" +
-      "The plan should:\n" +
-      "- Identify weak areas based on scores, benchmarks, datatypes, and feedback\n" +
-      "- Select modules ONLY from the Available Modules list\n" +
-      "- Map each selected module to specific weaknesses\n" +
-      "- Specify study order, recommended time per module (in hours)\n" +
-      "- Include actionable tips and recommendations\n" +
-      "- Ensure all recommendations align with the employee's learning style\n\n" +
-      "KPI Comparison Instructions:\n" +
-      "- For each KPI, compare the employee's score to the benchmark using the provided datatype.\n" +
-      "- If datatype is 'percentage', treat both score and benchmark as percentages out of 100.\n" +
-      "- If datatype is 'numeric', compare the raw numbers.\n" +
-      "- If datatype is 'ratio', compare as a ratio (e.g., score/benchmark).\n" +
-      "- Use this comparison to identify strengths and weaknesses for each KPI.\n\n" +
-      "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, learning style, and KPI factors (including benchmark and datatype) influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, learning style, and KPIs (including benchmark and datatype)\n- Explicitly explain how the score, benchmark, and datatype influenced the number of modules and total study hours.\n\n" +
-      "Assessment Results (baseline only, percentage-based):\n" + JSON.stringify(baselinePercentAssessments, null, 2) + "\n\n" +
-      "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
-      "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n" +
-      "JSON format:\n" +  
-      "{\n" +
-      "  \"plan\": {\n" +
-      "    \"modules\": [\n" +
-      "      { \"title\": \"Module Name\", \"recommended_time\": 5, \"order\": 1 },\n" +
-      "      { \"title\": \"Module Name 2\", \"recommended_time\": 5, \"order\": 2 }\n" +
-      "    ],\n" +
-      "    \"tips\": \"...\"\n" +
-      "  },\n" +
-      "  \"reasoning\": { ... }\n" +
-      "}\n" +
-      "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
-      "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"kpi_influence\": string,\n  \"overall_strategy\": string\n}\n" +
-      "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
+//       "CRITICAL MODULE SELECTION REQUIREMENTS - MUST FOLLOW:\n" +
+//       moduleRequirements + "\n" +
+//       "- NEVER recommend modules that are NOT in the Available Modules list.\n" +
+//       "- NEVER generate, invent, or assume modules that don't exist.\n" +
+//       "- NEVER recommend only 1 module for low scores (below 50%) if more are available.\n" +
+//       "- Each module must include: title (or name), recommended_time (in hours), and order.\n" +
+//       "- Prioritize modules addressing the most critical skill gaps shown in the assessment.\n\n" +
+//       "The plan should:\n" +
+//       "- Identify weak areas based on scores, benchmarks, datatypes, and feedback\n" +
+//       "- Select modules ONLY from the Available Modules list\n" +
+//       "- Map each selected module to specific weaknesses\n" +
+//       "- Specify study order, recommended time per module (in hours)\n" +
+//       "- Include actionable tips and recommendations\n" +
+//       "- Ensure all recommendations align with the employee's learning style\n\n" +
+//       "KPI Comparison Instructions:\n" +
+//       "- For each KPI, compare the employee's score to the benchmark using the provided datatype.\n" +
+//       "- If datatype is 'percentage', treat both score and benchmark as percentages out of 100.\n" +
+//       "- If datatype is 'numeric', compare the raw numbers.\n" +
+//       "- If datatype is 'ratio', compare as a ratio (e.g., score/benchmark).\n" +
+//       "- Use this comparison to identify strengths and weaknesses for each KPI.\n\n" +
+//       "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, learning style, and KPI factors (including benchmark and datatype) influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses, learning style, and KPIs (including benchmark and datatype)\n- Explicitly explain how the score, benchmark, and datatype influenced the number of modules and total study hours.\n\n" +
+//       "Assessment Results (baseline only, percentage-based):\n" + JSON.stringify(baselinePercentAssessments, null, 2) + "\n\n" +
+//       "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
+//       "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n" +
+//       "JSON format:\n" +  
+//       "{\n" +
+//       "  \"plan\": {\n" +
+//       "    \"modules\": [\n" +
+//       "      { \"title\": \"Module Name\", \"recommended_time\": 5, \"order\": 1 },\n" +
+//       "      { \"title\": \"Module Name 2\", \"recommended_time\": 5, \"order\": 2 }\n" +
+//       "    ],\n" +
+//       "    \"tips\": \"...\"\n" +
+//       "  },\n" +
+//       "  \"reasoning\": { ... }\n" +
+//       "}\n" +
+//       "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
+//       "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"kpi_influence\": string,\n  \"overall_strategy\": string\n}\n" +
+//       "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
 
-      const prompt2 = "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan.\n\n" +
-      geminiText + "\n\n" +
-      "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n" +
-      "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
+//       const prompt2 = "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan.\n\n" +
+//       geminiText + "\n\n" +
+//       "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n" +
+//       "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n" +
       
-      "CRITICAL MODULE SELECTION REQUIREMENTS - MUST FOLLOW:\n" +
-      moduleRequirements + "\n" +
-      "- NEVER recommend modules that are NOT in the Available Modules list.\n" +
-      "- NEVER generate, invent, or assume modules that don't exist.\n" +
-      "- Each module must include: title (or name), recommended_time (in hours), and order.\n" +
-      "- Prioritize modules addressing the most critical skill gaps shown in the assessment.\n\n" +
-      "The plan should:\n" +
-      "- Map each selected module to specific weaknesses\n" +
-      "- Specify study order, recommended time per module (in hours)\n" +
-      "- Include actionable tips and recommendations\n" +
-      "- Ensure all recommendations align with the employee's learning style\n" +
+//       "CRITICAL MODULE SELECTION REQUIREMENTS - MUST FOLLOW:\n" +
+//       moduleRequirements + "\n" +
+//       "- NEVER recommend modules that are NOT in the Available Modules list.\n" +
+//       "- NEVER generate, invent, or assume modules that don't exist.\n" +
+//       "- Each module must include: title (or name), recommended_time (in hours), and order.\n" +
+//       "- Prioritize modules addressing the most critical skill gaps shown in the assessment.\n\n" +
+//       "The plan should:\n" +
+//       "- Map each selected module to specific weaknesses\n" +
+//       "- Specify study order, recommended time per module (in hours)\n" +
+//       "- Include actionable tips and recommendations\n" +
+//       "- Ensure all recommendations align with the employee's learning style\n" +
       
-      "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, and learning style factors influenced your choices\n- For each module, justify the recommended time duration based on the employee's needs, weaknesses, and learning style\n\n" +
-      "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
-      "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n" +
-      "JSON format:\n" +  
-      "{\n" +
-      "  \"plan\": {\n" +
-      "    \"modules\": [\n" +
-      "      { \"title\": \"Module Name\", \"recommended_time\": 5, \"order\": 1 },\n" +
-      "      { \"title\": \"Module Name 2\", \"recommended_time\": 5, \"order\": 2 }\n" +
-      "    ],\n" +
-      "    \"tips\": \"...\"\n" +
-      "  },\n" +
-      "  \"reasoning\": { ... }\n" +
-      "}\n" +
-      "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
-      "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"overall_strategy\": string\n}\n" +
-      "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
+//       "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, and learning style factors influenced your choices\n- For each module, justify the recommended time duration based on the employee's needs, weaknesses, and learning style\n\n" +
+//       "Available Modules:\n" + JSON.stringify(modules, null, 2) + "\n\n" +
+//       "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n" +
+//       "JSON format:\n" +  
+//       "{\n" +
+//       "  \"plan\": {\n" +
+//       "    \"modules\": [\n" +
+//       "      { \"title\": \"Module Name\", \"recommended_time\": 5, \"order\": 1 },\n" +
+//       "      { \"title\": \"Module Name 2\", \"recommended_time\": 5, \"order\": 2 }\n" +
+//       "    ],\n" +
+//       "    \"tips\": \"...\"\n" +
+//       "  },\n" +
+//       "  \"reasoning\": { ... }\n" +
+//       "}\n" +
+//       "The 'reasoning' key must contain a valid JSON object with the following structure:\n" +
+//       "{\n  \"score_analysis\": string,\n  \"module_selection\": [\n    {\n      \"module_name\": string,\n      \"justification\": string,\n      \"recommended_time\": number\n    }\n  ],\n  \"learning_style_influence\": string,\n  \"overall_strategy\": string\n}\n" +
+//       "Do NOT include any other text, explanation, or formatting. Example: { \"plan\": { ... }, \"reasoning\": { ... } }";
 
 
 
 
-    // Compose prompt for Gemini
-    const prompt =
-      baselinePercentAssessments.length > 0 ? prompt1 : prompt2;
-    // // console.log("[Training Plan API] Prompt for Gemini:", prompt);
+//     // Compose prompt for Gemini
+//     const prompt =
+//       baselinePercentAssessments.length > 0 ? prompt1 : prompt2;
+//     // // console.log("[Training Plan API] Prompt for Gemini:", prompt);
 
-    // Call Gemini with gemini-2.5flash-lite model
-    // console.log("[Training Plan API] Calling Gemini (gemini-2.5-flash-lite)...");
-    let planJsonRaw = "";
-    try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      planJsonRaw = response.text()?.trim() || "";
-      // console.log("[Training Plan API] Gemini raw response:", response);
-      // console.log("[Training Plan API] raw result:", result);
-      // console.log("[Training Plan API] Plan Json Response:", planJsonRaw);
-    } catch (err: any) {
-      console.error("[Training Plan API] Gemini call failed:", err?.message || err);
-      return NextResponse.json({ error: "Gemini call failed", details: err?.message || String(err) }, { status: 500 });
-    }
+//     // Call Gemini with gemini-2.5flash-lite model
+//     // console.log("[Training Plan API] Calling Gemini (gemini-2.5-flash-lite)...");
+//     let planJsonRaw = "";
+//     try {
+//       const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+//       const result = await model.generateContent(prompt);
+//       const response = await result.response;
+//       planJsonRaw = response.text()?.trim() || "";
+//       // console.log("[Training Plan API] Gemini raw response:", response);
+//       // console.log("[Training Plan API] raw result:", result);
+//       // console.log("[Training Plan API] Plan Json Response:", planJsonRaw);
+//     } catch (err: any) {
+//       console.error("[Training Plan API] Gemini call failed:", err?.message || err);
+//       return NextResponse.json({ error: "Gemini call failed", details: err?.message || String(err) }, { status: 500 });
+//     }
 
-    // Clean the response to remove markdown code blocks and extra formatting
-    let cleanedContent = planJsonRaw.trim();
+//     // Clean the response to remove markdown code blocks and extra formatting
+//     let cleanedContent = planJsonRaw.trim();
 
-    // Remove markdown code blocks if present
-    cleanedContent = cleanedContent.replace(/^```json\s*/i, '');
-    cleanedContent = cleanedContent.replace(/^```\s*/i, '');
-    cleanedContent = cleanedContent.replace(/\s*```$/i, '');
+//     // Remove markdown code blocks if present
+//     cleanedContent = cleanedContent.replace(/^```json\s*/i, '');
+//     cleanedContent = cleanedContent.replace(/^```\s*/i, '');
+//     cleanedContent = cleanedContent.replace(/\s*```$/i, '');
 
-    // Remove any leading/trailing whitespace again
-    cleanedContent = cleanedContent.trim();
+//     // Remove any leading/trailing whitespace again
+//     cleanedContent = cleanedContent.trim();
 
-    // Try to find JSON object bounds if there's extra text
-    const jsonStart = cleanedContent.indexOf('{');
-    const jsonEnd = cleanedContent.lastIndexOf('}');
+//     // Try to find JSON object bounds if there's extra text
+//     const jsonStart = cleanedContent.indexOf('{');
+//     const jsonEnd = cleanedContent.lastIndexOf('}');
 
-    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-      cleanedContent = cleanedContent.substring(jsonStart, jsonEnd + 1);
-    }
+//     if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+//       cleanedContent = cleanedContent.substring(jsonStart, jsonEnd + 1);
+//     }
 
-    // Hardened parsing with sanitation and fallbacks
-    let plan: any = null;
-    let reasoning: any = null;
+//     // Hardened parsing with sanitation and fallbacks
+//     let plan: any = null;
+//     let reasoning: any = null;
 
-    const sanitizeJson = (s: string): string => {
-      let out = s.trim();
-      // Normalize smart quotes and apostrophes
-      out = out.replace(/[""]/g, '"').replace(/[']/g, "'");
-      // Merge keys like "Key1" and "Key2": into a single valid JSON key
-      out = out.replace(/"([^"\n]+)"\s+and\s+"([^"\n]+)"\s*:/g, '"$1 and $2":');
-      // Remove trailing commas before } or ]
-      out = out.replace(/,\s*([}\]])/g, '$1');
-      // Ensure there is only one top-level JSON object
-      const firstBrace = out.indexOf('{');
-      const lastBrace = out.lastIndexOf('}');
-      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        out = out.slice(firstBrace, lastBrace + 1);
-      }
-      return out;
-    };
+//     const sanitizeJson = (s: string): string => {
+//       let out = s.trim();
+//       // Normalize smart quotes and apostrophes
+//       out = out.replace(/[""]/g, '"').replace(/[']/g, "'");
+//       // Merge keys like "Key1" and "Key2": into a single valid JSON key
+//       out = out.replace(/"([^"\n]+)"\s+and\s+"([^"\n]+)"\s*:/g, '"$1 and $2":');
+//       // Remove trailing commas before } or ]
+//       out = out.replace(/,\s*([}\]])/g, '$1');
+//       // Ensure there is only one top-level JSON object
+//       const firstBrace = out.indexOf('{');
+//       const lastBrace = out.lastIndexOf('}');
+//       if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+//         out = out.slice(firstBrace, lastBrace + 1);
+//       }
+//       return out;
+//     };
 
-    const tryParse = (raw: string): { plan?: any; reasoning?: any } | null => {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed.plan || parsed.reasoning) {
-          return { plan: parsed.plan ?? null, reasoning: parsed.reasoning ?? null };
-        }
-        return { plan: parsed, reasoning: null };
-      } catch {
-        return null;
-      }
-    };
+//     const tryParse = (raw: string): { plan?: any; reasoning?: any } | null => {
+//       try {
+//         const parsed = JSON.parse(raw);
+//         if (parsed.plan || parsed.reasoning) {
+//           return { plan: parsed.plan ?? null, reasoning: parsed.reasoning ?? null };
+//         }
+//         return { plan: parsed, reasoning: null };
+//       } catch {
+//         return null;
+//       }
+//     };
 
-    // Attempt 1: strict parse
-    let parsed = tryParse(cleanedContent);
-    if (!parsed) {
-      // Attempt 2: sanitize and parse
-      const cleaned = sanitizeJson(cleanedContent);
-      parsed = tryParse(cleaned);
-      if (!parsed) {
-        // Attempt 3: extract plan and reasoning blocks separately
-        const cleaned2 = sanitizeJson(cleanedContent);
-        let planBlock: any = null;
-        let reasoningBlock: any = null;
-        const planMatch = cleaned2.match(/"plan"\s*:\s*({[\s\S]*?})\s*(,|})/);
-        const reasoningMatch = cleaned2.match(/"reasoning"\s*:\s*({[\s\S]*?})\s*(,|})/);
-        try { planBlock = planMatch ? JSON.parse(sanitizeJson(planMatch[1])) : null; } catch { planBlock = null; }
-        try { reasoningBlock = reasoningMatch ? JSON.parse(sanitizeJson(reasoningMatch[1])) : null; } catch { reasoningBlock = null; }
-        if (planBlock || reasoningBlock) {
-          parsed = { plan: planBlock, reasoning: reasoningBlock };
-        }
-      }
-    }
+//     // Attempt 1: strict parse
+//     let parsed = tryParse(cleanedContent);
+//     if (!parsed) {
+//       // Attempt 2: sanitize and parse
+//       const cleaned = sanitizeJson(cleanedContent);
+//       parsed = tryParse(cleaned);
+//       if (!parsed) {
+//         // Attempt 3: extract plan and reasoning blocks separately
+//         const cleaned2 = sanitizeJson(cleanedContent);
+//         let planBlock: any = null;
+//         let reasoningBlock: any = null;
+//         const planMatch = cleaned2.match(/"plan"\s*:\s*({[\s\S]*?})\s*(,|})/);
+//         const reasoningMatch = cleaned2.match(/"reasoning"\s*:\s*({[\s\S]*?})\s*(,|})/);
+//         try { planBlock = planMatch ? JSON.parse(sanitizeJson(planMatch[1])) : null; } catch { planBlock = null; }
+//         try { reasoningBlock = reasoningMatch ? JSON.parse(sanitizeJson(reasoningMatch[1])) : null; } catch { reasoningBlock = null; }
+//         if (planBlock || reasoningBlock) {
+//           parsed = { plan: planBlock, reasoning: reasoningBlock };
+//         }
+//       }
+//     }
 
-    if (!parsed) {
-      console.error("[Training Plan API] Could not parse Gemini response as JSON after sanitation. Raw response:", planJsonRaw);
-      return NextResponse.json({ error: "Could not parse Gemini response as JSON.", raw: planJsonRaw }, { status: 500 });
-    }
-    plan = parsed.plan ?? null;
-    reasoning = parsed.reasoning ?? null;
+//     if (!parsed) {
+//       console.error("[Training Plan API] Could not parse Gemini response as JSON after sanitation. Raw response:", planJsonRaw);
+//       return NextResponse.json({ error: "Could not parse Gemini response as JSON.", raw: planJsonRaw }, { status: 500 });
+//     }
+//     plan = parsed.plan ?? null;
+//     reasoning = parsed.reasoning ?? null;
 
-    // 🔹 sanitize plan for frontend safety
-    const sanitizePlan = (p: any) => {
-      if (!p) return p;
-      if (Array.isArray(p.modules)) {
-        p.modules = p.modules.map((m: any) => {
-          const { objectives, ...rest } = m || {};
-          return rest; // drop objectives entirely
-        });
-      }
-      return p;
-    };
+//     // 🔹 sanitize plan for frontend safety
+//     const sanitizePlan = (p: any) => {
+//       if (!p) return p;
+//       if (Array.isArray(p.modules)) {
+//         p.modules = p.modules.map((m: any) => {
+//           const { objectives, ...rest } = m || {};
+//           return rest; // drop objectives entirely
+//         });
+//       }
+//       return p;
+//     };
 
-    plan = sanitizePlan(plan);
+//     plan = sanitizePlan(plan);
 
-    // Deduplicate modules by title - keep only the first occurrence
-    const deduplicateModules = (p: any) => {
-      if (!p || !Array.isArray(p.modules)) return p;
+//     // Deduplicate modules by title - keep only the first occurrence
+//     const deduplicateModules = (p: any) => {
+//       if (!p || !Array.isArray(p.modules)) return p;
       
-      const seen = new Set<string>();
-      const deduplicated = p.modules.filter((module: any) => {
-        const title = module.title?.trim().toLowerCase();
-        if (!title) return false;
-        if (seen.has(title)) {
-          console.log(`[Training Plan API] Removing duplicate module: ${module.title}`);
-          return false;
-        }
-        seen.add(title);
-        return true;
-      });
+//       const seen = new Set<string>();
+//       const deduplicated = p.modules.filter((module: any) => {
+//         const title = module.title?.trim().toLowerCase();
+//         if (!title) return false;
+//         if (seen.has(title)) {
+//           console.log(`[Training Plan API] Removing duplicate module: ${module.title}`);
+//           return false;
+//         }
+//         seen.add(title);
+//         return true;
+//       });
 
-      // Reorder by the order field
-      deduplicated.sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+//       // Reorder by the order field
+//       deduplicated.sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
 
-      // Update order field to be sequential (1, 2, 3, ...)
-      deduplicated.forEach((module: any, index: number) => {
-        module.order = index + 1;
-      });
+//       // Update order field to be sequential (1, 2, 3, ...)
+//       deduplicated.forEach((module: any, index: number) => {
+//         module.order = index + 1;
+//       });
 
-      return { ...p, modules: deduplicated };
-    };
+//       return { ...p, modules: deduplicated };
+//     };
 
-    plan = deduplicateModules(plan);
-    // console.log("[Training Plan API] Parsed plan:", plan);
-    // console.log("[Training Plan API] Parsed reasoning:", reasoning);
+//     plan = deduplicateModules(plan);
+//     // console.log("[Training Plan API] Parsed plan:", plan);
+//     // console.log("[Training Plan API] Parsed reasoning:", reasoning);
 
-    // Step 2: Only update/insert if assessmentHash has changed (existingPlan already fetched above)
+//     // Step 2: Only update/insert if assessmentHash has changed (existingPlan already fetched above)
 
-    // Step 3: If plan exists, update it. If not, insert new.
-    let dbResult;
-    // console.log(existingPlan)
-    if (existingPlan) {
-      // console.log("[Training Plan API] Existing plan found. Updating...");
-      dbResult = await supabase
-        .from("learning_plan")
-        .update({ plan_json: plan, reasoning: reasoning, status: "ASSIGNED", assessment_hash: assessmentHash })
-        .eq("learning_plan_id", existingPlan.learning_plan_id);
-    } else {
-      // console.log("[Training Plan API] No existing plan. Inserting new...");
-      dbResult = await supabase
-        .from("learning_plan")
-        // Assign provided module_id if present, otherwise fall back to null
-        .insert({ user_id, plan_json: plan, reasoning: reasoning, status: "ASSIGNED", module_id: module_id ?? null, assessment_hash: assessmentHash });
-    }
-    console.log("Inside the try catch")
-    if (dbResult.error) {
-      console.error("[Training Plan API] Error saving plan:", dbResult.error);
-      return NextResponse.json({ error: dbResult.error.message }, { status: 500 });
-    }
-  //   console.log("Outside the for loop")
-  //   console.log(processedModuleIds)
-  //   for(const m of processedModuleIds){
-  //     console.log("Inside the try catch second")
-  //   const{data:insertedData}=await supabase.from("module_progress")
-  //   .insert({
-  //     user_id,
-  //     module_id:m,
-  //     status:"NOT_STARTED"
-  //   })
-  //   console.log(insertedData);
+//     Step 3: If plan exists, update it. If not, insert new.
+//     let dbResult;
+//     // console.log(existingPlan)
+//     if (existingPlan) {
+//       // console.log("[Training Plan API] Existing plan found. Updating...");
+//       dbResult = await supabase
+//         .from("learning_plan")
+//         .update({ plan_json: plan, reasoning: reasoning, status: "ASSIGNED", assessment_hash: assessmentHash })
+//         .eq("learning_plan_id", existingPlan.learning_plan_id);
+//     } else {
+//       // console.log("[Training Plan API] No existing plan. Inserting new...");
+//       dbResult = await supabase
+//         .from("learning_plan")
+//         // Assign provided module_id if present, otherwise fall back to null
+//         .insert({ user_id, plan_json: plan, reasoning: reasoning, status: "ASSIGNED", module_id: module_id ?? null, assessment_hash: assessmentHash });
+//     }
+//     console.log("Inside the try catch")
+//     if (dbResult.error) {
+//       console.error("[Training Plan API] Error saving plan:", dbResult.error);
+//       return NextResponse.json({ error: dbResult.error.message }, { status: 500 });
+//     }
+//     console.log("Outside the for loop")
+//     console.log(processedModuleIds)
+//     for(const m of processedModuleIds){
+//       console.log("Inside the try catch second")
+//     const{data:insertedData}=await supabase.from("module_progress")
+//     .insert({
+//       user_id,
+//       module_id:m,
+//       status:"NOT_STARTED"
+//     })
+//     console.log(insertedData);
   
-  // }
-    // console.log("[Training Plan API] Plan saved successfully.");
+//   }
+//     console.log("[Training Plan API] Plan saved successfully.");
 
-    // Ensure processed_modules exist for modules in the newly saved plan
-    // try {
-    //   await ensureProcessedModulesForPlan(user_id, company_id, plan);
-    // } catch (e) {
-    //   console.error("[Training Plan API] ensureProcessedModulesForPlan failed after save:", e);
-    // }
+//     // Ensure processed_modules exist for modules in the newly saved plan
+//     // try {
+//     //   await ensureProcessedModulesForPlan(user_id, company_id, plan);
+//     // } catch (e) {
+//     //   console.error("[Training Plan API] ensureProcessedModulesForPlan failed after save:", e);
+//     // }
 
-    // Always return parsed plan and reasoning
-    return NextResponse.json({ plan, reasoning });
-  } catch (error) {
-    console.error("[Training Plan API] Unexpected error:", error);
-    return NextResponse.json({ error: "Unexpected error occurred" }, { status: 500 });
-  }
-}
+//     // Always return parsed plan and reasoning
+//     return NextResponse.json({ plan, reasoning });
+//   } catch (error) {
+//     console.error("[Training Plan API] Unexpected error:", error);
+//     return NextResponse.json({ error: "Unexpected error occurred" }, { status: 500 });
+//   }
+// }

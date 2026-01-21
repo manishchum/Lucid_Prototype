@@ -129,6 +129,8 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                 data = refreshedData;
               // }
             }
+
+            console.log(refreshedData);
           } catch (genError) {
             console.error('[module] Error triggering content generation:', genError);
           } finally {
@@ -2175,6 +2177,7 @@ function sanitizeHTML(html: string): string {
 
 // Add GenerateAudioButton component
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 function GenerateAudioButton({ moduleId, onAudioGenerated, language = 'en' }: { moduleId: string, onAudioGenerated: (url: string, data?: { transcript?: string; timeline?: any; language?: 'en' | 'hinglish' }) => void, language?: 'en' | 'hinglish' }) {
   const [loading, setLoading] = useState(false);
@@ -2186,7 +2189,7 @@ function GenerateAudioButton({ moduleId, onAudioGenerated, language = 'en' }: { 
     try {
       if (language === 'hinglish') {
         // Hinglish generation implementation
-        const res = await fetch(`/api/tts?processed_module_id=${moduleId}&language=hinglish`);
+        const res = await fetch(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=hinglish`);
         const data = await res.json();
         if (res.ok && data.audioUrl) {
           onAudioGenerated(data.audioUrl, {
@@ -2198,7 +2201,7 @@ function GenerateAudioButton({ moduleId, onAudioGenerated, language = 'en' }: { 
           setError(data.error || 'Failed to generate Hinglish audio');
         }
       } else {
-        const res = await fetch(`/api/tts?processed_module_id=${moduleId}&language=en`);
+        const res = await fetch(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=en`);
         const data = await res.json();
         if (res.ok && data.audioUrl) {
           onAudioGenerated(data.audioUrl, {
@@ -2238,7 +2241,7 @@ function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string,
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/veo-video`, {
+      const res = await fetch(`/api/gpt-video-generation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ processed_module_id: moduleId }),

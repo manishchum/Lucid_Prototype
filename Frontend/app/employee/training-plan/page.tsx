@@ -34,6 +34,9 @@ function TrainingPlanContent() {
   const [moduleBaselineStatus, setModuleBaselineStatus] = useState<Map<string, boolean>>(new Map());
   const [completedModules, setCompletedModules] = useState<string[]>([]);
   const [actualUserId, setActualUserId] = useState<string | null>(null);
+
+
+  const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
   const [processedModuleIds, setProcessedModuleIds] = useState<string[]>([]);
   let userId:any = null;
   // Fetch completed modules from Supabase (same logic as employee/welcome)
@@ -313,7 +316,7 @@ function TrainingPlanContent() {
         requestBody.processedModuleIds = processedModuleIds;
       }
       // console.log("[training-plan] Fetching plan with body:", requestBody);
-      const res = await fetch("/api/training-plan", {
+      const res = await fetch(`${API_BASE}/api/training-plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),

@@ -15,6 +15,8 @@ interface TrainingModule {
   ai_modules: string | null;
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+
 const AssessmentContent = () => {
   const { user } = useAuth();
   const [modules, setModules] = useState<TrainingModule[]>([]);
@@ -97,6 +99,7 @@ const AssessmentContent = () => {
         
         // If a moduleId query param is present, request a per-module quiz.
         const urlModuleId = searchParams.get('moduleId');
+        let isBaselineRequest = false;
         // console.log("Error in getting learning_plan");
         let res;
         if (urlModuleId) {
@@ -108,12 +111,12 @@ const AssessmentContent = () => {
             .eq('module_id', urlModuleId)
             .single()
 
-          const isBaselineRequest = learningPlan && learningPlan.baseline_assessment === 1;
+          isBaselineRequest = Boolean(learningPlan && learningPlan.baseline_assessment === 1);
           // console.log(isBaselineRequest)
           // console.log")
             // console.log("Inside the if statement for per-module quiz request.");
           // console.log(urlModuleId)
-          res = await fetch('/api/gpt-mcq-quiz', {
+          res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -127,7 +130,7 @@ const AssessmentContent = () => {
         } else {
           // Request a baseline quiz for all assigned modules (multi-module baseline)
           // console.log("Inside the else statement for per-module quiz request.");
-          res = await fetch('/api/gpt-mcq-quiz', {
+          res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -146,11 +149,38 @@ const AssessmentContent = () => {
         const d = await res.json();
         // console.log('[Assessment] Baseline quiz result:', d);
         
-        // For per-module requests, the server returns an assessmentId we'll
-        // attach so submissions can reference the created assessment. For
-        // multi-module baselines we keep the existing 'baseline' behavior.
+        // Prefer quizMapping (new backend behavior). Fall back to legacy d.quiz.
         let quizzes = [] as Array<{ moduleId: string; title?: string; questions: any[]; assessmentId?: string }>;
-        if (d && d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
+        const mapping = (d && Array.isArray(d.quizMapping)) ? d.quizMapping : null;
+
+        if (mapping && mapping.length > 0) {
+          // If moduleId is specified, pick that module's baseline.
+          let selected = null as any;
+          if (urlModuleId) {
+            selected = mapping.find((m: any) => String(m.module_id) === String(urlModuleId)) || null;
+          }
+          if (!selected) {
+            selected = mapping[0];
+          }
+
+          const selectedQuestions = selected?.questions || [];
+          const selectedAssessmentId = selected?.assessment_id;
+
+          if (Array.isArray(selectedQuestions) && selectedQuestions.length > 0) {
+            const effectiveModuleId = (urlModuleId && isBaselineRequest) ? 'baseline' : (urlModuleId ? String(urlModuleId) : 'baseline');
+            const effectiveTitle = (urlModuleId && !isBaselineRequest)
+              ? (modules.find(m => String(m.module_id) === String(urlModuleId))?.title || 'Module')
+              : 'Baseline Assessment';
+
+            quizzes = [{
+              moduleId: effectiveModuleId,
+              title: effectiveTitle,
+              questions: selectedQuestions,
+              assessmentId: selectedAssessmentId
+            }];
+          }
+        } else if (d && d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
+          // Legacy shape
           if (d.assessmentId && urlModuleId) {
             quizzes = [{ moduleId: String(urlModuleId), title: modules.find(m => String(m.module_id) === String(urlModuleId))?.title || 'Module', questions: d.quiz, assessmentId: d.assessmentId }];
           } else {
@@ -246,23 +276,20 @@ const AssessmentContent = () => {
       } else {
         const urlModuleId = searchParams.get('moduleId');
 
+        if (!urlModuleId) {
+          throw new Error('moduleId query param required to resolve baseline assessment');
+        }
+
         // Look up (or create) the baseline assessment for this company
         // console.log("Inside in this else 1")
-        const { data: assessmentDef, error } = await supabase
-              .from('assessments')
-              .select(`
-                assessment_id,
-                processed_modules!inner (
-                  user_id,
-                  original_module_id
-                )
-              `)
-              .eq('type', 'baseline')
-              .eq('company_id', companyId)
-              .eq('processed_modules.original_module_id', urlModuleId)
-              .eq('processed_modules.user_id', userId)
-              .limit(1)
-              .maybeSingle();
+        const { data: assessmentDef } = await supabase
+          .from('assessments')
+          .select('assessment_id')
+          .eq('type', 'baseline')
+          .eq('company_id', companyId)
+          .eq('original_module_id', urlModuleId)
+          .limit(1)
+          .maybeSingle();
 
         // console.log("New Query to get the result")
         // console.log(assessmentDef)
@@ -275,7 +302,7 @@ const AssessmentContent = () => {
           const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === 'baseline')?.questions || [];
           const { data: newDef } = await supabase
             .from('assessments')
-            .insert({ type: 'baseline', company_id: companyId, questions: JSON.stringify(questionsForModule) })
+            .insert({ type: 'baseline', company_id: companyId, original_module_id: urlModuleId, learning_style: null, questions: JSON.stringify(questionsForModule) })
             .select()
             .single();
             assessmentId = newDef?.assessment_id || null;
@@ -290,7 +317,7 @@ const AssessmentContent = () => {
       // console.log("Employee Feedback:", result.feedback.join("\n"));
 
       // Call GPT feedback API for AI-generated feedback and store in Supabase
-      const res = await fetch("/api/gpt-feedback", {
+      const res = await fetch(`${API_BASE}/api/gpt-feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

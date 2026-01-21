@@ -21,6 +21,7 @@ export default function LucidAssistant() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const STORAGE_KEY = 'lucid_assistant_messages_v1'
+  const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -46,10 +47,10 @@ export default function LucidAssistant() {
     try {
       // First try to load from server-side persisted chat (preferred)
       const existingId = localStorage.getItem('lucid_assistant_user_id')
-      const loadFromServer = async (id?: string | null) => {
+          const loadFromServer = async (id?: string | null) => {
         if (!id) return
         try {
-          const resp = await fetch(`/api/assistant/chat?user_id=${encodeURIComponent(id)}`)
+          const resp = await fetch(`${API_BASE}/api/assistant/chat?user_id=${encodeURIComponent(id)}`)
           if (resp.ok) {
             const d = await resp.json().catch(() => null)
             if (d && Array.isArray(d.chat) && d.chat.length > 0) {
@@ -108,7 +109,7 @@ export default function LucidAssistant() {
 
     try {
       setLoading(true);
-      const res = await fetch('/api/assistant', {
+      const res = await fetch(`${API_BASE}/api/assistant`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: txt, mode, user_id: assistantUserId, pdf_base64: pdfBase64, pdf_name: pdfFileName }),
@@ -190,7 +191,7 @@ export default function LucidAssistant() {
       // ensure server row exists for this user
       try {
         setLoading(true)
-        await fetch('/api/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'doubt', action: 'start', user_id: assistantUserId }) })
+        await fetch(`${API_BASE}/api/assistant`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'doubt', action: 'start', user_id: assistantUserId }) })
       } catch (e) {
         console.error('failed to start doubt session', e)
       } finally {
