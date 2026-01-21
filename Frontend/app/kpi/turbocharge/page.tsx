@@ -95,10 +95,8 @@ export default function KPITurbocharge() {
 
   useEffect(() => {
     loadFilters();
-    loadModules();
-  }, []);
 
-  useEffect(() => {
+    loadModules();
     if (selectedFunctionId) {
       loadSubFunctions(selectedFunctionId);
     } else {
