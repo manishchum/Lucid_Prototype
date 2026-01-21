@@ -129,6 +129,8 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                 data = refreshedData;
               // }
             }
+
+            console.log(refreshedData);
           } catch (genError) {
             console.error('[module] Error triggering content generation:', genError);
           } finally {
@@ -142,6 +144,8 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         setPlainTranscript(extractPlainText(data.content || ''));
         try {
           if (empObj?.user_id) {
+            console.log("Inside the module progress log 2")
+            console.log(data)
             await fetch('/api/module-progress', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -151,6 +155,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                 module_id: data.original_module_id,
                 started_at: new Date().toISOString(),
                 audio_url: data.audio_url,
+                completed_at: new Date().toISOString(),
                 viewOnly: true,
               }),
             });
@@ -1421,25 +1426,20 @@ function ContentTransformer({
             <div className="text-slate-500 text-xs mt-1">Structured overview</div>
           </div>
 
-          {/* Role Play button */}
-          <div
-            onClick={() => {
-              // Navigate to roleplay page using module data
-              if (module) {
-                const modId = module.processed_module_id || module.original_module_id;
-                const title = encodeURIComponent(module.title || 'Module');
-                window.location.href = `/employee/roleplay?moduleId=${modId}&moduleTitle=${title}`;
-              }
-            }}
+          {/* Flashcards button removed - keep only Flash cards button */}
+          {/*<div
+            onClick={() => setSelectedOption('roleplay')}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
-              'bg-white border-slate-300 hover:border-slate-400 hover:shadow-md'
+              selectedOption === 'roleplay'
+                ? 'bg-slate-50 border-green-500 shadow-lg'
+                : 'bg-white border-slate-300 hover:border-slate-400'
             )}
           >
             <div className="text-3xl mb-3">🎭</div>
-            <div className="font-bold text-slate-900 text-sm">Role Play</div>
-            <div className="text-slate-500 text-xs mt-1">Practice sales pitch</div>
-          </div>
+            <div className="font-bold text-slate-900 text-sm">Role-playing Exercise</div>
+            <div className="text-slate-500 text-xs mt-1">Role Play</div>
+          </div> */}
 
         </div>
 
@@ -2177,6 +2177,7 @@ function sanitizeHTML(html: string): string {
 
 // Add GenerateAudioButton component
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 function GenerateAudioButton({ moduleId, onAudioGenerated, language = 'en' }: { moduleId: string, onAudioGenerated: (url: string, data?: { transcript?: string; timeline?: any; language?: 'en' | 'hinglish' }) => void, language?: 'en' | 'hinglish' }) {
   const [loading, setLoading] = useState(false);
@@ -2188,7 +2189,7 @@ function GenerateAudioButton({ moduleId, onAudioGenerated, language = 'en' }: { 
     try {
       if (language === 'hinglish') {
         // Hinglish generation implementation
-        const res = await fetch(`/api/tts?processed_module_id=${moduleId}&language=hinglish`);
+        const res = await fetch(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=hinglish`);
         const data = await res.json();
         if (res.ok && data.audioUrl) {
           onAudioGenerated(data.audioUrl, {
@@ -2200,7 +2201,7 @@ function GenerateAudioButton({ moduleId, onAudioGenerated, language = 'en' }: { 
           setError(data.error || 'Failed to generate Hinglish audio');
         }
       } else {
-        const res = await fetch(`/api/tts?processed_module_id=${moduleId}&language=en`);
+        const res = await fetch(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=en`);
         const data = await res.json();
         if (res.ok && data.audioUrl) {
           onAudioGenerated(data.audioUrl, {
@@ -2240,7 +2241,7 @@ function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string,
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/veo-video`, {
+      const res = await fetch(`/api/gpt-video-generation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ processed_module_id: moduleId }),

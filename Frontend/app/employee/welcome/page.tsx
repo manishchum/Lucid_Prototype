@@ -94,8 +94,133 @@ export default function EmployeeWelcome() {
     if (!authLoading) {
       if (!user) router.push("/login");
       else checkEmployeeAccess();
+      
     }
   }, [user, authLoading, router]);
+
+  // Check learning plan entries and update overall_status based on module progress
+  useEffect(() => {
+    const checkAndUpdateOverallStatus = async () => {
+      if (!employee?.user_id) return;
+
+      try {
+        // Fetch all learning plan entries for the current user
+        const { data: learningPlans, error: planError } = await supabase
+          .from('learning_plan')
+          .select('learning_plan_id, processed_module_ids, overall_status, user_id')
+          .eq('user_id', employee.user_id);
+
+        if (planError || !learningPlans) {
+          console.error('[checkOverallStatus] Error fetching learning plans:', planError);
+          return;
+        }
+
+        // Process each learning plan entry
+        for (const plan of learningPlans) {
+          // Skip if no processed_module_ids
+          if (!plan.processed_module_ids || !Array.isArray(plan.processed_module_ids) || plan.processed_module_ids.length === 0) {
+            continue;
+          }
+
+          // Fetch module progress for all processed_module_ids
+          const { data: moduleProgressData, error: progressError } = await supabase
+            .from('module_progress')
+            .select('processed_module_id, pass_status')
+            .eq('user_id', employee.user_id)
+            .in('processed_module_id', plan.processed_module_ids);
+
+          if (progressError) {
+            console.error('[checkOverallStatus] Error fetching module progress:', progressError);
+            continue;
+          }
+
+          // Check if all sub-modules have passed
+          const allPassed = plan.processed_module_ids.every((moduleId: string) => {
+            const progress = moduleProgressData?.find(p => p.processed_module_id === moduleId);
+            return progress && progress.pass_status === true;
+          });
+
+          // Update overall_status if all passed and current status is not already true
+          if (allPassed && plan.overall_status !== true) {
+            const { error: updateError } = await supabase
+              .from('learning_plan')
+              .update({ overall_status: true })
+              .eq('learning_plan_id', plan.learning_plan_id);
+
+            if (updateError) {
+              console.error('[checkOverallStatus] Error updating overall_status:', updateError);
+            } else {
+              console.log(`[checkOverallStatus] Updated overall_status to true for learning_plan_id: ${plan.learning_plan_id}`);
+            }
+          }
+        }
+
+        // After updating all learning plan entries, update user ready status
+        await updateUserReadyStatus(employee.user_id);
+      } catch (e) {
+        console.error('[checkOverallStatus] Unexpected error:', e);
+      }
+    };
+
+    if (employee?.user_id) {
+      checkAndUpdateOverallStatus();
+    }
+  }, [employee?.user_id]);
+
+  // Function to update user ready status based on all learning plan entries
+  const updateUserReadyStatus = async (userId: string) => {
+    try {
+      console.log('[updateUserReadyStatus] Calculating ready status for user:', userId);
+
+      // Fetch all learning plan entries for this user
+      const { data: learningPlans, error: planError } = await supabase
+        .from('learning_plan')
+        .select('learning_plan_id, overall_status')
+        .eq('user_id', userId);
+
+      if (planError) {
+        console.error('[updateUserReadyStatus] Error fetching learning plans:', planError);
+        return;
+      }
+
+      // If user has no learning plans, they are not ready
+      if (!learningPlans || learningPlans.length === 0) {
+        console.log('[updateUserReadyStatus] No learning plans found for user');
+        
+        const { error: updateError } = await supabase
+          .from('users')
+          .update({ ready_status: false })
+          .eq('user_id', userId);
+
+        if (updateError) {
+          console.error('[updateUserReadyStatus] Error updating user ready_status to false:', updateError);
+        } else {
+          console.log('[updateUserReadyStatus] User ready_status set to false (no learning plans)');
+        }
+        return;
+      }
+
+      // Check if ALL learning plan entries have overall_status = true
+      const allPlansCompleted = learningPlans.every(plan => plan.overall_status === true);
+
+      console.log('[updateUserReadyStatus] Total learning plans:', learningPlans.length);
+      console.log('[updateUserReadyStatus] All plans completed:', allPlansCompleted);
+
+      // Update the ready_status in users table
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ ready_status: allPlansCompleted })
+        .eq('user_id', userId);
+
+      if (updateError) {
+        console.error('[updateUserReadyStatus] Error updating user ready_status:', updateError);
+      } else {
+        console.log(`[updateUserReadyStatus] User ready_status updated to: ${allPlansCompleted}`);
+      }
+    } catch (e) {
+      console.error('[updateUserReadyStatus] Unexpected error:', e);
+    }
+  };
 
   const checkEmployeeAccess = async () => {
     if (!user?.email) return;
@@ -119,7 +244,7 @@ export default function EmployeeWelcome() {
       const requiresBaseline = planRows?.some((plan: any) => plan.baseline_assessment === 1) ?? true;
       setBaselineRequired(requiresBaseline);
 
-      const assignedPlans = planRows?.filter((p: any) => p.status === 'ASSIGNED') || [];
+      const assignedPlans = planRows?.filter((p: any) => p.status === 'ASSIGNED'||p.status==="IN_PROGRESS") || [];
       // TEMP LOGS: inspect returned learning_plan rows and assigned plans
       try {
         console.log('[debug] learning_plan rows:', planRows);
@@ -342,7 +467,7 @@ export default function EmployeeWelcome() {
                     
                     <div className="relative">
                       {/* Profile Dropdown - Commented Out */}
-                      {/*
+                      {/* 
                       <button
                         onClick={() => setShowProfileDropdown(!showProfileDropdown)}
                         className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"

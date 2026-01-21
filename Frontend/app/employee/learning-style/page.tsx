@@ -11,6 +11,8 @@ import EmployeeNavigation from "@/components/employee-navigation"
 import { BookOpen, Smile, Meh, Frown, ChevronLeft, ChevronRight, CheckCircle, Star, Target, Lightbulb, Trophy, ChevronDown } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+
 const questions = [
   "I like having written directions before starting a task.",
   "I prefer to follow a schedule rather than improvise.",
@@ -355,7 +357,7 @@ export default function LearningStyleSurvey() {
         setEmployeeId(data.user_id)
         
         // Check if user already has learning style data
-        const styleRes = await fetch(`/api/learning-style?user_id=${data.user_id}`)
+        const styleRes = await fetch(`${API_BASE}/api/learning-style?user_id=${data.user_id}`)
         const styleData = await styleRes.json()
         if (styleData.success && styleData.data?.gpt_analysis && styleData.data?.learning_style) {
           const learningStyleMap = {
@@ -410,7 +412,7 @@ export default function LearningStyleSurvey() {
         setSurveyFrozen(false);
         return
       }
-      const res = await fetch("/api/learning-style", {
+      const res = await fetch(`${API_BASE}/api/learning-style`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: employeeId, answers })
