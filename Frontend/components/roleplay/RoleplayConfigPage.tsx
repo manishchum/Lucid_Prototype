@@ -132,7 +132,7 @@ export default function RoleplayConfigPage({ scenario, onStart, onBack }: Rolepl
             </div>
 
             {/* Save Draft Button */}
-            <div className="flex justify-end">
+            <div className="flex justify-center">
               <Button
                 onClick={() => {
                   // Add save draft functionality here
