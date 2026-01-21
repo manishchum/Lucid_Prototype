@@ -11,7 +11,8 @@ export async function POST(request: NextRequest) {
       max_score, 
       quiz_feedback, 
       completed_at,
-      viewOnly
+      viewOnly,
+      module_id
     } = body
 
     if (!user_id || !processed_module_id) {
@@ -29,12 +30,12 @@ export async function POST(request: NextRequest) {
     // })
 
     // Check if progress record already exists
+    console.log(processed_module_id)
     const { data: existingProgress, error: checkError } = await supabase
       .from('module_progress')
       .select('module_progress_id, completed_at')
       .eq('user_id', user_id)
       .eq('processed_module_id', processed_module_id)
-      .maybeSingle()
 
     if (checkError && checkError.code !== 'PGRST116') {
       console.error('[module-progress] Error checking existing progress:', checkError)
@@ -63,19 +64,37 @@ export async function POST(request: NextRequest) {
           data: existingProgress
         })
       }
-      
+      console.log("Inside the if")
       // Update existing progress with quiz/completion data
       const updateData: any = {}
       if (quiz_score !== undefined) updateData.quiz_score = progressData.quiz_score
       if (quiz_feedback !== undefined) updateData.quiz_feedback = progressData.quiz_feedback
-      if (completed_at) updateData.completed_at = progressData.completed_at
       
+
+      const {data:threshold} = await supabase
+      .from('training_modules')
+      .select('threshold_value')
+      .eq('module_id',module_id)
+      
+      console.log("Update Data:", updateData)
+      console.log("Threshold Value:", threshold)
+      console.log("Max Score:", max_score)
+      console.log("User Score:", quiz_score)
+      console.log("existingProgress:", existingProgress)
+      console.log("Module ID:", module_id)
+      console.log("Processed Module ID:", processed_module_id)
+
+      if(quiz_score/max_score * 100 >= threshold[0].threshold_value){
+        updateData.pass_status = true
+      }
+      updateData.completed_at = new Date().toISOString()
+
       const { data, error } = await supabase
         .from('module_progress')
         .update(updateData)
-        .eq('module_progress_id', existingProgress.module_progress_id)
-        .select()
-        .single()
+        .eq('module_progress_id', existingProgress[0].module_progress_id)
+      
+      
 
       if (error) {
         console.error('[module-progress] Error updating progress:', error)
@@ -89,7 +108,7 @@ export async function POST(request: NextRequest) {
       // Create new progress record
       const { data, error } = await supabase
         .from('module_progress')
-        .insert(progressData)
+        .update(progressData)
         .select()
         .single()
 

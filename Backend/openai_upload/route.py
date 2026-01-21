@@ -132,7 +132,7 @@ Processing steps (apply exactly):
 4. Apply Module Splitting Checks (for every module)
   - Time-to-Mastery Rule: If the source topic is complex, split into smaller modules.
   - Single-Outcome Rule: Split if the source presents multiple distinct learning outcomes.
-  - Cognitive Load Rule: Split if the source introduces >3–5 new concepts at once.
+  - Cognitive Load Rule: Split if the source introduces >1–3 new concepts at once.
   - For each module, list which rules triggered a split based on SOURCE ANALYSIS.
 5. Arrange Modules Logically
   - Order from foundational → intermediate → advanced based on the SOURCE structure.
@@ -152,6 +152,7 @@ Output format for each module:
 
 ⚠️ IF SOURCE IS INCOMPLETE: List clarifying questions about missing context (e.g., target proficiency, compliance requirements) but DO NOT INVENT CONTENT.
 ⚠️ NEVER EXTRAPOLATE: Strictly bind all content to source material. Gaps in source = gaps in modules, not invention.
+Respond ONLY in MARKDOWN format with NO additional commentary and always return a module related to the provided content.
 """
 
 

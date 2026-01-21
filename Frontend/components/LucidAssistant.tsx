@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from 'next/navigation'
 import { MessageSquare, X, Send, HelpCircle, FileText, ClipboardList, Upload } from "lucide-react";
 import VoiceInput from './VoiceInput';
+import VoiceOutput from './VoiceOutput';
 // AssistantTabs removed - restore original inline chat UI
 
 export default function LucidAssistant() {
@@ -324,7 +325,10 @@ export default function LucidAssistant() {
                 <div style={{ color: '#9ca3af', fontSize: 13 }}>Try: "ask anything"</div>
               )}
               {messages.map((m, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: m.from === 'user' ? 'flex-end' : 'flex-start' }}>
+                <div key={i} style={{ display: 'flex', justifyContent: m.from === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 6 }}>
+                  {m.from === 'bot' && (
+                    <VoiceOutput text={m.text} disabled={loading} />
+                  )}
                   <div style={{ maxWidth: '84%', padding: '10px 14px', borderRadius: 12, background: m.from === 'user' ? '#2563eb' : '#f3f4f6', color: m.from === 'user' ? 'white' : '#111827', fontSize: 14, lineHeight: '18px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                     {m.text}
                   </div>

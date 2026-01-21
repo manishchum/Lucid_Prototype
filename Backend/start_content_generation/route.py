@@ -42,7 +42,8 @@ async def POST(req: Request):
 
         if existingError:
             print("Failed to check existing jobs:", existingError)
-            return JSONResponse(content={"error": existingError.message}, status_code=500)
+            msg = existingError.get("message") if isinstance(existingError, dict) else getattr(existingError, "message", None)
+            return JSONResponse(content={"error": msg or str(existingError)}, status_code=500)
 
         if existing and len(existing) > 0:
             return JSONResponse(content={
@@ -55,18 +56,38 @@ async def POST(req: Request):
         inserted_resp = (
             supabaseAdmin
             .table("content_jobs")
-            .insert({"module_id": module_id, "status": "pending"})
-            .select("id, status")
-            .maybe_single()
+            .insert({"module_id": module_id, "status": "pending"}, returning="representation")
             .execute()
         )
 
-        inserted = getattr(inserted_resp, "data", None)
+        inserted_data = getattr(inserted_resp, "data", None)
         insertError = getattr(inserted_resp, "error", None)
 
         if insertError:
             print("Failed to enqueue job:", insertError)
-            return JSONResponse(content={"error": insertError.message}, status_code=500)
+            msg = insertError.get("message") if isinstance(insertError, dict) else getattr(insertError, "message", None)
+            return JSONResponse(content={"error": msg or str(insertError)}, status_code=500)
+
+        inserted = None
+        if isinstance(inserted_data, list) and len(inserted_data) > 0:
+            inserted = inserted_data[0]
+        elif isinstance(inserted_data, dict):
+            inserted = inserted_data
+
+        # Some PostgREST setups may not return representation; fallback to lookup
+        if not inserted:
+            requery_resp = (
+                supabaseAdmin
+                .table("content_jobs")
+                .select("id, status")
+                .eq("module_id", module_id)
+                .order("id", desc=True)
+                .limit(1)
+                .execute()
+            )
+            requery_data = getattr(requery_resp, "data", None)
+            if isinstance(requery_data, list) and len(requery_data) > 0:
+                inserted = requery_data[0]
 
         return JSONResponse(content={
             "started": True,

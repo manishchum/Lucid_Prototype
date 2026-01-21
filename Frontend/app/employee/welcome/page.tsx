@@ -56,6 +56,7 @@ export default function EmployeeWelcome() {
   const [progressPercentage, setProgressPercentage] = useState<number>(0);
   const [showLoginToast, setShowLoginToast] = useState<boolean>(false);
   const [isNavOverlay, setIsNavOverlay] = useState<boolean>(false);
+  const [showAllModules, setShowAllModules] = useState<boolean>(false);
   
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
@@ -93,8 +94,133 @@ export default function EmployeeWelcome() {
     if (!authLoading) {
       if (!user) router.push("/login");
       else checkEmployeeAccess();
+      
     }
   }, [user, authLoading, router]);
+
+  // Check learning plan entries and update overall_status based on module progress
+  useEffect(() => {
+    const checkAndUpdateOverallStatus = async () => {
+      if (!employee?.user_id) return;
+
+      try {
+        // Fetch all learning plan entries for the current user
+        const { data: learningPlans, error: planError } = await supabase
+          .from('learning_plan')
+          .select('learning_plan_id, processed_module_ids, overall_status, user_id')
+          .eq('user_id', employee.user_id);
+
+        if (planError || !learningPlans) {
+          console.error('[checkOverallStatus] Error fetching learning plans:', planError);
+          return;
+        }
+
+        // Process each learning plan entry
+        for (const plan of learningPlans) {
+          // Skip if no processed_module_ids
+          if (!plan.processed_module_ids || !Array.isArray(plan.processed_module_ids) || plan.processed_module_ids.length === 0) {
+            continue;
+          }
+
+          // Fetch module progress for all processed_module_ids
+          const { data: moduleProgressData, error: progressError } = await supabase
+            .from('module_progress')
+            .select('processed_module_id, pass_status')
+            .eq('user_id', employee.user_id)
+            .in('processed_module_id', plan.processed_module_ids);
+
+          if (progressError) {
+            console.error('[checkOverallStatus] Error fetching module progress:', progressError);
+            continue;
+          }
+
+          // Check if all sub-modules have passed
+          const allPassed = plan.processed_module_ids.every((moduleId: string) => {
+            const progress = moduleProgressData?.find(p => p.processed_module_id === moduleId);
+            return progress && progress.pass_status === true;
+          });
+
+          // Update overall_status if all passed and current status is not already true
+          if (allPassed && plan.overall_status !== true) {
+            const { error: updateError } = await supabase
+              .from('learning_plan')
+              .update({ overall_status: true })
+              .eq('learning_plan_id', plan.learning_plan_id);
+
+            if (updateError) {
+              console.error('[checkOverallStatus] Error updating overall_status:', updateError);
+            } else {
+              console.log(`[checkOverallStatus] Updated overall_status to true for learning_plan_id: ${plan.learning_plan_id}`);
+            }
+          }
+        }
+
+        // After updating all learning plan entries, update user ready status
+        await updateUserReadyStatus(employee.user_id);
+      } catch (e) {
+        console.error('[checkOverallStatus] Unexpected error:', e);
+      }
+    };
+
+    if (employee?.user_id) {
+      checkAndUpdateOverallStatus();
+    }
+  }, [employee?.user_id]);
+
+  // Function to update user ready status based on all learning plan entries
+  const updateUserReadyStatus = async (userId: string) => {
+    try {
+      console.log('[updateUserReadyStatus] Calculating ready status for user:', userId);
+
+      // Fetch all learning plan entries for this user
+      const { data: learningPlans, error: planError } = await supabase
+        .from('learning_plan')
+        .select('learning_plan_id, overall_status')
+        .eq('user_id', userId);
+
+      if (planError) {
+        console.error('[updateUserReadyStatus] Error fetching learning plans:', planError);
+        return;
+      }
+
+      // If user has no learning plans, they are not ready
+      if (!learningPlans || learningPlans.length === 0) {
+        console.log('[updateUserReadyStatus] No learning plans found for user');
+        
+        const { error: updateError } = await supabase
+          .from('users')
+          .update({ ready_status: false })
+          .eq('user_id', userId);
+
+        if (updateError) {
+          console.error('[updateUserReadyStatus] Error updating user ready_status to false:', updateError);
+        } else {
+          console.log('[updateUserReadyStatus] User ready_status set to false (no learning plans)');
+        }
+        return;
+      }
+
+      // Check if ALL learning plan entries have overall_status = true
+      const allPlansCompleted = learningPlans.every(plan => plan.overall_status === true);
+
+      console.log('[updateUserReadyStatus] Total learning plans:', learningPlans.length);
+      console.log('[updateUserReadyStatus] All plans completed:', allPlansCompleted);
+
+      // Update the ready_status in users table
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ ready_status: allPlansCompleted })
+        .eq('user_id', userId);
+
+      if (updateError) {
+        console.error('[updateUserReadyStatus] Error updating user ready_status:', updateError);
+      } else {
+        console.log(`[updateUserReadyStatus] User ready_status updated to: ${allPlansCompleted}`);
+      }
+    } catch (e) {
+      console.error('[updateUserReadyStatus] Unexpected error:', e);
+    }
+  };
 
   const checkEmployeeAccess = async () => {
     if (!user?.email) return;
@@ -118,7 +244,7 @@ export default function EmployeeWelcome() {
       const requiresBaseline = planRows?.some((plan: any) => plan.baseline_assessment === 1) ?? true;
       setBaselineRequired(requiresBaseline);
 
-      const assignedPlans = planRows?.filter((p: any) => p.status === 'ASSIGNED') || [];
+      const assignedPlans = planRows?.filter((p: any) => p.status === 'ASSIGNED'||p.status==="IN_PROGRESS") || [];
       // TEMP LOGS: inspect returned learning_plan rows and assigned plans
       try {
         console.log('[debug] learning_plan rows:', planRows);
@@ -322,7 +448,7 @@ export default function EmployeeWelcome() {
                       {learningStyle}
                     </div>
                     <div className="flex-1">
-                      <h4 className="text-lg font-extrabold text-slate-900">Your Performance Sprint</h4>
+                      <h4 className="text-lg font-extrabold text-slate-900">Your Learning Approach</h4>
                       <div className="mt-2 text-slate-500">
                         <LearningStyleBlurb styleCode={learningStyle} />
                       </div>
@@ -334,13 +460,14 @@ export default function EmployeeWelcome() {
                 ) : (
                   <div className="flex items-center justify-between relative">
                     <div className="max-w-md">
-                      <h4 className="text-xl font-black text-slate-900 mb-2">Discover Your Performance Sprint</h4>
+                      <h4 className="text-xl font-black text-slate-900 mb-2">Discover Your Learning Style
+                      </h4>
                       <p className="text-slate-500 font-medium">Take our 5-minute cognitive survey to unlock your personalized training path.</p>
                     </div>
                     
                     <div className="relative">
                       {/* Profile Dropdown - Commented Out */}
-                      {/*
+                      {/* 
                       <button
                         onClick={() => setShowProfileDropdown(!showProfileDropdown)}
                         className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
@@ -425,37 +552,61 @@ export default function EmployeeWelcome() {
                     <p className="text-slate-500 text-base font-medium">No Modules Assigned</p>
                   </div>
                 ) : (
-                  <div className="divide-y divide-slate-50">
-                    {assignedModules.map((m) => (
-                      <div key={m.id} className="flex flex-col md:flex-row items-center gap-6 p-6 bg-white">
-                        <div className="flex items-center gap-4 min-w-0">
-                          {/* <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
-                            0%
-                          </div> */}
+                  <div>
+                    <div className={`divide-y divide-slate-50 ${showAllModules ? 'max-h-[500px] overflow-y-auto' : ''}`}>
+                      {(showAllModules ? assignedModules : assignedModules.slice(0, 3)).map((m) => (
+                        <div key={m.id} className="flex flex-col md:flex-row items-center gap-6 p-6 bg-white">
+                          <div className="flex items-center gap-4 min-w-0">
+                            {/* <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
+                              0%
+                            </div> */}
 
-                          <div className="min-w-0">
-                            <p className="text-lg font-extrabold text-slate-900 truncate max-w-[70vw] md:max-w-[40vw]">{m.title || `Module ${m.id}`}</p>
-                            {m.moduleName && (
-                              <div className="text-sm text-slate-500 truncate mt-1">{m.moduleName}</div>
-                            )}
-                            {/* <p className="text-xs font-black text-blue-600 uppercase tracking-wide mt-1">Baseline Pending</p> */}
+                            <div className="min-w-0">
+                              <p className="text-lg font-extrabold text-slate-900 truncate max-w-[70vw] md:max-w-[40vw]">{m.title || `Module ${m.id}`}</p>
+                              {m.moduleName && (
+                                <div className="text-sm text-slate-500 truncate mt-1">{m.moduleName}</div>
+                              )}
+                              {/* <p className="text-xs font-black text-blue-600 uppercase tracking-wide mt-1">Baseline Pending</p> */}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-center gap-3 w-full md:w-auto md:ml-auto">
+                            {/* Only show Baseline button when admin/learning_plan enables baseline for this module */}
+                            {m.hasBaseline ? (
+                              <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-4 py-2 rounded-md border border-slate-200 text-sm font-bold text-slate-700 bg-white hover:bg-slate-50">
+                                Baseline
+                              </button>
+                            ) : null}
+
+                            <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-5 py-2 rounded-md bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
+                              Start Your Sprint
+                            </button>
                           </div>
                         </div>
-
-                        <div className="flex items-center justify-center gap-3 w-full md:w-auto md:ml-auto">
-                          {/* Only show Baseline button when admin/learning_plan enables baseline for this module */}
-                          {m.hasBaseline ? (
-                            <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-4 py-2 rounded-md border border-slate-200 text-sm font-bold text-slate-700 bg-white hover:bg-slate-50">
-                              Baseline
-                            </button>
-                          ) : null}
-
-                          <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-5 py-2 rounded-md bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
-                            Performance Sprint
-                          </button>
-                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* Show More / Show Less button */}
+                    {assignedModules.length > 3 && (
+                      <div className="p-6 bg-slate-50/50 flex justify-start">
+                        <button
+                          onClick={() => setShowAllModules(!showAllModules)}
+                          className="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-all flex items-center gap-1.5"
+                        >
+                          {showAllModules ? (
+                            <>
+                              Show Less
+                              <ChevronDown size={14} className="rotate-180 transition-transform" />
+                            </>
+                          ) : (
+                            <>
+                              Show More
+                              <ChevronDown size={14} className="transition-transform" />
+                            </>
+                          )}
+                        </button>
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </CardContent>
