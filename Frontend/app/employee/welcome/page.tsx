@@ -536,7 +536,7 @@ export default function EmployeeWelcome() {
             {/* Assigned Modules (Locked State preserved) */}
             <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
               <CardHeader className="bg-slate-50/50 border-b border-slate-50 px-8 py-6">
-                <CardTitle className="text-lg font-black text-slate-900">Assigned Modules</CardTitle>
+                <CardTitle className="text-lg font-black text-slate-900">Assigned Sprints</CardTitle>
               </CardHeader>
               <CardContent className="p-0">
                 {!learningStyle ? (

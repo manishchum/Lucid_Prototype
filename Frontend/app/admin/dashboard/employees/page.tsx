@@ -523,7 +523,7 @@ export default function EmployeesPage() {
     <div className="space-y-6">
       <div className="border-b border-gray-200 pb-4">
         <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-        <p className="text-gray-600 mt-1">Manage users, assign modules, and organize by departments</p>
+        <p className="text-gray-600 mt-1">Manage users, assign sprints, and organize by departments</p>
       </div>
       
       {/* success banners are shown via unified Radix toasts now */}
@@ -635,7 +635,7 @@ export default function EmployeesPage() {
                     className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:pointer-events-none"
                   >
                     <BookOpen className="w-4 h-4 mr-2" />
-                    Assign Modules
+                    Assign Sprints
                   </Button>
                 </div>
               </div>
@@ -2316,8 +2316,8 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       onSuccess();
       
     } catch (error: any) {
-      console.error('Failed to assign modules:', error);
-      setError('Failed to assign modules. Please try again.');
+      console.error('Failed to assign sprints:', error);
+      setError('Failed to assign sprints. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -2336,7 +2336,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
           <div className="p-6">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold text-gray-900">Assign Modules</h2>
+              <h2 className="text-xl font-semibold text-gray-900">Assign Sprints</h2>
               <Button
                 type="button"
                 variant="outline"

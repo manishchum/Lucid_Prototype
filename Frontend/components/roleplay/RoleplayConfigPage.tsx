@@ -59,7 +59,7 @@ export default function RoleplayConfigPage({ scenario, onStart, onBack }: Rolepl
         <Card className="bg-white shadow-xl rounded-2xl overflow-hidden">
           {/* Header Section */}
           <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-8">
-            <h1 className="text-3xl font-bold mb-2">Configure Your Roleplay Session</h1>
+            <h1 className="text-3xl font-bold mb-2">Start Your Roleplay Session</h1>
             <p className="text-blue-100 text-lg">Customize your practice session settings</p>
           </div>
 
