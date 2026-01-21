@@ -787,7 +787,7 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
 
       {/* Main Content Area */}
       <div className="flex-1 flex">
-        {/* Left Side - LT Avatar */}
+        {/* Left Side - L Avatar */}
         <div className="w-1/2 bg-gradient-to-br from-purple-600 via-purple-500 to-indigo-600 flex items-center justify-center p-8 relative overflow-hidden">
           <div className="relative z-10 text-center">
             {/* Large Avatar with animated background effects BEHIND it */}
@@ -798,11 +798,11 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
               
               {/* Avatar Circle - positioned on top with z-index */}
               <div className={`relative z-10 w-64 h-64 rounded-full bg-white flex items-center justify-center shadow-2xl transition-all duration-300 ${isSpeaking ? 'scale-110 ring-8 ring-white/30' : 'scale-100'}`}>
-                <span className="text-8xl font-bold text-purple-600">LT</span>
+                <span className="text-8xl font-bold text-purple-600">L</span>
               </div>
             </div>
 
-            {/* LT Name and Status */}
+            {/* L Name and Status */}
             <div className="text-white">
               <h2 className="text-4xl font-bold mb-2">{scenario.role}</h2>
               <div className="flex items-center justify-center gap-3 mb-3">
@@ -905,7 +905,7 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
             <h3 className="text-3xl font-bold text-slate-900 mb-3">Ready to Start?</h3>
             <p className="text-slate-600 mb-8 text-lg">
               Click the button below to begin your role-play conversation. 
-              The LT will speak first, then it's your turn!
+              The L will speak first, then it's your turn!
             </p>
             <Button 
               onClick={startConversation}
