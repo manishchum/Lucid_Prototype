@@ -46,6 +46,29 @@ interface RecommendedAction {
   progress: number;
 }
 
+interface ScatterDataPoint {
+  user_id: string;
+  user_name: string;
+  kpi_score: number;
+  module_performance: number;
+}
+
+interface SelectedKpiInfo {
+  name: string;
+  target: number;
+}
+
+interface HeatmapData {
+  employee_id: string;
+  employee_name: string;
+  modules: {
+    module_id: string;
+    module_name: string;
+    score: number | null; // null if not attempted, 0-100 if attempted
+    status: 'not_started' | 'in_progress' | 'passed' | 'failed';
+  }[];
+}
+
 export default function KPITurbocharge() {
   const [functions, setFunctions] = useState<Array<{ function_id: string; function_name: string }>>([]);
   const [subFunctions, setSubFunctions] = useState<Array<{ sub_function_id: string; sub_function_name: string }>>([]);
@@ -56,6 +79,7 @@ export default function KPITurbocharge() {
   const [selectedSubFunctionId, setSelectedSubFunctionId] = useState<string>('');
   const [selectedTitleId, setSelectedTitleId] = useState<string>('');
   const [selectedModuleId, setSelectedModuleId] = useState<string>('');
+  const [selectedKpiId, setSelectedKpiId] = useState<string>('');
   
   const [loading, setLoading] = useState(true);
   const [kpiData, setKpiData] = useState<KPIData[]>([]);
@@ -63,6 +87,9 @@ export default function KPITurbocharge() {
   const [needsOptimization, setNeedsOptimization] = useState<ModulePerformance[]>([]);
   const [recommendedActions, setRecommendedActions] = useState<RecommendedAction[]>([]);
   const [correlationData, setCorrelationData] = useState<any[]>([]);
+  const [scatterData, setScatterData] = useState<ScatterDataPoint[]>([]);
+  const [selectedKpiInfo, setSelectedKpiInfo] = useState<SelectedKpiInfo | null>(null);
+  const [heatmapData, setHeatmapData] = useState<HeatmapData[]>([]);
   const [lucidAnalysis, setLucidAnalysis] = useState<string>('');
   const [workforceReadiness, setWorkforceReadiness] = useState({ score: 0, change: 0, status: 'Calculating...' });
 
@@ -91,7 +118,7 @@ export default function KPITurbocharge() {
 
   useEffect(() => {
     fetchAllData();
-  }, [selectedFunctionId, selectedSubFunctionId, selectedTitleId, selectedModuleId]);
+  }, [selectedFunctionId, selectedSubFunctionId, selectedTitleId, selectedModuleId, selectedKpiId]);
 
   const loadFilters = async () => {
     try {
@@ -174,7 +201,8 @@ export default function KPITurbocharge() {
         fetchKPIData(),
         fetchModulePerformance(),
         fetchRecommendedActions(),
-        fetchCorrelationData(),
+        fetchScatterPlotData(),
+        fetchHeatmapData(),
         // Call appropriate readiness calculation based on filter selection
         selectedModuleId ? calculateWorkforceReadiness() : calculateOrganizationFunctionReadiness()
       ]);
@@ -260,54 +288,82 @@ export default function KPITurbocharge() {
         return;
       }
 
-      const { data: learningPlans } = await supabase
-        .from('learning_plan')
-        .select('module_id, user_id, status, progress')
-        .in('user_id', userIds);
+      // Get all training modules
+      const { data: allModules } = await supabase
+        .from('training_modules')
+        .select('module_id, title, content_type');
 
-      if (!learningPlans || learningPlans.length === 0) {
+      if (!allModules || allModules.length === 0) {
         setTopModules([]);
         setNeedsOptimization([]);
         return;
       }
 
-      const moduleIds = [...new Set(learningPlans.map(lp => lp.module_id))];
-      const { data: modules } = await supabase
-        .from('training_modules')
-        .select('module_id, title, content_type')
-        .in('module_id', moduleIds);
+      // Calculate performance for each module
+      const moduleStats = await Promise.all(
+        allModules.map(async (module) => {
+          // Get learning plans for this module and filtered users
+          const { data: learningPlans } = await supabase
+            .from('learning_plan')
+            .select('user_id, overall_status, processed_module_ids')
+            .eq('module_id', module.module_id)
+            .in('user_id', userIds);
 
-      // Calculate module performance
-      const moduleStats = moduleIds.map(moduleId => {
-        const modulePlans = learningPlans.filter(lp => lp.module_id === moduleId);
-        const totalUsers = modulePlans.length;
-        const completedUsers = modulePlans.filter(lp => lp.status === 'COMPLETED').length;
-        const avgProgress = modulePlans.reduce((sum, lp) => sum + (lp.progress || 0), 0) / totalUsers;
-        const completionRate = (completedUsers / totalUsers) * 100;
-        
-        // Calculate impact score based on completion rate and progress
-        const impactScore = Math.round((completionRate * 0.6) + (avgProgress * 0.4));
+          if (!learningPlans || learningPlans.length === 0) {
+            return null; // No data for this module
+          }
 
-        const module = modules?.find(m => m.module_id === moduleId);
+          // Filter only users who have started the module (processed_module_ids is not null/empty)
+          const startedUsers = learningPlans.filter(
+            lp => lp.processed_module_ids !== null && lp.processed_module_ids !== ''
+          );
 
-        return {
-          module_id: moduleId,
-          module_name: module?.title || 'Unknown Module',
-          completion_rate: Math.round(completionRate),
-          impact_score: impactScore,
-          module_type: module?.content_type === 'pdf' ? 'SOP' : 
-                      module?.content_type === 'video' ? 'Video' : 'Simulation'
-        };
-      });
+          if (startedUsers.length === 0) {
+            return null; // No users have started this module
+          }
 
-      // Sort by impact score
-      moduleStats.sort((a, b) => b.impact_score - a.impact_score);
+          // Count users who passed (overall_status === true)
+          const passedUsers = startedUsers.filter(lp => lp.overall_status === true).length;
+          const totalStartedUsers = startedUsers.length;
 
-      // // Top 3 performers
-      // setTopModules(moduleStats.slice(0, 3));
+          // Calculate pass rate (completion rate)
+          const passRate = Math.round((passedUsers / totalStartedUsers) * 100);
 
-      // // Bottom 2 that need optimization
-      // setNeedsOptimization(moduleStats.slice(-2).reverse());
+          // Impact score is the pass rate
+          const impactScore = passRate;
+
+          return {
+            module_id: module.module_id,
+            module_name: module.title,
+            completion_rate: passRate,
+            impact_score: impactScore,
+            module_type: module.content_type === 'pdf' ? 'SOP' : 
+                        module.content_type === 'video' ? 'Video' : 'Simulation'
+          };
+        })
+      );
+
+      // Filter out null values (modules with no data)
+      const validModuleStats = moduleStats.filter(stat => stat !== null) as ModulePerformance[];
+
+      if (validModuleStats.length === 0) {
+        setTopModules([]);
+        setNeedsOptimization([]);
+        return;
+      }
+
+      // Sort by impact score (pass rate)
+      validModuleStats.sort((a, b) => b.impact_score - a.impact_score);
+
+      // Top 3 performers
+      setTopModules(validModuleStats.slice(0, 3));
+
+      // Bottom 2 that need optimization (only if we have at least 3 modules)
+      if (validModuleStats.length >= 3) {
+        setNeedsOptimization(validModuleStats.slice(-2).reverse());
+      } else {
+        setNeedsOptimization([]);
+      }
 
     } catch (error) {
       console.error('Error fetching module performance:', error);
@@ -343,7 +399,7 @@ export default function KPITurbocharge() {
 
       const { data: learningPlans } = await supabase
         .from('learning_plan')
-        .select('user_id, module_id, status, progress')
+        .select('user_id, module_id, status')
         .in('user_id', userIds)
         .in('status', ['ASSIGNED', 'IN_PROGRESS', 'COMPLETED'])
         .order('updated_at', { ascending: false });
@@ -388,6 +444,282 @@ export default function KPITurbocharge() {
     } catch (error) {
       console.error('Error fetching recommended actions:', error);
       setRecommendedActions([]);
+    }
+  };
+
+  const fetchScatterPlotData = async () => {
+    try {
+      // Get users based on selected filters
+      let userQuery = supabase
+        .from('users')
+        .select('user_id, name')
+        .eq('is_active', true)
+        .eq('employment_status', 'ACTIVE');
+
+      if (selectedTitleId) {
+        userQuery = userQuery.eq('title_id', selectedTitleId);
+      } else if (selectedSubFunctionId) {
+        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
+      } else if (selectedFunctionId) {
+        userQuery = userQuery.eq('function_id', selectedFunctionId);
+      }
+
+      const { data: users } = await userQuery;
+
+      if (!users || users.length === 0) {
+        setScatterData([]);
+        setSelectedKpiInfo(null);
+        return;
+      }
+
+      const userIds = users.map(u => u.user_id);
+
+      // If a specific KPI is selected, fetch its details including target
+      if (selectedKpiId) {
+        const { data: kpiDetails } = await supabase
+          .from('kpis')
+          .select('name, target')
+          .eq('kpi_id', selectedKpiId)
+          .single();
+
+        if (kpiDetails) {
+          setSelectedKpiInfo({
+            name: kpiDetails.name,
+            target: kpiDetails.target || 0
+          });
+        }
+      } else {
+        setSelectedKpiInfo(null);
+      }
+
+      // Get KPI scores for these users
+      let kpiScoreQuery = supabase
+        .from('employee_kpi_history')
+        .select('user_id, score, kpi_id, recorded_at')
+        .in('user_id', userIds)
+        .order('recorded_at', { ascending: false });
+
+      // Filter by selected KPI if one is selected
+      if (selectedKpiId) {
+        kpiScoreQuery = kpiScoreQuery.eq('kpi_id', selectedKpiId);
+      }
+
+      const { data: kpiScores } = await kpiScoreQuery;
+
+      // Get module performance (average quiz scores from employee_assessments)
+      const { data: assessmentScores } = await supabase
+        .from('employee_assessments')
+        .select('user_id, score, max_score, completed_at')
+        .in('user_id', userIds)
+        .not('score', 'is', null)
+        .not('max_score', 'is', null);
+
+      // Calculate data for each user
+      const scatterPoints: ScatterDataPoint[] = [];
+
+      for (const user of users) {
+        // Get KPI scores for this user
+        const userKpiScores = kpiScores?.filter(k => k.user_id === user.user_id) || [];
+        
+        if (userKpiScores.length === 0) continue;
+
+        // Calculate average KPI score
+        let avgKpiScore;
+        if (selectedKpiId) {
+          // If specific KPI is selected, use only that KPI's latest score
+          avgKpiScore = Number(userKpiScores[0].score);
+        } else {
+          // Otherwise, average across all KPIs
+          avgKpiScore = userKpiScores.reduce((sum, k) => sum + Number(k.score), 0) / userKpiScores.length;
+        }
+
+        // Get assessment scores for this user
+        const userAssessments = assessmentScores?.filter(a => a.user_id === user.user_id) || [];
+        
+        if (userAssessments.length === 0) continue;
+
+        // Calculate average module performance (percentage)
+        const avgModulePerformance = userAssessments.reduce((sum, a) => {
+          const percentage = (a.score / a.max_score) * 100;
+          return sum + percentage;
+        }, 0) / userAssessments.length;
+
+        scatterPoints.push({
+          user_id: user.user_id,
+          user_name: user.name,
+          kpi_score: Math.round(avgKpiScore),
+          module_performance: Math.round(avgModulePerformance)
+        });
+      }
+
+      setScatterData(scatterPoints);
+    } catch (error) {
+      console.error('Error fetching scatter plot data:', error);
+      setScatterData([]);
+      setSelectedKpiInfo(null);
+    }
+  };
+
+  const fetchHeatmapData = async () => {
+    try {
+      // Get users based on selected filters
+      let userQuery = supabase
+        .from('users')
+        .select('user_id, name')
+        .eq('is_active', true)
+        .eq('employment_status', 'ACTIVE');
+
+      if (selectedTitleId) {
+        userQuery = userQuery.eq('title_id', selectedTitleId);
+      } else if (selectedSubFunctionId) {
+        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
+      } else if (selectedFunctionId) {
+        userQuery = userQuery.eq('function_id', selectedFunctionId);
+      }
+
+      const { data: users } = await userQuery;
+
+      if (!users || users.length === 0) {
+        setHeatmapData([]);
+        return;
+      }
+
+      // Get all training modules
+      const { data: allModules } = await supabase
+        .from('training_modules')
+        .select('module_id, title')
+        .order('title')
+        .limit(10); // Limit to 10 modules for better visualization
+
+      if (!allModules || allModules.length === 0) {
+        setHeatmapData([]);
+        return;
+      }
+
+      const userIds = users.map(u => u.user_id);
+      const moduleIds = allModules.map(m => m.module_id);
+
+      // Get all learning plans for these users and modules
+      const { data: learningPlans } = await supabase
+        .from('learning_plan')
+        .select('user_id, module_id, overall_status, processed_module_ids, status')
+        .in('user_id', userIds)
+        .in('module_id', moduleIds);
+
+      // Get all module progress with quiz scores
+      const { data: moduleProgress } = await supabase
+        .from('module_progress')
+        .select('user_id, processed_module_id, quiz_score, pass_status')
+        .in('user_id', userIds)
+        .not('quiz_score', 'is', null);
+
+
+        // Get max_score for each sub-module (processed_module_id)
+      console.log(userIds);
+      const { maxScoreData, error } = await supabase
+      .from('employee_assessments')
+      .select(`
+        user_id,
+        score,
+        max_score,
+        assessments!inner (
+          processed_module_id,
+          original_module_id
+        )
+      `)
+      .in('user_id', userIds)
+      .not('max_score', 'is', null);
+
+        console.log(maxScoreData);
+      // Get processed modules mapping
+      const { data: processedModules } = await supabase
+        .from('processed_modules')
+        .select('processed_module_id, original_module_id')
+        .in('original_module_id', moduleIds);
+
+      // Build heatmap data structure
+      const heatmap: HeatmapData[] = users.map(user => {
+        const userModules = allModules.map(module => {
+          // Find learning plan for this user-module combination
+          const plan = learningPlans?.find(
+            lp => lp.user_id === user.user_id && lp.module_id === module.module_id
+          );
+
+          if (!plan) {
+            return {
+              module_id: module.module_id,
+              module_name: module.title,
+              score: null,
+              status: 'not_started' as const
+            };
+          }
+
+          // Check if module has been started
+          const hasStarted = plan.processed_module_ids && 
+                           plan.processed_module_ids !== '' && 
+                           plan.processed_module_ids !== '[]';
+
+          if (!hasStarted) {
+            return {
+              module_id: module.module_id,
+              module_name: module.title,
+              score: null,
+              status: 'not_started' as const
+            };
+          }
+
+          // Get all processed module IDs for this module
+          const processedModuleIds = processedModules
+            ?.filter(pm => pm.original_module_id === module.module_id)
+            .map(pm => pm.processed_module_id) || [];
+
+          // Get quiz scores for this user's sub-modules
+          const userQuizzes = moduleProgress?.filter(
+            mp => mp.user_id === user.user_id && 
+                  processedModuleIds.includes(mp.processed_module_id)
+          ) || [];
+
+          if (userQuizzes.length === 0) {
+            return {
+              module_id: module.module_id,
+              module_name: module.title,
+              score: 0,
+              status: 'in_progress' as const
+            };
+          }
+
+          // Calculate average quiz score
+          const avgScore = Math.round(
+            userQuizzes.reduce((sum, q) => sum + (q.quiz_score || 0), 0) / userQuizzes.length
+          );
+
+          // Determine status
+          let status: 'not_started' | 'in_progress' | 'passed' | 'failed';
+          if (plan.overall_status === true) {
+            status = 'passed';
+          } else {
+            status = avgScore >= 60 ? 'in_progress' : 'failed';
+          }
+
+          return {
+            module_id: module.module_id,
+            module_name: module.title,
+            score: avgScore,
+            status
+          };
+        });
+
+        return {
+          employee_id: user.user_id,
+          employee_name: user.name,
+          modules: userModules
+        };
+      });
+
+      setHeatmapData(heatmap);
+    } catch (error) {
+      console.error('Error fetching heatmap data:', error);
+      setHeatmapData([]);
     }
   };
 
@@ -782,7 +1114,13 @@ export default function KPITurbocharge() {
             {/* KPI Cards */}
             <div className="grid grid-cols-3 gap-6">
               {kpiData.length > 0 ? kpiData.map((kpi) => (
-                <Card key={kpi.id} className="bg-white border-blue-200 shadow-sm p-6 hover:border-blue-300 transition-all">
+                <Card 
+                  key={kpi.id} 
+                  className={`bg-white border-blue-200 shadow-sm p-6 hover:border-blue-300 transition-all cursor-pointer ${
+                    selectedKpiId === kpi.id ? 'border-blue-500' : ''
+                  }`}
+                  onClick={() => setSelectedKpiId(kpi.id)}
+                >
                   <div className="flex items-start justify-between mb-4">
                     <div>
                       <div className="text-xs text-gray-600 uppercase font-semibold tracking-wider mb-2">
@@ -828,12 +1166,16 @@ export default function KPITurbocharge() {
                   <div className="text-sm text-gray-600 mb-1">Performance Correlation</div>
                   <div className="flex items-baseline gap-3">
                     <span className="text-4xl font-bold text-gray-900">
-                      {correlationData[correlationData.length - 1]?.eco || 0}%
+                      {scatterData.length > 0 
+                        ? `${Math.round(scatterData.reduce((sum, d) => sum + d.module_performance, 0) / scatterData.length)}%`
+                        : '0%'}
                     </span>
-                    <span className="flex items-center gap-1 text-sm font-semibold text-blue-600">
-                      <Target size={16} />
-                      Target: 85%
-                    </span>
+                    {selectedKpiInfo && selectedKpiInfo.target > 0 && (
+                      <span className="flex items-center gap-1 text-sm font-semibold text-blue-600">
+                        <Target size={16} />
+                        Target: {selectedKpiInfo.target}%
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
@@ -845,74 +1187,179 @@ export default function KPITurbocharge() {
               <div className="text-xs text-gray-600 mb-4 flex items-center gap-4">
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-blue-600"></div>
-                  <span>Performance Metric (Left Axis)</span>
+                  <span>KPI Score {selectedKpiInfo ? `(${selectedKpiInfo.name})` : '(Average)'}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-teal-500"></div>
-                  <span>Competency Score (Right Axis)</span>
+                  <div className="w-3 h-3 rounded-full bg-purple-500"></div>
+                  <span>Module Performance (%)</span>
                 </div>
               </div>
 
-              {/* Simple Chart */}
-              <div className="relative h-64 bg-gray-50 rounded-lg p-4">
-                {correlationData.length > 0 ? (
-                  <svg width="100%" height="100%" className="overflow-visible">
-                    {/* Grid lines */}
-                    {[0, 25, 50, 75, 100].map((val, idx) => (
-                      <g key={idx}>
+              {/* Scatter Plot */}
+              <div className="relative h-80 bg-gradient-to-br from-gray-50 to-blue-50 rounded-lg p-6">
+                {scatterData.length > 0 ? (
+                  <svg width="100%" height="100%" viewBox="0 0 700 300" className="overflow-visible">
+                    {/* Y-axis grid lines and labels */}
+                    {[0, 20, 40, 60, 80, 100].map((val, idx) => (
+                      <g key={`y-${idx}`}>
                         <line 
-                          x1="0" 
-                          y1={`${100 - val}%`} 
-                          x2="100%" 
-                          y2={`${100 - val}%`} 
+                          x1="60" 
+                          y1={280 - (val * 2.6)} 
+                          x2="680" 
+                          y2={280 - (val * 2.6)} 
                           stroke="#E5E7EB" 
                           strokeWidth="1"
+                          strokeDasharray="2,2"
                         />
-                        <text x="0" y={`${100 - val}%`} dy="-5" fill="#9CA3AF" fontSize="10">{val}</text>
+                        <text 
+                          x="45" 
+                          y={280 - (val * 2.6)} 
+                          dy="4" 
+                          fill="#6B7280" 
+                          fontSize="11"
+                          textAnchor="end"
+                        >
+                          {val}
+                        </text>
                       </g>
                     ))}
 
-                    {/* ECO Line */}
-                    <polyline
-                      points={correlationData.map((d, i) => 
-                        `${(i / (correlationData.length - 1)) * 100}%,${100 - d.eco}%`
-                      ).join(' ')}
-                      fill="none"
-                      stroke="#2563EB"
-                      strokeWidth="3"
-                    />
-
-                    {/* Competency Line */}
-                    <polyline
-                      points={correlationData.map((d, i) => 
-                        `${(i / (correlationData.length - 1)) * 100}%,${100 - d.competency}%`
-                      ).join(' ')}
-                      fill="none"
-                      stroke="#14B8A6"
-                      strokeWidth="3"
-                    />
-
-                    {/* Data points */}
-                    {correlationData.map((d, i) => (
-                      <g key={i}>
-                        <circle 
-                          cx={`${(i / (correlationData.length - 1)) * 100}%`}
-                          cy={`${100 - d.eco}%`}
-                          r="4"
-                          fill="#2563EB"
+                    {/* X-axis grid lines and labels */}
+                    {[0, 20, 40, 60, 80, 100].map((val, idx) => (
+                      <g key={`x-${idx}`}>
+                        <line 
+                          x1={60 + (val * 6.2)} 
+                          y1="20" 
+                          x2={60 + (val * 6.2)} 
+                          y2="280" 
+                          stroke="#E5E7EB" 
+                          strokeWidth="1"
+                          strokeDasharray="2,2"
                         />
-                        <circle 
-                          cx={`${(i / (correlationData.length - 1)) * 100}%`}
-                          cy={`${100 - d.competency}%`}
-                          r="4"
-                          fill="#14B8A6"
-                        />
+                        <text 
+                          x={60 + (val * 6.2)} 
+                          y="295" 
+                          fill="#6B7280" 
+                          fontSize="11"
+                          textAnchor="middle"
+                        >
+                          {val}
+                        </text>
                       </g>
                     ))}
+
+                    {/* Target line - only show if KPI is selected */}
+                    {selectedKpiInfo && selectedKpiInfo.target > 0 && (
+                      <g>
+                        <line 
+                          x1="60" 
+                          y1={280 - (selectedKpiInfo.target * 2.6)} 
+                          x2="680" 
+                          y2={280 - (selectedKpiInfo.target * 2.6)} 
+                          stroke="#EF4444" 
+                          strokeWidth="2"
+                          strokeDasharray="8,4"
+                        />
+                        <text 
+                          x="685" 
+                          y={280 - (selectedKpiInfo.target * 2.6)} 
+                          dy="4" 
+                          fill="#EF4444" 
+                          fontSize="12"
+                          fontWeight="600"
+                        >
+                          Target: {selectedKpiInfo.target}
+                        </text>
+                      </g>
+                    )}
+
+                    {/* Axis labels */}
+                    <text 
+                      x="370" 
+                      y="295" 
+                      fill="#374151" 
+                      fontSize="13" 
+                      fontWeight="600"
+                      textAnchor="middle"
+                    >
+                      KPI Score {selectedKpiInfo ? `(${selectedKpiInfo.name})` : '(Average)'} →
+                    </text>
+                    <text 
+                      x="25" 
+                      y="150" 
+                      fill="#374151" 
+                      fontSize="13" 
+                      fontWeight="600"
+                      textAnchor="middle"
+                      transform="rotate(-90, 25, 150)"
+                    >
+                      ↑ Module Performance (%)
+                    </text>
+
+                    {/* Scatter Points with improved styling */}
+                    {scatterData.map((d, i) => {
+                      const x = 60 + ((d.kpi_score / 100) * 620);
+                      const y = 280 - ((d.module_performance / 100) * 260);
+                      
+                      return (
+                        <g key={i}>
+                          {/* Outer glow */}
+                          <circle 
+                            cx={x}
+                            cy={y}
+                            r="10"
+                            fill="#3B82F6"
+                            opacity="0.2"
+                          />
+                          {/* Main circle */}
+                          <circle 
+                            cx={x}
+                            cy={y}
+                            r="7"
+                            fill="#3B82F6"
+                            opacity="0.9"
+                            stroke="#1E40AF"
+                            strokeWidth="2"
+                            className="hover:r-9 transition-all cursor-pointer"
+                          />
+                          {/* User name label */}
+                          <text 
+                            x={x}
+                            y={y - 18}
+                            fill="#1F2937"
+                            fontSize="11"
+                            fontWeight="600"
+                            textAnchor="middle"
+                            className="pointer-events-none"
+                          >
+                            {d.user_name.split(' ')[0]}
+                          </text>
+                          {/* Score tooltip */}
+                          <text 
+                            x={x}
+                            y={y + 25}
+                            fill="#6B7280"
+                            fontSize="9"
+                            textAnchor="middle"
+                            className="pointer-events-none"
+                          >
+                            ({d.kpi_score}, {d.module_performance})
+                          </text>
+                        </g>
+                      );
+                    })}
+
+                    {/* Axes lines */}
+                    <line x1="60" y1="280" x2="680" y2="280" stroke="#374151" strokeWidth="2" />
+                    <line x1="60" y1="20" x2="60" y2="280" stroke="#374151" strokeWidth="2" />
                   </svg>
                 ) : (
-                  <div className="flex items-center justify-center h-full text-gray-500">
-                    No correlation data available
+                  <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                    <AlertCircle size={48} className="mb-3 text-gray-400" />
+                    <p className="text-sm font-medium">No correlation data available</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {selectedKpiId ? 'Select users have not completed assessments for this KPI' : 'Please select a KPI to view correlation data'}
+                    </p>
                   </div>
                 )}
               </div>
@@ -1060,6 +1507,167 @@ export default function KPITurbocharge() {
                   </p>
                 </div>
               </div>
+            </Card>
+
+            {/* Employee Performance Heatmap */}
+            <Card className="bg-white border-gray-200 shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Employee Performance Heatmap</h3>
+                  <p className="text-xs text-gray-600 mt-1">Module completion scores across your team</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className="flex items-center gap-1">
+                      <div className="w-3 h-3 bg-gray-200 rounded"></div>
+                      <span className="text-gray-600">Not Started</span>
+                    </div>
+                    <div className="flex items-center gap-1 ml-2">
+                      <div className="w-3 h-3 bg-red-500 rounded"></div>
+                      <span className="text-gray-600">0-40</span>
+                    </div>
+                    <div className="flex items-center gap-1 ml-1">
+                      <div className="w-3 h-3 bg-orange-400 rounded"></div>
+                      <span className="text-gray-600">41-60</span>
+                    </div>
+                    <div className="flex items-center gap-1 ml-1">
+                      <div className="w-3 h-3 bg-yellow-400 rounded"></div>
+                      <span className="text-gray-600">61-80</span>
+                    </div>
+                    <div className="flex items-center gap-1 ml-1">
+                      <div className="w-3 h-3 bg-green-500 rounded"></div>
+                      <span className="text-gray-600">81-100</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {heatmapData.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <div className="inline-block min-w-full">
+                    {/* Header row with module names */}
+                    <div className="flex items-stretch border-b-2 border-gray-300">
+                      <div className="w-36 shrink-0 p-2 bg-gray-50 font-semibold text-xs text-gray-700 border-r-2 border-gray-300 flex items-center">
+                        Employee
+                      </div>
+                      {heatmapData[0]?.modules.map((module, idx) => (
+                        <div 
+                          key={idx} 
+                          className="w-20 shrink-0 p-2 bg-gray-50 border-r border-gray-200 last:border-r-0"
+                        >
+                          <div className="text-[10px] font-semibold text-gray-700 transform -rotate-45 origin-left whitespace-nowrap">
+                            {module.module_name.length > 20 
+                              ? module.module_name.substring(0, 20) + '...' 
+                              : module.module_name}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Employee rows */}
+                    {heatmapData.map((employee, empIdx) => (
+                      <div key={empIdx} className="flex items-stretch border-b border-gray-200 hover:bg-blue-50 transition-colors">
+                        <div className="w-36 shrink-0 p-2 bg-gray-50 font-medium text-xs text-gray-900 border-r-2 border-gray-300 flex items-center">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[10px] font-bold">
+                              {employee.employee_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                            </div>
+                            <span className="truncate text-xs">{employee.employee_name}</span>
+                          </div>
+                        </div>
+                        {employee.modules.map((module, modIdx) => {
+                          let bgColor = 'bg-gray-200';
+                          let textColor = 'text-gray-600';
+                          
+                          if (module.score !== null) {
+                            if (module.score >= 81) {
+                              bgColor = 'bg-green-500';
+                              textColor = 'text-white';
+                            } else if (module.score >= 61) {
+                              bgColor = 'bg-yellow-400';
+                              textColor = 'text-gray-900';
+                            } else if (module.score >= 41) {
+                              bgColor = 'bg-orange-400';
+                              textColor = 'text-white';
+                            } else {
+                              bgColor = 'bg-red-500';
+                              textColor = 'text-white';
+                            }
+                          }
+
+                          return (
+                            <div 
+                              key={modIdx} 
+                              className={`w-20 shrink-0 p-2 border-r border-gray-200 last:border-r-0 flex items-center justify-center ${bgColor} ${textColor} font-semibold text-xs transition-all hover:scale-105 hover:shadow-lg cursor-pointer relative group`}
+                              title={`${employee.employee_name} - ${module.module_name}: ${module.score !== null ? module.score + '%' : 'Not Started'} (${module.status})`}
+                            >
+                              {module.score !== null ? `${module.score}%` : '-'}
+                              
+                              {/* Tooltip on hover */}
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1.5 bg-gray-900 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-lg">
+                                <div className="font-semibold mb-0.5">{module.module_name}</div>
+                                <div>Score: {module.score !== null ? module.score + '%' : 'Not Started'}</div>
+                                <div className="capitalize">Status: {module.status.replace('_', ' ')}</div>
+                                <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+
+                    {/* Summary row - Module averages */}
+                    <div className="flex items-stretch border-t-2 border-gray-300 bg-blue-50">
+                      <div className="w-36 shrink-0 p-2 bg-blue-100 font-bold text-xs text-blue-900 border-r-2 border-gray-300 flex items-center">
+                        Module Avg
+                      </div>
+                      {heatmapData[0]?.modules.map((_, modIdx) => {
+                        const scores = heatmapData
+                          .map(emp => emp.modules[modIdx]?.score)
+                          .filter(score => score !== null) as number[];
+                        
+                        const avg = scores.length > 0 
+                          ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length)
+                          : 0;
+
+                        let bgColor = 'bg-gray-300';
+                        let textColor = 'text-gray-700';
+                        
+                        if (avg >= 81) {
+                          bgColor = 'bg-green-400';
+                          textColor = 'text-green-900';
+                        } else if (avg >= 61) {
+                          bgColor = 'bg-yellow-300';
+                          textColor = 'text-yellow-900';
+                        } else if (avg >= 41) {
+                          bgColor = 'bg-orange-300';
+                          textColor = 'text-orange-900';
+                        } else if (avg > 0) {
+                          bgColor = 'bg-red-400';
+                          textColor = 'text-red-900';
+                        }
+
+                        return (
+                          <div 
+                            key={modIdx} 
+                            className={`w-20 shrink-0 p-2 border-r border-gray-200 last:border-r-0 flex items-center justify-center ${bgColor} ${textColor} font-bold text-xs`}
+                          >
+                            {scores.length > 0 ? `${avg}%` : '-'}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+                  <AlertCircle size={40} className="mb-2 text-gray-400" />
+                  <p className="text-sm font-medium">No heatmap data available</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Employees need to complete module assessments to populate this view
+                  </p>
+                </div>
+              )}
             </Card>
           </>
         )}
