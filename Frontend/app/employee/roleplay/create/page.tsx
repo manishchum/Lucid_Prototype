@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, Save, Play, AlertCircle } from 'lucide-react';
 import EmployeeNavigation from '@/components/employee-navigation';
@@ -46,6 +46,7 @@ interface CustomRoleplayData {
 export default function CreateRoleplayPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<string>('learner-brief');
+  const [hasSavedDraft, setHasSavedDraft] = useState<boolean>(false);
   const [formData, setFormData] = useState<CustomRoleplayData>({
     title: '',
     description: '',
@@ -69,6 +70,14 @@ export default function CreateRoleplayPage() {
     initialPrompt: '',
   });
   const [errors, setErrors] = useState<string[]>([]);
+
+  // Check for saved draft on component mount
+  useEffect(() => {
+    const savedDraft = localStorage.getItem('roleplayDraft');
+    if (savedDraft) {
+      setHasSavedDraft(true);
+    }
+  }, []);
 
   // Predefined options
   const scenarioTemplates = [
@@ -146,8 +155,8 @@ export default function CreateRoleplayPage() {
     { id: 'end-conditions', label: 'End Conditions', icon: '🏁' },
     { id: 'evaluation', label: 'Evaluation parameters', icon: '📊' },
     { id: 'cutoff-score', label: 'Cut off score', icon: '🎯' },
-    { id: 'reviewers', label: 'Reviewers', icon: '👥' },
-    { id: 'insights', label: 'Insights', icon: '💡' },
+    // { id: 'reviewers', label: 'Reviewers', icon: '👥' },
+    // { id: 'insights', label: 'Insights', icon: '💡' },
   ];
 
   const validateForm = (): boolean => {
@@ -200,7 +209,29 @@ export default function CreateRoleplayPage() {
 
   const handleSaveDraft = () => {
     localStorage.setItem('roleplayDraft', JSON.stringify(formData));
+    setHasSavedDraft(true);
     alert('Draft saved successfully!');
+  };
+
+  const handleLoadDraft = () => {
+    const savedDraft = localStorage.getItem('roleplayDraft');
+    if (savedDraft) {
+      try {
+        const draftData = JSON.parse(savedDraft);
+        setFormData(draftData);
+        alert('Draft loaded successfully!');
+      } catch (error) {
+        alert('Error loading draft. The draft may be corrupted.');
+      }
+    }
+  };
+
+  const handleClearDraft = () => {
+    if (confirm('Are you sure you want to clear the saved draft? This cannot be undone.')) {
+      localStorage.removeItem('roleplayDraft');
+      setHasSavedDraft(false);
+      alert('Draft cleared successfully!');
+    }
   };
 
   const loadEvaluationTemplate = (templateKey: string) => {
@@ -280,14 +311,25 @@ export default function CreateRoleplayPage() {
                   </div>
                 </div>
                 <div className="flex gap-3">
-                  <Button 
-                    variant="outline" 
-                    onClick={handleSaveDraft}
-                    className="flex items-center gap-2"
-                  >
-                    <Save className="w-4 h-4" />
-                    Save Draft
-                  </Button>
+                  {hasSavedDraft && (
+                    <>
+                      <Button 
+                        variant="outline"
+                        onClick={handleLoadDraft}
+                        className="flex items-center gap-2"
+                      >
+                        <Save className="w-4 h-4" />
+                        Load Draft
+                      </Button>
+                      <Button 
+                        variant="outline"
+                        onClick={handleClearDraft}
+                        className="flex items-center gap-2 text-red-600 hover:text-red-700 border-red-200 hover:border-red-300"
+                      >
+                        Clear Draft
+                      </Button>
+                    </>
+                  )}
                   <Button 
                     onClick={isLastTab() ? handleStartRoleplay : handleNext}
                     className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2"
@@ -307,9 +349,7 @@ export default function CreateRoleplayPage() {
                 </div>
               </div>
             </div>
-          </div>
-
-          {/* Error Display */}
+          </div>          {/* Error Display */}
           {errors.length > 0 && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
               <div className="flex items-start gap-2">
@@ -331,17 +371,19 @@ export default function CreateRoleplayPage() {
             <div className="col-span-3">
               <Card className="p-6 sticky top-6">
                 <nav className="space-y-2">
-                  {tabs.map((tab) => (
+                  {tabs.map((tab, index) => (
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
                       className={`w-full text-left px-4 py-4 rounded-lg transition-all flex items-center gap-3 ${
                         activeTab === tab.id
-                          ? 'bg-purple-100 text-purple-700 font-medium'
+                          ? 'bg-blue-100 text-blue-700 font-medium'
                           : 'text-slate-600 hover:bg-slate-100'
                       }`}
                     >
-                      <span className="text-xl">{tab.icon}</span>
+                      <span className="w-6 h-6 rounded-full flex items-center justify-center bg-slate-200 text-slate-700 text-sm font-semibold">
+                        {index + 1}
+                      </span>
                       <span className="text-sm">{tab.label}</span>
                     </button>
                   ))}
@@ -358,8 +400,7 @@ export default function CreateRoleplayPage() {
                     <div>
                       <h2 className="text-2xl font-bold text-slate-900 mb-2">Brief for the learner</h2>
                       <p className="text-slate-600 text-sm mb-6">
-                        Brief the learner on the scenario and objective during roleplay. Learners will see this. 
-                        <a href="#" className="text-purple-600 hover:underline ml-1">Learn more</a>
+                        Brief the learner on the scenario and objective during roleplay. Learners will see this.
                       </p>
                     </div>
 
@@ -466,6 +507,19 @@ In this exercise, you will interact with a virtual character to practice and imp
                         rows={15}
                         className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base"
                       />
+                    </div>
+
+                    {/* Save Draft Button */}
+                    <div className="flex justify-end pt-4">
+                      <Button
+                        onClick={handleSaveDraft}
+                        variant="outline"
+                        size="lg"
+                        className="px-8"
+                      >
+                        <Save className="w-4 h-4 mr-2" />
+                        Save Draft
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -579,6 +633,19 @@ In this exercise, you will interact with a virtual character to practice and imp
                         <option value="Hard">Hard - Complex scenarios with strong objections</option>
                       </select>
                     </div>
+
+                    {/* Save Draft Button */}
+                    <div className="flex justify-end pt-4">
+                      <Button
+                        onClick={handleSaveDraft}
+                        variant="outline"
+                        size="lg"
+                        className="px-8"
+                      >
+                        <Save className="w-4 h-4 mr-2" />
+                        Save Draft
+                      </Button>
+                    </div>
                   </div>
                 )}
 
@@ -637,6 +704,19 @@ In this exercise, you will interact with a virtual character to practice and imp
                         rows={5}
                         className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base"
                       />
+                    </div>
+
+                    {/* Save Draft Button */}
+                    <div className="flex justify-end pt-4">
+                      <Button
+                        onClick={handleSaveDraft}
+                        variant="outline"
+                        size="lg"
+                        className="px-8"
+                      >
+                        <Save className="w-4 h-4 mr-2" />
+                        Save Draft
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -731,6 +811,19 @@ In this exercise, you will interact with a virtual character to practice and imp
                     >
                       + Add Parameter
                     </Button>
+
+                    {/* Save Draft Button */}
+                    <div className="flex justify-end pt-4">
+                      <Button
+                        onClick={handleSaveDraft}
+                        variant="outline"
+                        size="lg"
+                        className="px-8"
+                      >
+                        <Save className="w-4 h-4 mr-2" />
+                        Save Draft
+                      </Button>
+                    </div>
                   </div>
                 )}
 
@@ -755,12 +848,12 @@ In this exercise, you will interact with a virtual character to practice and imp
                             onClick={() => setFormData({ ...formData, cutoffScore: preset.value })}
                             className={`p-3 rounded-lg border-2 transition-all text-center ${
                               formData.cutoffScore === preset.value
-                                ? 'border-purple-500 bg-purple-50'
-                                : 'border-slate-200 hover:border-purple-300'
+                                ? 'border-blue-500 bg-blue-50'
+                                : 'border-slate-200 hover:border-blue-300'
                             }`}
                             title={preset.description}
                           >
-                            <div className="text-2xl font-bold text-purple-600">{preset.value}%</div>
+                            <div className="text-2xl font-bold text-slate-900">{preset.value}%</div>
                             <div className="text-xs text-slate-600 mt-1">{preset.label.split(' - ')[1]}</div>
                           </button>
                         ))}
@@ -786,7 +879,7 @@ In this exercise, you will interact with a virtual character to practice and imp
                           onChange={(e) => setFormData({ ...formData, cutoffScore: parseInt(e.target.value) || 0 })}
                           min="0"
                           max="100"
-                          className="w-20 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-center"
+                          className="w-20 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center"
                         />
                         <span className="text-slate-700 font-medium">%</span>
                       </div>
@@ -811,11 +904,24 @@ In this exercise, you will interact with a virtual character to practice and imp
                         <strong>💡 Tip:</strong> A typical passing score is between 60-70%. Set it higher for critical skills or lower for introductory training.
                       </p>
                     </div>
+
+                    {/* Save Draft Button */}
+                    <div className="flex justify-end pt-4">
+                      <Button
+                        onClick={handleSaveDraft}
+                        variant="outline"
+                        size="lg"
+                        className="px-8"
+                      >
+                        <Save className="w-4 h-4 mr-2" />
+                        Save Draft
+                      </Button>
+                    </div>
                   </div>
                 )}
 
                 {/* Reviewers Tab */}
-                {activeTab === 'reviewers' && (
+                {/* {activeTab === 'reviewers' && (
                   <div className="space-y-6">
                     <div>
                       <h2 className="text-2xl font-bold text-slate-900 mb-2">Reviewers</h2>
@@ -834,11 +940,23 @@ In this exercise, you will interact with a virtual character to practice and imp
                         Add Reviewers (Coming Soon)
                       </Button>
                     </div>
+
+                    <div className="flex justify-end pt-4">
+                      <Button
+                        onClick={handleSaveDraft}
+                        variant="outline"
+                        size="lg"
+                        className="px-8"
+                      >
+                        <Save className="w-4 h-4 mr-2" />
+                        Save Draft
+                      </Button>
+                    </div>
                   </div>
-                )}
+                )} */}
 
                 {/* Insights Tab */}
-                {activeTab === 'insights' && (
+                {/* {activeTab === 'insights' && (
                   <div className="space-y-6">
                     <div>
                       <h2 className="text-2xl font-bold text-slate-900 mb-2">Insights</h2>
@@ -868,8 +986,20 @@ In this exercise, you will interact with a virtual character to practice and imp
                         </div>
                       </div>
                     </div>
+
+                    <div className="flex justify-end pt-4">
+                      <Button
+                        onClick={handleSaveDraft}
+                        variant="outline"
+                        size="lg"
+                        className="px-8"
+                      >
+                        <Save className="w-4 h-4 mr-2" />
+                        Save Draft
+                      </Button>
+                    </div>
                   </div>
-                )}
+                )} */}
               </Card>
             </div>
           </div>
