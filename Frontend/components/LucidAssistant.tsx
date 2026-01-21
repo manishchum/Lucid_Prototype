@@ -3,6 +3,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from 'next/navigation'
 import { MessageSquare, X, Send, HelpCircle, FileText, ClipboardList, Upload } from "lucide-react";
+import VoiceInput from './VoiceInput';
+import VoiceOutput from './VoiceOutput';
 // AssistantTabs removed - restore original inline chat UI
 
 export default function LucidAssistant() {
@@ -19,6 +21,7 @@ export default function LucidAssistant() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const STORAGE_KEY = 'lucid_assistant_messages_v1'
+  const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -44,10 +47,10 @@ export default function LucidAssistant() {
     try {
       // First try to load from server-side persisted chat (preferred)
       const existingId = localStorage.getItem('lucid_assistant_user_id')
-      const loadFromServer = async (id?: string | null) => {
+          const loadFromServer = async (id?: string | null) => {
         if (!id) return
         try {
-          const resp = await fetch(`/api/assistant/chat?user_id=${encodeURIComponent(id)}`)
+          const resp = await fetch(`${API_BASE}/api/assistant/chat?user_id=${encodeURIComponent(id)}`)
           if (resp.ok) {
             const d = await resp.json().catch(() => null)
             if (d && Array.isArray(d.chat) && d.chat.length > 0) {
@@ -106,7 +109,7 @@ export default function LucidAssistant() {
 
     try {
       setLoading(true);
-      const res = await fetch('/api/assistant', {
+      const res = await fetch(`${API_BASE}/api/assistant`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: txt, mode, user_id: assistantUserId, pdf_base64: pdfBase64, pdf_name: pdfFileName }),
@@ -158,6 +161,15 @@ export default function LucidAssistant() {
     setMessages([])
   }
 
+  const handleVoiceTranscription = (transcribedText: string) => {
+    // Populate the text input with transcribed text
+    setInput(transcribedText);
+    // Focus the input so user can see the text and edit if needed
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 100);
+  };
+
 
   const handleMenuChoice = async (choice: number) => {
     // Map choice to mode and optionally prefill prompt
@@ -179,7 +191,7 @@ export default function LucidAssistant() {
       // ensure server row exists for this user
       try {
         setLoading(true)
-        await fetch('/api/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'doubt', action: 'start', user_id: assistantUserId }) })
+        await fetch(`${API_BASE}/api/assistant`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'doubt', action: 'start', user_id: assistantUserId }) })
       } catch (e) {
         console.error('failed to start doubt session', e)
       } finally {
@@ -313,7 +325,10 @@ export default function LucidAssistant() {
                 <div style={{ color: '#9ca3af', fontSize: 13 }}>Try: "ask anything"</div>
               )}
               {messages.map((m, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: m.from === 'user' ? 'flex-end' : 'flex-start' }}>
+                <div key={i} style={{ display: 'flex', justifyContent: m.from === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 6 }}>
+                  {m.from === 'bot' && (
+                    <VoiceOutput text={m.text} disabled={loading} />
+                  )}
                   <div style={{ maxWidth: '84%', padding: '10px 14px', borderRadius: 12, background: m.from === 'user' ? '#2563eb' : '#f3f4f6', color: m.from === 'user' ? 'white' : '#111827', fontSize: 14, lineHeight: '18px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                     {m.text}
                   </div>
@@ -354,6 +369,12 @@ export default function LucidAssistant() {
                   )}
                 </div>
               )}
+
+              {/* Voice Input Button */}
+              <VoiceInput 
+                onTranscription={handleVoiceTranscription}
+                disabled={loading}
+              />
 
               <button onClick={send} style={{ width: 40, height: 40, borderRadius: 999, background: '#2563eb', border: 'none', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} aria-label="Send">
                 <Send size={16} />

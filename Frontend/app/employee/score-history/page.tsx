@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, BookOpen } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import EmployeeNavigation from "@/components/employee-navigation";
-import  AIFeedbackSections  from "@/app/employee/assessment/ai-feedback-sections";
+import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
+import RolePlayReports from "@/components/roleplay/RolePlayReports";
 
 // Helper component to format question-specific feedback
 // Robust parsing of: JSON array, comma-separated quoted tokens, or free-form sections
@@ -159,8 +160,7 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
     );
   }
 
-
-  // Split into sections if it contains structured feedback
+  // If not parsed as structured Q&A, split into sections for structured feedback
   const lines = processedFeedback.split('\n').filter(line => line.trim());
   const sections: { title?: string; content: string }[] = [];
   
@@ -250,6 +250,7 @@ export default function ScoreHistoryPage() {
   const [scoreHistory, setScoreHistory] = useState<any[]>([]);
   const [learningStyleData, setLearningStyleData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'assessments' | 'roleplay'>('assessments');
   // State to track which items are expanded (must be declared at the top level)
   const [expanded, setExpanded] = useState<{ [key: number]: boolean }>({});
   const [learningStyleExpanded, setLearningStyleExpanded] = useState<boolean>(false);
@@ -340,20 +341,298 @@ export default function ScoreHistoryPage() {
     }
   };
 
+  const toggleExpand = (idx: number) => {
+    setExpanded((prev) => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading score history...</p>
+          <p className="mt-4 text-slate-600">Loading score history...</p>
         </div>
       </div>
     );
   }
 
-  const toggleExpand = (idx: number) => {
-    setExpanded((prev) => ({ ...prev, [idx]: !prev[idx] }));
-  };
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <EmployeeNavigation showForward={false} />
+      
+      {/* Main content area that adapts to sidebar */}
+      <main 
+        className="transition-all duration-300 ease-in-out pt-8 pb-12"
+        style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
+      >
+        <div className="max-w-6xl mx-auto px-6 lg:px-8">
+          
+          {/* Dashboard Header */}
+          <div className="flex items-center gap-4 mb-10">
+            <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100">
+              <div className="text-2xl">📊</div>
+            </div>
+            <div>
+              <h1 className="text-3xl font-black text-slate-900 tracking-tight">
+                Your Learning Journey
+              </h1>
+              <p className="text-slate-500 font-medium text-sm">Review your style & scores</p>
+            </div>
+          </div>
+
+          {/* Tabs Navigation */}
+          <div className="flex gap-2 mb-8">
+            <button
+              onClick={() => setActiveTab('assessments')}
+              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
+                activeTab === 'assessments'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              📚 Assessments
+            </button>
+            <button
+              onClick={() => setActiveTab('roleplay')}
+              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
+                activeTab === 'roleplay'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              🎭 Role-Play Sessions
+            </button>
+          </div>
+        
+        {activeTab === 'assessments' && (
+        <div className="grid gap-8">
+        {/* Learning Style Section */}
+        {learningStyleData ? (
+          <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+            <CardContent className="p-8">
+              <div className="border-b pb-6 mb-6">
+                <div className="flex items-center justify-between cursor-pointer" onClick={() => setLearningStyleExpanded(!learningStyleExpanded)}>
+                  <div className="flex items-center gap-6">
+                    <div className="w-20 h-20 rounded-full bg-blue-600 text-white flex items-center justify-center text-2xl font-black shadow-xl shadow-blue-100">
+                      {learningStyleData.learning_style}
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold tracking-wide text-blue-600 uppercase">Primary Style</span>
+                      <div className="text-lg font-bold text-slate-900 mt-1">
+                        {getLearningStyleInfo(learningStyleData.learning_style).label}
+                      </div>
+                      <span className="text-sm text-slate-500">
+                        Completed: {new Date(learningStyleData.updated_at || learningStyleData.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <button
+                      aria-label={learningStyleExpanded ? 'Collapse details' : 'Expand details'}
+                      className="focus:outline-none p-2 rounded-full hover:bg-slate-100 transition-colors"
+                      tabIndex={-1}
+                      type="button"
+                    >
+                      <ChevronDown className={`w-6 h-6 text-slate-600 transition-transform ${learningStyleExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+                {learningStyleExpanded && (
+                  <div className="mt-8 space-y-4">
+                    <h3 className="text-xl font-bold text-slate-900">Your Learning Insights</h3>
+                    {buildLearningSections(learningStyleData.gpt_analysis || '', getLearningStyleInfo(learningStyleData.learning_style).description).filter(section => section.id !== 'checklist').map(section => {
+                      const isOpen = reportOpenSections.includes(section.id)
+                      const toggle = () => {
+                        setReportOpenSections(prev => (
+                          prev.includes(section.id)
+                            ? prev.filter(id => id !== section.id)
+                            : [...prev, section.id]
+                        ))
+                      }
+                      return (
+                        <Card key={section.id} className={`bg-gradient-to-br ${section.accent} border-2 shadow-sm rounded-xl`}>
+                          <CardHeader className="cursor-pointer" onClick={toggle}>
+                            <CardTitle className="flex items-center justify-between text-lg font-semibold text-gray-900">
+                              <span>{section.title}</span>
+                              <ChevronDown className={`w-5 h-5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                            </CardTitle>
+                          </CardHeader>
+                          {isOpen && (
+                            <CardContent className="space-y-4">
+                              {section.paragraphs.map((para, idx) => (
+                                <p key={idx} className="text-gray-800 leading-relaxed text-sm">
+                                  {para}
+                                </p>
+                              ))}
+                              {section.subsections.length > 0 && (
+                                <div className="space-y-4">
+                                  {section.subsections.map((sub, subIdx) => (
+                                    <div key={subIdx}>
+                                      <h4 className="font-bold text-gray-900 mb-2 text-sm">{sub.subtitle}</h4>
+                                      <ul className="space-y-1 ml-2">
+                                        {sub.items.map((item, itemIdx) => (
+                                          <li key={itemIdx} className="flex gap-2 text-gray-800 leading-relaxed text-sm">
+                                            <span className="text-blue-600 font-semibold mt-0.5 flex-shrink-0">•</span>
+                                            <span>{item}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </CardContent>
+                          )}
+                        </Card>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+            <CardContent className="p-8">
+              <div className="text-center py-8">
+                <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-4 mx-auto">
+                  <BookOpen size={32} />
+                </div>
+                <h4 className="text-lg font-bold text-slate-900 mb-2">Discover Your Performance Sprint</h4>
+                <p className="text-slate-500 mb-6">
+                  Complete your Performance Sprint assessment to see personalized recommendations
+                </p>
+                <button 
+                  onClick={() => router.push("/employee/learning-style")}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Take Performance Sprint Assessment
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        
+        {/* Assessment History Section */}
+        <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+          <CardContent className="p-8">
+            <div className="border-b pb-6 mb-6">
+              <h2 className="text-2xl font-bold text-slate-900">Your Growth Record</h2>
+              <p className="text-slate-500 text-sm mt-1">Review your scores & track growth</p>
+            </div>
+            
+            {scoreHistory.length === 0 && (
+              <div className="text-center py-12">
+                <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-4 mx-auto">
+                  <BookOpen size={32} />
+                </div>
+                <div className="text-slate-600 text-base font-medium mb-2">No assessments taken yet</div>
+                <p className="text-slate-400 text-sm">Complete your first assessment to see detailed feedback and insights here</p>
+              </div>
+            )}
+            
+            {scoreHistory.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {scoreHistory.map((item, idx) => {
+                  const isExpanded = expanded[idx] || false;
+                  const isBaseline = item.assessments?.type === 'baseline';
+                  const percentage = Math.round((item.score / (item.max_score || 1)) * 100);
+                  
+                  // Expanded tile
+                  if (isExpanded) {
+                    return (
+                      <div key={idx} className="col-span-1 sm:col-span-2 lg:col-span-3 border border-slate-200 rounded-xl p-8 bg-gradient-to-br from-slate-50 to-white shadow-sm hover:shadow-md transition-all">
+                        <div className="flex items-center justify-between mb-6 cursor-pointer" onClick={() => toggleExpand(idx)}>
+                          <div className="flex flex-col gap-3 flex-1">
+                            <span className="text-xl font-bold text-slate-900">
+                              {isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}
+                            </span>
+                            <div className="flex items-center gap-4 mt-2">
+                              <span className="text-slate-500 font-medium">Score:</span>
+                              <span className="font-bold text-slate-900 text-lg">{item.score} / {item.max_score ?? '?'}</span>
+                              <div className={`px-3 py-1.5 rounded-lg text-sm font-bold ${
+                                percentage >= 80 ? 'bg-green-100 text-green-700' :
+                                percentage >= 60 ? 'bg-blue-100 text-blue-700' :
+                                'bg-slate-100 text-slate-700'
+                              }`}>
+                                {percentage}%
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            aria-label="Collapse details"
+                            className="focus:outline-none p-3 rounded-full hover:bg-slate-100 transition-colors"
+                            tabIndex={-1}
+                            type="button"
+                          >
+                            <ChevronDown className="w-6 h-6 text-slate-600 rotate-180" />
+                          </button>
+                        </div>
+                        
+                        <div className="mt-8 space-y-8">
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-900 mb-4">AI Feedback Summary</h3>
+                            <AIFeedbackSections feedback={item.feedback?.replace('[Your Name]', 'Lucid').replace('Dear Employee', `Dear ${employeeName || 'Employee'}`) || 'No feedback available.'} />
+                          </div>
+                          {item.question_feedback && (
+                            <div>
+                              <h3 className="text-lg font-bold text-slate-900 mb-4">Question-Specific Feedback</h3>
+                              <QuestionFeedbackDisplay 
+                                feedback={item.question_feedback} 
+                                employeeName={employeeName} 
+                                totalQuestions={item.max_score}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  // Collapsed tile
+                  return (
+                    <div 
+                      key={idx} 
+                      className="border border-slate-200 rounded-xl p-5 bg-white hover:shadow-md transition-all cursor-pointer group"
+                      onClick={() => toggleExpand(idx)}
+                    >
+                      <span className="text-base font-bold text-slate-900 block mb-3">
+                        {isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}
+                      </span>
+                      <div className="flex items-center gap-3 mb-4">
+                        <span className="text-slate-500 text-sm font-medium">Score:</span>
+                        <span className="font-bold text-slate-900">{item.score} / {item.max_score ?? '?'}</span>
+                        <div className={`px-2 py-1 rounded-md text-xs font-bold ${
+                          percentage >= 80 ? 'bg-green-100 text-green-700' :
+                          percentage >= 60 ? 'bg-blue-100 text-blue-700' :
+                          'bg-slate-100 text-slate-700'
+                        }`}>
+                          {percentage}%
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
+                        <ChevronDown className="w-5 h-5 text-slate-400 group-hover:text-slate-600 transition-colors" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        </div>
+        )}
+
+        {/* Role-Play Sessions Tab */}
+        {activeTab === 'roleplay' && employeeId && (
+          <RolePlayReports employeeId={employeeId} />
+        )}
+
+        </div>
+      </main>
+    </div>
+  );
+}
 
 // Helper to safely extract and parse scores from raw data
 const parseScoresFromData = (data: any): Record<string, number> | null => {
@@ -524,7 +803,7 @@ type LSSection = {
 // Parse GPT report into four accordion sections with graceful fallbacks
 const buildLearningSections = (gptAnalysis: string, fallbackDescription: string): LSSection[] => {
   const sections: LSSection[] = [
-    { id: 'natural', title: 'Your Natural Learning Style', accent: 'from-blue-50 to-blue-100 border-blue-200', paragraphs: [], subsections: [] },
+    { id: 'natural', title: 'Your Natural Performance Sprint', accent: 'from-blue-50 to-blue-100 border-blue-200', paragraphs: [], subsections: [] },
     { id: 'thrive', title: 'How You Thrive', accent: 'from-purple-50 to-purple-100 border-purple-200', paragraphs: [], subsections: [] },
     { id: 'tips', title: 'Tips to Make Learning Easier', accent: 'from-green-50 to-emerald-100 border-emerald-200', paragraphs: [], subsections: [] },
     { id: 'checklist', title: 'Your Quick Reference Checklist', accent: 'from-amber-50 to-amber-100 border-amber-200', paragraphs: [], subsections: [] }
@@ -559,240 +838,4 @@ const buildLearningSections = (gptAnalysis: string, fallbackDescription: string)
   })
 
   return sections
-}
-
-  return (
-    <div className="min-h-screen">
-      <EmployeeNavigation showForward={false} />
-      
-      {/* Main content area that adapts to sidebar */}
-      <div 
-        className="transition-all duration-300 ease-in-out"
-        style={{ 
-          marginLeft: 'var(--sidebar-width, 0px)',
-        }}
-      >
-        {/* Header as single flat banner */}
-        <div className="bg-sky-50 border border-sky-200 rounded-xl shadow-sm mb-6" onClick={(e) => e.stopPropagation()}>
-          <div className="max-w-10xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center py-8">
-              <div className="flex items-center">
-                <div className="w-8 h-8 text-green-600 mr-3 flex items-center justify-center">
-                  📊
-                </div>
-                <div>
-                  <h1 className="text-2xl font-bold text-sky-800">Your Learning Journey: Style & Scores</h1>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        {/* Content area with padding */}
-        <div className="px-4 py-8">
-        <div className="max-w-6xl mx-auto">
-        {/* Learning Style Section */}
-        {learningStyleData ? (
-          <Card className="mb-8 shadow-md">
-            <CardHeader className="bg-sky-50 rounded-t-xl py-5 px-6 border-b-2 border-sky-200">
-              <CardTitle className="text-2xl font-bold text-sky-700">Discover how you learn best</CardTitle>
-              <CardDescription className="text-sm mt-1 text-sky-600">
-                Understand your learning DNA to achieve outcomes faster
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-6">
-              <div className="border-b pb-4 mb-4">
-                <div className="flex items-center justify-between mb-3 cursor-pointer" onClick={() => setLearningStyleExpanded(!learningStyleExpanded)}>
-                  <div className="flex items-center gap-4">
-                    <div className="bg-sky-50 border border-sky-200 rounded-lg shadow-sm px-4 py-3 flex items-center gap-3 hover:shadow-md transition-shadow">
-                      <div className="w-12 h-12 rounded-md bg-sky-500 text-white flex items-center justify-center text-lg font-bold shadow-sm">
-                        {learningStyleData.learning_style}
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-xs font-medium tracking-wide text-sky-600 uppercase">Primary Style</span>
-                        <span className="text-sm font-semibold text-gray-800 leading-snug max-w-xs">
-                          {getLearningStyleInfo(learningStyleData.learning_style).label}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm text-gray-500">
-                      Completed: {new Date(learningStyleData.updated_at || learningStyleData.created_at).toLocaleDateString()}
-                    </span>
-                    <button
-                      aria-label={learningStyleExpanded ? 'Collapse details' : 'Expand details'}
-                      className="focus:outline-none p-4 rounded-full hover:bg-gray-100 transition-colors"
-                      tabIndex={-1}
-                      type="button"
-                    >
-                      <span className="text-3xl text-gray-600">{learningStyleExpanded ? '▲' : '▼'}</span>
-                    </button>
-                  </div>
-                </div>
-                {learningStyleExpanded && (
-                  <div className="mt-8 space-y-6">
-                    <h3 className="text-2xl font-bold text-gray-800">Your Learning Insights</h3>
-                    {buildLearningSections(learningStyleData.gpt_analysis || '', getLearningStyleInfo(learningStyleData.learning_style).description).filter(section => section.id !== 'checklist').map(section => {
-                      const isOpen = reportOpenSections.includes(section.id)
-                      const toggle = () => {
-                        setReportOpenSections(prev => (
-                          prev.includes(section.id)
-                            ? prev.filter(id => id !== section.id)
-                            : [...prev, section.id]
-                        ))
-                      }
-                      return (
-                        <Card key={section.id} className={`bg-sky-50 border-2 border-sky-200 shadow-sm`}>
-                          <CardHeader className="cursor-pointer" onClick={toggle}>
-                            <CardTitle className="flex items-center justify-between text-lg sm:text-xl font-semibold text-gray-900">
-                              <span>{section.title}</span>
-                              <ChevronDown className={`w-6 h-6 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-                            </CardTitle>
-                          </CardHeader>
-                          {isOpen && (
-                            <CardContent className="space-y-5">
-                              {section.paragraphs.map((para, idx) => (
-                                <p key={idx} className="text-gray-800 leading-relaxed text-base">
-                                  {para}
-                                </p>
-                              ))}
-                              {section.subsections.length > 0 && (
-                                <div className="space-y-5">
-                                  {section.subsections.map((sub, subIdx) => (
-                                    <div key={subIdx}>
-                                      <h4 className="font-extrabold text-gray-900 mb-3 text-base sm:text-lg">{sub.subtitle}</h4>
-                                      <ul className="space-y-2 ml-2">
-                                        {sub.items.map((item, itemIdx) => (
-                                          <li key={itemIdx} className="flex gap-3 text-gray-800 leading-relaxed text-sm">
-                                            <span className="text-blue-600 font-semibold mt-0.5 flex-shrink-0">•</span>
-                                            <span>{item}</span>
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </CardContent>
-                          )}
-                        </Card>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className="mb-8">
-            <CardHeader>
-              <CardTitle>Your Learning Style</CardTitle>
-              <CardDescription>
-                Complete your learning style assessment to see personalized recommendations
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-8">
-                <div className="text-gray-500 mb-4">
-                  You haven't completed your learning style assessment yet.
-                </div>
-                <button 
-                  onClick={() => router.push("/employee/learning-style")}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Take Learning Style Assessment
-                </button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-        
-        {/* Assessment History Section */}
-        <Card className="mb-12 shadow-md">
-          <CardHeader className="bg-sky-50 rounded-t-xl py-5 px-6 border-b-2 border-sky-200">
-            <CardTitle className="text-2xl font-bold text-sky-700">Your Growth Record
-</CardTitle>
-            <CardDescription className="text-sm mt-1 text-sky-600">Review your scores & track growth
-</CardDescription>
-          </CardHeader>
-          <CardContent className="p-6">
-            {scoreHistory.length === 0 && (
-              <div className="text-center py-6">
-                <div className="text-gray-500 text-sm mb-2">No assessments taken yet.</div>
-                <p className="text-gray-400 text-xs">Complete your first assessment to see detailed feedback and insights here.</p>
-              </div>
-            )}
-            {scoreHistory.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {scoreHistory.map((item, idx) => {
-                  const isExpanded = expanded[idx] || false;
-                  const isBaseline = item.assessments?.type === 'baseline';
-                  // If expanded, make the tile span all columns and increase padding/font
-                  if (isExpanded) {
-                    return (
-                      <div key={idx} className={`col-span-1 sm:col-span-2 lg:col-span-3 border-2 border-sky-200 rounded-lg p-6 flex flex-col h-full bg-sky-50 transition-all duration-200 shadow-md z-10 relative`}>
-                        <div className="flex items-center justify-between mb-4 cursor-pointer" onClick={() => toggleExpand(idx)}>
-                          <div className="flex flex-col gap-2 flex-1">
-                            <span className={`text-xl font-bold text-sky-900`}>
-                              {isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}
-                            </span>
-                            <div className="flex items-center gap-3 mt-2 text-base">
-                              <span className="text-sky-700 font-semibold">Score:</span>
-                              <span className={`font-bold text-sky-900`}>{item.score} / {item.max_score ?? '?'}</span>
-                              <div className={`px-3 py-1 rounded-md text-sm font-bold bg-sky-200 text-sky-900`}>{Math.round((item.score / (item.max_score || 1)) * 100)}%</div>
-                            </div>
-                          </div>
-                          <button
-                            aria-label={isExpanded ? 'Collapse details' : 'Expand details'}
-                            className="focus:outline-none p-4 rounded-full hover:bg-white hover:bg-opacity-50 transition-colors"
-                            tabIndex={-1}
-                            type="button"
-                          >
-                            <span className={`text-4xl text-gray-600`}>{isExpanded ? '▲' : '▼'}</span>
-                          </button>
-                        </div>
-                        <div className="mt-10 space-y-10">
-                          <div>
-                            <span className="text-2xl font-bold text-gray-800 mb-3 block">AI Feedback Summary:</span>
-                            <AIFeedbackSections feedback={item.feedback?.replace('[Your Name]', 'Lucid').replace('Dear Employee', `Dear ${employeeName || 'Employee'}`) || 'No feedback available.'} />
-                          </div>
-                          {item.question_feedback && (
-                            <div>
-                              <span className="text-2xl font-bold text-gray-800 mb-3 block">Question-Specific Feedback:</span>
-                              <QuestionFeedbackDisplay 
-                                feedback={item.question_feedback} 
-                                employeeName={employeeName} 
-                                totalQuestions={item.max_score}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  }
-                  // Collapsed tile (grid)
-                  return (
-                    <div key={idx} className={`border-2 border-sky-200 rounded-lg p-4 flex flex-col h-full bg-sky-50 transition-all duration-200 hover:shadow-md cursor-pointer`} onClick={() => toggleExpand(idx)}>
-                      <span className={`text-lg font-bold mb-2 text-sky-900`}>{isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}</span>
-                      <div className="flex items-center gap-2 text-sm mb-2">
-                        <span className="text-sky-700 font-semibold">Score:</span>
-                        <span className={`font-bold text-sky-900`}>{item.score} / {item.max_score ?? '?'}</span>
-                        <div className={`px-2 py-0.5 rounded text-xs font-bold bg-sky-200 text-sky-900`}>{Math.round((item.score / (item.max_score || 1)) * 100)}%</div>
-                      </div>
-                      <div className="flex justify-end mt-auto">
-                        <span className={`text-3xl text-gray-600`}>▼</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        </div>
-        </div>
-      </div>
-    </div>
-  );
 }

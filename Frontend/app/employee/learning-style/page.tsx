@@ -6,9 +6,12 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
 import EmployeeNavigation from "@/components/employee-navigation"
 import { BookOpen, Smile, Meh, Frown, ChevronLeft, ChevronRight, CheckCircle, Star, Target, Lightbulb, Trophy, ChevronDown } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
 const questions = [
   "I like having written directions before starting a task.",
@@ -156,7 +159,7 @@ const parseReportIntoTabs = (reportText: string) => {
       if (item && item.length > 0) {
         // Initialize default tab if bullets appear before any section header
         if (!currentTab) {
-          currentTab = { id: 'natural', title: 'Your Natural Learning Style', icon: BookOpen, color: 'green', content: '', subsections: [] }
+          currentTab = { id: 'natural', title: 'Your Natural Performance Sprint', icon: BookOpen, color: 'green', content: '', subsections: [] }
         }
         if (!currentSubsection) {
           currentSubsection = { subtitle: 'Tips', items: [] }
@@ -284,7 +287,7 @@ type AccordionSection = {
 // Build accordion sections — mirrors score-history exactly, no structured JSON parsing
 const buildAccordionSections = (reportText: string, fallbackDescription: string): AccordionSection[] => {
   const sections: AccordionSection[] = [
-    { id: 'natural', title: 'Your Natural Learning Style', accent: 'from-blue-50 to-blue-100 border-blue-200', paragraphs: [], subsections: [] },
+    { id: 'natural', title: 'Your Natural Performance Sprint', accent: 'from-blue-50 to-blue-100 border-blue-200', paragraphs: [], subsections: [] },
     { id: 'thrive', title: 'How You Thrive', accent: 'from-purple-50 to-purple-100 border-purple-200', paragraphs: [], subsections: [] },
     { id: 'tips', title: 'Tips to Make Learning Easier', accent: 'from-green-50 to-emerald-100 border-emerald-200', paragraphs: [], subsections: [] }
   ]
@@ -337,6 +340,13 @@ export default function LearningStyleSurvey() {
   const { user, loading: authLoading } = useAuth()
   const { toast } = useToast()
 
+  // Open all sections by default when summary page is shown
+  useEffect(() => {
+    if (page === 'summary') {
+      setOpenSections(['natural', 'thrive', 'tips'])
+    }
+  }, [page])
+
   useEffect(() => {
     async function fetchEmployeeId() {
       if (authLoading || !user?.email) return
@@ -347,7 +357,7 @@ export default function LearningStyleSurvey() {
         setEmployeeId(data.user_id)
         
         // Check if user already has learning style data
-        const styleRes = await fetch(`/api/learning-style?user_id=${data.user_id}`)
+        const styleRes = await fetch(`${API_BASE}/api/learning-style?user_id=${data.user_id}`)
         const styleData = await styleRes.json()
         if (styleData.success && styleData.data?.gpt_analysis && styleData.data?.learning_style) {
           const learningStyleMap = {
@@ -402,7 +412,7 @@ export default function LearningStyleSurvey() {
         setSurveyFrozen(false);
         return
       }
-      const res = await fetch("/api/learning-style", {
+      const res = await fetch(`${API_BASE}/api/learning-style`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: employeeId, answers })
@@ -412,7 +422,7 @@ export default function LearningStyleSurvey() {
         if (res.status === 403 && data.error?.includes("already submitted")) {
           toast({
             title: "Survey Already Completed",
-            description: "You have already submitted your learning style survey. Your results are saved in your profile.",
+            description: "You have already submitted your Performance Sprint survey. Your results are saved in your profile.",
             variant: "destructive",
           })
         } else {
@@ -426,6 +436,10 @@ export default function LearningStyleSurvey() {
       } else {
         // Parse GPT result from backend response
         const gptResult = data.gpt || {}
+        console.log('[Learning Style Submit] Full response data:', data)
+        console.log('[Learning Style Submit] gptResult:', gptResult)
+        console.log('[Learning Style Submit] gptResult.report:', gptResult.report)
+        
         const learningStyleMap = {
           'CS': { code: 'CS', label: 'Concrete Sequential', description: 'The Planner - Prefers structure, clear steps, and hands-on practice.' },
           'AS': { code: 'AS', label: 'Abstract Sequential', description: 'The Analyst - Learns through analysis, intellectual exploration, and theoretical models.' },
@@ -436,11 +450,16 @@ export default function LearningStyleSurvey() {
         const dominantStyle = gptResult.dominant_style || 'CS'
         const styleInfo = learningStyleMap[dominantStyle as keyof typeof learningStyleMap] || learningStyleMap.CS
         
-        setLearningStyleResult({
-          ...styleInfo,
-          gptAnalysis: gptResult.report || styleInfo.description
+        // Show success toast
+        toast({
+          title: "Survey Completed!",
+          description: "Your Performance Sprint results are ready. Redirecting to your report...",
         })
-        setPage('summary')
+        
+        // Redirect to score-history page to show results
+        setTimeout(() => {
+          router.push('/employee/score-history')
+        }, 1500)
       }
     } catch (err) {
       toast({
@@ -473,7 +492,7 @@ export default function LearningStyleSurvey() {
         >
           <div className="max-w-4xl mx-auto px-4 flex flex-col items-center">
         <BookOpen className="w-20 h-20 text-blue-500 mb-4" />
-        <h1 className="text-3xl font-bold mb-6">Learning Style Survey</h1>
+        <h1 className="text-3xl font-bold mb-6">Performance Sprint Survey</h1>
         
         <div className="text-left max-w-4xl space-y-6">
           {/* Purpose Section */}
@@ -486,7 +505,7 @@ export default function LearningStyleSurvey() {
             </CardHeader>
             <CardContent>
               <p className="text-blue-700">
-                This survey is designed to identify your <strong> learning style</strong>. Understanding how you naturally learn and process information helps us personalize your learning journey so that  you can learn more effectively and the way you are meant to learn
+                This survey is designed to identify your <strong> Performance Sprint</strong>. Understanding how you naturally learn and process information helps us personalize your learning journey so that  you can learn more effectively and the way you are meant to learn
 
               </p>
             </CardContent>
@@ -622,8 +641,11 @@ export default function LearningStyleSurvey() {
   // Summary page
   if (page === 'summary' && learningStyleResult) {
     const rawAnalysis = learningStyleResult.gptAnalysis || learningStyleResult.description
+    console.log('[Learning Style] Raw Analysis:', rawAnalysis)
     const reportText = extractReportFromJson(rawAnalysis) || rawAnalysis
+    console.log('[Learning Style] Extracted Report Text:', reportText)
     const accordionSections = buildAccordionSections(reportText, learningStyleResult.description)
+    console.log('[Learning Style] Accordion Sections:', accordionSections)
     
     return (
       <div className="min-h-screen">
@@ -751,7 +773,7 @@ export default function LearningStyleSurvey() {
         <Card className="shadow-sm mb-6">
           <CardContent className="p-4 sm:p-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-              <h2 className="text-lg sm:text-xl font-semibold">Learning Style Assessment</h2>
+              <h2 className="text-lg sm:text-xl font-semibold">Performance Sprint Assessment</h2>
               <div className="text-sm text-gray-600">
                 Page {surveyPage + 1} of {totalPages}
               </div>
@@ -761,31 +783,31 @@ export default function LearningStyleSurvey() {
                 <span>Progress</span>
                 <span>{Math.round((answers.filter(a => a !== null).length / questions.length) * 100)}% Complete</span>
               </div>
-              <div className="w-full h-2 bg-gray-200 rounded-full">
-                <div className="h-2 bg-blue-500 rounded-full transition-all duration-300" style={{ width: `${(answers.filter(a => a !== null).length / questions.length) * 100}%` }}></div>
-              </div>
+              <Progress value={(answers.filter(a => a !== null).length / questions.length) * 100} className="h-2" />
             </div>
           </CardContent>
         </Card>
 
-         {/* Global scale instruction */}
-         <Card className="shadow-sm mb-6">
-           <CardContent className="p-4">
-             <div className="text-center text-sm text-gray-600">
-               Use the scale: <span className="font-semibold">1 = least preferred</span>, <span className="font-semibold">5 = most preferred</span>
-             </div>
-           </CardContent>
-         </Card>
-
-         {/* Individual Question Cards */}
-         <div className="space-y-8">
-           {questions.slice(startIdx, endIdx).map((q, idx) => (
-             <Card key={startIdx + idx} className="shadow-lg">
-               <CardContent className="p-6">
-                 <div className="font-medium text-base sm:text-lg mb-3 text-center">
-                   {startIdx + idx + 1}. {q}
+         {/* Questions Card */}
+         <Card className="shadow-lg">
+           <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50 border-b">
+             <CardTitle className="text-lg sm:text-xl">
+               Questions {startIdx + 1} - {endIdx}
+             </CardTitle>
+             <CardDescription className="text-sm text-gray-600">
+               Rate each statement: <span className="font-semibold">1 = least preferred</span>, <span className="font-semibold">5 = most preferred</span>
+             </CardDescription>
+           </CardHeader>
+           <CardContent className="p-6 space-y-8">
+             {questions.slice(startIdx, endIdx).map((q, idx) => (
+               <div key={startIdx + idx} className="border-b last:border-b-0 pb-6 last:pb-0">
+                 <div className="font-medium text-base sm:text-lg mb-4 text-gray-900">
+                   <span className="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-semibold mr-3">
+                     Q{startIdx + idx + 1}
+                   </span>
+                   {q}
                  </div>
-                 <div className="flex justify-center gap-3 mt-3">
+                 <div className="flex justify-center gap-2 sm:gap-3">
                    {[1,2,3,4,5].map(val => (
                      <button
                        type="button"
@@ -793,7 +815,7 @@ export default function LearningStyleSurvey() {
                        className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 flex items-center justify-center text-lg font-bold transition-all duration-200 ${
                          answers[startIdx + idx] === val 
                            ? "bg-blue-600 text-white border-blue-600 scale-110 shadow-lg" 
-                           : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-blue-100 hover:border-blue-300"
+                           : "bg-white text-gray-700 border-gray-300 hover:bg-blue-50 hover:border-blue-400 hover:scale-105"
                        }`}
                        onClick={() => handleChange(startIdx + idx, val)}
                        aria-label={`Rate ${val}`}
@@ -803,10 +825,10 @@ export default function LearningStyleSurvey() {
                      </button>
                    ))}
                  </div>
-               </CardContent>
-             </Card>
-           ))}
-         </div>
+               </div>
+             ))}
+           </CardContent>
+         </Card>
 
          {/* Navigation Buttons */}
          <div className="flex flex-col sm:flex-row gap-4 justify-between mt-6">

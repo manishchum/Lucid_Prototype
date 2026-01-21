@@ -1,5 +1,4 @@
-
-require('dotenv').config();
+require('./env').loadWorkerEnv();
 
 // Node.js worker script for processing content generation jobs
 const fetch = require('node-fetch');
@@ -9,10 +8,12 @@ const path = require('path');
 // Import local API functions to avoid Vercel timeouts
 console.log('Loading migrate-processed-modules...');
 const { migrateProcessedModules } = require(path.join(__dirname, 'api/migrate-processed-modules'));
-console.log('Loading start-content-generation...');
-const { startContentGeneration } = require(path.join(__dirname, 'api/start-content-generation'));
+// console.log('Loading start-content-generation...');
+// const { startContentGeneration } = require(path.join(__dirname, 'api/start-content-generation'));
 console.log('Loading generate-module-content...');
 const { generateModuleContent } = require(path.join(__dirname, 'api/generate-module-content'));
+console.log('Loading generate-module-video...');
+const { generateModuleVideo } = require(path.join(__dirname, 'api/generate-module-video'));
 console.log('All modules loaded successfully.');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -20,6 +21,7 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const API_BASE_URL = process.env.INTERNAL_API_BASE_URL;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
 
 
 async function processJobs() {
@@ -51,12 +53,22 @@ async function processJobs() {
       }
       try {
         console.log(`[JOB] Running migration for module_id=${job.module_id}`);
-        const migrateResult = await migrateProcessedModules();
+        const migrateResult = await migrateProcessedModules({ moduleId: job.module_id });
         console.log(`[JOB] Migration completed:`, migrateResult.message);
-        
+
         console.log(`[JOB] Running content generation for module_id=${job.module_id}`);
-        const genResult = await generateModuleContent();
+        const genResult = await generateModuleContent({ moduleId: job.module_id });
         console.log(`[JOB] Content generation completed:`, genResult.message);
+
+        // Trigger video generation for any processed_modules rows missing video_url.
+        // Non-fatal: keep the content job flow reliable even if video generation fails.
+        try {
+          console.log(`[JOB] Triggering video generation for module_id=${job.module_id}`);
+          const videoResult = await generateModuleVideo({ moduleId: job.module_id });
+          console.log('[JOB] Video generation result:', videoResult);
+        } catch (videoErr) {
+          console.error('[JOB] Video generation failed (non-fatal):', videoErr);
+        }
         
         await supabase.from('content_jobs').update({ status: 'completed', updated_at: new Date() }).eq('id', job.id);
         console.log(`[JOB] Job completed: id=${job.id}, module_id=${job.module_id}`);
