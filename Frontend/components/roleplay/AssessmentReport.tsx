@@ -21,10 +21,9 @@ interface AssessmentReportProps {
   report: AssessmentReport;
   scenarioTitle: string;
   onStartNew: () => void;
-  onReverseRoleplay: () => void;
 }
 
-export default function AssessmentReportComponent({ report, scenarioTitle, onStartNew, onReverseRoleplay }: AssessmentReportProps) {
+export default function AssessmentReportComponent({ report, scenarioTitle, onStartNew }: AssessmentReportProps) {
   const getScoreColor = (score: number) => {
     if (score >= 80) return 'text-green-600 bg-green-100';
     if (score >= 60) return 'text-yellow-600 bg-yellow-100';
@@ -117,17 +116,10 @@ export default function AssessmentReportComponent({ report, scenarioTitle, onSta
       </Card>
 
       {/* Action Button */}
-      <div className="flex flex-col sm:flex-row gap-4 justify-center">
-        <Button
-          onClick={onReverseRoleplay}
-          variant="outline"
-          className="px-8 py-3 text-lg border-2 border-purple-600 text-purple-600 hover:bg-purple-50"
-        >
-          🔄 Reverse Roleplay
-        </Button>
+      <div className="flex justify-center">
         <Button
           onClick={onStartNew}
-          className="px-8 py-3 text-lg bg-blue-600 hover:bg-blue-700"
+          className="px-8 py-3 text-lg"
         >
           Start New Role-Play
         </Button>

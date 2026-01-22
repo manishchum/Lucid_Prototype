@@ -213,28 +213,6 @@ export default function RolePlayPage() {
     setError(null);
   };
 
-  const handleReverseRoleplay = () => {
-    if (!selectedScenario) return;
-    
-    // Create a reversed scenario where roles are swapped
-    const reversedScenario: Scenario = {
-      ...selectedScenario,
-      id: selectedScenario.id + '-reversed',
-      title: `${selectedScenario.title} (Reversed Roles)`,
-      description: `In this reversed roleplay, you will play as the ${selectedScenario.role} while the AI plays as the ${selectedScenario.userRole || 'other party'}.`,
-      role: selectedScenario.userRole || 'Professional',
-      userRole: selectedScenario.role,
-      initialPrompt: `You are now playing as ${selectedScenario.userRole || 'the professional'}. The AI will act as ${selectedScenario.role}. ${selectedScenario.initialPrompt}`
-    };
-    
-    // Reset states and start with reversed scenario
-    setSelectedScenario(reversedScenario);
-    setConversationHistory([]);
-    setAssessmentReport(null);
-    setCurrentScreen('config'); // Go to config page first
-    setError(null);
-  };
-
   const handleCreateCustomRoleplay = () => {
     // Validate inputs
     if (!customScenario.title || !customScenario.description || !customScenario.aiRole || 
@@ -391,7 +369,6 @@ export default function RolePlayPage() {
               report={assessmentReport}
               scenarioTitle={selectedScenario.title}
               onStartNew={handleStartNew}
-              onReverseRoleplay={handleReverseRoleplay}
             />
           ) : (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
