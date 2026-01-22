@@ -1364,14 +1364,29 @@ export default function KPITurbocharge() {
                 )}
               </div>
             </Card>
-
+              {/* Lucid Engine Analysis */}
+            <Card className="bg-gradient-to-br from-blue-50 to-purple-50 border-blue-200 shadow-sm p-6">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shrink-0">
+                  <Sparkles size={24} className="text-white" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+                    Lucid Engine Analysis
+                  </h3>
+                  <p className="text-gray-700 text-sm leading-relaxed">
+                    {lucidAnalysis}
+                  </p>
+                </div>
+              </div>
+            </Card>
             {/* Content Evaluation & Recommended Actions */}
             <div className="grid grid-cols-2 gap-6">
               {/* Content Evaluation */}
               <Card className="bg-white border-gray-200 shadow-sm p-6">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-lg font-bold text-gray-900">Content Evaluation</h3>
-                  <span className="text-xs text-gray-500">Role-wide Analysis</span>
+                  {/* <span className="text-xs text-gray-500">Role-wide Analysis</span> */}
                 </div>
 
                 {/* Top Performing */}
@@ -1492,25 +1507,10 @@ export default function KPITurbocharge() {
               </Card>
             </div>
 
-            {/* Lucid Engine Analysis */}
-            <Card className="bg-gradient-to-br from-blue-50 to-purple-50 border-blue-200 shadow-sm p-6">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shrink-0">
-                  <Sparkles size={24} className="text-white" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
-                    Lucid Engine Analysis
-                  </h3>
-                  <p className="text-gray-700 text-sm leading-relaxed">
-                    {lucidAnalysis}
-                  </p>
-                </div>
-              </div>
-            </Card>
+            
 
             {/* Employee Performance Heatmap */}
-            <Card className="bg-white border-gray-200 shadow-sm p-6">
+            {/* <Card className="bg-white border-gray-200 shadow-sm p-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="text-base font-bold text-gray-900">Employee Performance Heatmap</h3>
@@ -1544,9 +1544,9 @@ export default function KPITurbocharge() {
 
               {heatmapData.length > 0 ? (
                 <div className="overflow-x-auto">
-                  <div className="inline-block min-w-full">
+                  <div className="inline-block min-w-full"> */}
                     {/* Header row with module names */}
-                    <div className="flex items-stretch border-b-2 border-gray-300">
+                    {/* <div className="flex items-stretch border-b-2 border-gray-300">
                       <div className="w-36 shrink-0 p-2 bg-gray-50 font-semibold text-xs text-gray-700 border-r-2 border-gray-300 flex items-center">
                         Employee
                       </div>
@@ -1562,10 +1562,10 @@ export default function KPITurbocharge() {
                           </div>
                         </div>
                       ))}
-                    </div>
+                    </div> */}
 
                     {/* Employee rows */}
-                    {heatmapData.map((employee, empIdx) => (
+                    {/* {heatmapData.map((employee, empIdx) => (
                       <div key={empIdx} className="flex items-stretch border-b border-gray-200 hover:bg-blue-50 transition-colors">
                         <div className="w-36 shrink-0 p-2 bg-gray-50 font-medium text-xs text-gray-900 border-r-2 border-gray-300 flex items-center">
                           <div className="flex items-center gap-1.5">
@@ -1601,10 +1601,10 @@ export default function KPITurbocharge() {
                               className={`w-20 shrink-0 p-2 border-r border-gray-200 last:border-r-0 flex items-center justify-center ${bgColor} ${textColor} font-semibold text-xs transition-all hover:scale-105 hover:shadow-lg cursor-pointer relative group`}
                               title={`${employee.employee_name} - ${module.module_name}: ${module.score !== null ? module.score + '%' : 'Not Started'} (${module.status})`}
                             >
-                              {module.score !== null ? `${module.score}%` : '-'}
+                              {module.score !== null ? `${module.score}%` : '-'} */}
                               
                               {/* Tooltip on hover */}
-                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1.5 bg-gray-900 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-lg">
+                              {/* <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1.5 bg-gray-900 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-lg">
                                 <div className="font-semibold mb-0.5">{module.module_name}</div>
                                 <div>Score: {module.score !== null ? module.score + '%' : 'Not Started'}</div>
                                 <div className="capitalize">Status: {module.status.replace('_', ' ')}</div>
@@ -1614,10 +1614,10 @@ export default function KPITurbocharge() {
                           );
                         })}
                       </div>
-                    ))}
+                    ))} */}
 
                     {/* Summary row - Module averages */}
-                    <div className="flex items-stretch border-t-2 border-gray-300 bg-blue-50">
+                    {/* <div className="flex items-stretch border-t-2 border-gray-300 bg-blue-50">
                       <div className="w-36 shrink-0 p-2 bg-blue-100 font-bold text-xs text-blue-900 border-r-2 border-gray-300 flex items-center">
                         Module Avg
                       </div>
@@ -1668,7 +1668,7 @@ export default function KPITurbocharge() {
                   </p>
                 </div>
               )}
-            </Card>
+            </Card> */}
           </>
         )}
       </main>

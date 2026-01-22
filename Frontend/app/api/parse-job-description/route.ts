@@ -26,7 +26,7 @@ For each KPI, provide:
 2. **Description**: A detailed explanation of what this KPI measures and why it's important
 3. **Formula**: The calculation or measurement method (if applicable). Use clear mathematical notation or describe the data collection method.
 
-Provide exactly 3 Lead Indicators (proactive metrics that predict future performance) and exactly 3 Lag Indicators (outcome metrics that measure past performance).
+Provide 4-5 Lead Indicators (proactive metrics that predict future performance) and exactly 4-5 Lag Indicators (outcome metrics that measure past performance).
 
 Also provide:
 - Learning Strategy: A comprehensive strategy for training and development for this role

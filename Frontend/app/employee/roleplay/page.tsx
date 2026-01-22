@@ -263,20 +263,10 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         />
       ) : (
         <main 
-          className="transition-all duration-300 ease-in-out pt-6 pb-12"
+          className="transition-all duration-300 ease-in-out pt-2 pb-12"
           style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
         >
-          <div className="container mx-auto px-4 py-6 max-w-6xl">
-          {/* Header */}
-          <div className="mb-6">
-            <button
-              onClick={() => router.back()}
-              className="flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-4 transition-colors"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="font-medium">Back to Home</span>
-            </button>
-          </div>
+          <div className="container mx-auto px-4 py-2 max-w-6xl">
 
         {/* Error Display */}
         {error && (

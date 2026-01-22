@@ -7,6 +7,7 @@ export interface Scenario {
   difficulty: 'Easy' | 'Medium' | 'Hard';
   userRole?: string;
   tone?: 'Friendly' | 'Neutral' | 'Aggressive';
+  learnerBrief?: string;
 }
 
 export interface AssessmentParameter {

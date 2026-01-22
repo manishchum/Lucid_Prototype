@@ -665,6 +665,7 @@ async def POST(request: Request):
             return out
 
         def tryParse(raw: str):
+            print(raw)
             try:
                 parsed = json.loads(raw)
                 if isinstance(parsed, dict) and ("plan" in parsed or "reasoning" in parsed):
