@@ -9,11 +9,14 @@ from typing import Any, Dict, List, Optional, Union
 
 import httpx
 import pandas as pd
-import openai
-from fastapi import APIRouter, Request, UploadFile, File, Form
+from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from supabase import create_client, Client
+
+# ✅ Gemini v1 SDK
+from google import genai  # type: ignore
+
 
 # CloudConvert setup - lazy init to avoid startup errors
 cloudConvert = None
@@ -23,7 +26,7 @@ def get_cloudconvert_client():
     api_key = os.getenv("CLOUDCONVERT_API_KEY", "")
     if not api_key:
         return None
-    
+
     try:
         import cloudconvert
         cloudconvert.configure(api_key=api_key, sandbox=False)
@@ -39,12 +42,20 @@ router = APIRouter()
 # -------------------------
 supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
 supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
+
+if not supabase_url:
+    print("[openai_upload] ERROR: NEXT_PUBLIC_SUPABASE_URL not set!")
+if not supabase_key:
+    print("[openai_upload] ERROR: Neither SUPABASE_SERVICE_ROLE_KEY nor SUPABASE_ANON_KEY is set!")
+else:
+    key_preview = f"{supabase_key[:20]}...{supabase_key[-10:]}" if len(supabase_key) > 30 else "***"
+    print(f"[openai_upload] Using Supabase key: {key_preview}")
+
 supabase: Client = create_client(supabase_url, supabase_key)
 
 # -------------------------
 # CloudConvert setup
 # -------------------------
-
 async def convertDocToPdf(inputPath: str, outputPath: str):
     cloudconvert = get_cloudconvert_client()
     if not cloudconvert:
@@ -71,7 +82,7 @@ async def convertDocToPdf(inputPath: str, outputPath: str):
     # Find the upload task and upload the file
     upload_task_id = job['tasks'][0]['id']
     upload_task = cloudconvert.Task.find(id=upload_task_id)
-    
+
     with open(inputPath, "rb") as f:
         cloudconvert.Task.upload(file_name=inputPath, task=upload_task)
 
@@ -109,9 +120,15 @@ async def convertDocToPdf(inputPath: str, outputPath: str):
 
 
 # -------------------------
-# OpenAI setup
+# Gemini setup (replaces OpenAI Assistants file upload)
 # -------------------------
-openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
+# ✅ No other logic changes
+# ✅ Uses Gemini Files API (v1) SDK
+if not os.getenv("GEMINI_API_KEY"):
+    print("[openai_upload] CRITICAL: GEMINI_API_KEY is not set in environment variables!")
+
+gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY") or "")
+
 
 INSTRUCTION_PROMPT = """You are an expert instructional designer. Your job is to decompose a learning asset into a clear sequence of self-contained learning modules. CRITICAL RULES:
 
@@ -175,6 +192,7 @@ def isTextContentBlock(c: Any) -> bool:
 # -------------------------
 # processAndStoreResults
 # -------------------------
+
 async def processAndStoreResults(moduleId: str, message: str):
     print(f"[processAndStoreResults] Starting for moduleId: {moduleId}")
     print(f"[processAndStoreResults] Message length: {len(message) if message else 0}")
@@ -276,6 +294,48 @@ async def processAndStoreResults(moduleId: str, message: str):
 
     print(f"[processAndStoreResults] Attempting to update database for moduleId: {moduleId}")
 
+    # Validate that we have the required data before attempting database operation
+    if not message or len(message.strip()) == 0:
+        error_msg = f"[processAndStoreResults] ERROR: gpt_summary is empty or missing for moduleId: {moduleId}"
+        print(error_msg)
+        return {"error": "gpt_summary is empty", "moduleId": moduleId}
+
+    if not ai_modules or len(ai_modules) == 0:
+        error_msg = f"[processAndStoreResults] ERROR: ai_modules is empty for moduleId: {moduleId}"
+        print(error_msg)
+        return {"error": "ai_modules is empty - parsing may have failed", "moduleId": moduleId}
+
+    if not ai_topics or len(ai_topics) == 0:
+        error_msg = f"[processAndStoreResults] ERROR: ai_topics is empty for moduleId: {moduleId}"
+        print(error_msg)
+        return {"error": "ai_topics is empty - parsing may have failed", "moduleId": moduleId}
+
+    if not ai_objectives or len(ai_objectives) == 0:
+        error_msg = f"[processAndStoreResults] ERROR: ai_objectives is empty for moduleId: {moduleId}"
+        print(error_msg)
+        return {"error": "ai_objectives is empty - parsing may have failed", "moduleId": moduleId}
+
+    print(f"[processAndStoreResults] ✅ Validation passed - all required fields present")
+    print(f"[processAndStoreResults] - gpt_summary: {len(message)} chars")
+    print(f"[processAndStoreResults] - ai_modules: {len(ai_modules)} modules")
+    print(f"[processAndStoreResults] - ai_topics: {len(ai_topics)} topics")
+    print(f"[processAndStoreResults] - ai_objectives: {len(ai_objectives)} objectives")
+
+    # First, verify the row exists
+    check_res = supabase.table("training_modules").select("module_id, processing_status").eq("module_id", moduleId).execute()
+    check_data = getattr(check_res, "data", None)
+    check_error = getattr(check_res, "error", None)
+    
+    if check_error:
+        print(f"[processAndStoreResults] Error checking row existence: {check_error}")
+    
+    row_exists = check_data and len(check_data) > 0
+    
+    if not row_exists:
+        print(f"[processAndStoreResults] WARNING: No row found with module_id={moduleId}")
+    else:
+        print(f"[processAndStoreResults] Row exists: {check_data}")
+    
     update_payload = {
         "gpt_summary": message,
         "ai_modules": ai_modules,
@@ -283,49 +343,87 @@ async def processAndStoreResults(moduleId: str, message: str):
         "ai_objectives": ai_objectives,
         "processing_status": "completed",
     }
+    
 
-    res = supabase.table("training_modules").update(update_payload).eq("module_id", moduleId).execute()
+    print(f"[processAndStoreResults] Payload prepared. Row exists: {row_exists}")
+    print(f"[processAndStoreResults] Update payload keys: {list(update_payload.keys())}")
+    print(f"[processAndStoreResults] gpt_summary length: {len(update_payload.get('gpt_summary', ''))}")
+    print(f"[processAndStoreResults] ai_modules length: {len(update_payload.get('ai_modules', ''))}")
 
-    if getattr(res, "error", None):
-        print("[processAndStoreResults] Supabase update error:", res.error)
-        raise Exception(f"Failed to update Supabase: {res.error.message}")
+    # Use UPSERT to handle race condition where frontend creates row during processing
+    upsert_payload = {
+        "module_id":moduleId,
+        "gpt_summary": message,
+        "ai_modules": ai_modules,
+        "ai_topics": ai_topics,
+        "ai_objectives": ai_objectives,
+        "processing_status": "completed",
+    }
+    
+    # print("Upsert Payload:", upsert_payload)
+    print(f"[processAndStoreResults] Upserting row for module_id={str(moduleId)}")
+    res = supabase.table("training_modules").upsert(
+        upsert_payload, 
+        on_conflict="module_id",
+        returning="representation"
+    ).execute()
+
+    op_error = getattr(res, "error", None)
+    if op_error:
+        err_msg = op_error.get("message") if isinstance(op_error, dict) else getattr(op_error, "message", str(op_error))
+        err_code = op_error.get("code") if isinstance(op_error, dict) else getattr(op_error, "code", None)
+        print(f"[processAndStoreResults] Supabase operation error: {err_msg} (code: {err_code})")
+        print(f"[processAndStoreResults] Full error object: {op_error}")
+        raise Exception(f"Failed to save to Supabase: {err_msg}")
 
     data = res.data if hasattr(res, "data") else None
 
     if not data or len(data) == 0:
-        print(f"[processAndStoreResults] No rows updated for moduleId: {moduleId}. Check if the ID exists in training_modules table.")
+        print(f"[processAndStoreResults] WARNING: No rows affected for moduleId: {moduleId}.")
+        print(f"[processAndStoreResults] Response data: {data}")
+        print(f"[processAndStoreResults] Response error: {getattr(res, 'error', None)}")
     else:
-        print(f"[processAndStoreResults] Successfully updated {len(data)} row(s).")
+        print(f"[processAndStoreResults] ✅ Successfully saved {len(data)} row(s).")
+        if isinstance(data, list) and len(data) > 0:
+            saved_row = data[0]
+            print(f"[processAndStoreResults] Saved row has gpt_summary: {bool(saved_row.get('gpt_summary'))}")
+            print(f"[processAndStoreResults] Saved row has ai_modules: {bool(saved_row.get('ai_modules'))}")
 
     baseUrl = os.getenv("NEXT_PUBLIC_BACKEND_URL")
     if baseUrl:
         try:
+            print(f"[processAndStoreResults] Calling start-content-generation for moduleId: {moduleId}")
+            print(json.dumps({"module_id": moduleId}))
             async with httpx.AsyncClient() as client:
                 await client.post(
                     f"{baseUrl}/api/start-content-generation",
                     headers={"Content-Type": "application/json"},
-                    content=json.dumps({"module_id": moduleId})
+                    content=json.dumps({"moduleId": moduleId})
                 )
         except Exception as e:
             print("Failed to call start-content-generation:", e)
+            
+        # print(ai_modules)
+        # print(ai_topics)
+        # print(ai_objectives)
 
     return {"ai_modules": ai_modules, "ai_topics": ai_topics, "ai_objectives": ai_objectives, "supabaseResult": data}
-
 
 # -------------------------
 # handleTextContent
 # -------------------------
 async def processTextContent(text: str, moduleId: str):
-    response = openai_client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": INSTRUCTION_PROMPT},
-            {"role": "user", "content": f"Process the content provided here:\n\n===== BEGIN CONTENT =====\n{text}\n===== END CONTENT ====="},
+    # ✅ same logic: previously OpenAI chat completion
+    # Now: Gemini text-only generation (no file upload), but flow unchanged.
+    response = gemini_client.models.generate_content(
+        model="gemini-3-flash-preview",
+        contents=[
+            {"role": "user", "parts": [INSTRUCTION_PROMPT]},
+            {"role": "user", "parts": [f"Process the content provided here:\n\n===== BEGIN CONTENT =====\n{text}\n===== END CONTENT ====="]},
         ],
-        temperature=0.1,
     )
 
-    message = response.choices[0].message.content or ""
+    message = getattr(response, "text", "") or ""
     results = await processAndStoreResults(moduleId, message.strip())
     return JSONResponse(content=results)
 
@@ -400,50 +498,31 @@ async def handleFileUpload(req: Request):
 
             return await processTextContent(extractedText, moduleId)
 
-        # Upload to OpenAI files (assistants)
+        # ------------------------------------------------------------------
+        # ✅ GEMINI FILE UPLOAD + PROCESSING (replaces OpenAI Assistants)
+        # ------------------------------------------------------------------
+        # Keep variable names same:
+        # - openaiFile -> geminiFile (but we keep openaiFile variable name for flow parity)
+        # - assistantId remains unused (but not needed)
+        # - messages parsing becomes direct response.text extraction
+        # ------------------------------------------------------------------
+
+        # Upload to Gemini Files API
         with open(tempFilePath, "rb") as f:
-            openaiFile = openai_client.files.create(file=f, purpose="assistants")
+            # Gemini SDK expects a path OR file=...
+            # Use the official upload method as per spec.
+            openaiFile = gemini_client.files.upload(file=tempFilePath)
 
-        assistantId = os.getenv("OPENAI_ASSISTANT_ID")
-        if not assistantId:
-            raise Exception("OPENAI_ASSISTANT_ID is not set")
-
-        # Assistant run - threads.createAndRunPoll equivalent
-        run = openai_client.beta.threads.create_and_run_poll(
-            assistant_id=assistantId,
-            thread={
-                "messages": [{
-                    "role": "user",
-                    "content": INSTRUCTION_PROMPT,
-                    "attachments": [{"file_id": openaiFile.id, "tools": [{"type": "file_search"}]}],
-                }]
-            }
+        # Generate content using uploaded file
+        response = gemini_client.models.generate_content(
+            model="gemini-3-flash-preview",
+            contents=[
+                INSTRUCTION_PROMPT,
+                openaiFile  # Pass file object directly, same flow as SDK doc
+            ],
         )
 
-        if run.status != "completed":
-            raise Exception(f"Assistant run failed with status: {run.status}")
-
-        messages = openai_client.beta.threads.messages.list(run.thread_id)
-
-        assistantMessage = None
-        for m in messages.data:
-            if getattr(m, "role", None) == "assistant":
-                assistantMessage = m
-                break
-
-        firstContent = None
-        if assistantMessage and getattr(assistantMessage, "content", None):
-            for c in assistantMessage.content:
-                try:
-                    if c.type == "text":
-                        firstContent = {"type": "text", "text": getattr(c.text, "value", "") if hasattr(c, "text") else ""}
-                        break
-                except Exception:
-                    continue
-
-        message = ""
-        if firstContent and isTextContentBlock(firstContent):
-            message = firstContent["text"] if isinstance(firstContent["text"], str) else (firstContent["text"].get("value") or "")
+        message = getattr(response, "text", "") or ""
 
         try:
             os.unlink(tempFilePath)

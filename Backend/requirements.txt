@@ -17,3 +17,4 @@ fastapi
 fastapi.responses
 fastapi.requests
 Pillow
+google-genai
