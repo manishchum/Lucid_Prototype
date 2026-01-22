@@ -109,6 +109,36 @@ export default function RoleplayConfigPage({ scenario, onStart, onBack }: Rolepl
                   </button>
                 </div>
               </div>
+
+              {/* Learner Instructions */}
+              <div className="mb-8">
+                <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-3">
+                  <MessageSquare className="w-5 h-5 text-blue-600" />
+                  Instructions for Learners
+                </label>
+                <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-5">
+                  <div className="text-slate-700 whitespace-pre-line leading-relaxed">
+                    {scenario.learnerBrief || `📣 Welcome to this roleplay practice session.
+In this exercise, you will interact with a virtual character to practice and improve your professional communication skills.
+
+✅ What You Need to Do:
+
+1. Greet and introduce yourself professionally.
+   Begin with a polite greeting and clearly state your name and role.
+
+2. Present your main points clearly.
+   • Communicate your key message
+   • Use clear and simple language
+   • Stay focused on your objectives
+
+3. Listen and respond appropriately.
+   Pay attention to questions or concerns and provide thoughtful responses.
+
+4. Conclude professionally.
+   Summarize the conversation and end with a courteous closing statement.`}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Action Buttons */}

@@ -549,7 +549,7 @@ export default function EmployeeWelcome() {
                   </div>
                 ) : assignedModules.length === 0 ? (
                   <div className="py-16 flex flex-col items-center text-center px-8">
-                    <p className="text-slate-500 text-base font-medium">No Modules Assigned</p>
+                    <p className="text-slate-500 text-base font-medium">No Sprints Assigned</p>
                   </div>
                 ) : (
                   <div>
