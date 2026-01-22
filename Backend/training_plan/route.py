@@ -27,6 +27,47 @@ genAI = genai
 genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
 
 
+def parseGeminiJSON(raw_text: str) -> dict:
+    """Extract and parse JSON from Gemini response, handling markdown code blocks and duplicates"""
+    try:
+        # Remove markdown code blocks if present
+        cleaned = raw_text.strip()
+        
+        # Handle ```json...``` blocks
+        if cleaned.startswith('```'):
+            # Find first opening backticks
+            start = cleaned.find('```')
+            if start != -1:
+                # Skip past language identifier (e.g., 'json')
+                content_start = cleaned.find('\n', start + 3)
+                if content_start != -1:
+                    # Find closing backticks
+                    end = cleaned.find('```', content_start)
+                    if end != -1:
+                        cleaned = cleaned[content_start:end].strip()
+        
+        # If there are multiple JSON objects (duplicates), take only the first complete one
+        first_open = cleaned.find('{')
+        if first_open != -1:
+            brace_count = 0
+            for i in range(first_open, len(cleaned)):
+                if cleaned[i] == '{':
+                    brace_count += 1
+                elif cleaned[i] == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        # Found complete first JSON object
+                        cleaned = cleaned[first_open:i+1]
+                        break
+        
+        return json.loads(cleaned)
+    
+    except json.JSONDecodeError as e:
+        print(f"[parseGeminiJSON] JSON parsing failed: {e}")
+        print(f"[parseGeminiJSON] Attempted to parse: {cleaned[:500] if cleaned else 'empty'}...")
+        raise ValueError(f"Invalid JSON in Gemini response: {str(e)}")
+
+
 @router.post("/training-plan")
 async def POST(request: Request):
     try:
@@ -581,6 +622,7 @@ async def POST(request: Request):
             + "The 'reasoning' key must contain a valid JSON object with the following structure:\n"
             + '{\n  "score_analysis": string,\n  "module_selection": [\n    {\n      "module_name": string,\n      "justification": string,\n      "recommended_time": number\n    }\n  ],\n  "learning_style_influence": string,\n  "kpi_influence": string,\n  "overall_strategy": string\n}\n'
             + 'Do NOT include any other text, explanation, or formatting. Example: { "plan": { ... }, "reasoning": { ... } }'
+            + '\n\nCRITICAL: Return ONLY ONE JSON object. Do not duplicate the response. Do not wrap in markdown code blocks. Return raw JSON only.'
         )
 
         prompt2 = (
@@ -620,6 +662,7 @@ async def POST(request: Request):
             + "The 'reasoning' key must contain a valid JSON object with the following structure:\n"
             + '{\n  "score_analysis": string,\n  "module_selection": [\n    {\n      "module_name": string,\n      "justification": string,\n      "recommended_time": number\n    }\n  ],\n  "learning_style_influence": string,\n  "overall_strategy": string\n}\n'
             + 'Do NOT include any other text, explanation, or formatting. Example: { "plan": { ... }, "reasoning": { ... } }'
+            + '\n\nCRITICAL: Return ONLY ONE JSON object. Do not duplicate the response. Do not wrap in markdown code blocks. Return raw JSON only.'
         )
 
         prompt = prompt1 if len(baselinePercentAssessments) > 0 else prompt2
