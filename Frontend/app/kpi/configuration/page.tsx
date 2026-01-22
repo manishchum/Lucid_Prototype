@@ -919,8 +919,19 @@ export default function KPIConfigurationPage() {
                   <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
                     <Filter className="w-5 h-5 text-blue-600" />
                   </div>
-                  <h3 className="text-xl font-bold text-gray-900">Filter Scope</h3>
+                  <h3 className="text-xl font-bold text-gray-900">Function wise KPI</h3>
+
+                  <Button 
+                  onClick={handleExportExcel}
+                  disabled={filteredKpis.length === 0}
+                  variant="outline" 
+                  className="border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-green-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Export Excel
+                </Button>
                 </div>
+                
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-gray-700">Function</label>
@@ -986,11 +997,10 @@ export default function KPIConfigurationPage() {
                     </Select>
                   </div>
                 </div>
-              </Card>
 
               {/* KPI Library */}
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
+                {/* <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
                     <Settings className="w-5 h-5 text-purple-600" />
                   </div>
@@ -1000,16 +1010,8 @@ export default function KPIConfigurationPage() {
                       <span className="text-blue-600 font-semibold">{filteredKpis.length}</span> Metrics Available
                     </p>
                   </div>
-                </div>
-                <Button 
-                  onClick={handleExportExcel}
-                  disabled={filteredKpis.length === 0}
-                  variant="outline" 
-                  className="border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-green-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Export Excel
-                </Button>
+                </div> */}
+                
               </div>
 
               {/* KPI Grid */}
@@ -1125,6 +1127,8 @@ export default function KPIConfigurationPage() {
                   </Card>
                 )}
               </div>
+              </Card>
+
             </>
           )}
         </div>
