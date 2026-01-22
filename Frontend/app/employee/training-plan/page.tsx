@@ -774,9 +774,9 @@ function TrainingPlanContent() {
                               )}
                               {mod.title}
                             </div>
-                            <div className="text-sm text-gray-500">
+                            {/* <div className="text-sm text-gray-500">
                               {mod.recommended_time || 0} hours
-                            </div>
+                            </div> */}
                           </div>
                           {mod._isCompleted && (
                             <div className="absolute top-3 right-3">
@@ -808,7 +808,7 @@ function TrainingPlanContent() {
                         )}
                       </div>
                       {/* Summary Metrics */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+                      {/* <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
                         <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                           <div className="text-sm font-semibold text-blue-800 mb-1">
                             Recommended Time
@@ -818,7 +818,7 @@ function TrainingPlanContent() {
                           </div>
                         </div>
 
-                      </div>
+                      </div> */}
 
                       {/* Tips for Success (per-module banner shown between metrics and actions) */}
                       {(() => {
@@ -855,11 +855,14 @@ function TrainingPlanContent() {
                           tipsText = tips;
                         }
 
+                        // Trim leading/trailing whitespace and newlines
+                        tipsText = tipsText.trim();
+
                         const showFallback = !tipsText || tipsText.trim().length === 0;
 
                         return (
-                          <div className="mt-6 mb-6 p-6 bg-yellow-50 rounded-xl border border-yellow-200 shadow-sm">
-                            <div className="font-bold text-xl mb-2 text-yellow-900">Tips for Success</div>
+                          <div className="mt-4 mb-3 px-4 py-3 bg-yellow-50 rounded-xl border border-yellow-200 shadow-sm">
+                            <div className="font-bold text-xl text-yellow-900">Tips for Success</div>
                             {showFallback ? (
                               <div className="text-yellow-800 text-sm">Use these quick tips to get the most from your Performance Sprint.</div>
                             ) : (

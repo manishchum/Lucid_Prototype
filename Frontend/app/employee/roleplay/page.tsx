@@ -213,6 +213,28 @@ export default function RolePlayPage() {
     setError(null);
   };
 
+  const handleReverseRoleplay = () => {
+    if (!selectedScenario) return;
+    
+    // Create a reversed scenario where roles are swapped
+    const reversedScenario: Scenario = {
+      ...selectedScenario,
+      id: selectedScenario.id + '-reversed',
+      title: `${selectedScenario.title} (Reversed Roles)`,
+      description: `In this reversed roleplay, you will play as the ${selectedScenario.role} while the AI plays as the ${selectedScenario.userRole || 'other party'}.`,
+      role: selectedScenario.userRole || 'Professional',
+      userRole: selectedScenario.role,
+      initialPrompt: `You are now playing as ${selectedScenario.userRole || 'the professional'}. The AI will act as ${selectedScenario.role}. ${selectedScenario.initialPrompt}`
+    };
+    
+    // Reset states and start with reversed scenario
+    setSelectedScenario(reversedScenario);
+    setConversationHistory([]);
+    setAssessmentReport(null);
+    setCurrentScreen('config'); // Go to config page first
+    setError(null);
+  };
+
   const handleCreateCustomRoleplay = () => {
     // Validate inputs
     if (!customScenario.title || !customScenario.description || !customScenario.aiRole || 
@@ -263,20 +285,10 @@ export default function RolePlayPage() {
         />
       ) : (
         <main 
-          className="transition-all duration-300 ease-in-out pt-6 pb-12"
+          className="transition-all duration-300 ease-in-out pt-2 pb-12"
           style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
         >
-          <div className="container mx-auto px-4 py-6 max-w-6xl">
-          {/* Header */}
-          <div className="mb-6">
-            <button
-              onClick={() => router.back()}
-              className="flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-4 transition-colors"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="font-medium">Back to Home</span>
-            </button>
-          </div>
+          <div className="container mx-auto px-4 py-2 max-w-6xl">
 
         {/* Error Display */}
         {error && (
@@ -379,6 +391,7 @@ export default function RolePlayPage() {
               report={assessmentReport}
               scenarioTitle={selectedScenario.title}
               onStartNew={handleStartNew}
+              onReverseRoleplay={handleReverseRoleplay}
             />
           ) : (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
