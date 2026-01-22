@@ -318,7 +318,7 @@ export default function KPIIntelligencePage() {
                 <CardContent>
                   <Tabs defaultValue="indicators" className="w-full">
                     <TabsList className="grid w-full grid-cols-1">
-                      <TabsTrigger value="indicators">Indicators</TabsTrigger>
+                      <TabsTrigger value="indicators">Key Performance Indicators</TabsTrigger>
                       {/* <TabsTrigger value="strategies">Strategies</TabsTrigger> */}
                     </TabsList>
                     
