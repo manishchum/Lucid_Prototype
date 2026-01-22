@@ -1,3 +1,10 @@
+# import asyncio
+# import sys
+
+# if sys.platform.startswith("win"):
+#     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import FRONTEND_URL
@@ -10,7 +17,7 @@ from submit_assessment.route import router as submit_assessment_router
 from training_plan.route import router as training_plan_router
 from content_generation_progress.route import router as content_generation_progress_router
 from tts.route import router as tts_router
-# from gpt_video_genration.route import router as gpt_video_generation_router
+# from gpt_video_generation.route import router as gpt_video_generation_router
 
 # Create FastAPI app
 app = FastAPI(
