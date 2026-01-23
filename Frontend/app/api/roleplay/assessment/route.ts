@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { messages, scenarioTitle, scenarioRole } = await request.json();
+    const { messages, scenarioTitle, scenarioRole, userRole } = await request.json();
 
     if (!messages || messages.length === 0) {
       return NextResponse.json(
@@ -89,21 +89,27 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Build conversation transcript
+    // Build conversation transcript with clear role labels
+    const learnerRole = userRole || 'Learner'; // This is the USER's role (Sales Manager)
+    const aiRole = scenarioRole || 'AI Coach'; // This is the AI's role (ZSM/Customer)
+    
     const transcript = messages
-      .map((msg: any) => `${msg.sender === 'user' ? 'User' : scenarioRole}: ${msg.text}`)
+      .map((msg: any) => `${msg.sender === 'user' ? learnerRole : aiRole}: ${msg.text}`)
       .join('\n\n');
 
     // Create assessment prompt
     const assessmentPrompt = `You are an expert communication and sales coach analyzing a role-play conversation. 
 
 Scenario: ${scenarioTitle}
-Role: ${scenarioRole}
+Learner's Role: ${learnerRole} (the person being evaluated)
+AI Coach's Role: ${aiRole} (the practice partner)
+
+CRITICAL INSTRUCTION: You are evaluating the LEARNER (${learnerRole}), NOT the AI Coach. Analyze only the learner's performance in their messages.
 
 Conversation Transcript:
 ${transcript}
 
-Analyze this role-play conversation and provide a detailed performance assessment. Since this is a video-based roleplay session, evaluate both verbal communication and non-verbal cues. Provide a comprehensive assessment in JSON format with the following structure:
+Analyze the LEARNER's (${learnerRole}'s) performance in this role-play conversation and provide a detailed assessment. Since this is a video-based roleplay session, evaluate both verbal communication and non-verbal cues. Provide a comprehensive assessment in JSON format with the following structure:
 
 {
   "overallScore": <number 0-100>,
