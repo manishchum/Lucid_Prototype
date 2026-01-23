@@ -1100,7 +1100,7 @@ function ContentTransformer({
           </div>
           <div>
             <h2 className="text-2xl font-bold text-slate-900">Content Transformer</h2>
-            <p className="text-slate-600 text-sm mt-1">Convert this learning journey into your preferred format.</p>
+            <p className="text-slate-600 text-sm mt-1">Convert this Sprint into your preferred format.</p>
           </div>
         </div>
 
