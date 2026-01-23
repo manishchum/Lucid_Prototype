@@ -160,7 +160,8 @@ export default function RolePlayPage() {
         body: JSON.stringify({
           messages,
           scenarioTitle: selectedScenario?.title,
-          scenarioRole: selectedScenario?.role
+          scenarioRole: selectedScenario?.role,
+          userRole: selectedScenario?.userRole
         }),
       });
 
@@ -309,8 +310,26 @@ export default function RolePlayPage() {
                 >
                   <h3 className="text-xl font-semibold text-gray-800 mb-3">{scenario.title}</h3>
                   <p className="text-gray-600 mb-4 text-sm leading-relaxed">{scenario.description}</p>
+                  
+                  {/* Role Information - Hidden */}
+                  {/* <div className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-slate-500 font-medium block mb-1">You play as:</span>
+                        <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold inline-block">
+                          {scenario.userRole || 'Learner'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 font-medium block mb-1">AI plays as:</span>
+                        <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-semibold inline-block">
+                          {scenario.role}
+                        </span>
+                      </div>
+                    </div>
+                  </div> */}
+                  
                   <div className="flex justify-between items-center text-sm font-medium">
-                    <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full">{scenario.role}</span>
                     <span className={`px-3 py-1 rounded-full ${
                       scenario.difficulty === 'Easy' ? 'bg-green-100 text-green-700' :
                       scenario.difficulty === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
