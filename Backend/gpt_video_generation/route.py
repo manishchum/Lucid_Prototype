@@ -549,7 +549,7 @@ async def generateVideo(processedModuleId: str) -> str:
 
     listFile = os.path.join(tmpDir, "scenes.txt")
     with open(listFile, "w", encoding="utf-8") as f:
-        f.write("\n".join([f"file '{v.replace('\\\\', '/')}'" for v in sceneVideos]))
+        f.write("\n".join([f"file '{v.replace(chr(92), '/')}'" for v in sceneVideos]))
 
     finalVideo = os.path.join(tmpDir, "final.mp4")
 
