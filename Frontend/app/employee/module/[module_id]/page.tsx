@@ -2241,7 +2241,8 @@ function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string,
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/gpt-video-generation`, {
+      const res = await fetch(`${API_BASE}/api/gpt-video`, {
+      // const res = await fetch(`/api/gpt-video-generation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ processed_module_id: moduleId }),
