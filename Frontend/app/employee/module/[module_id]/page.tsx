@@ -395,10 +395,10 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                             >
                               {msg.role === 'assistant' && (
                                 <div className="flex items-center gap-2 mb-2">
-                                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
+                                  {/* <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
                                     AI
-                                  </div>
-                                  <span className="text-xs font-semibold text-gray-600">Learning Assistant</span>
+                                  </div> */}
+                                  <span className="text-xs font-semibold text-gray-600">Lucid Assistant</span>
                                 </div>
                               )}
                               <p className="whitespace-pre-wrap break-words leading-relaxed text-sm">
@@ -424,13 +424,12 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
 
                   <div className="border-t border-slate-200 bg-white p-6">
                     <form onSubmit={handleSendChat} className="flex gap-3">
-                      <button
+                      {/* <button
                         type="button"
                         className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-600 disabled:opacity-50"
-                        disabled={chatLoading}
                       >
                         📎
-                      </button>
+                      </button> */}
                       <VoiceInput 
                         onTranscription={handleVoiceTranscription}
                         disabled={chatLoading}
