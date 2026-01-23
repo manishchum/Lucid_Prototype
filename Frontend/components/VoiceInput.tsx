@@ -12,12 +12,17 @@ interface VoiceInputProps {
 export default function VoiceInput({ onTranscription, disabled, autoStart = false }: VoiceInputProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const recordingStartTimeRef = useRef<number>(0);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const MAX_RECORDING_DURATION = 55000; // 55 seconds (under Google's 60-second limit)
 
   // Auto-start recording when autoStart becomes true
   useEffect(() => {
@@ -33,8 +38,13 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
       if (silenceTimeoutRef.current) {
         clearTimeout(silenceTimeoutRef.current);
       }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
+      if (recordingTimerRef.current) {
+        clearTimeout(recordingTimerRef.current);
+      }
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close().catch(err => 
+          console.warn('[VoiceInput] Cleanup: AudioContext already closed:', err)
+        );
       }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
@@ -43,6 +53,13 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
   }, []);
 
   const detectSilence = (stream: MediaStream) => {
+    // Close existing audio context if it exists
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close().catch(err => 
+        console.warn('[VoiceInput] Closing previous AudioContext:', err)
+      );
+    }
+    
     const audioContext = new AudioContext();
     const analyser = audioContext.createAnalyser();
     const microphone = audioContext.createMediaStreamSource(stream);
@@ -57,14 +74,20 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
     
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     let lastSoundTime = Date.now();
-    const SILENCE_THRESHOLD = 10; // Volume threshold (0-255)
-    const SILENCE_DURATION = 2000; // 2 seconds of silence
+    const SILENCE_THRESHOLD = 25; // Increased from 10 to 25 - require actual silence, not just quiet speech
+    const SILENCE_DURATION = 3500; // Increased from 2000ms to 3500ms (3.5 seconds) - allow for natural pauses
+    let hasDetectedSpeech = false; // Track if we've detected any speech at all
     
     const checkAudioLevel = () => {
       if (!isRecording) return;
       
       analyser.getByteFrequencyData(dataArray);
       const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+      
+      // Consider speech detected if volume is above a reasonable threshold
+      if (average > 30) {
+        hasDetectedSpeech = true;
+      }
       
       if (average > SILENCE_THRESHOLD) {
         // Sound detected, reset silence timer
@@ -77,8 +100,10 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
         // Silence detected
         const silenceDuration = Date.now() - lastSoundTime;
         
-        if (silenceDuration > SILENCE_DURATION && !silenceTimeoutRef.current) {
-          console.log('🔇 Silence detected, stopping recording...');
+        // Only stop if we've detected speech before (prevents stopping on initial silence)
+        // AND we've had enough silence duration
+        if (hasDetectedSpeech && silenceDuration > SILENCE_DURATION && !silenceTimeoutRef.current) {
+          console.log('🔇 Silence detected after speech, stopping recording...');
           stopRecording();
           return;
         }
@@ -101,6 +126,8 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
 
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
+      recordingStartTimeRef.current = Date.now();
+      setRecordingDuration(0);
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -118,15 +145,27 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
           streamRef.current = null;
         }
         
-        // Close audio context
-        if (audioContextRef.current) {
-          audioContextRef.current.close();
+        // Close audio context safely
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+          try {
+            await audioContextRef.current.close();
+          } catch (error) {
+            console.warn('[VoiceInput] AudioContext already closed:', error);
+          }
           audioContextRef.current = null;
         }
+        
+        setRecordingDuration(0);
       };
 
       mediaRecorder.start();
       setIsRecording(true);
+      
+      // Set maximum recording duration timeout
+      recordingTimerRef.current = setTimeout(() => {
+        console.log('⏱️ Maximum recording duration reached, stopping...');
+        stopRecording();
+      }, MAX_RECORDING_DURATION);
       
       // Start silence detection
       detectSilence(stream);
@@ -145,6 +184,11 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
         clearTimeout(silenceTimeoutRef.current);
         silenceTimeoutRef.current = null;
       }
+      
+      if (recordingTimerRef.current) {
+        clearTimeout(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
     }
   };
 
@@ -160,9 +204,18 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
         body: formData,
       });
 
+      // Handle "No speech detected" as a normal case, not an error
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        console.error('Transcription API error:', errorData);
+        
+        // "No speech detected" is expected when user doesn't speak - handle gracefully
+        if (response.status === 400 && errorData.error === 'No speech detected') {
+          console.log('[VoiceInput] ℹ️ No speech detected in recording (user may not have spoken or spoke too quietly)');
+          return; // Silent return - this is normal behavior
+        }
+        
+        // Other errors should be logged and handled
+        console.error('[VoiceInput] Transcription API error:', errorData);
         throw new Error(errorData.error || 'Transcription failed');
       }
 
@@ -173,14 +226,18 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
         console.log('[VoiceInput] ✅ Transcription successful:', data.text);
         onTranscription(data.text);
       } else {
-        console.warn('[VoiceInput] ⚠️ No speech detected in audio');
-        // Don't show alert for "no speech detected" - user might just not have spoken
-        // This is a normal scenario, not an error
+        console.log('[VoiceInput] ℹ️ Empty transcript received');
       }
     } catch (error: any) {
       console.error('[VoiceInput] ❌ Transcription error:', error);
-      // Only show alert for actual API/network errors, not for "no speech detected"
-      if (!error.message?.includes('No speech detected')) {
+      
+      // Handle specific error cases
+      if (error.message?.includes('Sync input too long')) {
+        alert('Recording too long. Please keep responses under 1 minute.');
+      } else if (error.message?.includes('No speech detected')) {
+        // This shouldn't happen now since we handle it above, but keep as fallback
+        console.log('[VoiceInput] ℹ️ No speech detected in recording');
+      } else {
         alert(`Failed to transcribe audio: ${error.message}`);
       }
     } finally {
