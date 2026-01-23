@@ -43,6 +43,7 @@ router = APIRouter()
 supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
 supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
 
+print(supabase_url)
 if not supabase_url:
     print("[openai_upload] ERROR: NEXT_PUBLIC_SUPABASE_URL not set!")
 if not supabase_key:
