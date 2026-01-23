@@ -626,24 +626,29 @@ async def POST(request: Request):
         )
 
         prompt2 = (
-            "You are an expert corporate trainer. Given the following assessment results and feedback for an employee, the available training modules, and the employee's learning style and analysis, generate a personalized JSON learning plan.\n\n"
+            "You are an expert corporate trainer. Given the available training modules and the employee's learning style, generate a personalized JSON learning plan that assigns ALL available modules.\n\n"
             + geminiText
             + "\n\n"
             + "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n"
-            + "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n"
+            + "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n"
             + "CRITICAL MODULE SELECTION REQUIREMENTS - MUST FOLLOW:\n"
-            + moduleRequirements
-            + "\n"
+            + "- Include ALL modules from the Available Modules list in the learning plan.\n"
+            + "- NEVER skip or omit any available module.\n"
             + "- NEVER recommend modules that are NOT in the Available Modules list.\n"
             + "- NEVER generate, invent, or assume modules that don't exist.\n"
-            + "- Each module must include: title (or name), recommended_time (in hours), and order.\n"
-            + "- Prioritize modules addressing the most critical skill gaps shown in the assessment.\n\n"
+            + "- Each module must include: title (matching exactly from Available Modules), recommended_time (in hours), and order.\n"
+            + "- Order modules logically based on learning progression and dependencies.\n"
+            + "- Allocate 3-5 hours per module as recommended study time.\n\n"
             + "The plan should:\n"
-            + "- Map each selected module to specific weaknesses\n"
-            + "- Specify study order, recommended time per module (in hours)\n"
-            + "- Include actionable tips and recommendations\n"
-            + "- Ensure all recommendations align with the employee's learning style\n"
-            + "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback, and learning style factors influenced your choices\n- For each module, justify the recommended time duration based on the employee's needs, weaknesses, and learning style\n\n"
+            + "- Include ALL available modules in a logical learning sequence\n"
+            + "- Specify study order (1, 2, 3, etc.) for each module\n"
+            + "- Specify recommended time per module (in hours, typically 3-5 hours each)\n"
+            + "- Include actionable tips and study strategies\n"
+            + "- Ensure all recommendations align with the employee's learning style\n\n"
+            + "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n"
+            + "- How the learning style influenced the ordering and study approach\n"
+            + "- For each module, justify the recommended time duration based on complexity and the employee's learning style\n"
+            + "- Explain the overall learning progression strategy\n\n"
             + "Available Modules:\n"
             + json.dumps(modules, indent=2)
             + "\n\n"
@@ -653,14 +658,25 @@ async def POST(request: Request):
             + '  "plan": {\n'
             + '    "modules": [\n'
             + '      { "title": "Module Name", "recommended_time": 5, "order": 1 },\n'
-            + '      { "title": "Module Name 2", "recommended_time": 5, "order": 2 }\n'
+            + '      { "title": "Module Name 2", "recommended_time": 4, "order": 2 },\n'
+            + '      { "title": "Module Name 3", "recommended_time": 5, "order": 3 }\n'
             + "    ],\n"
-            + '    "tips": "..."\n'
+            + '    "tips": "Study tips tailored to learning style..."\n'
             + "  },\n"
-            + '  "reasoning": { ... }\n'
+            + '  "reasoning": {\n'
+            + '    "learning_style_influence": "Explanation of how learning style influenced module ordering...",\n'
+            + '    "module_selection": [\n'
+            + '      {\n'
+            + '        "module_name": "Module Name",\n'
+            + '        "justification": "Why this module is placed in this order...",\n'
+            + '        "recommended_time": 5\n'
+            + '      }\n'
+            + '    ],\n'
+            + '    "overall_strategy": "Explanation of the complete learning path..."\n'
+            + "  }\n"
             + "}\n"
             + "The 'reasoning' key must contain a valid JSON object with the following structure:\n"
-            + '{\n  "score_analysis": string,\n  "module_selection": [\n    {\n      "module_name": string,\n      "justification": string,\n      "recommended_time": number\n    }\n  ],\n  "learning_style_influence": string,\n  "overall_strategy": string\n}\n'
+            + '{\n  "learning_style_influence": string,\n  "module_selection": [\n    {\n      "module_name": string,\n      "justification": string,\n      "recommended_time": number\n    }\n  ],\n  "overall_strategy": string\n}\n'
             + 'Do NOT include any other text, explanation, or formatting. Example: { "plan": { ... }, "reasoning": { ... } }'
             + '\n\nCRITICAL: Return ONLY ONE JSON object. Do not duplicate the response. Do not wrap in markdown code blocks. Return raw JSON only.'
         )
@@ -678,6 +694,8 @@ async def POST(request: Request):
             return JSONResponse(content={"error": "Gemini call failed", "details": str(err)}, status_code=500)
 
         # Clean response
+        print('[Training Plan API] Raw Gemini response:', planJsonRaw)
+        print("Modules that have been sent", modules)
         cleanedContent = planJsonRaw.strip()
         if cleanedContent.lower().startswith("```json"):
             cleanedContent = cleanedContent.replace("```json", "", 1).strip()
