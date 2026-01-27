@@ -928,9 +928,10 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
       {conversationActive && isListening && !isSpeaking && !isLoading && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50">
           <VoiceInput
+            key={`voice-input-${sessionId}-${isListening}`}
             onTranscription={handleVoiceTranscription}
             disabled={isLoading || isSpeaking}
-            autoStart={isListening && !isSpeaking && !isLoading}
+            autoStart={true}
           />
         </div>
       )}

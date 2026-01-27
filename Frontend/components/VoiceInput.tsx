@@ -24,18 +24,20 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isRecordingRef = useRef<boolean>(false); // Ref for silence detection
   const animationFrameRef = useRef<number | null>(null); // Track animation frame for cleanup
+  const hasAutoStartedRef = useRef<boolean>(false); // Prevent multiple auto-starts
   
   // Increased to 5 minutes for longer roleplay sessions
   // Using bash-style asynchronous recording with chunked data accumulation
   const MAX_RECORDING_DURATION = 300000; // 5 minutes (300 seconds)
 
-  // Auto-start recording when autoStart becomes true
+  // Auto-start recording when autoStart becomes true (only once)
   useEffect(() => {
-    if (autoStart && !isRecording && !isProcessing && !disabled) {
+    if (autoStart && !isRecording && !isProcessing && !disabled && !hasAutoStartedRef.current) {
       console.log('🎤 Auto-starting recording...');
+      hasAutoStartedRef.current = true;
       startRecording();
     }
-  }, [autoStart, isRecording, isProcessing, disabled]);
+  }, [autoStart]);
 
   // Update recording duration display
   useEffect(() => {
@@ -100,7 +102,7 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
     
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     let lastSoundTime = Date.now();
-    const SILENCE_THRESHOLD = 5000; // Increased from 10 to 25 - require actual silence, not just quiet speech
+    const SILENCE_THRESHOLD = 25; // Volume level threshold (0-255) - require actual silence, not just quiet speech
     const SILENCE_DURATION = 3000; // 3 seconds - stop after 3 seconds of silence
     let hasDetectedSpeech = false; // Track if we've detected any speech at all
     let lastLoggedSecond = 0; // Track last logged second to avoid duplicate logs

@@ -54,6 +54,31 @@ export const SCENARIOS: Scenario[] = [
     role: 'Zonal Sales Manager (ZSM) – Modern Trade',
     userRole: 'Customer Marketing Manager (New Joiner)',
     difficulty: 'Easy',
+  },
+  {
+    id: '7',
+    title: 'The First Meet at a Coffee Shop',
+    description: 'Navigate a first date scenario at a busy urban café. Maya is smart, slightly guarded, and loves travel but hates cliché small talk. She\'s distracted because she\'s waiting for a work call, adding complexity to the interaction. Build rapport while demonstrating confidence, active listening, and appropriate humor. Handle curveballs including phone distractions, direct questions about intentions, and the awkward "who pays" moment.',
+    initialPrompt: `Hey! Glad you could make it. Sorry if I seem a bit scattered—I've had a chaotic morning. Anyway, I'm glad we're finally meeting in person. You look... a little different than your profile photos. Is that a good thing or a bad thing? You tell me.`,
+    role: 'Maya – Smart, Slightly Guarded Date',
+    userRole: 'First Date Participant',
+    difficulty: 'Medium',
+    tone: 'Friendly and flirty',
+    learnerBrief: `📍 Setting: A busy, slightly noisy urban café
+
+🎯 Your Goal: Build genuine connection while demonstrating social intelligence
+
+💡 Evaluation Focus:
+• Confidence vs. Arrogance: Handle teasing without getting defensive
+• Active Listening: Pick up on cues (like her "chaotic morning") and show genuine interest
+• Vibe Check: Use appropriate humor and "push-pull" techniques to keep conversation engaging
+
+⚠️ Expect Curveballs:
+• Phone distraction mid-conversation - re-engage without being needy
+• Direct question: "What are you actually looking for? Because I'm not into games."
+• The bill moment - handle payment awkwardness gracefully
+
+💪 Success Looks Like: Balanced confidence, genuine curiosity about her, playful teasing, and smooth handling of awkward moments.`
   }
 ];
 
