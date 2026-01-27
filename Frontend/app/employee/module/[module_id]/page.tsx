@@ -872,10 +872,32 @@ function groupSectionsForTabs(sections: SectionBlock[]): TabGroup[] {
   };
 
   let sectionCounter = 0;
+  let hasPlacedOverview = false;
   let currentKey = 'overview';
   ensureGroup(currentKey, 'Overview');
 
+  const hasMeaningfulContent = (section: SectionBlock) => {
+    const stripped = (section.content || '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return stripped.length > 0;
+  };
+
   sections.forEach((section) => {
+    if (section.type === 'summary') {
+      ensureGroup('conclusion', 'Conclusion').items.push(section);
+      return;
+    }
+
+    if (!hasPlacedOverview && hasMeaningfulContent(section)) {
+      ensureGroup('overview', 'Overview').items.push(section);
+      currentKey = 'overview';
+      hasPlacedOverview = true;
+      return;
+    }
+
     if (section.type === 'section') {
       sectionCounter += 1;
       currentKey = `section-${sectionCounter}`;
@@ -884,17 +906,9 @@ function groupSectionsForTabs(sections: SectionBlock[]): TabGroup[] {
       return;
     }
 
-    if (section.type === 'summary') {
-      ensureGroup('conclusion', 'Conclusion').items.push(section);
-      return;
-    }
-
-    if (section.type === 'activity') {
-      ensureGroup(currentKey, currentKey.startsWith('section-') ? currentKey.replace('section-', 'Section ') : 'Overview').items.push(section);
-      return;
-    }
-
-    ensureGroup(currentKey, currentKey === 'overview' ? 'Overview' : currentKey.replace('section-', 'Section ')).items.push(section);
+    const key = sectionCounter > 0 ? `section-${sectionCounter}` : 'overview';
+    const label = sectionCounter > 0 ? `Section ${sectionCounter}` : 'Overview';
+    ensureGroup(key, label).items.push(section);
   });
 
   return groups;
