@@ -196,6 +196,26 @@ def buildGeminiPodcastPrompt(moduleTitle: str, moduleContent: str, language: Lit
         "- Mark (expert) - friendly teacher, uses real-world examples, explains like talking to a friend"
     )
 
+    # ✅ Fixed: Define format strings outside f-string
+    hinglish_format = "Pooja: [text in Hindi with minimal English]\\nRahul: [text in Hindi with minimal English]"
+    english_format = "Sarah: [text]\\nMark: [text]"
+    
+    format_instruction = hinglish_format if language == "hinglish" else english_format
+
+    hinglish_filler = '"arey", "toh", "matlab", "dekho", "acha", "sahi hai", "bilkul"'
+    english_filler = '"you know", "I mean", "actually", "right", "so"'
+    filler_words = hinglish_filler if language == "hinglish" else english_filler
+
+    hinglish_reactions = '"Arey interesting!", "Bilkul sahi!", "Aur batao iske baare mein"'
+    english_reactions = '"Oh interesting!", "That makes sense", "Tell me more about that"'
+    reactions = hinglish_reactions if language == "hinglish" else english_reactions
+
+    hinglish_transitions = '"Isse yaad aaya...", "Iske baare mein baat karte hain...", "Ek aur cheez..."'
+    english_transitions = '"That reminds me...", "Speaking of...", "And another thing..."'
+    transitions = hinglish_transitions if language == "hinglish" else english_transitions
+
+    language_reminder = "REMINDER: WRITE IN HINDI! Use romanized Hindi or Devanagari. English sirf technical terms ke liye." if language == "hinglish" else ""
+
     return f"""Create a natural, engaging podcast conversation between two people:
 {speakers}
 
@@ -206,20 +226,20 @@ Content to cover:
 
 IMPORTANT - Make it sound like a real conversation:
 1. {languageInstruction}
-2. Use natural speech patterns - include filler words {"like \"arey\", \"toh\", \"matlab\", \"dekho\", \"acha\", \"sahi hai\", \"bilkul\"" if language == "hinglish" else "like \"you know\", \"I mean\", \"actually\", \"right\", \"so\""}
-3. The host should react naturally - {"\"Arey interesting!\", \"Bilkul sahi!\", \"Aur batao iske baare mein\"" if language == "hinglish" else "\"Oh interesting!\", \"That makes sense\", \"Tell me more about that\""}
+2. Use natural speech patterns - include filler words like {filler_words}
+3. The host should react naturally - {reactions}
 4. Keep responses conversational and flowing - 2 to 4 or more sentences per turn
 5. The expert should explain concepts like teaching a friend, not lecturing
-6. Include smooth transitions - {"\"Isse yaad aaya...\", \"Iske baare mein baat karte hain...\", \"Ek aur cheez...\"" if language == "hinglish" else "\"That reminds me...\", \"Speaking of...\", \"And another thing...\""}
+6. Include smooth transitions - {transitions}
 7. Show genuine enthusiasm and interest in the topic
 8. Avoid formal or robotic language - be warm and relatable
 9. Skip activities, homework sections, and discussion prompts
 10. Focus on practical insights and real-world applications
 
-{"REMINDER: WRITE IN HINDI! Use romanized Hindi or Devanagari. English sirf technical terms ke liye." if language == "hinglish" else ""}
+{language_reminder}
 
 Format each line as:
-{"Pooja: [text in Hindi with minimal English]\\nRahul: [text in Hindi with minimal English]" if language == "hinglish" else "Sarah: [text]\\nMark: [text]"}
+{format_instruction}
 
 Generate about {dialogueCount} natural dialogue exchanges."""
 
