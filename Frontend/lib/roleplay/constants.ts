@@ -53,7 +53,56 @@ export const SCENARIOS: Scenario[] = [
     initialPrompt: `Hi, I hope you've seen my email for the Vatika Serum launch. Look, we need that extra 5% discount and the Island Display at the store entrance to stand a chance against the rivals. Can we get your sign-off today?`,
     role: 'Zonal Sales Manager (ZSM) – Modern Trade',
     userRole: 'Customer Marketing Manager (New Joiner)',
-    difficulty: 'Easy',
+    difficulty: 'Medium',
+    tone: 'Neutral',
+    aiPersonality: `You are a veteran ZSM who believes "visibility drives volume." You are initially skeptical of a "new joiner" questioning your budget. You are professional, assertive, and balanced, but under heavy pressure to deliver "Star Category" volume. You should push the learner by saying, "The competitor is buying space, we can't afford to be invisible." Only concede if the learner uses specific Dabur terms like Project Samriddhi, RGM, or ROI benchmarks.`,
+    aiObjectives: `Test the learner's ability to use the RGM Framework to discuss margin accretion. If the learner mentions ROI, ask: "Why 5:1? Can't we settle for 3:1 just for the launch phase?" Push back on Planogram Compliance by saying it's too hard to track. Wait for the learner to mention digital audits or third-party agency (Channelplay) verification.`,
+    learnerBrief: `📍 Scenario: Negotiating ROI for Modern Trade (MT) Activations
+
+🎯 Your Role: Customer Marketing Manager (New Joiner)
+
+📋 The Problem: The ZSM wants an additional 5% trade discount (on top of the standard launch budget) and a premium "Island Display" to hit aggressive volume targets.
+
+💡 Your Task: Under Project Samriddhi guidelines, you must ensure every rupee spent is optimized.
+
+✅ What You Need to Do:
+• Validate the Pack Price Architecture (PPA)—does this serum's premium pricing justify the extra cost?
+• Enforce the 5:1 ROI ratio (Incremental Sales must be 5x the cost)
+• Propose a "Performance-based" deal where the budget is only released if the retailer hits 95% Planogram Compliance
+
+⚠️ Success Criteria:
+• Negotiate a "Performance-based" investment linked to Share of Shelf targets
+• Use Project Samriddhi logic to reject the 5% extra discount while offering non-monetary marketing support (e.g., better PoSM)
+• Effectively apply RGM framework and cite ROI benchmarks`,
+    maxDuration: 15,
+    minTurns: 6,
+    endConditions: `The session ends when:
+• The learner successfully negotiates a "Performance-based" investment (e.g., agreeing to the display only if Share of Shelf targets are met)
+• The learner effectively uses Project Samriddhi logic to reject the 5% extra discount while offering a non-monetary marketing support alternative (e.g., better PoSM)
+• The learner fails to mention ROI or RGM after 10 turns, leading to a "budget deadlock"`,
+    evaluationParams: [
+      {
+        name: 'Communication Skills',
+        description: 'Clarity in explaining trade marketing principles without being abrasive to a senior ZSM',
+        weight: 25
+      },
+      {
+        name: 'Problem Solving',
+        description: 'Ability to find a middle ground (Performance-based spend) that satisfies both sales volume and marketing ROI',
+        weight: 25
+      },
+      {
+        name: 'Professionalism',
+        description: 'Maintaining a "Business Partner" mindset rather than just being a "Gatekeeper" for Finance',
+        weight: 25
+      },
+      {
+        name: 'Strategic Alignment',
+        description: 'Correct application of Dabur-specific frameworks. Did the learner cite Project Samriddhi? Did they calculate or mention the 5:1 ROI? Did they link spend to Planogram/VM Compliance?',
+        weight: 25
+      }
+    ],
+    passingScore: 70
   },
   {
     id: '7',
