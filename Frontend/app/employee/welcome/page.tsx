@@ -588,10 +588,10 @@ export default function EmployeeWelcome() {
                     
                     {/* Show More / Show Less button */}
                     {assignedModules.length > 3 && (
-                      <div className="p-6 bg-slate-50/50 flex justify-start">
+                      <div className="p-6 bg-slate-50/50 flex justify-end">
                         <button
                           onClick={() => setShowAllModules(!showAllModules)}
-                          className="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-all flex items-center gap-1.5"
+                          className="px-4 py-1.5 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600 transition-all flex items-center gap-1.5"
                         >
                           {showAllModules ? (
                             <>

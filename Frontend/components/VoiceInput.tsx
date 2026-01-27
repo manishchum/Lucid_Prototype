@@ -331,6 +331,12 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
       console.log('[VoiceInput] 🎯 Audio duration:', audioDurationMs, 'ms', `(${Math.floor(audioDurationMs / 1000)}s)`);
       console.log('[VoiceInput] 📦 Audio size:', audioSizeKB.toFixed(2), 'KB');
 
+      // Check if audio is too small (likely no speech)
+      if (audioSizeKB < 5) {
+        console.log('[VoiceInput] ⚠️ Audio too small (< 5KB), likely no speech detected');
+        return; // Silent return - don't send to API
+      }
+
       // Use async chunked transcription if:
       // 1. Duration is over 55 seconds (safer threshold)
       // 2. OR file size is over 800KB (indicates longer audio)

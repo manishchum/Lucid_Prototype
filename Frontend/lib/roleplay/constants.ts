@@ -63,7 +63,7 @@ export const SCENARIOS: Scenario[] = [
     role: 'Maya – Smart, Slightly Guarded Date',
     userRole: 'First Date Participant',
     difficulty: 'Medium',
-    tone: 'Friendly and flirty',
+    tone: 'Friendly',
     learnerBrief: `📍 Setting: A busy, slightly noisy urban café
 
 🎯 Your Goal: Build genuine connection while demonstrating social intelligence

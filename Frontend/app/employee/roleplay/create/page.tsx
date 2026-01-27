@@ -627,19 +627,6 @@ In this exercise, you will interact with a virtual character to practice and imp
 
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">
-                        AI Coach Personality Description
-                      </label>
-                      <textarea
-                        value={formData.aiPersonality}
-                        onChange={(e) => setFormData({ ...formData, aiPersonality: e.target.value })}
-                        placeholder="Describe how the AI Coach should behave, e.g., 'A busy professional who needs clear and concise information. May ask follow-up questions to clarify points.'"
-                        rows={4}
-                        className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
                         AI Coach's Opening Line *
                       </label>
                       <textarea

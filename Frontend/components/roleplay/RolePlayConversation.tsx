@@ -186,6 +186,11 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
 
     try {
       console.log('Calling conversation API...');
+      
+      // Create updated conversation history that includes the new user message
+      const updatedHistory = [...messages, userMessage];
+      console.log('📜 Sending conversation history with', updatedHistory.length, 'messages');
+      
       // Call API to get AI response
       const response = await fetch('/api/roleplay/conversation', {
         method: 'POST',
@@ -194,7 +199,7 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
         },
         body: JSON.stringify({
           message: text.trim(),
-          conversationHistory: messages,
+          conversationHistory: updatedHistory,
           scenarioTitle: scenario.title,
           scenarioRole: scenario.role,
           initialPrompt: scenario.initialPrompt,

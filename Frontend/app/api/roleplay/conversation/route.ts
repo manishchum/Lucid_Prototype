@@ -59,8 +59,9 @@ Respond ONLY as the ${scenarioRole}. Do not provide meta-commentary or suggestio
       }
     ];
 
-    // Add conversation history
+    // Add conversation history (which now includes the current message from the frontend)
     if (conversationHistory && conversationHistory.length > 0) {
+      console.log('📜 Processing conversation history:', conversationHistory.length, 'messages');
       conversationHistory.forEach((msg: any) => {
         messages.push({
           role: msg.sender === 'user' ? 'user' : 'model',
@@ -69,11 +70,7 @@ Respond ONLY as the ${scenarioRole}. Do not provide meta-commentary or suggestio
       });
     }
 
-    // Add current message
-    messages.push({
-      role: 'user',
-      parts: [{ text: message }]
-    });
+    console.log('📤 Sending to Gemini:', messages.length, 'messages total');
 
     // Call Gemini API
     const response = await fetch(
