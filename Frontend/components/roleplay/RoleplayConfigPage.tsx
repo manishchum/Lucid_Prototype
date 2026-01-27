@@ -60,7 +60,6 @@ export default function RoleplayConfigPage({ scenario, onStart, onBack }: Rolepl
           {/* Header Section */}
           <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-8">
             <h1 className="text-3xl font-bold mb-2">Start Your Roleplay Session</h1>
-            <p className="text-blue-100 text-lg">Customize your practice session settings</p>
           </div>
 
           <div className="p-8">
@@ -69,8 +68,8 @@ export default function RoleplayConfigPage({ scenario, onStart, onBack }: Rolepl
               <h2 className="text-xl font-bold text-slate-900 mb-2">{scenario.title}</h2>
               <p className="text-slate-600 mb-4">{scenario.description}</p>
               
-              {/* Role Information */}
-              <div className="bg-white rounded-lg p-4 mb-4 border border-blue-200">
+              {/* Role Information - Hidden */}
+              {/* <div className="bg-white rounded-lg p-4 mb-4 border border-blue-200">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <div className="flex items-center gap-2 mb-2">
@@ -91,7 +90,7 @@ export default function RoleplayConfigPage({ scenario, onStart, onBack }: Rolepl
                     </span>
                   </div>
                 </div>
-              </div>
+              </div> */}
               
               <div className="flex flex-wrap gap-2">
                 <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">

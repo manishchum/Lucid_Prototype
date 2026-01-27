@@ -42,7 +42,7 @@ export async function createRolePlaySession(
   scenarioDifficulty: string,
   moduleId?: string
 ): Promise<{ data: any; error: any }> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('roleplay_sessions')
     .insert({
       employee_id: employeeId,
@@ -85,7 +85,7 @@ export async function updateRolePlaySession(
     }
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('roleplay_sessions')
     .update(updateData)
     .eq('id', sessionId)
@@ -108,7 +108,7 @@ export async function createRolePlayAssessment(
     recommendations: string[];
   }
 ): Promise<{ data: any; error: any }> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('roleplay_assessments')
     .insert({
       session_id: sessionId,
@@ -131,7 +131,7 @@ export async function getEmployeeRolePlaySessions(
   employeeId: string,
   limit: number = 10
 ): Promise<{ data: any[] | null; error: any }> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('roleplay_sessions')
     .select('*, roleplay_assessments(*)')
     .eq('employee_id', employeeId)
@@ -147,7 +147,7 @@ export async function getEmployeeRolePlaySessions(
 export async function getRolePlaySessionWithAssessment(
   sessionId: string
 ): Promise<{ data: any; error: any }> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('roleplay_sessions')
     .select('*, roleplay_assessments(*)')
     .eq('id', sessionId)
@@ -162,7 +162,7 @@ export async function getRolePlaySessionWithAssessment(
 export async function getEmployeeRolePlayStats(
   employeeId: string
 ): Promise<{ data: any; error: any }> {
-  const { data: sessions, error: sessionsError } = await supabaseAdmin
+  const { data: sessions, error: sessionsError } = await supabase
     .from('roleplay_sessions')
     .select('id, scenario_id, completed_at')
     .eq('employee_id', employeeId)
@@ -170,7 +170,7 @@ export async function getEmployeeRolePlayStats(
 
   if (sessionsError) return { data: null, error: sessionsError };
 
-  const { data: assessments, error: assessmentsError } = await supabaseAdmin
+  const { data: assessments, error: assessmentsError } = await supabase
     .from('roleplay_assessments')
     .select('overall_score, created_at')
     .eq('employee_id', employeeId);
@@ -199,7 +199,7 @@ export async function getEmployeeRolePlayStats(
 export async function deleteRolePlaySession(
   sessionId: string
 ): Promise<{ error: any }> {
-  const { error } = await supabaseAdmin
+  const { error } = await supabase
     .from('roleplay_sessions')
     .delete()
     .eq('id', sessionId);
