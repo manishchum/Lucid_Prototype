@@ -45,7 +45,16 @@ export const SCENARIOS: Scenario[] = [
     role: 'Impatient Property Buyer',
     userRole: 'Legal Advisor / Credit Manager',
     difficulty: 'Medium',
-}
+  },
+  {
+    id: '6',
+    title: 'Negotiating ROI for Modern Trade (MT) Activations',
+    description: 'You are reviewing a high-stakes request from the Zonal Sales Manager (ZSM) for the launch of the new Vatika Hair Serum in a major Modern Trade account. The ZSM wants an additional 5% trade discount (on top of the standard launch budget) and a premium "Island Display" to hit aggressive volume targets. Under Project Samriddhi guidelines, you must ensure every rupee spent is optimized using Dabur\'s Revenue Growth Management (RGM) framework.',
+    initialPrompt: `Hi, I hope you've seen my email for the Vatika Serum launch. Look, we need that extra 5% discount and the Island Display at the store entrance to stand a chance against the rivals. Can we get your sign-off today?`,
+    role: 'Zonal Sales Manager (ZSM) – Modern Trade',
+    userRole: 'Customer Marketing Manager (New Joiner)',
+    difficulty: 'Easy',
+  }
 ];
 
 export const AVATAR_PLACEHOLDER_IMAGE = 'https://picsum.photos/200/200';

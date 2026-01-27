@@ -467,7 +467,7 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
         videoRef.current.play().catch(err => console.error('❌ Video play error:', err));
       }
 
-      // Start recording the video
+      // Start recording the video with asynchronous blob accumulation
       try {
         const mediaRecorder = new MediaRecorder(stream, {
           mimeType: 'video/webm;codecs=vp9',
@@ -476,17 +476,20 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
         mediaRecorderRef.current = mediaRecorder;
         recordedChunksRef.current = [];
 
+        // Asynchronous chunk collection - mimics bash async behavior
+        // Data is accumulated progressively as it becomes available
         mediaRecorder.ondataavailable = (event) => {
           if (event.data && event.data.size > 0) {
             recordedChunksRef.current.push(event.data);
-            console.log('📹 Video chunk recorded:', event.data.size, 'bytes');
+            const totalSize = recordedChunksRef.current.reduce((acc, chunk) => acc + chunk.size, 0);
+            console.log(`📹 Video chunk ${recordedChunksRef.current.length} recorded: ${event.data.size} bytes (total: ${(totalSize / 1024 / 1024).toFixed(2)} MB)`);
           }
         };
 
         mediaRecorder.onstop = async () => {
           console.log('📹 Recording stopped, total chunks:', recordedChunksRef.current.length);
           const videoBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-          console.log('📹 Video blob size:', videoBlob.size, 'bytes');
+          console.log('📹 Final video blob size:', videoBlob.size, 'bytes', `(${(videoBlob.size / 1024 / 1024).toFixed(2)} MB)`);
           
           // Upload video to storage
           if (sessionId) {
@@ -494,9 +497,11 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
           }
         };
 
-        mediaRecorder.start(1000); // Record in 1-second chunks
+        // Start with 1-second timeslices for continuous asynchronous data collection
+        // This allows recordings longer than 1 minute without memory issues
+        mediaRecorder.start(1000); // 1000ms timeslice = bash-style async chunks
         setIsRecording(true);
-        console.log('🔴 Video recording started');
+        console.log('🔴 Video recording started with async 1s timeslices (supports long recordings)');
       } catch (recError) {
         console.error('❌ Error starting video recording:', recError);
       }
