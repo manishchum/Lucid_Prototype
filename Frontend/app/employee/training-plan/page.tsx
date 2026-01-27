@@ -861,7 +861,9 @@ function TrainingPlanContent() {
                             {showFallback ? (
                               <div className="text-yellow-800 text-sm">Use these quick tips to get the most from your Performance Sprint.</div>
                             ) : (
-                              <div className="text-yellow-800 text-sm whitespace-pre-line">{tipsText}</div>
+                              <div className="text-yellow-800 text-sm">
+                                {renderTipsContent(tipsText)}
+                              </div>
                             )}
                           </div>
                         );
@@ -1041,6 +1043,48 @@ function useIllusionProgress(active: boolean) {
   }, [active]);
 
   return { progress: Math.min(progress, 100), show };
+}
+
+function renderTipsContent(tipsText: string) {
+  const escapeHtml = (text: string) =>
+    text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+  const formatInline = (text: string) =>
+    text
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>");
+
+  const lines = tipsText
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  const bulletLines = lines.filter((l) => /^[-*•]/.test(l));
+
+  if (bulletLines.length && bulletLines.length === lines.length) {
+    return (
+      <ul className="list-disc list-inside space-y-1 pl-1">
+        {bulletLines.map((line, idx) => {
+          const clean = line.replace(/^[-*•]\s*/, "");
+          const html = formatInline(escapeHtml(clean));
+          return <li key={idx} dangerouslySetInnerHTML={{ __html: html }} />;
+        })}
+      </ul>
+    );
+  }
+
+  // Fallback: render as paragraphs preserving simple inline markdown
+  return (
+    <div className="space-y-2">
+      {lines.map((line, idx) => {
+        const html = formatInline(escapeHtml(line));
+        return <p key={idx} className="leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />;
+      })}
+    </div>
+  );
 }
 
 function LoadingProgress({ label, progress }: { label: string; progress: number }) {

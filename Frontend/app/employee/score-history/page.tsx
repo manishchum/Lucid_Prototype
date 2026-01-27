@@ -464,6 +464,13 @@ export default function ScoreHistoryPage() {
                                   {para}
                                 </p>
                               ))}
+                              {section.bullets && section.bullets.length > 0 && (
+                                <ul className="list-disc list-inside space-y-1 text-gray-800 text-sm pl-1">
+                                  {section.bullets.map((item, bIdx) => (
+                                    <li key={bIdx}>{item}</li>
+                                  ))}
+                                </ul>
+                              )}
                               {section.subsections.length > 0 && (
                                 <div className="space-y-4">
                                   {section.subsections.map((sub, subIdx) => (
@@ -693,19 +700,19 @@ const getCleanReportText = (gptAnalysis: string): string => {
 const getLearningStyleInfo = (styleCode: string) => {
   const styleMap: Record<string, { label: string; description: string }> = {
     CS: {
-      label: "Concrete Sequential: The Planner",
+      label: "The Planner",
       description: "Prefers structure, clear steps, and hands-on practice. Learning emphasizes checklists, examples, and measurable milestones."
     },
     AS: {
-      label: "Abstract Sequential: The Analyst", 
+      label: "The Analyst", 
       description: "Thinks analytically and values logic. Learning focuses on theory, frameworks, and evidence-based decision making."
     },
     AR: {
-      label: "Abstract Random: The Connector",
+      label: "The Connector",
       description: "Learns through connections and stories. Learning highlights collaboration, reflection, and real-world context."
     },
     CR: {
-      label: "Concrete Random: The Explorer",
+      label: "The Explorer",
       description: "Enjoys experimentation and rapid iteration. Learning leans into challenges, scenarios, and creative problem solving."
     }
   };
@@ -739,7 +746,7 @@ const extractReportFromJson = (analysis: string) => {
 
 // Parse report text into sections (compatible with learning-style page logic)
 const parseReportIntoTabs = (reportText: string) => {
-  const tabs: { id: string; title: string; content: string; subsections: { subtitle: string; items: string[] }[] }[] = []
+  const tabs: { id: string; title: string; content: string; bullets: string[]; subsections: { subtitle: string; items: string[] }[] }[] = []
   if (!reportText) return tabs
 
   reportText = reportText.replace(/^Title:\s*Your Personal Learning Style Insights\s*\n\n/i, '')
@@ -757,7 +764,7 @@ const parseReportIntoTabs = (reportText: string) => {
       let id = 'natural'
       if (title.toLowerCase().includes('thrive')) id = 'thrive'
       else if (title.toLowerCase().includes('tip')) id = 'tips'
-      currentTab = { id, title, content: '', subsections: [] }
+      currentTab = { id, title, content: '', bullets: [], subsections: [] }
       currentSub = null
       continue
     }
@@ -775,10 +782,11 @@ const parseReportIntoTabs = (reportText: string) => {
 
     const bullet = line.match(/^[•*\-·]\s*(.+)$/)
     if (bullet) {
-      const item = bullet[1].trim().replace(/^[*\-·•]+\s*/, '')
+      const rawItem = bullet[1].trim()
+      const item = rawItem.length ? rawItem : bullet[1]
       if (item && item.length > 0) {
         if (currentSub) currentSub.items.push(item)
-        else if (currentTab) currentTab.content += (currentTab.content ? '\n' : '') + item
+        else if (currentTab) currentTab.bullets.push(item)
       }
       continue
     }
@@ -803,7 +811,7 @@ type LSSection = {
 // Parse GPT report into four accordion sections with graceful fallbacks
 const buildLearningSections = (gptAnalysis: string, fallbackDescription: string): LSSection[] => {
   const sections: LSSection[] = [
-    { id: 'natural', title: 'Your Natural Performance Sprint', accent: 'from-blue-50 to-blue-100 border-blue-200', paragraphs: [], subsections: [] },
+    { id: 'natural', title: 'Your Natural Learning Style', accent: 'from-blue-50 to-blue-100 border-blue-200', paragraphs: [], subsections: [] },
     { id: 'thrive', title: 'How You Thrive', accent: 'from-purple-50 to-purple-100 border-purple-200', paragraphs: [], subsections: [] },
     { id: 'tips', title: 'Tips to Make Learning Easier', accent: 'from-green-50 to-emerald-100 border-emerald-200', paragraphs: [], subsections: [] },
     { id: 'checklist', title: 'Your Quick Reference Checklist', accent: 'from-amber-50 to-amber-100 border-amber-200', paragraphs: [], subsections: [] }
@@ -826,6 +834,9 @@ const buildLearningSections = (gptAnalysis: string, fallbackDescription: string)
         section.paragraphs = introLines.length > 0 ? introLines : [fallbackDescription]
       } else if (!tab.subsections?.length) {
         section.paragraphs = [fallbackDescription]
+      }
+      if (tab.bullets?.length) {
+        section.bullets = tab.bullets
       }
       if (tab.subsections?.length) {
         section.subsections = tab.subsections.map(sub => ({
