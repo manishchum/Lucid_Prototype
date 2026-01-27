@@ -468,6 +468,8 @@ function TrainingPlanContent() {
         console.log(ids)
         for(const m of ids){
           console.log("Inside the try catch second")
+          console.log(userId)
+          console.log(m)
         const{data:insertedData}=await supabase
         .from("module_progress")
         .upsert({

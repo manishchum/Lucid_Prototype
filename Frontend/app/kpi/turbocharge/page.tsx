@@ -117,8 +117,21 @@ export default function KPITurbocharge() {
   }, [selectedSubFunctionId]);
 
   useEffect(() => {
+    
+    console.log("Changes in the selectedSubFunctionId, selectedTitleId")
     fetchAllData();
-  }, [selectedFunctionId, selectedSubFunctionId, selectedTitleId, selectedModuleId, selectedKpiId]);
+  }, [selectedSubFunctionId, selectedTitleId]);
+  useEffect(() => {
+    console.log("Changes in the selectedKPiId, selectedModuleId")
+    fetchAllData();
+  }, [selectedKpiId,selectedModuleId]);
+  
+  
+  useEffect(() => {
+
+    console.log("Calling beacause of the changes in function Id")
+    fetchAllData();
+  },[selectedFunctionId]);
 
   const loadFilters = async () => {
     try {
@@ -129,8 +142,10 @@ export default function KPITurbocharge() {
         .order('function_name');
 
       if (functionsData && functionsData.length > 0) {
+        console.log("Selected Functions:", functionsData);
+        console.log("Selected Function Id:", selectedFunctionId);
         setFunctions(functionsData);
-        setSelectedFunctionId('');
+        // setSelectedFunctionId('');
       }
     } catch (error) {
       console.error('Error loading filters:', error);
@@ -196,6 +211,7 @@ export default function KPITurbocharge() {
 
   const fetchAllData = async () => {
     setLoading(true);
+    console.log("Calling the fetch all data")
     try {
       await Promise.all([
         fetchKPIData(),
@@ -206,7 +222,7 @@ export default function KPITurbocharge() {
         // Call appropriate readiness calculation based on filter selection
         selectedModuleId ? calculateWorkforceReadiness() : calculateOrganizationFunctionReadiness()
       ]);
-      generateLucidAnalysis();
+      await generateLucidAnalysis();
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -216,21 +232,36 @@ export default function KPITurbocharge() {
 
   const fetchKPIData = async () => {
     try {
+      console.log('Fetching KPIs with filters:', { selectedFunctionId, selectedSubFunctionId, selectedTitleId });
+      
       let kpiQuery = supabase
         .from('kpis')
         .select('kpi_id, name, description, target, datatype, function_id, sub_function_id, title_id');
 
-      if (selectedTitleId) {
+      // Apply filters in order of specificity
+      if (selectedTitleId && selectedTitleId !== '') {
+        console.log('Filtering by title_id:', selectedTitleId);
         kpiQuery = kpiQuery.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
+      } else if (selectedSubFunctionId && selectedSubFunctionId !== '') {
+        console.log('Filtering by sub_function_id:', selectedSubFunctionId);
         kpiQuery = kpiQuery.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
+      } else if (selectedFunctionId && selectedFunctionId !== '') {
+        console.log('Filtering by function_id:', selectedFunctionId);
         kpiQuery = kpiQuery.eq('function_id', selectedFunctionId);
       }
 
-      const { data: kpis } = await kpiQuery.limit(3);
+      const { data: kpis, error: kpiError } = await kpiQuery.limit(3);
+
+      console.log('KPI Query Result:', { kpis, kpiError });
+
+      if (kpiError) {
+        console.error('Error fetching KPIs:', kpiError);
+        setKpiData([]);
+        return;
+      }
 
       if (!kpis || kpis.length === 0) {
+        console.log('No KPIs found for selected filters');
         setKpiData([]);
         return;
       }
@@ -243,7 +274,7 @@ export default function KPITurbocharge() {
             .select('title')
             .limit(2);
 
-          const current = kpi.target ? parseFloat(kpi.target) : 0;
+          const current = kpi.target ? parseFloat(kpi.target.toString()) : 0;
           
           return {
             id: kpi.kpi_id,
@@ -256,6 +287,7 @@ export default function KPITurbocharge() {
         })
       );
 
+      console.log('Setting KPI Data:', kpiDataWithModules);
       setKpiData(kpiDataWithModules);
     } catch (error) {
       console.error('Error fetching KPI data:', error);
@@ -402,7 +434,7 @@ export default function KPITurbocharge() {
         .select('user_id, module_id, status')
         .in('user_id', userIds)
         .in('status', ['ASSIGNED', 'IN_PROGRESS', 'COMPLETED'])
-        .order('updated_at', { ascending: false });
+        .order('assigned_on', { ascending: false });
 
       const { data: modules } = await supabase
         .from('training_modules')
@@ -1163,10 +1195,10 @@ export default function KPITurbocharge() {
             <Card className="bg-white border-gray-200 shadow-sm p-6">
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <div className="text-sm text-gray-600 mb-1">Performance Correlation</div>
+                  <div className="text-sm text-gray-600 mb-1">Actual vs Target</div>
                   <div className="flex items-baseline gap-3">
-                    <span className="text-4xl font-bold text-gray-900">
-                      {scatterData.length > 0 
+                    <span className="text-3xl font-bold text-gray-900">
+                      Actual: {scatterData.length > 0 
                         ? `${Math.round(scatterData.reduce((sum, d) => sum + d.module_performance, 0) / scatterData.length)}%`
                         : '0%'}
                     </span>
@@ -1393,7 +1425,7 @@ export default function KPITurbocharge() {
                 <div className="mb-6">
                   <div className="flex items-center gap-2 mb-4">
                     <ThumbsUp size={16} className="text-green-600" />
-                    <span className="text-sm font-bold text-green-600 uppercase tracking-wide">Top Performing Modules</span>
+                    <span className="text-sm font-bold text-green-600 uppercase tracking-wide">Top Performing Sprints</span>
                   </div>
                   <div className="space-y-3">
                     {topModules.length > 0 ? topModules.map((module, idx) => (
@@ -1561,8 +1593,8 @@ export default function KPITurbocharge() {
                               : module.module_name}
                           </div>
                         </div>
-                      ))}
-                    </div> */}
+                      ))} */}
+                    {/* </div> */}
 
                     {/* Employee rows */}
                     {/* {heatmapData.map((employee, empIdx) => (

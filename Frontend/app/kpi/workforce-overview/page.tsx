@@ -421,7 +421,7 @@ export default function WorkforceOverview() {
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2">
                     <BarChart3 size={20} className="text-blue-600" />
-                    <h3 className="text-lg font-bold text-gray-900">Module Assignments Distribution</h3>
+                    <h3 className="text-lg font-bold text-gray-900">Sprint Assignments Distribution</h3>
                   </div>
                   <span className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-full text-xs font-bold border border-blue-200">
                     REAL-TIME ALLOCATION
@@ -453,7 +453,7 @@ export default function WorkforceOverview() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-8 text-gray-500">No module assignments found</div>
+                  <div className="text-center py-8 text-gray-500">No Sprint assignments found</div>
                 )}
 
                 {/* Legend */}
@@ -493,7 +493,7 @@ export default function WorkforceOverview() {
             <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center">
               <Target size={18} className="text-blue-600" />
             </div>
-            <h3 className="text-lg font-bold text-gray-900">KPI to Learning Module Mapping</h3>
+            <h3 className="text-lg font-bold text-gray-900">KPI to Learning Sprint Mapping</h3>
           </div>
 
           {loading ? (
