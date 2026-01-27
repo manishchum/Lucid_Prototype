@@ -622,12 +622,47 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
       return;
     }
     
-    // Check for exit phrases
-    const exitPhrases = ['bye', 'goodbye', 'quit', 'exit', 'end', 'stop', 'i quit', 'i want to quit', 'end conversation', 'end session'];
-    const lowerText = text.toLowerCase().trim();
-    const shouldExit = exitPhrases.some(phrase => lowerText.includes(phrase));
+    // Check for exit phrases - be more specific to avoid false positives
+    // Only trigger if the user clearly wants to end the conversation
+    const exitPhrases = [
+      'goodbye', 
+      'good bye',
+      'bye bye', 
+      'quit', 
+      'exit', 
+      'i quit', 
+      'i want to quit', 
+      'end conversation', 
+      'end session',
+      'end the conversation',
+      'end the session',
+      'stop the conversation',
+      'stop the session',
+      'i want to stop',
+      'i want to end',
+      "let's end",
+      "let's stop"
+    ];
     
-    if (shouldExit) {
+    const lowerText = text.toLowerCase().trim();
+    
+    // Check if the text is exactly an exit phrase or starts/ends with one
+    const shouldExit = exitPhrases.some(phrase => {
+      // Exact match
+      if (lowerText === phrase) return true;
+      // Starts with phrase followed by punctuation or space
+      if (lowerText.startsWith(phrase + ' ') || lowerText.startsWith(phrase + ',') || lowerText.startsWith(phrase + '.')) return true;
+      // Ends with phrase preceded by space or punctuation
+      if (lowerText.endsWith(' ' + phrase) || lowerText.endsWith(',' + phrase) || lowerText.endsWith('.' + phrase)) return true;
+      // Only match "bye" if it's a standalone word (not part of "goodbye" which is already in the list)
+      if (phrase === 'bye' && /\bbye\b/.test(lowerText) && !lowerText.includes('goodbye')) return true;
+      return false;
+    });
+    
+    // Add "bye" as a special case - only if standalone
+    const hasBye = /^bye$|^bye[,.\s]|[,.\s]bye$|[,.\s]bye[,.\s]/.test(lowerText);
+    
+    if (shouldExit || hasBye) {
       console.log('👋 User requested to end session');
       
       // Acquire processing lock to prevent overlapping
