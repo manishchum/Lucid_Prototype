@@ -186,6 +186,11 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
 
     try {
       console.log('Calling conversation API...');
+      
+      // Create updated conversation history that includes the new user message
+      const updatedHistory = [...messages, userMessage];
+      console.log('📜 Sending conversation history with', updatedHistory.length, 'messages');
+      
       // Call API to get AI response
       const response = await fetch('/api/roleplay/conversation', {
         method: 'POST',
@@ -194,7 +199,7 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
         },
         body: JSON.stringify({
           message: text.trim(),
-          conversationHistory: messages,
+          conversationHistory: updatedHistory,
           scenarioTitle: scenario.title,
           scenarioRole: scenario.role,
           initialPrompt: scenario.initialPrompt,
@@ -467,7 +472,7 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
         videoRef.current.play().catch(err => console.error('❌ Video play error:', err));
       }
 
-      // Start recording the video
+      // Start recording the video with asynchronous blob accumulation
       try {
         const mediaRecorder = new MediaRecorder(stream, {
           mimeType: 'video/webm;codecs=vp9',
@@ -476,17 +481,20 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
         mediaRecorderRef.current = mediaRecorder;
         recordedChunksRef.current = [];
 
+        // Asynchronous chunk collection - mimics bash async behavior
+        // Data is accumulated progressively as it becomes available
         mediaRecorder.ondataavailable = (event) => {
           if (event.data && event.data.size > 0) {
             recordedChunksRef.current.push(event.data);
-            console.log('📹 Video chunk recorded:', event.data.size, 'bytes');
+            const totalSize = recordedChunksRef.current.reduce((acc, chunk) => acc + chunk.size, 0);
+            console.log(`📹 Video chunk ${recordedChunksRef.current.length} recorded: ${event.data.size} bytes (total: ${(totalSize / 1024 / 1024).toFixed(2)} MB)`);
           }
         };
 
         mediaRecorder.onstop = async () => {
           console.log('📹 Recording stopped, total chunks:', recordedChunksRef.current.length);
           const videoBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-          console.log('📹 Video blob size:', videoBlob.size, 'bytes');
+          console.log('📹 Final video blob size:', videoBlob.size, 'bytes', `(${(videoBlob.size / 1024 / 1024).toFixed(2)} MB)`);
           
           // Upload video to storage
           if (sessionId) {
@@ -494,9 +502,11 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
           }
         };
 
-        mediaRecorder.start(1000); // Record in 1-second chunks
+        // Start with 1-second timeslices for continuous asynchronous data collection
+        // This allows recordings longer than 1 minute without memory issues
+        mediaRecorder.start(1000); // 1000ms timeslice = bash-style async chunks
         setIsRecording(true);
-        console.log('🔴 Video recording started');
+        console.log('🔴 Video recording started with async 1s timeslices (supports long recordings)');
       } catch (recError) {
         console.error('❌ Error starting video recording:', recError);
       }
@@ -622,12 +632,47 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
       return;
     }
     
-    // Check for exit phrases
-    const exitPhrases = ['bye', 'goodbye', 'quit', 'exit', 'end', 'stop', 'i quit', 'i want to quit', 'end conversation', 'end session'];
-    const lowerText = text.toLowerCase().trim();
-    const shouldExit = exitPhrases.some(phrase => lowerText.includes(phrase));
+    // Check for exit phrases - be more specific to avoid false positives
+    // Only trigger if the user clearly wants to end the conversation
+    const exitPhrases = [
+      'goodbye', 
+      'good bye',
+      'bye bye', 
+      'quit', 
+      'exit', 
+      'i quit', 
+      'i want to quit', 
+      'end conversation', 
+      'end session',
+      'end the conversation',
+      'end the session',
+      'stop the conversation',
+      'stop the session',
+      'i want to stop',
+      'i want to end',
+      "let's end",
+      "let's stop"
+    ];
     
-    if (shouldExit) {
+    const lowerText = text.toLowerCase().trim();
+    
+    // Check if the text is exactly an exit phrase or starts/ends with one
+    const shouldExit = exitPhrases.some(phrase => {
+      // Exact match
+      if (lowerText === phrase) return true;
+      // Starts with phrase followed by punctuation or space
+      if (lowerText.startsWith(phrase + ' ') || lowerText.startsWith(phrase + ',') || lowerText.startsWith(phrase + '.')) return true;
+      // Ends with phrase preceded by space or punctuation
+      if (lowerText.endsWith(' ' + phrase) || lowerText.endsWith(',' + phrase) || lowerText.endsWith('.' + phrase)) return true;
+      // Only match "bye" if it's a standalone word (not part of "goodbye" which is already in the list)
+      if (phrase === 'bye' && /\bbye\b/.test(lowerText) && !lowerText.includes('goodbye')) return true;
+      return false;
+    });
+    
+    // Add "bye" as a special case - only if standalone
+    const hasBye = /^bye$|^bye[,.\s]|[,.\s]bye$|[,.\s]bye[,.\s]/.test(lowerText);
+    
+    if (shouldExit || hasBye) {
       console.log('👋 User requested to end session');
       
       // Acquire processing lock to prevent overlapping
@@ -888,9 +933,10 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
       {conversationActive && isListening && !isSpeaking && !isLoading && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50">
           <VoiceInput
+            key={`voice-input-${sessionId}-${isListening}`}
             onTranscription={handleVoiceTranscription}
             disabled={isLoading || isSpeaking}
-            autoStart={isListening && !isSpeaking && !isLoading}
+            autoStart={true}
           />
         </div>
       )}

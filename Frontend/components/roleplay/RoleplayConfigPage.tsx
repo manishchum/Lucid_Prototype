@@ -60,7 +60,6 @@ export default function RoleplayConfigPage({ scenario, onStart, onBack }: Rolepl
           {/* Header Section */}
           <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-8">
             <h1 className="text-3xl font-bold mb-2">Start Your Roleplay Session</h1>
-            <p className="text-blue-100 text-lg">Customize your practice session settings</p>
           </div>
 
           <div className="p-8">
@@ -68,11 +67,33 @@ export default function RoleplayConfigPage({ scenario, onStart, onBack }: Rolepl
             <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-6 mb-8 border border-blue-200">
               <h2 className="text-xl font-bold text-slate-900 mb-2">{scenario.title}</h2>
               <p className="text-slate-600 mb-4">{scenario.description}</p>
+              
+              {/* Role Information - Hidden */}
+              {/* <div className="bg-white rounded-lg p-4 mb-4 border border-blue-200">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <User className="w-4 h-4 text-green-600" />
+                      <span className="text-xs font-semibold text-slate-500 uppercase">Your Role (Learner)</span>
+                    </div>
+                    <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium inline-block">
+                      {scenario.userRole || 'Learner'}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Briefcase className="w-4 h-4 text-blue-600" />
+                      <span className="text-xs font-semibold text-slate-500 uppercase">AI Coach Plays</span>
+                    </div>
+                    <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium inline-block">
+                      {scenario.role}
+                    </span>
+                  </div>
+                </div>
+              </div> */}
+              
               <div className="flex flex-wrap gap-2">
-                <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
-                  {scenario.role}
-                </span>
-                <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
+                <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
                   {scenario.difficulty} Difficulty
                 </span>
               </div>

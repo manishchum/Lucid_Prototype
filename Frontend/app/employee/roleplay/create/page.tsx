@@ -403,6 +403,29 @@ export default function CreateRoleplayPage() {
                         Brief the learner on the scenario and objective during roleplay. Learners will see this.
                       </p>
                     </div>
+                    
+                    {/* Role Clarification Info Box - Hidden */}
+                    {/* <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-6">
+                      <div className="flex gap-3">
+                        <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <h3 className="font-semibold text-blue-900 mb-2">Understanding Roles in Roleplay</h3>
+                          <div className="text-sm text-blue-800 space-y-2">
+                            <p>
+                              <span className="inline-block px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-bold mr-2">YOUR ROLE (Learner)</span>
+                              This is the role <strong>YOU</strong> will practice as. For example: "Sales Manager", "Customer Service Rep"
+                            </p>
+                            <p>
+                              <span className="inline-block px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-bold mr-2">AI COACH ROLE</span>
+                              This is who the <strong>AI Coach will play</strong>. For example: "Customer", "Client", "Team Member"
+                            </p>
+                            <p className="italic pt-2 border-t border-blue-200">
+                              Example: If YOU practice as a "Sales Manager" (Your Role), the AI might play a "Customer" (AI Coach Role)
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div> */}
 
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -446,7 +469,10 @@ export default function CreateRoleplayPage() {
 
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Your Role *
+                        <span className="flex items-center gap-2">
+                          <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">YOUR ROLE</span>
+                          Learner's Role (What YOU will practice as) *
+                        </span>
                       </label>
                       <select
                         value={formData.userRole}
@@ -460,7 +486,7 @@ export default function CreateRoleplayPage() {
                           </option>
                         ))}
                       </select>
-                      <p className="text-xs text-slate-500 mt-1">Or type a custom role in the field above</p>
+                      <p className="text-xs text-slate-500 mt-1">This is the role YOU will practice as during the roleplay</p>
                     </div>
 
                     <div>
@@ -533,10 +559,27 @@ In this exercise, you will interact with a virtual character to practice and imp
                         Define the AI Coach character's role, personality, and behavior guidelines.
                       </p>
                     </div>
+                    
+                    {/* Role Reminder Box */}
+                    <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-6">
+                      <div className="flex gap-3">
+                        <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                        <div className="text-sm text-blue-800">
+                          <p className="font-semibold mb-1">Remember:</p>
+                          <p>
+                            The <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-bold">AI COACH</span> is the character the AI will play.
+                            The <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-bold">LEARNER</span> is the role the user will practice as.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
 
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">
-                        AI Coach Character Role *
+                        <span className="flex items-center gap-2">
+                          <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-semibold">AI COACH</span>
+                          AI Coach Character Role (Who the AI will play) *
+                        </span>
                       </label>
                       <select
                         value={formData.aiRole}
@@ -550,6 +593,7 @@ In this exercise, you will interact with a virtual character to practice and imp
                           </option>
                         ))}
                       </select>
+                      <p className="text-xs text-slate-500 mt-1">This is the character the AI Coach will play during the roleplay</p>
                     </div>
 
                     <div>
@@ -560,9 +604,10 @@ In this exercise, you will interact with a virtual character to practice and imp
                         type="text"
                         value={formData.aiRole && !aiRoleOptions.includes(formData.aiRole) ? formData.aiRole : ''}
                         onChange={(e) => setFormData({ ...formData, aiRole: e.target.value })}
-                        placeholder="Enter a custom AI Coachrole"
+                        placeholder="Enter a custom AI Coach role"
                         className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base"
                       />
+                      <p className="text-xs text-slate-500 mt-1">E.g., "Frustrated Customer", "Senior Executive", "Technical Expert"</p>
                     </div>
 
                     <div>
@@ -578,19 +623,6 @@ In this exercise, you will interact with a virtual character to practice and imp
                         <option value="Neutral">😐 Neutral - Professional and balanced</option>
                         <option value="Aggressive">😠 Aggressive - Challenging and critical</option>
                       </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        AI Coach Personality Description
-                      </label>
-                      <textarea
-                        value={formData.aiPersonality}
-                        onChange={(e) => setFormData({ ...formData, aiPersonality: e.target.value })}
-                        placeholder="Describe how the AI Coach should behave, e.g., 'A busy professional who needs clear and concise information. May ask follow-up questions to clarify points.'"
-                        rows={4}
-                        className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base"
-                      />
                     </div>
 
                     <div>

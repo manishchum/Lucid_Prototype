@@ -119,7 +119,8 @@ function ContentUpload({
       const result = await response.json();
       console.log('Upload successful:', result);
 
-      const uploadedFile = result.inserted?.[0];
+      const uploadedFile = (result.inserted?.[0]?.module).replace("/object/sign","/object/public");
+      console.log(uploadedFile)
       if (uploadedFile) {
         const { data: moduleData, error: tmError } = await supabase
           .from('training_modules')
@@ -127,7 +128,7 @@ function ContentUpload({
             company_id: companyId,
             title: title,
             description: description,
-            content_url: uploadedFile.module,
+            content_url: uploadedFile,
             content_type: file.type,
             processing_status: 'pending'
           })
