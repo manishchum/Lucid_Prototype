@@ -2181,10 +2181,10 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       if (modulesError) throw modulesError;
       setModules(data || []);
       
-      // Initialize baseline settings for all modules (default to true)
+      // Initialize baseline settings for all modules (default to false)
       const initialSettings: {[moduleId: string]: boolean} = {};
       (data || []).forEach(module => {
-        initialSettings[module.module_id] = true;
+        initialSettings[module.module_id] = false;
       });
       setModuleBaselineSettings(initialSettings);
     } catch (error: any) {
