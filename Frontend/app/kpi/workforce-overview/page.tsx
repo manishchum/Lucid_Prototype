@@ -433,7 +433,7 @@ export default function WorkforceOverview() {
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2">
                     <BarChart3 size={20} className="text-blue-600" />
-                    <h3 className="text-lg font-bold text-gray-900">Sprint Assignments Distribution</h3>
+                    <h3 className="text-lg font-bold text-gray-900">Learning Assignments Distribution</h3>
                   </div>
                 </div>
 
@@ -466,7 +466,7 @@ export default function WorkforceOverview() {
                 )}
 
                 {/* Legend */}
-                {moduleAssignments.length > 0 && (
+                {/* {moduleAssignments.length > 0 && (
                   <div className="flex items-center justify-between pt-4 border-t border-gray-300">
                     {maxCount <= 4 ? (
                       // For small counts, show integer steps
@@ -484,7 +484,7 @@ export default function WorkforceOverview() {
                       </>
                     )}
                   </div>
-                )}
+                )} */}
               </Card>
 
               {/* Active Employees */}

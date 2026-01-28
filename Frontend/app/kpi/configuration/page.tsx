@@ -172,7 +172,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
                       </div>
                       <span className="text-sm font-medium text-gray-700">Click to upload Excel file</span>
                       <span className="text-xs text-gray-500 mt-1">Supported: .xlsx, .xls</span>
-                      <span className="text-xs text-gray-500 mt-1 text-center">Column Names: Company_user_id, Email, KPI Name,<br/> Score</span>
+                      <span className="text-xs text-gray-500 mt-1 text-center">Refer to the predefined data fields in the<br/> template before uploading the data</span>
                     </label>
                     <Input
                       id="file-upload"
@@ -716,7 +716,7 @@ export default function KPIConfigurationPage() {
                       </div>
                       <span className="text-sm font-medium text-gray-700">Click to upload Excel file</span>
                       <span className="text-xs text-gray-500 mt-1">Supported: .xlsx, .xls</span>
-                      <span className="text-xs text-gray-500 mt-1 text-center">Column Names: KPI Name, Definition,<br/> Formula, Target, Weight %, Function,Sub Function, Title</span>
+                      <span className="text-xs text-gray-500 mt-1 text-center">Refer to the predefined data fields in the<br/> template before uploading the data</span>
                     </label>
                     <Input
                       id="file-upload"

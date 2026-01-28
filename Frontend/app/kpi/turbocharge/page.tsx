@@ -1223,7 +1223,7 @@ export default function KPITurbocharge() {
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-purple-500"></div>
-                  <span>Module Performance (%)</span>
+                  <span>Sprint Performance (%)</span>
                 </div>
               </div>
 
@@ -1325,7 +1325,7 @@ export default function KPITurbocharge() {
                       textAnchor="middle"
                       transform="rotate(-90, 25, 150)"
                     >
-                      ↑ Module Performance (%)
+                      ↑ Sprint Performance (%)
                     </text>
 
                     {/* Scatter Points with improved styling */}
