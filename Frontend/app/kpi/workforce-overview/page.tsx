@@ -421,7 +421,7 @@ export default function WorkforceOverview() {
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2">
                     <BarChart3 size={20} className="text-blue-600" />
-                    <h3 className="text-lg font-bold text-gray-900">Module Assignments Distribution</h3>
+                    <h3 className="text-lg font-bold text-gray-900">Sprint Assignments Distribution</h3>
                   </div>
                   <span className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-full text-xs font-bold border border-blue-200">
                     REAL-TIME ALLOCATION
@@ -453,7 +453,7 @@ export default function WorkforceOverview() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-8 text-gray-500">No module assignments found</div>
+                  <div className="text-center py-8 text-gray-500">No Sprint assignments found</div>
                 )}
 
                 {/* Legend */}
@@ -493,7 +493,7 @@ export default function WorkforceOverview() {
             <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center">
               <Target size={18} className="text-blue-600" />
             </div>
-            <h3 className="text-lg font-bold text-gray-900">KPI to Learning Module Mapping</h3>
+            <h3 className="text-lg font-bold text-gray-900">KPI to Learning Sprint Mapping</h3>
           </div>
 
           {loading ? (
@@ -503,63 +503,60 @@ export default function WorkforceOverview() {
           ) : kpiMappings.length === 0 ? (
             <div className="text-center py-12 text-gray-500">No KPIs found for this role</div>
           ) : (
-            <div className="grid grid-cols-2 gap-6">
-              {/* Business KPI (Role) Column */}
-              <div>
-                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">
+            <div className="space-y-6">
+              {/* Header Row */}
+              <div className="grid grid-cols-2 gap-6">
+                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">
                   Business KPI (Role)
                 </div>
-                <div className="space-y-6">
-                  {kpiMappings.map((kpi, idx) => (
-                    <Card key={idx} className="bg-gray-50 border-gray-200 shadow-sm p-6">
-                      <h4 className="text-lg font-bold text-gray-900 mb-2">{kpi.kpi_name}</h4>
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="w-2 h-2 rounded-full bg-gray-400"></div>
-                        <span className="text-sm text-gray-600">{kpi.target}</span>
-                      </div>
-                      <p className="text-xs text-gray-500 leading-relaxed">{kpi.description}</p>
-                    </Card>
-                  ))}
+                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  Mapped Learning Modules
                 </div>
               </div>
 
-              {/* Mapped Learning Modules Column */}
-              <div>
-                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">
-                  Mapped Learning Modules
-                </div>
-                <div className="space-y-6">
-                  {kpiMappings.map((kpi, idx) => (
-                    <div key={idx} className="space-y-3">
-                      {kpi.modules.length > 0 ? (
-                        kpi.modules.map((module, moduleIdx) => (
-                          <Card key={moduleIdx} className="bg-white border-gray-200 shadow-sm p-4 hover:border-blue-300 hover:shadow transition-all">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-10 h-10 rounded-lg ${getModuleTypeStyles(module.type).split(' ')[0]} flex items-center justify-center shrink-0`}>
-                                <module.icon size={20} className={getModuleTypeStyles(module.type).split(' ')[1]} />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <h5 className="text-sm font-semibold text-gray-900 mb-1 truncate">{module.name}</h5>
-                                <div className="flex items-center gap-2">
-                                  <span className={`px-2 py-1 rounded text-xs font-bold border ${getModuleTypeStyles(module.type)}`}>
-                                    {module.type}
-                                  </span>
-                                  <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
-                                    Correlation: {module.correlation}
-                                    <TrendingUp size={12} />
-                                  </span>
-                                </div>
+              {/* KPI Mappings - Each KPI with its modules in a row */}
+              {kpiMappings.map((kpi, idx) => (
+                <div key={idx} className="grid grid-cols-2 gap-6">
+                  {/* Business KPI Card */}
+                  <Card className="bg-gray-50 border-gray-200 shadow-sm p-6">
+                    <h4 className="text-lg font-bold text-gray-900 mb-2">{kpi.kpi_name}</h4>
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-2 h-2 rounded-full bg-gray-400"></div>
+                      <span className="text-sm text-gray-600">{kpi.target}</span>
+                    </div>
+                    <p className="text-xs text-gray-500 leading-relaxed">{kpi.description}</p>
+                  </Card>
+
+                  {/* Mapped Modules for this KPI */}
+                  <div className="space-y-3">
+                    {kpi.modules.length > 0 ? (
+                      kpi.modules.map((module, moduleIdx) => (
+                        <Card key={moduleIdx} className="bg-white border-gray-200 shadow-sm p-4 hover:border-blue-300 hover:shadow transition-all">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-lg ${getModuleTypeStyles(module.type).split(' ')[0]} flex items-center justify-center shrink-0`}>
+                              <module.icon size={20} className={getModuleTypeStyles(module.type).split(' ')[1]} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h5 className="text-sm font-semibold text-gray-900 mb-1 truncate">{module.name}</h5>
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-1 rounded text-xs font-bold border ${getModuleTypeStyles(module.type)}`}>
+                                  {module.type}
+                                </span>
+                                <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
+                                  Correlation: {module.correlation}
+                                  <TrendingUp size={12} />
+                                </span>
                               </div>
                             </div>
-                          </Card>
-                        ))
-                      ) : (
-                        <div className="text-sm text-gray-500 italic p-4">No modules mapped yet</div>
-                      )}
-                    </div>
-                  ))}
+                          </div>
+                        </Card>
+                      ))
+                    ) : (
+                      <div className="text-sm text-gray-500 italic p-4">No modules mapped yet</div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
           )}
         </Card>
