@@ -154,7 +154,7 @@ export default function KPIIntelligencePage() {
           {/* Header Section */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900">KPI Intelligence</h1>
-            <p className="text-gray-600 mt-1">Upload job descriptions to automatically extract KPIs, strategies, and indicators using AI</p>
+            <p className="text-gray-600 mt-1">Upload job descriptions extract KPIs, strategies, and indicators</p>
           </div>
 
           {/* Input Section - Full Width */}
@@ -168,8 +168,12 @@ export default function KPIIntelligencePage() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="roleName">Role Name</Label>
+                  <Label htmlFor="roleName">
+                    Role Name <span className="text-red-500">*</span>
+                    <span className="text-xs text-gray-500 ml-2">(Compulsory)</span>
+                  </Label>
                   <Input
+                    required={true}
                     id="roleName"
                     placeholder="e.g., Senior Sales Manager"
                     value={roleName}
