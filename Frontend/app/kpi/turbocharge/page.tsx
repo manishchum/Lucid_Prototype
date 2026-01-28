@@ -1029,8 +1029,8 @@ export default function KPITurbocharge() {
                   <span className="text-3xl font-bold text-gray-900">{workforceReadiness.score}%</span>
                   {workforceReadiness.change > 0 && (
                     <span className="text-sm font-semibold text-green-600 flex items-center gap-1">
-                      <ArrowUpRight size={14} />
-                      {workforceReadiness.change}%
+                      {/* <ArrowUpRight size={14} /> */}
+                      {/* {workforceReadiness.change}% */}
                     </span>
                   )}
                 </div>
