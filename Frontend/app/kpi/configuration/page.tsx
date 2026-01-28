@@ -156,12 +156,32 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
 
   return (
     <div>
-      <div className="flex gap-2 items-center mb-2">
-        <Input key={fileInputKey} type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
+        {/* <Input key={fileInputKey} type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
         <Button onClick={handleUpload} disabled={!file || uploading}>
           {uploading ? "Uploading..." : "Upload"}
-        </Button>
-      </div>
+        </Button> */}
+  <Card>
+
+                  <div className="space-y-4">
+                    <label
+                      htmlFor="file-upload"
+                      className="flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-all duration-300"
+                    >
+                      <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center mb-3">
+                        <Upload className="w-8 h-8 text-purple-600" />
+                      </div>
+                      <span className="text-sm font-medium text-gray-700">Click to upload Excel file</span>
+                      <span className="text-xs text-gray-500 mt-1">Supported: .xlsx, .xls</span>
+                    </label>
+                    <Input
+                      id="file-upload"
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      />
+                  </div>
+                      </Card>
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       {preview.length > 0 && (
         <div className="mb-2">
@@ -662,7 +682,7 @@ export default function KPIConfigurationPage() {
                         rel="noopener noreferrer"
                       >
                         <Download className="w-4 h-4 mr-2" />
-                        Download Sample File
+                        Download Template
                       </a>
                     </Button>
                   </div>
@@ -721,7 +741,7 @@ export default function KPIConfigurationPage() {
           )}
 
           {/* Required Columns Info Card */}
-          {!showPreview && (
+          {/* {!showPreview && (
             <Card className="border border-gray-200 shadow-sm">
               <CardHeader className="bg-gradient-to-r from-gray-50 to-blue-50 border-b border-gray-100">
                 <div className="flex items-center gap-3">
@@ -758,7 +778,7 @@ export default function KPIConfigurationPage() {
                 </div>
               </CardContent>
             </Card>
-          )}
+          )} */}
 
           {/* Preview Section */}
           {showPreview && (
