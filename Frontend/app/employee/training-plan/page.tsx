@@ -35,6 +35,8 @@ function TrainingPlanContent() {
   const [completedModules, setCompletedModules] = useState<string[]>([]);
   const [actualUserId, setActualUserId] = useState<string | null>(null);
 
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
+
 
   const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
   const [processedModuleIds, setProcessedModuleIds] = useState<string[]>([]);
@@ -128,10 +130,10 @@ function TrainingPlanContent() {
                         <span className="font-semibold">Justification:</span>{" "}
                         {mod.justification}
                       </div>
-                      <div>
+                      {/* <div>
                         <span className="font-semibold">Recommended Time:</span>{" "}
                         {mod.recommended_time} hours
-                      </div>
+                      </div> */}
                     </li>
                   ))}
                 </ul>
@@ -489,15 +491,8 @@ function TrainingPlanContent() {
     }
   };
 
-  if (authLoading || loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading training plan...</p>
-        </div>
-      </div>
-    );
+  if (showLoadingProgress) {
+    return <LoadingProgress label="Fetching your Sprint" progress={loadingProgress} />;
   }
 
   // If baseline is required, show a clear CTA to take the baseline assessment
@@ -868,7 +863,9 @@ function TrainingPlanContent() {
                             {showFallback ? (
                               <div className="text-yellow-800 text-sm">Use these quick tips to get the most from your Performance Sprint.</div>
                             ) : (
-                              <div className="text-yellow-800 text-sm whitespace-pre-line">{tipsText}</div>
+                              <div className="text-yellow-800 text-sm">
+                                {renderTipsContent(tipsText)}
+                              </div>
                             )}
                           </div>
                         );
@@ -1021,15 +1018,101 @@ function TrainingPlanContent() {
   );
 }
 
+function useIllusionProgress(active: boolean) {
+  const [progress, setProgress] = useState(15);
+  const [show, setShow] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      const timeout = setTimeout(() => setShow(false), 180);
+      return () => clearTimeout(timeout);
+    }
+
+    setShow(true);
+    setProgress(Math.min(30, 12 + Math.round(Math.random() * 10)));
+
+    const id = setInterval(() => {
+      setProgress((prev) => {
+        const hold = prev > 70 ? Math.random() < 0.5 : Math.random() < 0.3;
+        if (hold) return prev; // pause occasionally to mimic real loading
+        const increment = Math.max(1, Math.round(Math.random() * 7));
+        return Math.min(prev + increment, 94);
+      });
+    }, 420 + Math.round(Math.random() * 240));
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  return { progress: Math.min(progress, 100), show };
+}
+
+function renderTipsContent(tipsText: string) {
+  const escapeHtml = (text: string) =>
+    text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+  const formatInline = (text: string) =>
+    text
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>");
+
+  const lines = tipsText
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  const bulletLines = lines.filter((l) => /^[-*•]/.test(l));
+
+  if (bulletLines.length && bulletLines.length === lines.length) {
+    return (
+      <ul className="list-disc list-inside space-y-1 pl-1">
+        {bulletLines.map((line, idx) => {
+          const clean = line.replace(/^[-*•]\s*/, "");
+          const html = formatInline(escapeHtml(clean));
+          return <li key={idx} dangerouslySetInnerHTML={{ __html: html }} />;
+        })}
+      </ul>
+    );
+  }
+
+  // Fallback: render as paragraphs preserving simple inline markdown
+  return (
+    <div className="space-y-2">
+      {lines.map((line, idx) => {
+        const html = formatInline(escapeHtml(line));
+        return <p key={idx} className="leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />;
+      })}
+    </div>
+  );
+}
+
+function LoadingProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+          <span>{label}</span>
+          <span className="text-slate-900 text-base font-black">{progress}%</span>
+        </div>
+        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500 font-medium">Crafting your personalized roadmap. Hang tight.</p>
+      </div>
+    </div>
+  );
+}
+
 export default function TrainingPlanPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading training plan...</p>
-        </div>
-      </div>
+      <LoadingProgress label="Fetching your sprint" progress={68} />
     }>
       <TrainingPlanContent />
     </Suspense>

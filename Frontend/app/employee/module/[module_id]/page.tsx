@@ -32,6 +32,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const router = useRouter();
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading || generatingContent);
 
   useEffect(() => {
     const fetchModule = async () => {
@@ -96,6 +97,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           .from('processed_modules')
           .select(selectCols)
           .eq('original_module_id', moduleId)
+          .eq('learning_style', style)
           // .eq('user_id', empObj?.user_id || '')
           .maybeSingle();
 
@@ -279,20 +281,9 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   //   }
   // };
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading module content...</div>;
-  }
-
-  if (generatingContent) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
-          <p className="text-lg font-semibold text-gray-700">Generating personalized content...</p>
-          <p className="text-sm text-gray-500 mt-2">This may take a few moments</p>
-        </div>
-      </div>
-    );
+  if (showLoadingProgress) {
+    const label = generatingContent ? "Generating personalized content" : "Loading module content";
+    return <LoadingProgress label={label} progress={loadingProgress} />;
   }
 
   if (!module) {
@@ -456,6 +447,55 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             </main>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function useIllusionProgress(active: boolean) {
+  const [progress, setProgress] = useState(14);
+  const [show, setShow] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      const timeout = setTimeout(() => setShow(false), 180);
+      return () => clearTimeout(timeout);
+    }
+
+    setShow(true);
+    setProgress(Math.min(28, 12 + Math.round(Math.random() * 10)));
+
+    const id = setInterval(() => {
+      setProgress((prev) => {
+        const hold = prev > 72 ? Math.random() < 0.5 : Math.random() < 0.3;
+        if (hold) return prev; // occasionally pause to feel more organic
+        const increment = Math.max(1, Math.round(Math.random() * 8));
+        return Math.min(prev + increment, 95);
+      });
+    }, 420 + Math.round(Math.random() * 260));
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  return { progress: Math.min(progress, 100), show };
+}
+
+function LoadingProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+          <span>{label}</span>
+          <span className="text-slate-900 text-base font-black">{progress}%</span>
+        </div>
+        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500 font-medium">Loading learning assets. If it feels slow, we are just getting things right.</p>
       </div>
     </div>
   );
@@ -833,10 +873,32 @@ function groupSectionsForTabs(sections: SectionBlock[]): TabGroup[] {
   };
 
   let sectionCounter = 0;
+  let hasPlacedOverview = false;
   let currentKey = 'overview';
   ensureGroup(currentKey, 'Overview');
 
+  const hasMeaningfulContent = (section: SectionBlock) => {
+    const stripped = (section.content || '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return stripped.length > 0;
+  };
+
   sections.forEach((section) => {
+    if (section.type === 'summary') {
+      ensureGroup('conclusion', 'Conclusion').items.push(section);
+      return;
+    }
+
+    if (!hasPlacedOverview && hasMeaningfulContent(section)) {
+      ensureGroup('overview', 'Overview').items.push(section);
+      currentKey = 'overview';
+      hasPlacedOverview = true;
+      return;
+    }
+
     if (section.type === 'section') {
       sectionCounter += 1;
       currentKey = `section-${sectionCounter}`;
@@ -845,17 +907,9 @@ function groupSectionsForTabs(sections: SectionBlock[]): TabGroup[] {
       return;
     }
 
-    if (section.type === 'summary') {
-      ensureGroup('conclusion', 'Conclusion').items.push(section);
-      return;
-    }
-
-    if (section.type === 'activity') {
-      ensureGroup(currentKey, currentKey.startsWith('section-') ? currentKey.replace('section-', 'Section ') : 'Overview').items.push(section);
-      return;
-    }
-
-    ensureGroup(currentKey, currentKey === 'overview' ? 'Overview' : currentKey.replace('section-', 'Section ')).items.push(section);
+    const key = sectionCounter > 0 ? `section-${sectionCounter}` : 'overview';
+    const label = sectionCounter > 0 ? `Section ${sectionCounter}` : 'Overview';
+    ensureGroup(key, label).items.push(section);
   });
 
   return groups;
