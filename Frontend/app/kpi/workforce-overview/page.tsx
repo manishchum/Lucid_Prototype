@@ -27,6 +27,7 @@ interface KPIMapping {
   kpi_name: string;
   target: string;
   description: string;
+  formula?: string;
   modules: Array<{
     name: string;
     type: 'SOP' | 'VIDEO' | 'SIMULATION';
@@ -297,10 +298,21 @@ export default function WorkforceOverview() {
 
         const targetValue = kpi.target ? `Target: ${kpi.target}${kpi.datatype === 'percentage' ? '%' : ''}` : 'No target set';
 
+        // Parse description to separate definition and formula
+        let definition = kpi.description || 'Performance gap in this metric triggers the associated modules on the right.';
+        let formula = '';
+
+        if (definition.includes('Formula:')) {
+          const parts = definition.split('Formula:');
+          definition = parts[0].trim();
+          formula = parts[1].trim();
+        }
+
         return {
           kpi_name: kpi.name,
           target: targetValue,
-          description: kpi.description || 'Performance gap in this metric triggers the associated modules on the right.',
+          description: definition,
+          formula: formula,
           modules: relatedModules
         };
       });
@@ -336,7 +348,7 @@ export default function WorkforceOverview() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Workforce Overview</h1>
-            <p className="text-gray-600 text-sm">Real-time workforce competency distribution and learning allocation.</p>
+            <p className="text-gray-600 text-sm">Monitor workforce capabilities and learning allocation.</p>
           </div>
           
           <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6">
@@ -347,13 +359,13 @@ export default function WorkforceOverview() {
 
         {/* Role Analysis Section */}
         <Card className="bg-white border-gray-200 shadow-sm p-6">
-          <div className="flex items-center gap-2 mb-6">
+          {/* <div className="flex items-center gap-2 mb-6">
             <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
             <h2 className="text-sm font-bold text-blue-600 uppercase tracking-wider">Role Analysis</h2>
-          </div>
+          </div> */}
 
-          <h3 className="text-2xl font-bold text-gray-900 mb-4">Functional Capability Matrix</h3>
-          <p className="text-gray-600 text-sm mb-6">Map business KPIs directly to learning modules by role.</p>
+          <h3 className="text-2xl font-bold text-gray-900 mb-4">Workforce Learning Overview</h3>
+          {/* <p className="text-gray-600 text-sm mb-6">Map business KPIs directly to learning modules by role.</p> */}
 
           {/* Filters */}
           <div className="flex items-center gap-4 mb-8">
@@ -423,9 +435,6 @@ export default function WorkforceOverview() {
                     <BarChart3 size={20} className="text-blue-600" />
                     <h3 className="text-lg font-bold text-gray-900">Sprint Assignments Distribution</h3>
                   </div>
-                  <span className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-full text-xs font-bold border border-blue-200">
-                    REAL-TIME ALLOCATION
-                  </span>
                 </div>
 
                 {/* Bar Chart */}
@@ -458,14 +467,22 @@ export default function WorkforceOverview() {
 
                 {/* Legend */}
                 {moduleAssignments.length > 0 && (
-                  <div className="flex items-center gap-6 pt-4 border-t border-gray-300">
-                    <div className="text-xs text-gray-500">Scale: 0</div>
-                    <div className="flex-1 flex justify-center gap-6">
-                      {[1, 2, 3].map(n => (
-                        <div key={n} className="text-xs text-gray-500">{n}</div>
-                      ))}
-                    </div>
-                    <div className="text-xs text-gray-500">4</div>
+                  <div className="flex items-center justify-between pt-4 border-t border-gray-300">
+                    {maxCount <= 4 ? (
+                      // For small counts, show integer steps
+                      Array.from({ length: maxCount + 1 }, (_, i) => (
+                        <div key={i} className="text-xs text-gray-500">{i}</div>
+                      ))
+                    ) : (
+                      // For larger counts, show 5 evenly spaced points
+                      <>
+                        <div className="text-xs text-gray-500">0</div>
+                        <div className="text-xs text-gray-500">{Math.ceil(maxCount * 0.25)}</div>
+                        <div className="text-xs text-gray-500">{Math.ceil(maxCount * 0.5)}</div>
+                        <div className="text-xs text-gray-500">{Math.ceil(maxCount * 0.75)}</div>
+                        <div className="text-xs text-gray-500">{maxCount}</div>
+                      </>
+                    )}
                   </div>
                 )}
               </Card>
@@ -507,7 +524,7 @@ export default function WorkforceOverview() {
               {/* Header Row */}
               <div className="grid grid-cols-2 gap-6">
                 <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Business KPI (Role)
+                  Key Performance Indicator (KPI)
                 </div>
                 <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">
                   Mapped Learning Modules
@@ -525,6 +542,11 @@ export default function WorkforceOverview() {
                       <span className="text-sm text-gray-600">{kpi.target}</span>
                     </div>
                     <p className="text-xs text-gray-500 leading-relaxed">{kpi.description}</p>
+                    {kpi.formula && (
+                      <p className="text-xs text-gray-500 leading-relaxed mt-2">
+                        <strong>Formula:</strong> {kpi.formula}
+                      </p>
+                    )}
                   </Card>
 
                   {/* Mapped Modules for this KPI */}

@@ -172,6 +172,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
                       </div>
                       <span className="text-sm font-medium text-gray-700">Click to upload Excel file</span>
                       <span className="text-xs text-gray-500 mt-1">Supported: .xlsx, .xls</span>
+                      <span className="text-xs text-gray-500 mt-1">Column Names: Company_user_id, Email, KPI Name, Score</span>
                     </label>
                     <Input
                       id="file-upload"
@@ -650,7 +651,7 @@ export default function KPIConfigurationPage() {
           {/* Header */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900">KPI Configuration</h1>
-            <p className="text-gray-600 mt-1">Configure role-based success metrics and upload definitions via Excel</p>
+            <p className="text-gray-600 mt-1">Upload KPI scores and definitions to configure success metrics</p>
           </div>
 
           {/* Upload Sections - Consistent Design */}
@@ -715,6 +716,7 @@ export default function KPIConfigurationPage() {
                       </div>
                       <span className="text-sm font-medium text-gray-700">Click to upload Excel file</span>
                       <span className="text-xs text-gray-500 mt-1">Supported: .xlsx, .xls</span>
+                      <span className="text-xs text-gray-500 mt-1 text-center">Column Names: KPI Name, Definition, Formula, Target, Weight %, Function,Sub Function, Title</span>
                     </label>
                     <Input
                       id="file-upload"
