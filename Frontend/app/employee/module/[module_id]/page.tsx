@@ -97,6 +97,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           .from('processed_modules')
           .select(selectCols)
           .eq('original_module_id', moduleId)
+          .eq('learning_style', style)
           // .eq('user_id', empObj?.user_id || '')
           .maybeSingle();
 
