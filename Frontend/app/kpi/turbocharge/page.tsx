@@ -1011,9 +1011,9 @@ export default function KPITurbocharge() {
           <div>
             <div className="flex items-center gap-2 mb-2">
               <h1 className="text-3xl font-bold text-gray-900">KPI Turbocharge</h1>
-              <span className="px-2.5 py-1 text-xs font-bold text-blue-600 bg-blue-50 rounded-full border border-blue-200">
+              {/* <span className="px-2.5 py-1 text-xs font-bold text-blue-600 bg-blue-50 rounded-full border border-blue-200">
                 Beta
-              </span>
+              </span> */}
             </div>
             <p className="text-gray-600 text-sm">Outcome-based learning engine. Mapping capability to production.</p>
           </div>
@@ -1029,8 +1029,8 @@ export default function KPITurbocharge() {
                   <span className="text-3xl font-bold text-gray-900">{workforceReadiness.score}%</span>
                   {workforceReadiness.change > 0 && (
                     <span className="text-sm font-semibold text-green-600 flex items-center gap-1">
-                      <ArrowUpRight size={14} />
-                      {workforceReadiness.change}%
+                      {/* <ArrowUpRight size={14} /> */}
+                      {/* {workforceReadiness.change}% */}
                     </span>
                   )}
                 </div>
@@ -1210,10 +1210,10 @@ export default function KPITurbocharge() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
+                {/* <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
                   <Activity size={16} className="text-blue-600" />
                   <span className="text-sm font-semibold text-blue-700">Live Correlation Active</span>
-                </div>
+                </div> */}
               </div>
 
               <div className="text-xs text-gray-600 mb-4 flex items-center gap-4">
@@ -1223,7 +1223,7 @@ export default function KPITurbocharge() {
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-purple-500"></div>
-                  <span>Module Performance (%)</span>
+                  <span>Sprint Performance (%)</span>
                 </div>
               </div>
 
@@ -1325,7 +1325,7 @@ export default function KPITurbocharge() {
                       textAnchor="middle"
                       transform="rotate(-90, 25, 150)"
                     >
-                      ↑ Module Performance (%)
+                      ↑ Sprint Performance (%)
                     </text>
 
                     {/* Scatter Points with improved styling */}
