@@ -1044,7 +1044,7 @@ export default function KPIConfigurationPage() {
                               <Target className="w-6 h-6 text-green-600 mb-2" />
                               <div className="text-3xl font-bold text-gray-900">{kpi.target}%</div>
                               <div className="text-xs text-gray-600 mt-1">Target</div>
-                              <div className="text-xs text-green-600 mt-2">Avg: {Math.floor(kpi.target * 0.85)}%</div>
+                              {/* <div className="text-xs text-green-600 mt-2">Avg: {Math.floor(kpi.target * 0.85)}%</div> */}
                             </div>
                           </div>
                         </div>
