@@ -1,3 +1,9 @@
+export interface EvaluationParameter {
+  name: string;
+  description: string;
+  weight: number;
+}
+
 export interface Scenario {
   id: string;
   title: string;
@@ -8,6 +14,13 @@ export interface Scenario {
   userRole?: string;
   tone?: 'Friendly' | 'Neutral' | 'Aggressive';
   learnerBrief?: string;
+  aiPersonality?: string;
+  aiObjectives?: string;
+  maxDuration?: number;
+  minTurns?: number;
+  endConditions?: string;
+  evaluationParams?: EvaluationParameter[];
+  passingScore?: number;
 }
 
 export interface AssessmentParameter {

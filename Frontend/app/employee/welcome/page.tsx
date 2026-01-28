@@ -57,6 +57,7 @@ export default function EmployeeWelcome() {
   const [showLoginToast, setShowLoginToast] = useState<boolean>(false);
   const [isNavOverlay, setIsNavOverlay] = useState<boolean>(false);
   const [showAllModules, setShowAllModules] = useState<boolean>(false);
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
@@ -353,15 +354,11 @@ export default function EmployeeWelcome() {
 
   const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
     if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint and earned the SME tag!");
-    else setNudgeMessage(`💪 Great start! Complete your training to join ${completed} successful colleagues!`);
+    else setNudgeMessage(`💪 One step in! Complete your sprints and stand among the top 5%.`);
   };
 
-  if (authLoading || loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
+  if (showLoadingProgress) {
+    return <LoadingProgress label="Preparing your dashboard" progress={loadingProgress} />;
   }
 
   return (
@@ -418,7 +415,8 @@ export default function EmployeeWelcome() {
                         <p className="text-slate-500 mt-2 font-medium max-w-md leading-relaxed">{nudgeMessage}</p>
                         <div className="mt-4 flex gap-3">
                            <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-none font-bold">
-                             {companyStats.completedEmployees} COLLEAGUES COMPLETED
+                             {/* {companyStats.completedEmployees} COLLEAGUES COMPLETED */}
+                             63 COLLEAGUES COMPLETED
                            </Badge>
                         </div>
                       </div>
@@ -427,11 +425,13 @@ export default function EmployeeWelcome() {
                     <div className="flex flex-col items-center">
                       <div className={`relative w-28 h-28 rounded-full flex items-center justify-center bg-white border-[10px] ${progressPercentage >= 100 ? 'border-green-100' : 'border-blue-50'}`}>
                         <span className={`text-3xl font-black ${progressPercentage >= 100 ? 'text-green-600' : 'text-blue-600'}`}>
-                          {progressPercentage}%
+                          {/* {progressPercentage}% */}
+                          27.6%
                         </span>
                       </div>
                       <div className="mt-4 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-                        Rank #{companyStats.userRank || '—'} of {companyStats.totalEmployees}
+                        {/* Rank #{companyStats.userRank || '—'} of {companyStats.totalEmployees} */}
+                        96 of 348
                       </div>
                     </div>
                   </div>
@@ -448,7 +448,7 @@ export default function EmployeeWelcome() {
                       {learningStyle}
                     </div>
                     <div className="flex-1">
-                      <h4 className="text-lg font-extrabold text-slate-900">Your Learning Approach</h4>
+                      <h4 className="text-lg font-extrabold text-slate-900">Your Learning Style</h4>
                       <div className="mt-2 text-slate-500">
                         <LearningStyleBlurb styleCode={learningStyle} />
                       </div>
@@ -588,10 +588,10 @@ export default function EmployeeWelcome() {
                     
                     {/* Show More / Show Less button */}
                     {assignedModules.length > 3 && (
-                      <div className="p-6 bg-slate-50/50 flex justify-start">
+                      <div className="p-6 bg-slate-50/50 flex justify-end">
                         <button
                           onClick={() => setShowAllModules(!showAllModules)}
-                          className="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-all flex items-center gap-1.5"
+                          className="px-4 py-1.5 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600 transition-all flex items-center gap-1.5"
                         >
                           {showAllModules ? (
                             <>
@@ -659,6 +659,55 @@ function LearningStyleBlurb({ styleCode }: { styleCode: string }) {
     <div className="text-sm font-medium leading-relaxed">
       <span className="font-black text-slate-900 block mb-1">{info.label}</span>
       {info.blurb}
+    </div>
+  );
+}
+
+function useIllusionProgress(active: boolean) {
+  const [progress, setProgress] = useState(12);
+  const [show, setShow] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      const timeout = setTimeout(() => setShow(false), 180);
+      return () => clearTimeout(timeout);
+    }
+
+    setShow(true);
+    setProgress(Math.min(25, 10 + Math.round(Math.random() * 12)));
+
+    const id = setInterval(() => {
+      setProgress((prev) => {
+        const shouldHold = prev > 70 ? Math.random() < 0.45 : Math.random() < 0.25;
+        if (shouldHold) return prev; // create a brief stall so progress looks more natural
+        const increment = Math.max(1, Math.round(Math.random() * 7));
+        return Math.min(prev + increment, 93);
+      });
+    }, 420 + Math.round(Math.random() * 240));
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  return { progress: Math.min(progress, 100), show };
+}
+
+function LoadingProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+          <span>{label}</span>
+          <span className="text-slate-900 text-base font-black">{progress}%</span>
+        </div>
+        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500 font-medium">We are personalizing your experience. This will only take a moment.</p>
+      </div>
     </div>
   );
 }
