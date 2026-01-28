@@ -142,25 +142,40 @@ Scene = Dict[str, Any]
 # ------------------------------------------------------------------
 # 1. PLAN SCENES (OPENAI)
 # ------------------------------------------------------------------
+def extract_json_array(text: str):
+    # Remove markdown code fences if present
+    text = re.sub(r"```json|```", "", text).strip()
+
+    # Find first [ and last ]
+    start = text.find("[")
+    end = text.rfind("]")
+
+    if start == -1 or end == -1 or end <= start:
+        return None
+
+    json_str = text[start:end+1]
+
+    try:
+        return json.loads(json_str)
+    except Exception as e:
+        print("[JSON PARSE ERROR]", e)
+        print("[BAD JSON STRING]", json_str[:1000])
+        return None
+
 async def planScenes(content: str) -> List[Scene]:
     async with httpx.AsyncClient(timeout=300) as client:
         res = await client.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "gpt-4o",
-                "temperature": 0.7,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are a master AI instructor specializing in NotebookLM-style deep dives. You synthesize complex information into engaging narratives.",
-                    },
-                    {
-                        "role": "user",
-                        "content": f"""
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent",
+    params={"key": os.environ.get("GEMINI_API_KEY")},
+    headers={"Content-Type": "application/json"},
+    json={
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{
+                    "text": f"""
+You are a master AI instructor specializing in NotebookLM-style deep dives. You synthesize complex information into engaging narratives.
+
 Create a deep-dive, conversational instructor-led video script based on the modules provided.
 
 For each scene, provide:
@@ -181,23 +196,36 @@ CRITICAL: Return JSON ONLY.
 
 CONTENT:
 {content}
-                        """,
-                    },
-                ],
+"""
+                }]
             }
-        )
+        ],
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": 20486
+        }
+    }
+)
 
+    
+    print(res)
     if res.status_code < 200 or res.status_code >= 300:
         raise Exception("OpenAI scene planning failed")
 
     json_data = res.json()
-    rawText = (json_data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
+    rawText = ""
+    try:
+        rawText = (json_data.get("candidates") or [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "") or ""
+    except Exception:
+        rawText = ""
 
-    jsonMatch = re.search(r"\[\s*\{[\s\S]*\}\s*\]", rawText)
-    if not jsonMatch:
-        raise Exception("No JSON array found from OpenAI response")
+    scenes = extract_json_array(rawText)
 
-    return json.loads(jsonMatch.group(0))
+    if not scenes:
+        print("[Gemini RAW OUTPUT]", rawText[:2000])
+        raise Exception("No JSON array found from Gemini response")
+
+    return scenes
 
 
 # ------------------------------------------------------------------
@@ -469,7 +497,7 @@ async def generateVideo(processedModuleId: str) -> str:
             .select("content, title, processed_module_id, created_at, original_module_id") \
             .eq("processed_module_id", processedModuleId) \
             .execute()
-
+        print("inside try 1")
         if res and res.data:
             module = res.data[0] if isinstance(res.data, list) else res.data
     except Exception:
@@ -484,6 +512,7 @@ async def generateVideo(processedModuleId: str) -> str:
                 .execute()
             if res and res.data:
                 module = res.data[0] if isinstance(res.data, list) else res.data
+            print("inside try 2")
         except Exception:
             module = None
 
@@ -512,13 +541,15 @@ async def generateVideo(processedModuleId: str) -> str:
             .limit(3) \
             .execute()
         userModules = res_ctx.data
+        print("inside try 3")
     except Exception:
         userModules = None
 
     context = "\n\n".join([f"### {m['title']}\n{m['content']}" for m in (userModules or [])]) or module["content"]
 
+    print("[VIDEO] Planning scenes...")
     scenes = await planScenes(context)
-
+    print(f"[VIDEO] Planned {len(scenes)} scenes.")
     tmpDir = os.path.join(tempfile.gettempdir(), f"lucid-gen-{str(uuid_lib.uuid4())}")
     os.makedirs(tmpDir, exist_ok=True)
 
