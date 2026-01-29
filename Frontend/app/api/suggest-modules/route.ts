@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Use Gemini to suggest modules (both from database and new ones)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' });
 
     const dbModulesText = dbModules && dbModules.length > 0
       ? `\n\nExisting Training Modules in Database:\n${dbModules.map((m, i) => `${i + 1}. ${m.title}: ${m.description || m.gpt_summary || 'No description'}`).join('\n')}`
