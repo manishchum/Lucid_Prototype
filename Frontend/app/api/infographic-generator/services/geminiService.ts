@@ -15,7 +15,7 @@ if (!apiKey) {
 const genAI = new GoogleGenerativeAI(apiKey);
 
 export async function generateInfographicData(fileContent: string): Promise<InfographicData> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' });
   
   const systemPrompt = `You are an expert at creating professional infographics from educational content. 
 Your task is to analyze the provided content and structure it into a comprehensive visual infographic format.
