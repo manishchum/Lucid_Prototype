@@ -51,7 +51,7 @@ Provide response in plain text. DO NOT include any HTML or markdown formatting. 
 `;
 
     // Call Gemini API
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' });
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const assistantMessage = response.text();
