@@ -79,6 +79,12 @@ export default function WorkforceOverview() {
   useEffect(() => {
     if (selectedFunctionId || selectedSubFunctionId || selectedTitleId) {
       fetchData();
+    } else {
+      // Reset data when no filters are selected
+      setLoading(false);
+      setActiveEmployees({ count: 0, region: 'All Regions' });
+      setModuleAssignments([]);
+      setKpiMappings([]);
     }
   }, [selectedFunctionId, selectedSubFunctionId, selectedTitleId]);
 
@@ -348,7 +354,7 @@ export default function WorkforceOverview() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Workforce Overview</h1>
-            <p className="text-gray-600 text-sm">Monitor workforce capabilities and learning allocation.</p>
+            <p className="text-gray-600 text-sm">Monitor workforce capabilities and sprint allocation.</p>
           </div>
           
           <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6">
@@ -364,7 +370,7 @@ export default function WorkforceOverview() {
             <h2 className="text-sm font-bold text-blue-600 uppercase tracking-wider">Role Analysis</h2>
           </div> */}
 
-          <h3 className="text-2xl font-bold text-gray-900 mb-4">Workforce Learning Overview</h3>
+          <h3 className="text-2xl font-bold text-gray-900 mb-4">Learning Overview</h3>
           {/* <p className="text-gray-600 text-sm mb-6">Map business KPIs directly to learning modules by role.</p> */}
 
           {/* Filters */}
@@ -424,7 +430,7 @@ export default function WorkforceOverview() {
           {/* Content Grid */}
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="text-gray-500">Loading data...</div>
+              <div className="text-gray-500">Retrieving information…</div>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-6">
@@ -433,7 +439,7 @@ export default function WorkforceOverview() {
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2">
                     <BarChart3 size={20} className="text-blue-600" />
-                    <h3 className="text-lg font-bold text-gray-900">Learning Assignments Distribution</h3>
+                    <h3 className="text-lg font-bold text-gray-900">Sprints Distribution</h3>
                   </div>
                 </div>
 
@@ -515,7 +521,7 @@ export default function WorkforceOverview() {
 
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="text-gray-500">Loading KPI mappings...</div>
+              <div className="text-gray-500">Retrieving KPI mappings...</div>
             </div>
           ) : kpiMappings.length === 0 ? (
             <div className="text-center py-12 text-gray-500">No KPIs found for this role</div>
