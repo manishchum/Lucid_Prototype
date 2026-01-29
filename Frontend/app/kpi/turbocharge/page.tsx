@@ -1139,7 +1139,7 @@ export default function KPITurbocharge() {
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="text-gray-500">Loading data...</div>
+            <div className="text-gray-500">Retrieving information…</div>
           </div>
         ) : (
           <>
