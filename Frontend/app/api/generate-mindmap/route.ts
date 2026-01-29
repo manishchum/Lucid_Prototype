@@ -195,7 +195,7 @@ export async function POST(req: Request) {
     const gemKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GENAI_API_KEY;
     if (gemKey) {
       try {
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' });
         const system = `You are a helpful assistant that converts study material into a compact mind-map JSON suitable for NotebookLM.\nOutput ONLY valid JSON with two keys: nodes and edges. nodes is an array of { id, label, x, y } and edges is an array of { from, to }.\nConstraints: 1 root node (id \"1\") at y=0; 4 to 6 main branches (children of root) at y=120; each branch should have 2 to 4 sub-nodes at y=240.\nKeep labels short (<=80 chars), concise, and hierarchical. Do not include extra fields. Use numeric string ids (\"1\",\"2\",...). Position x coordinates should spread branches horizontally and subnodes near their parent.\nIf the content is long, prioritize main concepts, section headings, and key bullets. NEVER output explanations or text outside the JSON object.`;
 
         const prompt = `Title: ${title}\n\nContent:\n${content}`;
