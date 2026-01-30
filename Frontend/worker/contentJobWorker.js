@@ -12,8 +12,6 @@ const { migrateProcessedModules } = require(path.join(__dirname, 'api/migrate-pr
 // const { startContentGeneration } = require(path.join(__dirname, 'api/start-content-generation'));
 console.log('Loading generate-module-content...');
 const { generateModuleContent } = require(path.join(__dirname, 'api/generate-module-content'));
-console.log('Loading generate-module-video...');
-const { generateModuleVideo } = require(path.join(__dirname, 'api/generate-module-video'));
 console.log('All modules loaded successfully.');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -59,16 +57,6 @@ async function processJobs() {
         console.log(`[JOB] Running content generation for module_id=${job.module_id}`);
         const genResult = await generateModuleContent({ moduleId: job.module_id });
         console.log(`[JOB] Content generation completed:`, genResult.message);
-
-        // Trigger video generation for any processed_modules rows missing video_url.
-        // Non-fatal: keep the content job flow reliable even if video generation fails.
-        try {
-          console.log(`[JOB] Triggering video generation for module_id=${job.module_id}`);
-          const videoResult = await generateModuleVideo({ moduleId: job.module_id });
-          console.log('[JOB] Video generation result:', videoResult);
-        } catch (videoErr) {
-          console.error('[JOB] Video generation failed (non-fatal):', videoErr);
-        }
         
         await supabase.from('content_jobs').update({ status: 'completed', updated_at: new Date() }).eq('id', job.id);
         console.log(`[JOB] Job completed: id=${job.id}, module_id=${job.module_id}`);
