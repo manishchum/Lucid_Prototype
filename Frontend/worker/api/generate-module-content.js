@@ -174,7 +174,7 @@ async function generateModuleContent({ moduleId = null } = {}) {
 - Close all HTML tags properly.
 - Generate 3-5 comprehensive sections, each with supporting tables or structured content where appropriate.`;
       console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' });
       const result = await model.generateContent(stylePrompt);
       const response = await result.response;
       let aiContent = response.text();
