@@ -241,54 +241,77 @@ async def processAndStoreResults(moduleId: str, message: str):
                 })
 
         print(f"[processAndStoreResults] Found {len(moduleMatches)} module matches.")
-
-        for i in range(len(moduleMatches)):
-            moduleData = moduleMatches[i]
+        
+        for i, moduleData in enumerate(moduleMatches):
             block = moduleData["content"]
+            
+            print(f"[processAndStoreResults] Processing module {i + 1}/{len(moduleMatches)}")
 
             titleMatch = re.search(r"^(?:\*\*|###)?\s*([A-Za-z0-9 .\-]+)(?:\*\*|:)?", block)
             title = titleMatch.group(1).strip() if titleMatch else f"Module {i + 1}"
+            
+            print(f"[processAndStoreResults] Module title: {title}")
 
             topics: List[str] = []
             objectives: List[str] = []
 
-            topicsSection = re.search(r"topics?:\s*([\s\S]*?)(?=objectives?:|$)", block, re.I)
+            # Extract topics section more robustly
+            topicsSection = re.search(r"\*\*Topics?:\*\*\s*([\s\S]*?)(?=\*\*Objectives?:\*\*|####|$)", block, re.I)
+            if not topicsSection:
+                topicsSection = re.search(r"Topics?:\s*([\s\S]*?)(?=Objectives?:|####|$)", block, re.I)
+            
             if topicsSection and topicsSection.group(1):
-                topics.extend([
-                    re.sub(r"^\*\*?Topic:?\*\*?", "", re.sub(r"^[-*]\s*", "", line)).strip()
-                    for line in re.split(r"\n|\r", topicsSection.group(1))
-                    if line.strip() and (re.match(r"^[-*]", line.strip()) or re.match(r"^[A-Za-z0-9 .\-]+$", line.strip()))
-                ])
-                topics = [t for t in topics if t]
+                topic_lines = [
+                    re.sub(r"^\*\*?Topic:?\*\*?", "", re.sub(r"^[-*•]\s*", "", line)).strip()
+                    for line in topicsSection.group(1).split('\n')
+                    if line.strip() and re.match(r"^[-*•]\s", line.strip())
+                ]
+                topics = [t for t in topic_lines if t and len(t) > 3]
+                print(f"[processAndStoreResults] Extracted {len(topics)} topics from module {i + 1}")
 
-            objectivesSection = re.search(r"objectives?:\s*([\s\S]*)", block, re.I)
+            # Extract objectives section more robustly
+            objectivesSection = re.search(r"\*\*Objectives?:\*\*\s*([\s\S]*?)(?=####|$)", block, re.I)
+            if not objectivesSection:
+                objectivesSection = re.search(r"Objectives?:\s*([\s\S]*?)(?=####|$)", block, re.I)
+            
             if objectivesSection and objectivesSection.group(1):
-                objectives.extend([
-                    re.sub(r"^\*\*?Objective:?\*\*?", "", re.sub(r"^[-*]\s*", "", line)).strip()
-                    for line in re.split(r"\n|\r", objectivesSection.group(1))
-                    if line.strip() and (re.match(r"^[-*]", line.strip()) or re.match(r"^[A-Za-z0-9 .\-]+$", line.strip()))
-                ])
-                objectives = [o for o in objectives if o]
+                obj_lines = [
+                    re.sub(r"^\*\*?Objective:?\*\*?", "", re.sub(r"^[-*•]\s*", "", line)).strip()
+                    for line in objectivesSection.group(1).split('\n')
+                    if line.strip() and re.match(r"^[-*•]\s", line.strip())
+                ]
+                objectives = [o for o in obj_lines if o and len(o) > 5]
+                print(f"[processAndStoreResults] Extracted {len(objectives)} objectives from module {i + 1}")
 
+            # Fallback: extract any bullet points if primary extraction failed
             if len(topics) == 0:
-                topics.extend([
-                    re.sub(r"^[-*]\s*", "", line).strip()
-                    for line in re.split(r"\n|\r", block)
-                    if re.match(r"^[-*]", line.strip()) and not re.search(r"objective", line, re.I)
-                ])
-                topics = [t for t in topics if t]
+                print(f"[processAndStoreResults] No topics found with primary regex, trying fallback for module {i + 1}")
+                all_bullets = [
+                    re.sub(r"^[-*•]\s*", "", line).strip()
+                    for line in block.split('\n')
+                    if re.match(r"^[-*•]\s", line.strip()) and not re.search(r"objective|learner", line, re.I)
+                ]
+                topics = [t for t in all_bullets if t and len(t) > 3][:10]  # Limit to first 10
 
             if len(objectives) == 0:
-                objectives.extend([
-                    re.sub(r"^[-*]\s*", "", line).strip()
-                    for line in re.split(r"\n|\r", block)
-                    if re.match(r"^[-*]", line.strip()) and re.search(r"objective", line, re.I)
-                ])
-                objectives = [o for o in objectives if o]
+                print(f"[processAndStoreResults] No objectives found with primary regex, trying fallback for module {i + 1}")
+                obj_bullets = [
+                    re.sub(r"^[-*•]\s*", "", line).strip()
+                    for line in block.split('\n')
+                    if re.match(r"^[-*•]\s", line.strip()) and re.search(r"learner|will|understand|identify|apply", line, re.I)
+                ]
+                objectives = [o for o in obj_bullets if o and len(o) > 5][:10]  # Limit to first 10
 
-            ai_modules.append({"title": title, "topics": topics, "objectives": objectives})
-            ai_topics.extend(topics)
-            ai_objectives.extend(objectives)
+            print(f"[processAndStoreResults] Final counts for module {i + 1}: topics={len(topics)}, objectives={len(objectives)}")
+            
+            if topics or objectives:  # Only add module if it has content
+                ai_modules.append({"title": title, "topics": topics, "objectives": objectives})
+                ai_topics.extend(topics)
+                ai_objectives.extend(objectives)
+            else:
+                print(f"[processAndStoreResults] WARNING: Module {i + 1} ({title}) has no topics or objectives, skipping")
+        
+        print(f"[processAndStoreResults] Total accumulated: {len(ai_modules)} modules, {len(ai_topics)} topics, {len(ai_objectives)} objectives")
 
     except Exception as parseError:
         print("[processAndStoreResults] Error during parsing:", parseError)
