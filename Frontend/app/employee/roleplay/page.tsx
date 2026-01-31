@@ -14,6 +14,7 @@ import RoleplayConfigPage, { RoleplayConfig } from '@/components/roleplay/Rolepl
 import AssessmentReportComponent from '@/components/roleplay/AssessmentReport';
 import { createRolePlayAssessment } from '@/lib/roleplayDatabase';
 import { supabase } from '@/lib/supabase';
+import { callGemini } from '@/lib/gemini-helper';
 
 interface AssessmentReport {
   overallScore: number;
@@ -80,6 +81,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       if (customScenarioData) {
         try {
           const scenario = JSON.parse(customScenarioData);
+          console.log('Loaded custom scenario from sessionStorage:', scenario);
           setSelectedScenario(scenario);
           setCurrentScreen('config'); // Show config page first
           // Clear the sessionStorage after loading
@@ -117,6 +119,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   }, [user]);
 
   const handleScenarioSelect = (scenario: Scenario) => {
+          console.log('Loaded custom scenario from sessionStorage:', scenario);
+
     setSelectedScenario(scenario);
     setCurrentScreen('config');
     setError(null);
@@ -132,6 +136,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         tone: config.tone as 'Neutral' | 'Friendly' | 'Aggressive',
         userRole: config.userRole || selectedScenario.userRole,
       };
+          console.log('Loaded custom scenario from sessionStorage:', updatedScenario);
+
       setSelectedScenario(updatedScenario);
     }
     setCurrentScreen('rolePlay');
@@ -189,10 +195,10 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       setCurrentScreen('assessmentReport');
 
       // Save assessment to database if we have a session ID
-      if (sessionId && employeeId) {
+      if (employeeId) {
         try {
           console.log('💾 Saving assessment to database...', {
-            sessionId,
+            // sessionId,
             employeeId,
             assessment
           });
@@ -220,6 +226,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   };
 
   const handleStartNew = () => {
+          console.log('scenario set to null');
+
     setSelectedScenario(null);
     setConversationHistory([]);
     setAssessmentReport(null);
@@ -248,6 +256,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     };
 
     // Set it as selected and start the roleplay
+          console.log('Loaded custom scenario from new scenario sessionStorage:', newScenario);
+
     setSelectedScenario(newScenario);
     setShowCustomModal(false);
     setCurrentScreen('rolePlay');

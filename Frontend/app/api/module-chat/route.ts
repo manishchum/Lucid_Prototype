@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from "@google/genai";
 import { supabase } from '@/lib/supabase';
 import { WebSocketServer } from 'ws';
 import { IncomingMessage } from 'http';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // WebSocket server for real-time voice chat
 const wss = new WebSocketServer({ noServer: true });
@@ -47,10 +47,22 @@ async function processSTT(audioChunk: Buffer): Promise<string> {
 
 // Call LLM (using Gemini)
 async function callLLM(transcript: string): Promise<string> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
-  const result = await model.generateContent(transcript);
-  const response = await result.response;
-  return response.text();
+  const prompt = `
+You are a real-time voice assistant helping a user during a training session.
+
+User said:
+"${transcript}"
+
+Respond naturally, concisely, and in plain text.
+Do NOT use markdown, HTML, or special formatting.
+`;
+
+  const result = await ai.models.generateContent({
+    model: 'gemini-3-pro-preview',
+    contents: prompt,
+  });
+
+  return result.text;
 }
 
 // Stream TTS (replace with actual streaming TTS service like ElevenLabs or Google TTS)
@@ -129,10 +141,11 @@ Provide response in plain text. DO NOT include any HTML or markdown formatting. 
 `;
 
     // Call Gemini API
-    const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' });
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const assistantMessage = response.text();
+    const result = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: prompt,
+    });
+    const assistantMessage = result.text;
 
     return NextResponse.json({
       success: true,

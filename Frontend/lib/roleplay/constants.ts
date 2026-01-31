@@ -106,6 +106,7 @@ export const SCENARIOS = [
   },
   
 {
+  id: '7',
   title: "Dermatologist Interaction – MELAOV-PRO Cream for Hyperpigmentation",
     description: "You are a Medical Sales Representative visiting a Dermatologist to discuss MELAOV-PRO Cream, a depigmenting and skin-brightening formulation. Your goal is to present the product, explain its benefits, and address clinical questions about hyperpigmentation, melasma, and related conditions in a professional, ethical, and scientific manner.",
     userRole: "Dermatology Product Sales Executive",
