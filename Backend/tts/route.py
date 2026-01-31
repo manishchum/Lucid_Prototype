@@ -79,7 +79,7 @@ async def callGemini(prompt: str, opts: Optional[Dict[str, Any]] = None) -> Dict
         temperature = opts.get("temperature", 0.35)
         maxOutputTokens = opts.get("maxOutputTokens", 1200)
 
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
+        model = genai.GenerativeModel("gemini-3-pro-preview")
         result = model.generate_content(
             prompt,
             generation_config={

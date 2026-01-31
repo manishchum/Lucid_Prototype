@@ -54,6 +54,7 @@ async function processJobs() {
       try {
         console.log(`[JOB] Running migration for module_id=${job.module_id}`);
         const migrateResult = await migrateProcessedModules({ moduleId: job.module_id });
+        console.log(migrateResult)
         console.log(`[JOB] Migration completed:`, migrateResult.message);
 
         console.log(`[JOB] Running content generation for module_id=${job.module_id}`);

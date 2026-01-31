@@ -108,7 +108,7 @@ Objectives: {json.dumps(objectives)}
 """
 
     try:
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
+        model = genai.GenerativeModel("gemini-3-pro-preview")
         result = model.generate_content(prompt)
         content = result.text if result else None
 
@@ -423,7 +423,7 @@ Modules: {json.dumps([moduleTitle])}
 Objectives: {json.dumps([moduleContent])}"""
 
         try:
-            model = genai.GenerativeModel("gemini-2.5-flash-lite")
+            model = genai.GenerativeModel("gemini-3-pro-preview")
             result = model.generate_content(prompt)
             content = result.text if result else ""
 
