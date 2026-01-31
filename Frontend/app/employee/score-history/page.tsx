@@ -249,6 +249,7 @@ export default function ScoreHistoryPage() {
   const [employeeName, setEmployeeName] = useState<string>("");
   const [scoreHistory, setScoreHistory] = useState<any[]>([]);
   const [learningStyleData, setLearningStyleData] = useState<any>(null);
+  const [companyUsesLearningStyle, setCompanyUsesLearningStyle] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'assessments' | 'roleplay'>('assessments');
   // State to track which items are expanded (must be declared at the top level)
@@ -267,10 +268,10 @@ export default function ScoreHistoryPage() {
   const fetchEmployeeAndHistory = async (email: string) => {
     setLoading(true);
     try {
-      // First, get employee data including name
+      // First, get employee data including name and company_id
       const { data: employeeData } = await supabase
         .from("users")
-        .select("user_id, name")
+        .select("user_id, name, company_id")
         .eq("email", email)
         .single();
       
@@ -281,6 +282,19 @@ export default function ScoreHistoryPage() {
       
       setEmployeeId(employeeData.user_id);
       setEmployeeName(employeeData.name || "");
+
+      // Fetch company's learning_style setting
+      if (employeeData.company_id) {
+        const { data: companyData } = await supabase
+          .from("companies")
+          .select("learning_style")
+          .eq("company_id", employeeData.company_id)
+          .single();
+        
+        if (companyData) {
+          setCompanyUsesLearningStyle(companyData.learning_style === true);
+        }
+      }
 
       // Fetch assessment history
       const { data: assessments } = await supabase
@@ -400,8 +414,8 @@ export default function ScoreHistoryPage() {
         
         {activeTab === 'assessments' && (
         <div className="grid gap-8">
-        {/* Learning Style Section */}
-        {learningStyleData ? (
+        {/* Learning Style Section - Only show if company uses learning styles */}
+        {companyUsesLearningStyle && learningStyleData ? (
           <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
             <CardContent className="p-8">
               <div className="border-b pb-6 mb-6">
@@ -493,7 +507,7 @@ export default function ScoreHistoryPage() {
               </div>
             </CardContent>
           </Card>
-        ) : (
+        ) : companyUsesLearningStyle ? (
           <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
             <CardContent className="p-8">
               <div className="text-center py-8">
@@ -513,7 +527,7 @@ export default function ScoreHistoryPage() {
               </div>
             </CardContent>
           </Card>
-        )}
+        ) : null}
         
         {/* Assessment History Section */}
         <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
