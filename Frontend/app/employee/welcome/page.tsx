@@ -547,7 +547,8 @@ export default function EmployeeWelcome() {
                 <CardTitle className="text-lg font-black text-slate-900">Assigned Sprints</CardTitle>
               </CardHeader>
               <CardContent className="p-0">
-                {!learningStyle ? (
+                {/* Only lock modules if learning style is enabled AND user hasn't completed survey */}
+                {companyLearningStyleEnabled && !learningStyle ? (
                   <div className="py-16 flex flex-col items-center text-center px-8">
                     <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-4">
                       <ShieldCheck size={32} />
