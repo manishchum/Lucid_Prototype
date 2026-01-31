@@ -1425,7 +1425,7 @@ function ContentTransformer({
                 }
                 
                 console.log('[infographic] Calling API...');
-                const res = await fetch('/api/generate-infographic', {
+                const res = await fetch(`${API_BASE}/api/generate-infographic`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ 
