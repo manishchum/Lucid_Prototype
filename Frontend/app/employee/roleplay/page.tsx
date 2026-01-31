@@ -6,7 +6,7 @@ import { ChevronLeft, Loader2 } from 'lucide-react';
 import EmployeeNavigation from '@/components/employee-navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
-import { SCENARIOS } from '@/lib/roleplay/constants';
+import { fetchAllScenarios } from '@/lib/roleplayDatabase';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import RolePlayConversation from '@/components/roleplay/RolePlayConversation';
@@ -14,6 +14,7 @@ import RoleplayConfigPage, { RoleplayConfig } from '@/components/roleplay/Rolepl
 import AssessmentReportComponent from '@/components/roleplay/AssessmentReport';
 import { createRolePlayAssessment } from '@/lib/roleplayDatabase';
 import { supabase } from '@/lib/supabase';
+import { callGemini } from '@/lib/gemini-helper';
 
 interface AssessmentReport {
   overallScore: number;
@@ -53,6 +54,19 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     difficulty: 'Medium' as 'Easy' | 'Medium' | 'Hard',
     tone: 'Neutral' as 'Friendly' | 'Neutral' | 'Aggressive'
   });
+  const [allScenarios, setAllScenarios] = useState<Scenario[]>([]);
+  const [loadingScenarios, setLoadingScenarios] = useState<boolean>(true);
+  // Fetch all scenarios from the database on mount
+  useEffect(() => {
+    const fetchScenarios = async () => {
+      setLoadingScenarios(true);
+      const { data, error } = await fetchAllScenarios();
+      if (data) setAllScenarios(data);
+      if (error) setError('Failed to load scenarios');
+      setLoadingScenarios(false);
+    };
+    fetchScenarios();
+  }, []);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -67,6 +81,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       if (customScenarioData) {
         try {
           const scenario = JSON.parse(customScenarioData);
+          console.log('Loaded custom scenario from sessionStorage:', scenario);
           setSelectedScenario(scenario);
           setCurrentScreen('config'); // Show config page first
           // Clear the sessionStorage after loading
@@ -104,6 +119,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   }, [user]);
 
   const handleScenarioSelect = (scenario: Scenario) => {
+          console.log('Loaded custom scenario from sessionStorage:', scenario);
+
     setSelectedScenario(scenario);
     setCurrentScreen('config');
     setError(null);
@@ -119,6 +136,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         tone: config.tone as 'Neutral' | 'Friendly' | 'Aggressive',
         userRole: config.userRole || selectedScenario.userRole,
       };
+          console.log('Loaded custom scenario from sessionStorage:', updatedScenario);
+
       setSelectedScenario(updatedScenario);
     }
     setCurrentScreen('rolePlay');
@@ -176,10 +195,10 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       setCurrentScreen('assessmentReport');
 
       // Save assessment to database if we have a session ID
-      if (sessionId && employeeId) {
+      if (employeeId) {
         try {
           console.log('💾 Saving assessment to database...', {
-            sessionId,
+            // sessionId,
             employeeId,
             assessment
           });
@@ -207,6 +226,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   };
 
   const handleStartNew = () => {
+          console.log('scenario set to null');
+
     setSelectedScenario(null);
     setConversationHistory([]);
     setAssessmentReport(null);
@@ -235,6 +256,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     };
 
     // Set it as selected and start the roleplay
+          console.log('Loaded custom scenario from new scenario sessionStorage:', newScenario);
+
     setSelectedScenario(newScenario);
     setShowCustomModal(false);
     setCurrentScreen('rolePlay');
@@ -298,7 +321,11 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              {SCENARIOS.map((scenario) => (
+              {loadingScenarios ? (
+                <div className="col-span-2 text-center text-slate-500">Loading scenarios...</div>
+              ) : allScenarios.length === 0 ? (
+                <div className="col-span-2 text-center text-slate-500">No scenarios found.</div>
+              ) : allScenarios.map((scenario) => (
                 <Card
                   key={scenario.id}
                   className={`cursor-pointer p-6 hover:border-blue-400 hover:shadow-lg transition-all ${

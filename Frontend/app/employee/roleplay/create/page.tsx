@@ -7,6 +7,7 @@ import EmployeeNavigation from '@/components/employee-navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Scenario } from '@/lib/roleplay/types';
+import { insertCustomScenario } from '@/lib/roleplayDatabase';
 
 interface CustomRoleplayData {
   // Basic Info
@@ -175,7 +176,7 @@ export default function CreateRoleplayPage() {
     return newErrors.length === 0;
   };
 
-  const handleStartRoleplay = () => {
+  const handleStartRoleplay = async () => {
     if (!validateForm()) {
       alert('Please fix the errors before starting the roleplay');
       return;
@@ -191,9 +192,21 @@ export default function CreateRoleplayPage() {
       initialPrompt: formData.initialPrompt,
       userRole: formData.userRole,
       tone: formData.tone,
+      learnerBrief: formData.learnerBrief,
+      aiPersonality: formData.aiPersonality,
+      aiObjectives: formData.aiObjectives,
+      maxDuration: formData.maxDuration,
+      minTurns: formData.minTurns,
+      endConditions: formData.endConditions,
+      evaluationParams: formData.evaluationParameters,
+      passingScore: formData.cutoffScore
     };
 
-    // Store the custom scenario and evaluation details in sessionStorage
+    // Save scenario (local only, no DB)
+    const { error } = await insertCustomScenario(customScenario);
+    // In local mode, error will always be null
+
+    // Optionally: Store the custom scenario and evaluation details in sessionStorage for immediate use
     sessionStorage.setItem('customScenario', JSON.stringify(customScenario));
     sessionStorage.setItem('customEvaluation', JSON.stringify({
       parameters: formData.evaluationParameters,
