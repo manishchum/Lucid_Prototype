@@ -17,6 +17,7 @@ import VoiceInput from '@/components/VoiceInput';
 import VoiceOutput from '@/components/VoiceOutput';
 
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
+  const [lastUserInputWasVoice, setLastUserInputWasVoice] = useState(false);
   const { user, loading: authLoading, logout } = useAuth()
   const moduleId = params.module_id;
   const [module, setModule] = useState<any>(null);
@@ -33,7 +34,8 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const [chatLoading, setChatLoading] = useState(false);
   const router = useRouter();
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading || generatingContent);
-
+  const [voiceLoopActive, setVoiceLoopActive] = useState(false);
+  const [autoStartMic, setAutoStartMic] = useState(false);
   useEffect(() => {
     const fetchModule = async () => {
       setLoading(true);
@@ -179,16 +181,30 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   fetchModule();
   }, [moduleId,user,authLoading]);
 
-  const handleSendChat = async (e: FormEvent<HTMLFormElement>) => {
+  const handleSendChat = async (e: FormEvent<HTMLFormElement>, overrideInput?: string) => {
     e.preventDefault();
-    if (!chatInput.trim() || chatLoading || !module?.processed_module_id) return;
+    const inputToSend = overrideInput !== undefined ? overrideInput : chatInput;
+    console.log('[ModuleChat] handleSendChat called. inputToSend:', inputToSend, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
+    if (!inputToSend.trim() || chatLoading || !module?.processed_module_id) {
+      console.log('[ModuleChat] handleSendChat aborted: missing input, loading, or module');
+      return;
+    }
 
-    const userMessage = chatInput.trim();
-    setChatInput('');
+  const userMessage = inputToSend.trim();
+  setChatInput('');
 
-    const newUserMessage = { role: 'user' as const, content: userMessage };
-    setUserChatHistory((prev) => [...prev, newUserMessage]);
-    setChatLoading(true);
+  // If overrideInput is present, it means voice input was used
+  setLastUserInputWasVoice(!!overrideInput);
+    if (!!overrideInput) {
+      setVoiceLoopActive(true);
+      }   
+    else {
+      setVoiceLoopActive(false);
+          }
+
+  const newUserMessage = { role: 'user' as const, content: userMessage };
+  setUserChatHistory((prev) => [...prev, newUserMessage]);
+  setChatLoading(true);
 
     try {
       const response = await fetch('/api/module-chat', {
@@ -229,7 +245,21 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   };
 
   const handleVoiceTranscription = (text: string) => {
-    setChatInput(text);
+  setChatInput(text);
+  setLastUserInputWasVoice(true);
+  setVoiceLoopActive(true);
+    console.log('[ModuleChat] handleVoiceTranscription called. text:', text, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
+    // Auto-send after transcription
+    setTimeout(() => {
+      if (text && text.trim() && !chatLoading && module?.processed_module_id) {
+        console.log('[ModuleChat] Auto-sending after transcription:', text);
+        // Create a synthetic event for form submission
+        const fakeEvent = { preventDefault: () => {} } as FormEvent<HTMLFormElement>;
+        handleSendChat(fakeEvent, text);
+      } else {
+        console.log('[ModuleChat] Auto-send conditions not met:', {text, chatLoading, module: module?.processed_module_id});
+      }
+    }, 100);
   };
 
   // const handleSendChat = async (e: FormEvent<HTMLFormElement>) => {
@@ -351,6 +381,10 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                     setHasVideo(true);
                   }}
                   onModuleUpdate={setModule}
+                  userChatHistory={userChatHistory}
+                  setChatInput={setChatInput}
+                  setUserChatHistory={setUserChatHistory}
+                  chatLoading={chatLoading}
                 />
 
                 <ContentCards content={module.content || ''} />
@@ -365,39 +399,54 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {userChatHistory.map((msg, idx) => (
-                          <div
-                            key={idx}
-                            className={clsx(
-                              'flex items-end gap-2',
-                              msg.role === 'user' ? 'justify-end' : 'justify-start'
-                            )}
-                          >
-                            {msg.role === 'assistant' && (
-                              <VoiceOutput text={msg.content} disabled={chatLoading} />
-                            )}
+                        {userChatHistory.map((msg, idx) => {
+                          // Determine if TTS should be enabled for this bot reply
+                          let ttsEnabled = false;
+                          if (msg.role === 'assistant') {
+                            // TTS only for the most recent bot reply after a voice input
+                            // Find the previous user message
+                            const prevUserIdx = userChatHistory.slice(0, idx).reverse().findIndex(m => m.role === 'user');
+                            const prevUserWasVoice = prevUserIdx === 0 ? lastUserInputWasVoice : false;
+                            ttsEnabled = idx === userChatHistory.length - 1 && lastUserInputWasVoice;
+                          }
+                          return (
                             <div
+                              key={idx}
                               className={clsx(
-                                'rounded-lg px-4 py-3 max-w-3xl',
-                                msg.role === 'user'
-                                  ? 'bg-blue-600 text-white rounded-br-none'
-                                  : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
+                                'flex items-end gap-2',
+                                msg.role === 'user' ? 'justify-end' : 'justify-start'
                               )}
                             >
                               {msg.role === 'assistant' && (
-                                <div className="flex items-center gap-2 mb-2">
-                                  {/* <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
-                                    AI
-                                  </div> */}
-                                  <span className="text-xs font-semibold text-gray-600">Lucid Assistant</span>
-                                </div>
+                                <VoiceOutput text={msg.content} disabled={chatLoading || !ttsEnabled} 
+                                onTTSComplete={() => {
+                                if (voiceLoopActive && idx === userChatHistory.length - 1) {
+                                setTimeout(() => setAutoStartMic(true), 300);
+                                setTimeout(() => setAutoStartMic(false), 2000);
+                                }
+                                }}
+                                />
                               )}
-                              <p className="whitespace-pre-wrap break-words leading-relaxed text-sm">
-                                {msg.content}
-                              </p>
+                              <div
+                                className={clsx(
+                                  'rounded-lg px-4 py-3 max-w-3xl',
+                                  msg.role === 'user'
+                                    ? 'bg-blue-600 text-white rounded-br-none'
+                                    : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
+                                )}
+                              >
+                                {msg.role === 'assistant' && (
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <span className="text-xs font-semibold text-gray-600">Lucid Assistant</span>
+                                  </div>
+                                )}
+                                <p className="whitespace-pre-wrap break-words leading-relaxed text-sm">
+                                  {msg.content}
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                         {chatLoading && (
                           <div className="flex justify-start">
                             <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 rounded-bl-none">
@@ -424,6 +473,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       <VoiceInput 
                         onTranscription={handleVoiceTranscription}
                         disabled={chatLoading}
+                        autoStart={autoStartMic}
                       />
                       <input
                         type="text"
@@ -959,6 +1009,10 @@ function ContentTransformer({
   setHasVideo,
   onVideoGenerated,
   onModuleUpdate,
+  userChatHistory,
+  setChatInput,
+  setUserChatHistory,
+  chatLoading,
 }: any) {
   // Check if audio exists for each language
   const hasEnglishAudio = !!(module.audio_url && module.podcast_transcript && module.podcast_timeline);
@@ -974,7 +1028,7 @@ function ContentTransformer({
   };
   const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
   const [language, setLanguage] = useState<'en' | 'hinglish'>('en');
-  const [selectedOption, setSelectedOption] = useState<'audio' | 'flashcard' | 'flashcards' | 'mindmap' | 'video' | 'roleplay' | 'infographic'>('audio');
+  const [selectedOption, setSelectedOption] = useState<'audio' | 'video' | 'chat' | 'flashcard' | 'flashcards' | 'mindmap' | 'roleplay' | 'infographic'>('audio');
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [audioOpen, setAudioOpen] = useState(false);
   const [flashcardSections, setFlashcardSections] = useState<any[] | null>(null);
@@ -1158,7 +1212,7 @@ function ContentTransformer({
           </div>
         </div>
 
-        <div className="grid grid-cols-5 gap-4 mb-6">
+  <div className="grid grid-cols-5 gap-4 mb-6">
           <div
             onClick={() => {
               if (selectedOption === 'audio') {
@@ -1193,6 +1247,8 @@ function ContentTransformer({
             <div className="font-bold text-slate-900 text-sm">Explainer Video</div>
             <div className="text-slate-500 text-xs mt-1">Video lesson</div>
           </div>
+
+          {/* AI Chat (Voice assistant) button removed as requested */}
 
           <div
             onClick={async () => {
@@ -1918,6 +1974,64 @@ function ContentTransformer({
                   {!infographicLoading && !infographicData && (
                     <div className="text-sm text-gray-500">Click the Visual Guide tile to generate the structured overview.</div>
                   )}
+                </div>
+              )}
+
+              {selectedOption === 'chat' && (
+                <div>
+                  <div className="rounded-xl border p-4 mb-4 max-h-96 overflow-auto bg-white">
+                    {userChatHistory.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-64 text-center">
+                        <div className="text-6xl mb-4">💬</div>
+                        <h3 className="text-lg font-semibold text-gray-700 mb-2">AI Voice Assistant</h3>
+                        <p className="text-sm text-gray-500">Click the voice button below to start a conversation</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {userChatHistory.map((msg: { role: 'user' | 'assistant'; content: string }, idx: number) => (
+                          <div
+                            key={idx}
+                            className={clsx(
+                              'flex items-end gap-2',
+                              msg.role === 'user' ? 'justify-end' : 'justify-start'
+                            )}
+                          >
+                            {msg.role === 'assistant' && (
+                              <VoiceOutput text={msg.content} disabled={chatLoading} />
+                            )}
+                            <div
+                              className={clsx(
+                                'rounded-lg px-4 py-3 max-w-3xl',
+                                msg.role === 'user'
+                                  ? 'bg-blue-600 text-white rounded-br-none'
+                                  : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
+                              )}
+                            >
+                              {msg.role === 'assistant' && (
+                                <div className="flex items-center gap-2 mb-2">
+                                  <span className="text-xs font-semibold text-gray-600">Lucid Assistant</span>
+                                </div>
+                              )}
+                              <p className="whitespace-pre-wrap break-words leading-relaxed text-sm">
+                                {msg.content}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                        {chatLoading && (
+                          <div className="flex justify-start">
+                            <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 rounded-bl-none">
+                              <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
