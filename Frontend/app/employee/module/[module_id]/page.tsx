@@ -1306,7 +1306,7 @@ function ContentTransformer({
                 console.log('[flashcards] Generating new flashcards');
                 const studyText = plainTranscript || module.content || '';
                 console.log('[flashcards] starting fetch, studyText length:', (studyText || '').length);
-                const res = await fetch('/api/generate-flashcards-gemini', {
+                const res = await fetch(`${API_BASE}/api/generate-flashcards-gemini`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ content: studyText }),
