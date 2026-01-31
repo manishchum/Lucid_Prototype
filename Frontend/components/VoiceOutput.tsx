@@ -1,18 +1,21 @@
-"use client";
 
-import { useState } from "react";
+"use client";
+import { useState, useEffect, useRef } from "react";
 import { Volume2, VolumeX } from "lucide-react";
 
 interface VoiceOutputProps {
   text: string;
   disabled?: boolean;
+  onTTSComplete?: () => void;
 }
 
-export default function VoiceOutput({ text, disabled = false }: VoiceOutputProps) {
+export default function VoiceOutput({ text, disabled = false, onTTSComplete }: VoiceOutputProps) {
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [audio, setAudio] = useState<HTMLAudioElement | null>(null);
+  const lastTextRef = useRef<string>("");
 
+  // Play audio from text
   const playAudio = async () => {
     if (disabled) return;
 
@@ -26,7 +29,6 @@ export default function VoiceOutput({ text, disabled = false }: VoiceOutputProps
       }
 
       setLoading(true);
-      
       // Call text-to-speech API
       const response = await fetch("/api/text-to-speech", {
         method: "POST",
@@ -42,29 +44,24 @@ export default function VoiceOutput({ text, disabled = false }: VoiceOutputProps
       }
 
       const data = await response.json();
-      
       // Convert base64 to audio blob
       const audioBlob = await fetch(`data:audio/mp3;base64,${data.audio}`).then(r => r.blob());
       const audioUrl = URL.createObjectURL(audioBlob);
-      
       // Create and play audio
       const audioElement = new Audio(audioUrl);
       setAudio(audioElement);
-      
-      audioElement.onended = () => {
-        setPlaying(false);
-        URL.revokeObjectURL(audioUrl);
-      };
+      interface VoiceOutputProps {
+        text: string;
+        disabled?: boolean;
+      }
 
-      audioElement.onerror = () => {
-        setPlaying(false);
-        setLoading(false);
-        alert("Failed to play audio");
-        URL.revokeObjectURL(audioUrl);
-      };
-
+      // (stray duplicate function removed)
       await audioElement.play();
       setPlaying(true);
+      audioElement.onended = () => {
+        setPlaying(false);
+        if (onTTSComplete) onTTSComplete();
+      };
     } catch (error: any) {
       console.error("Text-to-speech error:", error);
       alert(error.message || "Failed to generate speech");
@@ -73,6 +70,16 @@ export default function VoiceOutput({ text, disabled = false }: VoiceOutputProps
     }
   };
 
+  // Auto-play when text changes and is non-empty
+  useEffect(() => {
+    if (text && text.trim() && text !== lastTextRef.current && !disabled) {
+      lastTextRef.current = text;
+      playAudio();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, disabled]);
+
+  // Optionally, keep the button for manual replay/stop
   return (
     <button
       onClick={playAudio}

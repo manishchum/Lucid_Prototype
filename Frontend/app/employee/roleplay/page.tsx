@@ -6,7 +6,7 @@ import { ChevronLeft, Loader2 } from 'lucide-react';
 import EmployeeNavigation from '@/components/employee-navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
-import { SCENARIOS } from '@/lib/roleplay/constants';
+import { fetchAllScenarios } from '@/lib/roleplayDatabase';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import RolePlayConversation from '@/components/roleplay/RolePlayConversation';
@@ -53,6 +53,19 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     difficulty: 'Medium' as 'Easy' | 'Medium' | 'Hard',
     tone: 'Neutral' as 'Friendly' | 'Neutral' | 'Aggressive'
   });
+  const [allScenarios, setAllScenarios] = useState<Scenario[]>([]);
+  const [loadingScenarios, setLoadingScenarios] = useState<boolean>(true);
+  // Fetch all scenarios from the database on mount
+  useEffect(() => {
+    const fetchScenarios = async () => {
+      setLoadingScenarios(true);
+      const { data, error } = await fetchAllScenarios();
+      if (data) setAllScenarios(data);
+      if (error) setError('Failed to load scenarios');
+      setLoadingScenarios(false);
+    };
+    fetchScenarios();
+  }, []);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -298,7 +311,11 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              {SCENARIOS.map((scenario) => (
+              {loadingScenarios ? (
+                <div className="col-span-2 text-center text-slate-500">Loading scenarios...</div>
+              ) : allScenarios.length === 0 ? (
+                <div className="col-span-2 text-center text-slate-500">No scenarios found.</div>
+              ) : allScenarios.map((scenario) => (
                 <Card
                   key={scenario.id}
                   className={`cursor-pointer p-6 hover:border-blue-400 hover:shadow-lg transition-all ${

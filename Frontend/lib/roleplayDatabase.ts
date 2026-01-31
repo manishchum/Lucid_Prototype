@@ -1,3 +1,21 @@
+// --- Custom Scenario DB Functions ---
+import { Scenario } from './roleplay/types';
+import { SCENARIOS } from './roleplay/constants';
+
+/**
+ * Insert a new scenario into the public scenario table
+ */
+export async function insertCustomScenario(scenario: Scenario) {
+  // No-op: In local mode, just return success. Optionally, you could push to SCENARIOS if mutability is needed.
+  return { data: scenario, error: null };
+}
+
+/**
+ * Fetch all scenarios (default + custom) from the constants file
+ */
+export async function fetchAllScenarios(): Promise<{ data: Scenario[] | null; error: any }> {
+  return { data: SCENARIOS, error: null };
+}
 // Helper functions for role-play session database operations
 import { supabase } from './supabase';
 import { Message } from './roleplay/types';

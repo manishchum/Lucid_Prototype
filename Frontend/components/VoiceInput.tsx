@@ -103,7 +103,7 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     let lastSoundTime = Date.now();
     const SILENCE_THRESHOLD = 25; // Volume level threshold (0-255) - require actual silence, not just quiet speech
-    const SILENCE_DURATION = 3000; // 3 seconds - stop after 3 seconds of silence
+  const SILENCE_DURATION = 2000; // 2 seconds - stop after 2 seconds of silence
     let hasDetectedSpeech = false; // Track if we've detected any speech at all
     let lastLoggedSecond = 0; // Track last logged second to avoid duplicate logs
     
@@ -377,6 +377,7 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
           
           if (data.text && data.text.trim()) {
             console.log('[VoiceInput] ✅ Transcription successful:', data.text);
+            console.log('[VoiceInput] 🔄 Calling onTranscription with:', data.text);
             onTranscription(data.text);
           } else {
             console.log('[VoiceInput] ℹ️ Empty transcript received');
@@ -428,8 +429,9 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
       });
       
       if (data.text && data.text.trim()) {
-        console.log('[VoiceInput] ✅ Async transcription successful:', data.text.substring(0, 100) + '...');
-        onTranscription(data.text);
+  console.log('[VoiceInput] ✅ Async transcription successful:', data.text.substring(0, 100) + '...');
+  console.log('[VoiceInput] 🔄 Calling onTranscription with:', data.text);
+  onTranscription(data.text);
       } else {
         console.log('[VoiceInput] ℹ️ Empty transcript received from async processing');
       }

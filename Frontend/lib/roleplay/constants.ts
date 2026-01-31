@@ -1,6 +1,6 @@
 import { Scenario } from './types';
 
-export const SCENARIOS: Scenario[] = [
+export const SCENARIOS = [
   {
     id: '1',
     title: 'Credit Life Awareness – Family Risk',
@@ -104,31 +104,32 @@ export const SCENARIOS: Scenario[] = [
     ],
     passingScore: 70
   },
-  {
-    id: '7',
-    title: 'The First Meet at a Coffee Shop',
-    description: 'Navigate a first date scenario at a busy urban café. Maya is smart, slightly guarded, and loves travel but hates cliché small talk. She\'s distracted because she\'s waiting for a work call, adding complexity to the interaction. Build rapport while demonstrating confidence, active listening, and appropriate humor. Handle curveballs including phone distractions, direct questions about intentions, and the awkward "who pays" moment.',
-    initialPrompt: `Hey! Glad you could make it. Sorry if I seem a bit scattered—I've had a chaotic morning. Anyway, I'm glad we're finally meeting in person. You look... a little different than your profile photos. Is that a good thing or a bad thing? You tell me.`,
-    role: 'Maya – Smart, Slightly Guarded Date',
-    userRole: 'First Date Participant',
-    difficulty: 'Medium',
-    tone: 'Friendly',
-    learnerBrief: `📍 Setting: A busy, slightly noisy urban café
-
-🎯 Your Goal: Build genuine connection while demonstrating social intelligence
-
-💡 Evaluation Focus:
-• Confidence vs. Arrogance: Handle teasing without getting defensive
-• Active Listening: Pick up on cues (like her "chaotic morning") and show genuine interest
-• Vibe Check: Use appropriate humor and "push-pull" techniques to keep conversation engaging
-
-⚠️ Expect Curveballs:
-• Phone distraction mid-conversation - re-engage without being needy
-• Direct question: "What are you actually looking for? Because I'm not into games."
-• The bill moment - handle payment awkwardness gracefully
-
-💪 Success Looks Like: Balanced confidence, genuine curiosity about her, playful teasing, and smooth handling of awkward moments.`
+  
+{
+  title: "Dermatologist Interaction – MELAOV-PRO Cream for Hyperpigmentation",
+    description: "You are a Medical Sales Representative visiting a Dermatologist to discuss MELAOV-PRO Cream, a depigmenting and skin-brightening formulation. Your goal is to present the product, explain its benefits, and address clinical questions about hyperpigmentation, melasma, and related conditions in a professional, ethical, and scientific manner.",
+    userRole: "Dermatology Product Sales Executive",
+    difficulty: 'Easy',
+    role: "Senior Consultant Dermatologist",
+    initialPrompt: "Good afternoon. I see many patients with melasma and pigmentation issues. Please explain how your product works and what makes it different.",
+    tone: "Neutral",
+    learnerBrief: "In this roleplay, you are a Medical Sales Representative visiting a Dermatologist to discuss MELAOV-PRO Cream, a depigmenting and skin-brightening formulation. Your objective is to professionally present the product, explain its ingredients, mechanism of action, clinical benefits, and patient suitability, and handle questions related to hyperpigmentation, melasma, dark spots, and uneven skin tone. You must communicate ethically, scientifically, and confidently, as expected in a real dermatology practice setting.",
+    instructionsForLearner: [
+    "Greet the doctor politely",
+    "Introduce yourself and your organization",
+    "Ask permission to discuss the product briefly",
+    "Introduce MELAOV-PRO Cream",
+    "Explain its primary indications: Dark spots, Melasma (dermal & mixed), Uneven skin tone, Hyperpigmentation",
+    "Highlight key ingredients and their roles",
+    "Explain how Tranexamic Acid Peptide (Tranexell-V-10) works on melanogenesis",
+    "Discuss additional actives like: Alpha Arbutin, Mulberry Extract, Natural Vitamin E, L-Arginine",
+    "Respond to concerns on: Safety, Long-term usage, Comparison with other depigmenting agents, Patient compliance",
+    "Summarize benefits",
+    "Ask for clinical feedback",
+    "Thank the doctor for their time"
+  ]
   }
-];
+
+] as unknown as Scenario[];
 
 export const AVATAR_PLACEHOLDER_IMAGE = 'https://picsum.photos/200/200';
