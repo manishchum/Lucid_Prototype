@@ -1272,7 +1272,7 @@ function ContentTransformer({
                 console.log('[mindmap] Generating new mindmap');
                 setMindmapData(null);
                 const studyText = plainTranscript || module.content || '';
-                const res = await fetch('/api/generate-mindmap', {
+                const res = await fetch(`${API_BASE}/api/generate-mindmap`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ content: studyText, title: module.title }),

@@ -19,6 +19,8 @@ from content_generation_progress.route import router as content_generation_progr
 from tts.route import router as tts_router
 from gpt_video_generation.route import router as gpt_video_generation_router
 from generate_infographic.route import router as generate_infographic_router
+from flashcard_generation.route import router as flashcard_generation_router
+from generate_mindmap.route import router as generate_mindmap_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -56,6 +58,8 @@ app.include_router(content_generation_progress_router, prefix="/api", tags=["con
 app.include_router(tts_router, prefix="/api", tags=["text-to-speech"])
 app.include_router(gpt_video_generation_router, prefix="/api", tags=["gpt-video-generation"])
 app.include_router(generate_infographic_router, prefix="/api", tags=["generate-infographic"])
+app.include_router(flashcard_generation_router, prefix="/api", tags=["flashcard-generation"])
+app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindmap"])
 
 if __name__ == "__main__":
     import uvicorn

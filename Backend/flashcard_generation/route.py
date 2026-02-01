@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 router = APIRouter()
 
-COMMON_GEMINI_MODELS = ["gemini-3-pro-preview"]
+COMMON_GEMINI_MODELS = ["gemini-2.5-flash-lite"]
 
 # ---------------------------------------------------------------------
 # GEMINI HELPER (Python port of gemini-helper.ts)
@@ -53,7 +53,7 @@ async def callGemini(
 
                 try:
                     resp = await client.post(url, json=bodyToSend)
-                    text = await resp.text()
+                    text = resp.text  # Changed from await resp.text()
 
                     if resp.status_code < 200 or resp.status_code >= 300:
                         print("[gemini-helper] request failed", model, ep, resp.status_code, text[:500])
@@ -169,7 +169,7 @@ END_JSON
 
 Study Text:
 {content}"""
-
+    
         resp = await callGemini(prompt, {"maxOutputTokens": 800})
         print("[generate-flashcards-gemini] callGemini ok:", resp.get("ok"), "model:", resp.get("model"))
 
