@@ -146,6 +146,52 @@ export async function fetchAllScenarios(): Promise<{ data: Scenario[] | null; er
 }
 
 /**
+ * Fetch scenarios for a specific user (filtered by assignments)
+ * Admins see all scenarios, regular users only see assigned scenarios
+ */
+export async function fetchScenariosForUser(userId: string, isAdmin: boolean): Promise<{ data: Scenario[] | null; error: any }> {
+  try {
+    // Admin users see all scenarios
+    if (isAdmin) {
+      return await fetchAllScenarios();
+    }
+
+    // Get scenarios assigned to this user
+    const { data: assignedScenarioIds, error: assignError } = await getAssignedScenariosForUser(userId);
+    
+    if (assignError) {
+      console.error('Error fetching assigned scenarios:', assignError);
+      return { data: SCENARIOS, error: null };
+    }
+
+    // Fetch all scenarios first
+    const { data: allScenarios, error: scenError } = await fetchAllScenarios();
+    
+    if (scenError || !allScenarios) {
+      return { data: SCENARIOS, error: scenError };
+    }
+
+    // If no assignments, show only default scenarios
+    if (!assignedScenarioIds || assignedScenarioIds.length === 0) {
+      return { data: SCENARIOS, error: null };
+    }
+
+    // Filter scenarios to only show assigned ones + default scenarios
+    const filteredScenarios = allScenarios.filter(scenario => {
+      // Always show default scenarios (no isCustom flag)
+      if (!scenario.isCustom) return true;
+      // Show custom scenarios only if assigned
+      return (assignedScenarioIds as string[]).includes(scenario.id);
+    });
+
+    return { data: filteredScenarios, error: null };
+  } catch (error) {
+    console.error('Exception fetching scenarios for user:', error);
+    return { data: SCENARIOS, error };
+  }
+}
+
+/**
  * Update an existing custom scenario in the database
  */
 export async function updateCustomScenario(scenarioId: string, scenario: Scenario) {
@@ -197,6 +243,115 @@ export async function deleteCustomScenario(scenarioId: string) {
     return { error };
   } catch (error) {
     return { error };
+  }
+}
+
+/**
+ * Assign a scenario to departments, sub-departments, or users
+ */
+export async function assignScenario(
+  scenarioId: string,
+  assignmentType: 'department' | 'sub_department' | 'user',
+  targetIds: string[],
+  companyId: string
+) {
+  try {
+    const assignments = targetIds.map(targetId => ({
+      scenario_id: scenarioId,
+      assignment_type: assignmentType,
+      target_id: targetId,
+      company_id: companyId,
+      assigned_at: new Date().toISOString(),
+    }));
+
+    const { data, error } = await supabase
+      .from('scenario_assignments')
+      .upsert(assignments, {
+        onConflict: 'scenario_id,assignment_type,target_id',
+        ignoreDuplicates: false
+      })
+      .select();
+
+    return { data, error };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+/**
+ * Get assignments for a specific scenario
+ */
+export async function getScenarioAssignments(scenarioId: string) {
+  try {
+    const { data, error } = await supabase
+      .from('scenario_assignments')
+      .select('*')
+      .eq('scenario_id', scenarioId);
+
+    return { data, error };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+/**
+ * Remove scenario assignments
+ */
+export async function removeScenarioAssignments(assignmentIds: string[]) {
+  try {
+    const { error } = await supabase
+      .from('scenario_assignments')
+      .delete()
+      .in('assignment_id', assignmentIds);
+
+    return { error };
+  } catch (error) {
+    return { error };
+  }
+}
+
+/**
+ * Get scenarios assigned to a specific user
+ * Checks user's direct assignments and department assignments
+ */
+export async function getAssignedScenariosForUser(userId: string) {
+  try {
+    // Get user's department_id
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('department_id')
+      .eq('user_id', userId)
+      .single();
+
+    if (userError) {
+      console.error('Error fetching user data:', userError);
+      return { data: [], error: userError };
+    }
+
+    // Build OR condition for assignments
+    let orCondition = `target_id.eq.${userId}`;
+    if (userData.department_id) {
+      orCondition += `,target_id.eq.${userData.department_id}`;
+    }
+
+    // Get all assignments for this user (direct or department)
+    const { data: assignments, error: assignError } = await supabase
+      .from('scenario_assignments')
+      .select('scenario_id')
+      .or(orCondition);
+
+    if (assignError) {
+      console.error('Error fetching assignments:', assignError);
+      return { data: [], error: assignError };
+    }
+
+    // Extract unique scenario IDs
+    const scenarioIds = [...new Set(assignments?.map((a: any) => a.scenario_id) || [])];
+    
+    return { data: scenarioIds, error: null };
+  } catch (error) {
+    console.error('Exception in getAssignedScenariosForUser:', error);
+    return { data: [], error };
   }
 }
 

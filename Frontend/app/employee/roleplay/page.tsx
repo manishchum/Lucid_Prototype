@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, Loader2, Edit2, Trash2 } from 'lucide-react';
+import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
 import EmployeeNavigation from '@/components/employee-navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
-import { fetchAllScenarios, deleteCustomScenario } from '@/lib/roleplayDatabase';
+import { fetchScenariosForUser, deleteCustomScenario, assignScenario, getScenarioAssignments } from '@/lib/roleplayDatabase';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import RolePlayConversation from '@/components/roleplay/RolePlayConversation';
@@ -57,17 +57,28 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   const [allScenarios, setAllScenarios] = useState<Scenario[]>([]);
   const [loadingScenarios, setLoadingScenarios] = useState<boolean>(true);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [showAssignModal, setShowAssignModal] = useState<boolean>(false);
+  const [assigningScenario, setAssigningScenario] = useState<Scenario | null>(null);
+  const [assignmentType, setAssignmentType] = useState<'department' | 'sub_department' | 'user'>('user');
+  const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [subDepartments, setSubDepartments] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [companyId, setCompanyId] = useState<string>('');
+  const [userId, setUserId] = useState<string>('');
+  
   // Fetch all scenarios from the database on mount
   useEffect(() => {
     const fetchScenarios = async () => {
+      if (!userId) return;
       setLoadingScenarios(true);
-      const { data, error } = await fetchAllScenarios();
+      const { data, error } = await fetchScenariosForUser(userId, isAdmin);
       if (data) setAllScenarios(data);
       if (error) setError('Failed to load scenarios');
       setLoadingScenarios(false);
     };
     fetchScenarios();
-  }, []);
+  }, [userId, isAdmin]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -102,7 +113,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         try {
           const { data, error } = await supabase
             .from('users')
-            .select('user_id')
+            .select('user_id, company_id')
             .eq('email', user.email)
             .single();
 
@@ -110,6 +121,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
             console.error('Error fetching employee ID:', error);
           } else if (data) {
             setEmployeeId(data.user_id);
+            setUserId(data.user_id);
+            setCompanyId(data.company_id);
           }
         } catch (error) {
           console.error('Exception fetching employee ID:', error);
@@ -201,7 +214,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       }
 
       // Refresh scenarios list
-      const { data, error: fetchError } = await fetchAllScenarios();
+      const { data, error: fetchError } = await fetchScenariosForUser(userId, isAdmin);
       if (data) {
         setAllScenarios(data);
       }
@@ -216,6 +229,78 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     } catch (err) {
       console.error('Exception deleting scenario:', err);
       setError('Failed to delete scenario');
+    }
+  };
+
+  const handleAssignScenario = async (scenario: Scenario, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click
+    setAssigningScenario(scenario);
+    setShowAssignModal(true);
+    
+    // Fetch departments (where sub_department_name IS NULL) and users for the dropdown
+    try {
+      // Fetch departments (entries with department_name and no sub_department_name)
+      const { data: deptData } = await supabase
+        .from('sub_department')
+        .select('department_id, department_name')
+        // .is('sub_department_name', null);
+      
+      // Remove duplicates based on department_name
+      const uniqueDepts = deptData?.reduce((acc: any[], curr: any) => {
+        if (!acc.find(d => d.department_name === curr.department_name)) {
+          acc.push(curr);
+        }
+        return acc;
+      }, []);
+      setDepartments(uniqueDepts || []);
+
+      // Fetch sub-departments (entries with both department_name and sub_department_name)
+      const { data: subDeptData } = await supabase
+        .from('sub_department')
+        .select('department_id, department_name, sub_department_name')
+        .not('sub_department_name', 'is', null);
+      setSubDepartments(subDeptData || []);
+
+      // Fetch users for this company
+      const { data: usersData } = await supabase
+        .from('users')
+        .select('user_id, name, email, department_id')
+        .eq('company_id', companyId)
+        .eq('is_active', true);
+      setUsers(usersData || []);
+    } catch (error) {
+      console.error('Error fetching assignment targets:', error);
+    }
+  };
+
+  const handleSaveAssignment = async () => {
+    if (!assigningScenario || selectedTargets.length === 0) {
+      alert('Please select at least one target');
+      return;
+    }
+
+    try {
+      const { error } = await assignScenario(
+        assigningScenario.id,
+        assignmentType,
+        selectedTargets,
+        companyId
+      );
+
+      if (error) {
+        console.error('Error assigning scenario:', error);
+        setError('Failed to assign scenario');
+        return;
+      }
+
+      // Close modal and reset
+      setShowAssignModal(false);
+      setAssigningScenario(null);
+      setSelectedTargets([]);
+      alert('Scenario assigned successfully!');
+    } catch (err) {
+      console.error('Exception assigning scenario:', err);
+      setError('Failed to assign scenario');
     }
   };
 
@@ -428,9 +513,16 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                   }`}
                   onClick={() => setSelectedScenario(scenario)}
                 >
-                  {/* Edit and Delete buttons for custom scenarios - admin only */}
+                  {/* Edit, Delete, and Assign buttons for custom scenarios - admin only */}
                   {isAdmin && scenario.isCustom && (
                     <div className="absolute top-3 right-3 flex gap-2">
+                      <button
+                        onClick={(e) => handleAssignScenario(scenario, e)}
+                        className="p-2 rounded-lg bg-slate-100 hover:bg-green-100 text-slate-600 hover:text-green-600 transition-colors"
+                        title="Assign scenario"
+                      >
+                        <UserPlus className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={(e) => handleEditScenario(scenario, e)}
                         className="p-2 rounded-lg bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-600 transition-colors"
@@ -682,6 +774,137 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                 className="bg-purple-600 hover:bg-purple-700"
               >
                 Start Roleplay
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assignment Modal */}
+      {showAssignModal && assigningScenario && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-slate-200">
+              <h2 className="text-2xl font-bold text-slate-900">Assign Roleplay Scenario</h2>
+              <p className="text-slate-600 mt-1">Assign "{assigningScenario.title}" to departments, sub-departments, or users</p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Assignment Type */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Assignment Type *
+                </label>
+                <select
+                  value={assignmentType}
+                  onChange={(e) => {
+                    setAssignmentType(e.target.value as any);
+                    setSelectedTargets([]);
+                  }}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                >
+                  <option value="user">Individual Users</option>
+                  <option value="sub_department">Sub-Department</option>
+                  <option value="department">Department</option>
+                </select>
+              </div>
+
+              {/* Target Selection */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Select Targets *
+                </label>
+                
+                {assignmentType === 'department' && (
+                  <div className="space-y-2 max-h-64 overflow-y-auto border border-slate-300 rounded-lg p-2">
+                    {departments.map((dept) => (
+                      <label key={dept.department_id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedTargets.includes(dept.department_id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedTargets([...selectedTargets, dept.department_id]);
+                            } else {
+                              setSelectedTargets(selectedTargets.filter(id => id !== dept.department_id));
+                            }
+                          }}
+                          className="w-4 h-4"
+                        />
+                        <span className="text-sm">{dept.department_name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                {assignmentType === 'sub_department' && (
+                  <div className="space-y-2 max-h-64 overflow-y-auto border border-slate-300 rounded-lg p-2">
+                    {subDepartments.map((subDept) => (
+                      <label key={subDept.department_id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedTargets.includes(subDept.department_id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedTargets([...selectedTargets, subDept.department_id]);
+                            } else {
+                              setSelectedTargets(selectedTargets.filter(id => id !== subDept.department_id));
+                            }
+                          }}
+                          className="w-4 h-4"
+                        />
+                        <span className="text-sm">{subDept.department_name} - {subDept.sub_department_name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                {assignmentType === 'user' && (
+                  <div className="space-y-2 max-h-64 overflow-y-auto border border-slate-300 rounded-lg p-2">
+                    {users.map((user) => (
+                      <label key={user.user_id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedTargets.includes(user.user_id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedTargets([...selectedTargets, user.user_id]);
+                            } else {
+                              setSelectedTargets(selectedTargets.filter(id => id !== user.user_id));
+                            }
+                          }}
+                          className="w-4 h-4"
+                        />
+                        <span className="text-sm">{user.name} ({user.email})</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                <p className="text-xs text-slate-500 mt-2">
+                  {selectedTargets.length} target(s) selected
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-slate-200 flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowAssignModal(false);
+                  setAssigningScenario(null);
+                  setSelectedTargets([]);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveAssignment}
+                className="bg-green-600 hover:bg-green-700"
+                disabled={selectedTargets.length === 0}
+              >
+                Assign Scenario
               </Button>
             </div>
           </div>
