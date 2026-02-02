@@ -79,7 +79,7 @@ async def callGemini(prompt: str, opts: Optional[Dict[str, Any]] = None) -> Dict
         temperature = opts.get("temperature", 0.35)
         maxOutputTokens = opts.get("maxOutputTokens", 1200)
 
-        model = genai.GenerativeModel("gemini-3-pro-preview")
+        model = genai.GenerativeModel("gemini-2.5-flash-lite")
         result = model.generate_content(
             prompt,
             generation_config={
@@ -185,7 +185,7 @@ def buildGeminiPodcastPrompt(moduleTitle: str, moduleContent: str, language: Lit
         else "Generate the entire podcast script in English."
     )
 
-    dialogueCount = "12-15" if language == "hinglish" else "20-30"
+    dialogueCount = "30-45" if language == "hinglish" else "20-30"
 
     speakers = (
         "- Pooja (host) - Hindi mein baat karti hai, enthusiastic, warm, naturally curious\n"

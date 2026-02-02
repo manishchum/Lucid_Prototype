@@ -1272,7 +1272,7 @@ function ContentTransformer({
                 console.log('[mindmap] Generating new mindmap');
                 setMindmapData(null);
                 const studyText = plainTranscript || module.content || '';
-                const res = await fetch('/api/generate-mindmap', {
+                const res = await fetch(`${API_BASE}/api/generate-mindmap`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ content: studyText, title: module.title }),
@@ -1362,7 +1362,7 @@ function ContentTransformer({
                 console.log('[flashcards] Generating new flashcards');
                 const studyText = plainTranscript || module.content || '';
                 console.log('[flashcards] starting fetch, studyText length:', (studyText || '').length);
-                const res = await fetch('/api/generate-flashcards-gemini', {
+                const res = await fetch(`${API_BASE}/api/generate-flashcards-gemini`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ content: studyText }),
@@ -1481,7 +1481,7 @@ function ContentTransformer({
                 }
                 
                 console.log('[infographic] Calling API...');
-                const res = await fetch('/api/generate-infographic', {
+                const res = await fetch(`${API_BASE}/api/generate-infographic`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ 
