@@ -11,7 +11,11 @@
   "dependencies": {
     "@firebase/auth": "^1.11.0",
     "@google-cloud/text-to-speech": "^6.4.0",
+<<<<<<< HEAD
     "@google/genai": "^1.39.0",
+=======
+    "@google/genai": "^1.38.0",
+>>>>>>> d996426747a38c4e1903a2c0bd59f48ca040b4c1
     "@google/generative-ai": "^0.2.1",
     "@hookform/resolvers": "^3.9.1",
     "@radix-ui/react-accordion": "1.2.2",

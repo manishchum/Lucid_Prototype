@@ -1,13 +1,17 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Save, Play, AlertCircle } from 'lucide-react';
 import EmployeeNavigation from '@/components/employee-navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Scenario } from '@/lib/roleplay/types';
-import { insertCustomScenario } from '@/lib/roleplayDatabase';
+import { insertCustomScenario, updateCustomScenario } from '@/lib/roleplayDatabase';
+import { useAuth } from '@/contexts/auth-context';
+import { supabase } from '@/lib/supabase';
+let userId:any = '';
+let userCompanyId:any = '';
 
 interface CustomRoleplayData {
   // Basic Info
@@ -46,8 +50,15 @@ interface CustomRoleplayData {
 
 export default function CreateRoleplayPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isEditMode = searchParams.get('edit') === 'true';
+
+  const { user, loading: authLoading, logout } = useAuth();
+      
+    
   const [activeTab, setActiveTab] = useState<string>('learner-brief');
   const [hasSavedDraft, setHasSavedDraft] = useState<boolean>(false);
+  const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
   const [formData, setFormData] = useState<CustomRoleplayData>({
     title: '',
     description: '',
@@ -72,13 +83,88 @@ export default function CreateRoleplayPage() {
   });
   const [errors, setErrors] = useState<string[]>([]);
 
-  // Check for saved draft on component mount
   useEffect(() => {
-    const savedDraft = localStorage.getItem('roleplayDraft');
-    if (savedDraft) {
-      setHasSavedDraft(true);
+    if(user?.email)fetchUserData();
+  },[user])
+  
+  // Check for saved draft or edit scenario on component mount
+  useEffect(() => {
+    // Load scenario for editing if in edit mode
+    if (isEditMode) {
+      const editScenarioData = sessionStorage.getItem('editScenario');
+      if (editScenarioData) {
+        try {
+          const scenario: Scenario = JSON.parse(editScenarioData);
+          setEditingScenarioId(scenario.id);
+          
+          // Ensure evaluationParams is an array
+          let evalParams = [
+            { name: 'Communication Skills', description: 'Clarity and effectiveness of communication', weight: 25 },
+            { name: 'Problem Solving', description: 'Ability to address challenges', weight: 25 },
+            { name: 'Professionalism', description: 'Professional demeanor and approach', weight: 25 },
+            { name: 'Goal Achievement', description: 'Success in meeting objectives', weight: 25 },
+          ];
+          
+          if (scenario.evaluationParams) {
+            if (Array.isArray(scenario.evaluationParams)) {
+              evalParams = scenario.evaluationParams;
+            } else if (typeof scenario.evaluationParams === 'object') {
+              // If it's an object, try to convert it to array format
+              evalParams = Object.entries(scenario.evaluationParams).map(([name, desc]: [string, any]) => ({
+                name,
+                description: typeof desc === 'string' ? desc : String(desc),
+                weight: 25
+              }));
+            }
+          }
+          
+          setFormData({
+            title: scenario.title || '',
+            description: scenario.description || '',
+            learnerBrief: scenario.learnerBrief || '',
+            aiRole: scenario.role || '',
+            // aiPersonality: scenario.aiPersonality || '',
+            aiObjectives: scenario.aiObjectives || '',
+            endConditions: scenario.endConditions || '',
+            maxDuration: scenario.maxDuration || 15,
+            minTurns: scenario.minTurns || 5,
+            evaluationParameters: evalParams,
+            cutoffScore: scenario.passingScore || 60,
+            difficulty: scenario.difficulty || 'Medium',
+            tone: scenario.tone || 'Neutral',
+            userRole: scenario.userRole || '',
+            initialPrompt: scenario.initialPrompt || '',
+          });
+          // Clear from sessionStorage
+          sessionStorage.removeItem('editScenario');
+        } catch (error) {
+          console.error('Error loading edit scenario:', error);
+        }
+      }
+    } else {
+      // Check for saved draft
+      const savedDraft = localStorage.getItem('roleplayDraft');
+      if (savedDraft) {
+        setHasSavedDraft(true);
+      }
     }
-  }, []);
+  }, [isEditMode]);
+
+  const fetchUserData = async () => {
+    console.log('Fetching user data...');
+    if (user) {
+      const {data:userData} = await supabase.from('users').select('user_id,company_id').eq('email',user.email).single();
+      if(userData) {
+        userId = userData.user_id;
+        userCompanyId = userData.company_id;
+      }
+      console.log('Fetched user ID:', userId);
+      console.log('Fetched user Company ID:', userCompanyId);
+    }else{
+      console.log('User not logged in yet.');
+    }
+  
+  }
 
   // Predefined options
   const scenarioTemplates = [
@@ -184,7 +270,7 @@ export default function CreateRoleplayPage() {
 
     // Create a scenario object from the form data
     const customScenario: Scenario = {
-      id: 'custom-' + Date.now(),
+      id: editingScenarioId || ('custom-' + Date.now()),
       title: formData.title,
       description: formData.description || formData.learnerBrief,
       role: formData.aiRole,
@@ -193,7 +279,7 @@ export default function CreateRoleplayPage() {
       userRole: formData.userRole,
       tone: formData.tone,
       learnerBrief: formData.learnerBrief,
-      aiPersonality: formData.aiPersonality,
+      // aiPersonality: formData.aiPersonality,
       aiObjectives: formData.aiObjectives,
       maxDuration: formData.maxDuration,
       minTurns: formData.minTurns,
@@ -202,22 +288,38 @@ export default function CreateRoleplayPage() {
       passingScore: formData.cutoffScore
     };
 
-    // Save scenario (local only, no DB)
-    const { error } = await insertCustomScenario(customScenario);
-    // In local mode, error will always be null
+    // Save or update scenario
+    if (isEditMode && editingScenarioId) {
+      // Update existing scenario
+      const { error } = await updateCustomScenario(editingScenarioId, customScenario);
+      if (error) {
+        alert('Failed to update scenario: ' + error.message);
+        return;
+      }
+      alert('Scenario updated successfully!');
+      // Navigate back to roleplay selection
+      router.push('/employee/roleplay');
+    } else {
+      // Create new scenario
+      const { error } = await insertCustomScenario(customScenario, userCompanyId);
+      if (error) {
+        alert('Failed to create scenario: ' + error.message);
+        return;
+      }
 
-    // Optionally: Store the custom scenario and evaluation details in sessionStorage for immediate use
-    sessionStorage.setItem('customScenario', JSON.stringify(customScenario));
-    sessionStorage.setItem('customEvaluation', JSON.stringify({
-      parameters: formData.evaluationParameters,
-      cutoffScore: formData.cutoffScore,
-      endConditions: formData.endConditions,
-      maxDuration: formData.maxDuration,
-      minTurns: formData.minTurns,
-    }));
+      // Store the custom scenario and evaluation details in sessionStorage for immediate use
+      sessionStorage.setItem('customScenario', JSON.stringify(customScenario));
+      sessionStorage.setItem('customEvaluation', JSON.stringify({
+        parameters: formData.evaluationParameters,
+        cutoffScore: formData.cutoffScore,
+        endConditions: formData.endConditions,
+        maxDuration: formData.maxDuration,
+        minTurns: formData.minTurns,
+      }));
 
-    // Navigate to the roleplay page
-    router.push('/employee/roleplay?custom=true');
+      // Navigate to the roleplay page
+      router.push('/employee/roleplay?custom=true');
+    }
   };
 
   const handleSaveDraft = () => {
@@ -319,12 +421,16 @@ export default function CreateRoleplayPage() {
                 <div className="flex items-center gap-3">
                   <div className="text-4xl">✨</div>
                   <div>
-                    <h1 className="text-2xl font-bold text-slate-900">Create Your Own Roleplay</h1>
-                    <p className="text-slate-600 mt-1">Design a custom scenario tailored to your specific needs</p>
+                    <h1 className="text-2xl font-bold text-slate-900">
+                      {isEditMode ? 'Edit Roleplay Scenario' : 'Create Your Own Roleplay'}
+                    </h1>
+                    <p className="text-slate-600 mt-1">
+                      {isEditMode ? 'Update your custom scenario configuration' : 'Design a custom scenario tailored to your specific needs'}
+                    </p>
                   </div>
                 </div>
                 <div className="flex gap-3">
-                  {hasSavedDraft && (
+                  {hasSavedDraft && !isEditMode && (
                     <>
                       <Button 
                         variant="outline"
@@ -349,8 +455,17 @@ export default function CreateRoleplayPage() {
                   >
                     {isLastTab() ? (
                       <>
-                        <Play className="w-4 h-4" />
-                        Start Roleplay
+                        {isEditMode ? (
+                          <>
+                            <Save className="w-4 h-4" />
+                            Update Scenario
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-4 h-4" />
+                            Save roleplay
+                          </>
+                        )}
                       </>
                     ) : (
                       <>
@@ -798,7 +913,7 @@ In this exercise, you will interact with a virtual character to practice and imp
                     </div>
 
                     <div className="space-y-4">
-                      {formData.evaluationParameters.map((param, index) => (
+                      {(Array.isArray(formData.evaluationParameters) ? formData.evaluationParameters : []).map((param, index) => (
                         <Card key={index} className="p-4 bg-slate-50">
                           <div className="flex items-start gap-4">
                             <div className="flex-1 space-y-3">

@@ -1,24 +1,208 @@
 // --- Custom Scenario DB Functions ---
 import { Scenario } from './roleplay/types';
 import { SCENARIOS } from './roleplay/constants';
+import { supabase } from './supabase';
 
 /**
  * Insert a new scenario into the public scenario table
  */
-export async function insertCustomScenario(scenario: Scenario) {
-  // No-op: In local mode, just return success. Optionally, you could push to SCENARIOS if mutability is needed.
-  return { data: scenario, error: null };
+export async function insertCustomScenario(scenario: Scenario, companyId:string) {
+  // Persist the custom scenario into Supabase `scenarios` table.
+  // Map the in-memory Scenario shape to the DB schema. The DB schema uses array columns for
+  // several fields (text[] / jsonb[] / bigint[]). For compatibility we wrap scalar values
+  // into single-element arrays where appropriate.
+  try {
+    console.log('Inserting scenario for company ID:', companyId);
+    const payload: any = {
+      title: scenario.title || null,
+      description: scenario.description || null,
+      userRole: scenario.userRole || null,
+      difficulty: scenario.difficulty || null,
+      role: scenario.role || null,
+      initialPrompt: scenario.initialPrompt || null,
+      tone: scenario.tone || null,
+      learnerBrief: scenario.learnerBrief || null,
+      // instructionsForLearner not present on the UI model yet
+      // instructionsForLearner: scenario.learnerBrief || null,
+      company_id: companyId || null,
+      // normalize optional fields into arrays expected by the DB schema
+      // aiPersonality: scenario.aiPersonality ? [scenario.aiPersonality] : null,
+      aiObjective: scenario.aiObjectives ? [scenario.aiObjectives] : null,
+      maxDuration: typeof scenario.maxDuration === 'number' ? [scenario.maxDuration] : null,
+      minTurns: typeof scenario.minTurns === 'number' ? [scenario.minTurns] : null,
+      endConditions: scenario.endConditions ? [scenario.endConditions] : null,
+      evaluationParams: scenario.evaluationParams && scenario.evaluationParams.length ? scenario.evaluationParams : null,
+      passingScore: typeof scenario.passingScore === 'number' ? [scenario.passingScore] : null,
+    };
+
+    console.log('Inserting custom scenario:', payload);
+    const { data, error } = await supabase
+      .from('scenarios')
+      .insert(payload)
+      .select()
+      .single();
+
+    return { data, error };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 /**
- * Fetch all scenarios (default + custom) from the constants file
+ * Fetch all scenarios (default + custom from database)
  */
 export async function fetchAllScenarios(): Promise<{ data: Scenario[] | null; error: any }> {
-  return { data: SCENARIOS, error: null };
+  try {
+    // Fetch custom scenarios from database
+    const { data: dbScenarios, error: dbError } = await supabase
+      .from('scenarios')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (dbError) {
+      console.error('Error fetching custom scenarios:', dbError);
+      // Return default scenarios even if DB fetch fails
+      return { data: SCENARIOS, error: null };
+    }
+
+    // Map database scenarios to Scenario type
+    const customScenarios: Scenario[] = (dbScenarios || []).map((dbScenario: any) => {
+      // Normalize difficulty to ensure proper capitalization
+      let difficulty = dbScenario.difficulty || 'Medium';
+      const difficultyLower = difficulty.toLowerCase();
+      if (difficultyLower === 'easy') difficulty = 'Easy';
+      else if (difficultyLower === 'medium') difficulty = 'Medium';
+      else if (difficultyLower === 'hard') difficulty = 'Hard';
+      
+      return {
+        id: dbScenario.scenario_id,
+        title: dbScenario.title || '',
+        description: dbScenario.description || '',
+        role: dbScenario.role || '',
+        difficulty: difficulty,
+        initialPrompt: dbScenario.initialPrompt || '',
+        userRole: dbScenario.userRole || '',
+        tone: dbScenario.tone || 'Neutral',
+        learnerBrief: dbScenario.learnerBrief || '',
+        // aiPersonality: Array.isArray(dbScenario.aiPersonality) ? dbScenario.aiPersonality[0] : dbScenario.aiPersonality,
+        aiObjectives: Array.isArray(dbScenario.aiObjective) ? dbScenario.aiObjective[0] : dbScenario.aiObjective,
+        maxDuration: Array.isArray(dbScenario.maxDuration) ? dbScenario.maxDuration[0] : dbScenario.maxDuration,
+        minTurns: Array.isArray(dbScenario.minTurns) ? dbScenario.minTurns[0] : dbScenario.minTurns,
+        endConditions: Array.isArray(dbScenario.endConditions) ? dbScenario.endConditions[0] : dbScenario.endConditions,
+        evaluationParams: Array.isArray(dbScenario.evaluationParams) ? dbScenario.evaluationParams[0] : dbScenario.evaluationParams,
+        passingScore: Array.isArray(dbScenario.passingScore) ? dbScenario.passingScore[0] : dbScenario.passingScore,
+        isCustom: true, // Mark as custom so we know it can be edited
+      };
+    });
+
+    // Remove duplicates from customScenarios based on title (case-insensitive)
+    const seenTitles = new Map<string, Scenario>();
+    const uniqueCustomScenarios: Scenario[] = [];
+    
+    for (const scenario of customScenarios) {
+      const normalizedTitle = scenario.title.toLowerCase().trim();
+      if (!seenTitles.has(normalizedTitle)) {
+        seenTitles.set(normalizedTitle, scenario);
+        uniqueCustomScenarios.push(scenario);
+      }
+    }
+
+    // Create a Set of custom scenario titles to check for duplicates with default scenarios
+    const customTitles = new Set(uniqueCustomScenarios.map(s => s.title.toLowerCase().trim()));
+    
+    console.log('🔍 Custom Titles:', Array.from(customTitles));
+    console.log('🔍 Default Scenarios Before Filter:', SCENARIOS.map(s => s.title));
+    
+    // Filter out default scenarios that have the same title as custom ones
+    const uniqueDefaultScenarios = SCENARIOS.filter(
+      defaultScenario => !customTitles.has(defaultScenario.title.toLowerCase().trim())
+    );
+    
+    console.log('🔍 Default Scenarios After Filter:', uniqueDefaultScenarios.map(s => s.title));
+
+    // Combine filtered default scenarios with unique custom ones (custom first so they appear at top)
+    const allScenarios = [...uniqueCustomScenarios, ...uniqueDefaultScenarios];
+    
+    // Sort scenarios by difficulty: Easy -> Medium -> Hard
+    const difficultyOrder: { [key: string]: number } = { 'Easy': 1, 'Medium': 2, 'Hard': 3 };
+    allScenarios.sort((a, b) => {
+      const orderA = difficultyOrder[a.difficulty] || 2;
+      const orderB = difficultyOrder[b.difficulty] || 2;
+      return orderA - orderB;
+    });
+    
+    // Debug: Log sorted scenarios
+    console.log('🎭 Sorted Scenarios:', allScenarios.map(s => ({ 
+      title: s.title, 
+      difficulty: s.difficulty,
+      order: difficultyOrder[s.difficulty] || 2
+    })));
+    
+    return { data: allScenarios, error: null };
+  } catch (error) {
+    console.error('Exception fetching scenarios:', error);
+    return { data: SCENARIOS, error };
+  }
 }
+
+/**
+ * Update an existing custom scenario in the database
+ */
+export async function updateCustomScenario(scenarioId: string, scenario: Scenario) {
+  try {
+    const payload: any = {
+      title: scenario.title || null,
+      description: scenario.description || null,
+      userRole: scenario.userRole || null,
+      difficulty: scenario.difficulty || null,
+      role: scenario.role || null,
+      initialPrompt: scenario.initialPrompt || null,
+      // tone: scenario.tone || null,
+      learnerBrief: scenario.learnerBrief || null,
+      // instructionsForLearner: null,
+      // aiPersonality: scenario.aiPersonality ? [scenario.aiPersonality] : null,
+      aiObjective: scenario.aiObjectives ? [scenario.aiObjectives] : null,
+      maxDuration: typeof scenario.maxDuration === 'number' ? [scenario.maxDuration] : null,
+      minTurns: typeof scenario.minTurns === 'number' ? [scenario.minTurns] : null,
+      endConditions: scenario.endConditions ? [scenario.endConditions] : null,
+      evaluationParams: scenario.evaluationParams && scenario.evaluationParams.length ? scenario.evaluationParams : null,
+      passingScore: typeof scenario.passingScore === 'number' ? [scenario.passingScore] : null,
+    };
+
+    console.log('Updating scenario:', scenarioId, payload);
+    const { data, error } = await supabase
+      .from('scenarios')
+      .update(payload)
+      .eq('scenario_id', scenarioId)
+      .select()
+      .single();
+
+    return { data, error };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+/**
+ * Delete a custom scenario from the database
+ */
+export async function deleteCustomScenario(scenarioId: string) {
+  try {
+    console.log('Deleting scenario:', scenarioId);
+    const { error } = await supabase
+      .from('scenarios')
+      .delete()
+      .eq('scenario_id', scenarioId);
+
+    return { error };
+  } catch (error) {
+    return { error };
+  }
+}
+
 // Helper functions for role-play session database operations
-import { supabase } from './supabase';
 import { Message } from './roleplay/types';
+import { callGemini } from './gemini-helper';
 
 export interface RolePlaySession {
   id?: string;
