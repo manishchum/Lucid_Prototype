@@ -56,7 +56,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   });
   const [allScenarios, setAllScenarios] = useState<Scenario[]>([]);
   const [loadingScenarios, setLoadingScenarios] = useState<boolean>(true);
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [showAssignModal, setShowAssignModal] = useState<boolean>(false);
   const [assigningScenario, setAssigningScenario] = useState<Scenario | null>(null);
   const [assignmentType, setAssignmentType] = useState<'department' | 'sub_department' | 'user'>('user');
@@ -71,14 +71,25 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   useEffect(() => {
     const fetchScenarios = async () => {
       if (!userId) return;
+      
       setLoadingScenarios(true);
+      console.log('Fetching Scenarios for user id:', userId, 'isAdmin:', isAdmin);
+      
       const { data, error } = await fetchScenariosForUser(userId, isAdmin);
-      if (data) setAllScenarios(data);
+
+      console.log('Fetched scenarios:', data);
+      if (data) {
+        setAllScenarios(data);
+      }
       if (error) setError('Failed to load scenarios');
       setLoadingScenarios(false);
     };
-    fetchScenarios();
-  }, [userId, isAdmin]);
+
+    // Only fetch scenarios after we have userId (which means admin check is done)
+    if (userId) {
+      fetchScenarios();
+    }
+  }, [isAdmin]); // Depend on both userId and isAdmin
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -134,21 +145,26 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
   // Check if user has admin role
   useEffect(() => {
-    const checkAdminRole = async () => {
+    const fetchUserDataAndCheckAdmin = async () => {
       if (user?.email) {
         try {
           // Get user data
           const { data: userData, error: userError } = await supabase
             .from('users')
-            .select('user_id')
+            .select('user_id, company_id')
             .eq('email', user.email)
             .eq('is_active', true)
             .single();
 
           if (userError || !userData) {
+            console.error('Error fetching user data:', userError);
             setIsAdmin(false);
             return;
           }
+
+          setEmployeeId(userData.user_id);
+          setUserId(userData.user_id);
+          setCompanyId(userData.company_id);
 
           // Check user role assignments
           const { data: roleData, error: roleError } = await supabase
@@ -162,6 +178,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
             .eq('scope_type', 'COMPANY');
 
           if (roleError || !roleData || roleData.length === 0) {
+            console.log('No admin role found');
             setIsAdmin(false);
             return;
           }
@@ -171,14 +188,16 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
             ['admin', 'super_admin', 'ceo'].includes(assignment.roles?.name?.toLowerCase())
           );
 
+          console.log('User is admin:', hasAdminRole);
           setIsAdmin(hasAdminRole);
         } catch (error) {
-          console.error('Error checking admin role:', error);
+          console.error('Error in fetchUserDataAndCheckAdmin:', error);
           setIsAdmin(false);
         }
       }
     };
-    checkAdminRole();
+
+    fetchUserDataAndCheckAdmin();
   }, [user]);
 
   const handleScenarioSelect = (scenario: Scenario) => {
@@ -215,6 +234,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
       // Refresh scenarios list
       const { data, error: fetchError } = await fetchScenariosForUser(userId, isAdmin);
+      console.log('scenarios for the admins',data);
       if (data) {
         setAllScenarios(data);
       }
@@ -280,6 +300,9 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     }
 
     try {
+      console.log("Inside the save assignment");
+      console.log(selectedTargets);
+      
       const { error } = await assignScenario(
         assigningScenario.id,
         assignmentType,
@@ -515,6 +538,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                 >
                   {/* Edit, Delete, and Assign buttons for custom scenarios - admin only */}
                   {isAdmin && scenario.isCustom && (
+                    
                     <div className="absolute top-3 right-3 flex gap-2">
                       <button
                         onClick={(e) => handleAssignScenario(scenario, e)}
@@ -574,7 +598,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
               ))}
               
               {/* Create Your Own Roleplay Card - Only show for admins */}
-              {isAdmin && (
+              {isAdmin === true && (
                 <Card
                   className="cursor-pointer p-6 hover:border-purple-400 hover:shadow-lg transition-all border-2 border-dashed border-purple-300 bg-purple-50/30"
                   onClick={() => router.push('/employee/roleplay/create')}
