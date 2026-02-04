@@ -185,7 +185,7 @@ def buildGeminiPodcastPrompt(moduleTitle: str, moduleContent: str, language: Lit
         else "Generate the entire podcast script in English."
     )
 
-    dialogueCount = "12-15" if language == "hinglish" else "20-30"
+    dialogueCount = "30-45" if language == "hinglish" else "20-30"
 
     speakers = (
         "- Pooja (host) - Hindi mein baat karti hai, enthusiastic, warm, naturally curious\n"

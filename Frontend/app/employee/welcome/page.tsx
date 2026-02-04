@@ -57,6 +57,7 @@ export default function EmployeeWelcome() {
   const [showLoginToast, setShowLoginToast] = useState<boolean>(false);
   const [isNavOverlay, setIsNavOverlay] = useState<boolean>(false);
   const [showAllModules, setShowAllModules] = useState<boolean>(false);
+  const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(true);
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   
   const toastShownRef = useRef(false);
@@ -240,6 +241,11 @@ export default function EmployeeWelcome() {
         .from("employee_learning_style").select("learning_style").eq("user_id", employeeData.user_id).maybeSingle();
       setLearningStyle(styleData?.learning_style || null);
 
+      // Fetch company learning style setting
+      const { data: companySettings } = await supabase
+        .from("companies").select("learning_style").eq("company_id", employeeData.company_id).maybeSingle();
+      setCompanyLearningStyleEnabled(companySettings.learning_style);
+      console.log("Company Learning Style Enabled:", companySettings.learning_style);
       // Fetch Plans & Progress (Your specific logic)
       const { data: planRows } = await supabase.from('learning_plan').select('*').eq('user_id', employeeData.user_id);
       const requiresBaseline = planRows?.some((plan: any) => plan.baseline_assessment === 1) ?? true;
@@ -440,98 +446,100 @@ export default function EmployeeWelcome() {
             )}
 
             {/* Learning Style Card (Sequential Logic) */}
-            <Card className="rounded-2xl border-none shadow-sm bg-white overflow-visible">
-              <CardContent className="p-8">
-                {learningStyle ? (
-                  <div className="flex items-center gap-10">
-                    <div className="w-24 h-24 rounded-full bg-blue-600 text-white flex items-center justify-center text-3xl font-black shadow-xl shadow-blue-100">
-                      {learningStyle}
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-lg font-extrabold text-slate-900">Your Learning Style</h4>
-                      <div className="mt-2 text-slate-500">
-                        <LearningStyleBlurb styleCode={learningStyle} />
+            {companyLearningStyleEnabled && (
+              <Card className="rounded-2xl border-none shadow-sm bg-white overflow-visible">
+                <CardContent className="p-8">
+                  {learningStyle ? (
+                    <div className="flex items-center gap-10">
+                      <div className="w-24 h-24 rounded-full bg-blue-600 text-white flex items-center justify-center text-3xl font-black shadow-xl shadow-blue-100">
+                        {learningStyle}
                       </div>
-                      <Button variant="link" className="text-blue-600 font-bold p-0 h-auto mt-4" onClick={() => router.push('/employee/score-history')}>
-                        Get full report <ArrowRight size={14} className="ml-1" />
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between relative">
-                    <div className="max-w-md">
-                      <h4 className="text-xl font-black text-slate-900 mb-2">Discover Your Learning Style
-                      </h4>
-                      <p className="text-slate-500 font-medium">Take our 5-minute cognitive survey to unlock your personalized training path.</p>
-                    </div>
-                    
-                    <div className="relative">
-                      {/* Profile Dropdown - Commented Out */}
-                      {/* 
-                      <button
-                        onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
-                  >
-                      <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white">
-                        <User className="w-5 h-5" />
-                      </div>
-                      <span className="text-sm font-medium text-gray-700">
-                        {employee?.name || user?.displayName || "Profile"}
-                </span>
-                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${showProfileDropdown ? 'rotate-180' : ''}`} />
-              </button>
-              
-              {showProfileDropdown && (
-                <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <div className="font-medium text-gray-900">
-                      {employee?.name || user?.displayName || "User"}
-                    </div>
-                    <div className="text-sm text-gray-500">{user?.email}</div>
-                  </div>
-                  
-                  <div className="py-1">
-                    <button
-                      onClick={() => {
-                        setShowProfileDropdown(false)
-                        router.push("/employee/account")
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                    >
-                      <User className="w-4 h-4" />
-                      Account Settings
-                    </button>
-                    
-                    <button
-                      onClick={() => {
-                        setShowProfileDropdown(false)
-                        handleLogout()
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      Logout
-                    </button>
-                  </div>
-                </div>
-              )}
-              */}
-                      {/* Callout Bubble from Ref Code */}
-                      <div className="absolute -top-24 right-0 z-10 w-72 animate-bounce">
-                        <div className="bg-blue-600 text-white rounded-2xl px-5 py-3 shadow-xl text-sm">
-                          <p className="font-black">Step 1: Start Here!</p>
-                          <p className="text-blue-100 text-xs">Complete survey to unlock modules.</p>
-                          <div className="absolute right-8 -bottom-2 w-4 h-4 bg-blue-600 rotate-45"></div>
+                      <div className="flex-1">
+                        <h4 className="text-lg font-extrabold text-slate-900">Your Learning Style</h4>
+                        <div className="mt-2 text-slate-500">
+                          <LearningStyleBlurb styleCode={learningStyle} />
                         </div>
+                        <Button variant="link" className="text-blue-600 font-bold p-0 h-auto mt-4" onClick={() => router.push('/employee/score-history')}>
+                          Get full report <ArrowRight size={14} className="ml-1" />
+                        </Button>
                       </div>
-                      <Button onClick={() => router.push('/employee/learning-style')} className="bg-slate-900 hover:bg-black text-white px-8 py-6 rounded-xl font-bold">
-                        Take Survey
-                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between relative">
+                      <div className="max-w-md">
+                        <h4 className="text-xl font-black text-slate-900 mb-2">Discover Your Learning Style
+                        </h4>
+                        <p className="text-slate-500 font-medium">Take our 5-minute cognitive survey to unlock your personalized training path.</p>
+                      </div>
+                      
+                      <div className="relative">
+                        {/* Profile Dropdown - Commented Out */}
+                        {/* 
+                        <button
+                          onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+                    >
+                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white">
+                          <User className="w-5 h-5" />
+                        </div>
+                        <span className="text-sm font-medium text-gray-700">
+                          {employee?.name || user?.displayName || "Profile"}
+                  </span>
+                  <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${showProfileDropdown ? 'rotate-180' : ''}`} />
+                </button>
+                
+                {showProfileDropdown && (
+                  <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                    <div className="px-4 py-3 border-b border-gray-100">
+                      <div className="font-medium text-gray-900">
+                        {employee?.name || user?.displayName || "User"}
+                      </div>
+                      <div className="text-sm text-gray-500">{user?.email}</div>
+                    </div>
+                    
+                    <div className="py-1">
+                      <button
+                        onClick={() => {
+                          setShowProfileDropdown(false)
+                          router.push("/employee/account")
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                      >
+                        <User className="w-4 h-4" />
+                        Account Settings
+                      </button>
+                      
+                      <button
+                        onClick={() => {
+                          setShowProfileDropdown(false)
+                          handleLogout()
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Logout
+                      </button>
                     </div>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+                */}
+                        {/* Callout Bubble from Ref Code */}
+                        <div className="absolute -top-24 right-0 z-10 w-72 animate-bounce">
+                          <div className="bg-blue-600 text-white rounded-2xl px-5 py-3 shadow-xl text-sm">
+                            <p className="font-black">Step 1: Start Here!</p>
+                            <p className="text-blue-100 text-xs">Complete survey to unlock modules.</p>
+                            <div className="absolute right-8 -bottom-2 w-4 h-4 bg-blue-600 rotate-45"></div>
+                          </div>
+                        </div>
+                        <Button onClick={() => router.push('/employee/learning-style')} className="bg-slate-900 hover:bg-black text-white px-8 py-6 rounded-xl font-bold">
+                          Take Survey
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Assigned Modules (Locked State preserved) */}
             <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
@@ -539,7 +547,8 @@ export default function EmployeeWelcome() {
                 <CardTitle className="text-lg font-black text-slate-900">Assigned Sprints</CardTitle>
               </CardHeader>
               <CardContent className="p-0">
-                {!learningStyle ? (
+                {/* Only lock modules if learning style is enabled AND user hasn't completed survey */}
+                {companyLearningStyleEnabled && !learningStyle ? (
                   <div className="py-16 flex flex-col items-center text-center px-8">
                     <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-4">
                       <ShieldCheck size={32} />

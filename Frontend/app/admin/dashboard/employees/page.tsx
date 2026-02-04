@@ -1799,6 +1799,15 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
     }
 
     try {
+      // Fetch company's learning style setting
+      const { data: companyData } = await supabase
+        .from('companies')
+        .select('learning_style')
+        .eq('company_id', companyId)
+        .single();
+      
+      const learningStyleEnabled = companyData?.learning_style;
+
       // Create user in users table
       const { data: userData, error: userError } = await supabase
         .from('users')
@@ -1816,6 +1825,24 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
         .single();
 
       if (userError) throw userError;
+
+      // If learning style is disabled, create entry in employee_learning_style table
+      if (!learningStyleEnabled) {
+        const { error: learningStyleError } = await supabase
+          .from('employee_learning_style')
+          .insert({
+            user_id: userData.user_id,
+            learning_style: 'default',
+            answers: {},
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+        if (learningStyleError) {
+          console.error('Failed to set default learning style:', learningStyleError);
+          // Don't fail the entire operation if learning style insert fails
+        }
+      }
 
       // If roles are selected, create multiple role assignments
       if (formData.selected_roles.length > 0) {

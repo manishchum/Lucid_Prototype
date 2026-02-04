@@ -63,6 +63,7 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
   const [selectedTimeRange, setSelectedTimeRange] = useState<string>('30');
   const [selectedAssessmentType, setSelectedAssessmentType] = useState<string>('all');
   const [modules, setModules] = useState<any[]>([]);
+  const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(true);
 
   useEffect(() => {
     if (companyId) {
@@ -73,6 +74,15 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
   const loadAnalyticsData = async () => {
     setLoading(true);
     try {
+      // Fetch company learning style setting
+      const { data: companyData } = await supabase
+        .from('companies')
+        .select('learning_style')
+        .eq('company_id', companyId)
+        .single();
+      
+      setCompanyLearningStyleEnabled(companyData?.learning_style);
+
       await Promise.all([
         loadModules(),
         loadLearningPlanData(),
@@ -803,67 +813,94 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
           </CardContent>
         </Card>
 
-        {/* Learning Style Distribution Pie Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Brain className="w-5 h-5 mr-2" />
-              Learning Style Distribution
-            </CardTitle>
-            <CardDescription>Employee learning style preferences breakdown</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <Pie
-                data={{
-                  labels: learningStyleStats.map(style => style.style),
-                  datasets: [{
-                    data: learningStyleStats.map(style => style.count),
-                    backgroundColor: [
-                      'rgb(239, 68, 68)', // red-500
-                      'rgb(34, 197, 94)', // green-500
-                      'rgb(59, 130, 246)', // blue-500
-                      'rgb(168, 85, 247)', // purple-500
-                      'rgb(245, 158, 11)', // yellow-500
-                      'rgb(236, 72, 153)', // pink-500
-                      'rgb(14, 165, 233)', // sky-500
-                      'rgb(249, 115, 22)', // orange-500
-                    ],
-                    borderColor: 'rgb(255, 255, 255)',
-                    borderWidth: 2,
-                  }]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      position: 'bottom' as const,
-                      labels: {
-                        padding: 15,
-                        usePointStyle: true,
-                        font: {
-                          size: 11
+        {/* Learning Style Distribution Pie Chart - Only show if learning style is enabled */}
+        {companyLearningStyleEnabled ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Brain className="w-5 h-5 mr-2" />
+                Learning Style Distribution
+              </CardTitle>
+              <CardDescription>Employee learning style preferences breakdown</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-80">
+                <Pie
+                  data={{
+                    labels: learningStyleStats.map(style => style.style),
+                    datasets: [{
+                      data: learningStyleStats.map(style => style.count),
+                      backgroundColor: [
+                        'rgb(239, 68, 68)', // red-500
+                        'rgb(34, 197, 94)', // green-500
+                        'rgb(59, 130, 246)', // blue-500
+                        'rgb(168, 85, 247)', // purple-500
+                        'rgb(245, 158, 11)', // yellow-500
+                        'rgb(236, 72, 153)', // pink-500
+                        'rgb(14, 165, 233)', // sky-500
+                        'rgb(249, 115, 22)', // orange-500
+                      ],
+                      borderColor: 'rgb(255, 255, 255)',
+                      borderWidth: 2,
+                    }]
+                  }}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        position: 'bottom' as const,
+                        labels: {
+                          padding: 15,
+                          usePointStyle: true,
+                          font: {
+                            size: 11
+                          }
                         }
-                      }
-                    },
-                    tooltip: {
-                      callbacks: {
-                        label: function(context) {
-                          const label = context.label || '';
-                          const value = context.parsed;
-                          const total = learningStyleStats.reduce((sum, style) => sum + style.count, 0);
-                          const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
-                          return `${label}: ${value} employees (${percentage}%)`;
+                      },
+                      tooltip: {
+                        callbacks: {
+                          label: function(context) {
+                            const label = context.label || '';
+                            const value = context.parsed;
+                            const total = learningStyleStats.reduce((sum, style) => sum + style.count, 0);
+                            const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
+                            return `${label}: ${value} employees (${percentage}%)`;
+                          }
                         }
                       }
                     }
-                  }
-                }}
-              />
-            </div>
-          </CardContent>
-        </Card>
+                  }}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Brain className="w-5 h-5 mr-2" />
+                Learning Style Distribution
+              </CardTitle>
+              <CardDescription>Learning style preferences are currently disabled</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-80 flex flex-col items-center justify-center text-center px-8">
+                <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-6">
+                  <Brain className="w-10 h-10 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Learning Style Disabled</h3>
+                <p className="text-gray-600 max-w-md">
+                  Learning style preferences are currently turned off for your company. 
+                  All employees use the default learning experience.
+                </p>
+                <p className="text-sm text-gray-500 mt-4">
+                  Contact your administrator to enable personalized learning styles.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Charts Row 2 - Performance Metrics */}

@@ -20,6 +20,7 @@ export default function LucidAssistant() {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const sendButtonRef = useRef<HTMLButtonElement | null>(null);
   const STORAGE_KEY = 'lucid_assistant_messages_v1'
   const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
@@ -101,36 +102,6 @@ export default function LucidAssistant() {
     }
   }, [messages])
 
-  const send = async () => {
-    if (!input.trim()) return;
-    const txt = input.trim();
-    setMessages(m => [...m, { from: "user", text: txt }]);
-    setInput("");
-
-    try {
-      setLoading(true);
-      const res = await fetch(`${API_BASE}/api/assistant`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: txt, mode, user_id: assistantUserId, pdf_base64: pdfBase64, pdf_name: pdfFileName }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => null)
-        setMessages(m => [...m, { from: 'bot', text: `Sorry — assistant error: ${err?.error || res.status}` }]);
-        return;
-      }
-
-      const data = await res.json();
-      const answer = data?.answer || 'No response';
-      setMessages(m => [...m, { from: 'bot', text: answer }]);
-    } catch (ex) {
-      setMessages(m => [...m, { from: 'bot', text: 'An error occurred while contacting the assistant.' }]);
-      console.error('assistant error', ex);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const onPickPdf = () => {
@@ -160,15 +131,61 @@ export default function LucidAssistant() {
     setMode(null)
     setMessages([])
   }
+  // Modified send to optionally accept a message (for auto-send from voice)
+  const send = async (overrideInput?: string) => {
+    const txt = (overrideInput !== undefined ? overrideInput : input).trim();
+    console.log('[LucidAssistant] 📨 send called with:', txt);
+    if (!txt) {
+      console.log('[LucidAssistant] 🚫 send aborted: empty input');
+      return;
+    }
+    setMessages(m => [...m, { from: "user", text: txt }]);
+    setInput("");
+
+    try {
+      setLoading(true);
+      const res = await fetch(`${API_BASE}/api/assistant`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: txt, mode, user_id: assistantUserId, pdf_base64: pdfBase64, pdf_name: pdfFileName }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => null)
+        setMessages(m => [...m, { from: 'bot', text: `Sorry — assistant error: ${err?.error || res.status}` }]);
+        return;
+      }
+
+      const data = await res.json();
+      const answer = data?.answer || 'No response';
+      setMessages(m => [...m, { from: 'bot', text: answer }]);
+    } catch (ex) {
+      setMessages(m => [...m, { from: 'bot', text: 'An error occurred while contacting the assistant.' }]);
+      console.error('assistant error', ex);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleVoiceTranscription = (transcribedText: string) => {
-    // Populate the text input with transcribed text
+    // Set input for UI, but immediately send to AI
+    console.log('[LucidAssistant] 📝 Received transcription:', transcribedText);
     setInput(transcribedText);
-    // Focus the input so user can see the text and edit if needed
     setTimeout(() => {
       inputRef.current?.focus();
+      // Fallback: programmatically click the send button if present
+      if (sendButtonRef.current && transcribedText && transcribedText.trim()) {
+        console.log('[LucidAssistant] 🖱️ Programmatically clicking send button for auto-send');
+        sendButtonRef.current.click();
+      }
     }, 100);
+    // Also call send directly (should work, but fallback above ensures it)
+    if (transcribedText && transcribedText.trim()) {
+      console.log('[LucidAssistant] 🚀 Auto-sending transcribed text to bot:', transcribedText);
+      send(transcribedText);
+    }
   };
+
 
 
   const handleMenuChoice = async (choice: number) => {
@@ -192,6 +209,37 @@ export default function LucidAssistant() {
       try {
         setLoading(true)
         await fetch(`${API_BASE}/api/assistant`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'doubt', action: 'start', user_id: assistantUserId }) })
+  // Modified send to optionally accept a message (for auto-send from voice)
+  const send = async (overrideInput?: string) => {
+    const txt = (overrideInput !== undefined ? overrideInput : input).trim();
+    if (!txt) return;
+    setMessages(m => [...m, { from: "user", text: txt }]);
+    setInput("");
+
+    try {
+      setLoading(true);
+      const res = await fetch(`${API_BASE}/api/assistant`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: txt, mode, user_id: assistantUserId, pdf_base64: pdfBase64, pdf_name: pdfFileName }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => null)
+        setMessages(m => [...m, { from: 'bot', text: `Sorry — assistant error: ${err?.error || res.status}` }]);
+        return;
+      }
+
+      const data = await res.json();
+      const answer = data?.answer || 'No response';
+      setMessages(m => [...m, { from: 'bot', text: answer }]);
+    } catch (ex) {
+      setMessages(m => [...m, { from: 'bot', text: 'An error occurred while contacting the assistant.' }]);
+      console.error('assistant error', ex);
+    } finally {
+      setLoading(false);
+    }
+  };
       } catch (e) {
         console.error('failed to start doubt session', e)
       } finally {
@@ -376,7 +424,12 @@ export default function LucidAssistant() {
                 disabled={loading}
               />
 
-              <button onClick={send} style={{ width: 40, height: 40, borderRadius: 999, background: '#2563eb', border: 'none', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} aria-label="Send">
+              <button
+                ref={sendButtonRef}
+                onClick={() => send()}
+                style={{ width: 40, height: 40, borderRadius: 999, background: '#2563eb', border: 'none', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                aria-label="Send"
+              >
                 <Send size={16} />
               </button>
             </div>
