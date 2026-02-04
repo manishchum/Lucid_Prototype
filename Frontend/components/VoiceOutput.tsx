@@ -14,6 +14,8 @@ export default function VoiceOutput({ text, disabled = false, onTTSComplete }: V
   const [loading, setLoading] = useState(false);
   const [audio, setAudio] = useState<HTMLAudioElement | null>(null);
   const lastTextRef = useRef<string>("");
+  const initialDisabledRef = useRef<boolean>(disabled); // Capture initial disabled state
+  const hasAutoPlayedRef = useRef<boolean>(false); // Track if this instance has auto-played
 
   // Play audio from text
   const playAudio = async () => {
@@ -71,9 +73,12 @@ export default function VoiceOutput({ text, disabled = false, onTTSComplete }: V
   };
 
   // Auto-play when text changes and is non-empty
+  // Only auto-play if component was initially mounted with disabled=false
+  // This prevents old messages from auto-playing when disabled changes from true to false
   useEffect(() => {
-    if (text && text.trim() && text !== lastTextRef.current && !disabled) {
+    if (text && text.trim() && text !== lastTextRef.current && !disabled && !hasAutoPlayedRef.current && !initialDisabledRef.current) {
       lastTextRef.current = text;
+      hasAutoPlayedRef.current = true; // Mark as auto-played
       playAudio();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
