@@ -85,7 +85,7 @@ export default function CreateRoleplayPage() {
 
   useEffect(() => {
     if(user?.email)fetchUserData();
-  },[user])
+  },[user, searchParams])
   
   // Check for saved draft or edit scenario on component mount
   useEffect(() => {
