@@ -38,9 +38,55 @@ function ContentUpload({
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<any>(null);
+  const [thresholdValue, setThresholdValue] = useState<number>(70);
+  const [reviewerEmail, setReviewerEmail] = useState('');
+  const [retrievedReviewerId, setRetrievedReviewerId] = useState<string | null>(null);
+  const [emailValidationMessage, setEmailValidationMessage] = useState<string>('');
+  const [isValidatingEmail, setIsValidatingEmail] = useState(false);
+
+  // Debounce timer for email validation
+  useEffect(() => {
+    if (!reviewerEmail.trim()) {
+      setEmailValidationMessage('');
+      setRetrievedReviewerId(null);
+      return;
+    }
+
+    setIsValidatingEmail(true);
+    const timer = setTimeout(async () => {
+      await validateReviewerEmail(reviewerEmail.trim());
+      setIsValidatingEmail(false);
+    }, 500); // Wait 500ms after user stops typing
+
+    return () => clearTimeout(timer);
+  }, [reviewerEmail]);
+
+  const validateReviewerEmail = async (email: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('user_id, name, email')
+        .eq('email', email)
+        .single();
+
+      if (error || !data) {
+        setEmailValidationMessage('❌ User with this email does not exist');
+        setRetrievedReviewerId(null);
+      } else {
+        setEmailValidationMessage(`✅ Reviewer found: ${data.name || data.email}`);
+        setRetrievedReviewerId(data.user_id);
+      }
+    } catch (error) {
+      setEmailValidationMessage('❌ Error validating email');
+      setRetrievedReviewerId(null);
+    }
+  };
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
 
+  
   const isMediaFile = (type: string) => type.includes('video/') || type.includes('audio/') || type.match(/\.(mp4|mp3|wav|mov|avi|m4a)$/i);
 
   const triggerAIProcessing = async (file: File, moduleId: string, fileUrl: string) => {
@@ -130,7 +176,10 @@ function ContentUpload({
             description: description,
             content_url: uploadedFile,
             content_type: file.type,
-            processing_status: 'pending'
+            processing_status: 'pending',
+            uploaded_by:adminId,
+            threshold_value:thresholdValue,
+            reviewer_id:retrievedReviewerId
           })
           .select()
           .single();
@@ -176,6 +225,57 @@ function ContentUpload({
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Enter description"
         />
+      </div>
+
+      {/* Threshold Value Input */}
+      <div>
+        <Label htmlFor="threshold">Threshold Value (%)</Label>
+        <Input
+          id="threshold"
+          type="number"
+          min="0"
+          max="100"
+          value={thresholdValue}
+          onChange={(e) => setThresholdValue(parseInt(e.target.value) || 70)}
+          placeholder="Enter threshold value (default: 70)"
+          className="border-slate-200 focus:border-[#3B66F5] focus:ring-[#3B66F5]"
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          Set the minimum passing score percentage (0-100). Default is 70%.
+        </p>
+      </div>
+
+      {/* Reviewer Email Input */}
+      <div>
+        <Label htmlFor="reviewerEmail">Reviewer Email (Optional)</Label>
+        <div className="relative">
+          <Input
+            id="reviewerEmail"
+            type="email"
+            value={reviewerEmail}
+            onChange={(e) => setReviewerEmail(e.target.value)}
+            placeholder="Enter reviewer's email address"
+            className={`border-slate-200 focus:border-[#3B66F5] focus:ring-[#3B66F5] ${
+              emailValidationMessage.includes('❌') ? 'border-red-300 focus:border-red-500' : 
+              emailValidationMessage.includes('✅') ? 'border-green-300 focus:border-green-500' : ''
+            }`}
+          />
+          {isValidatingEmail && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          )}
+        </div>
+        {emailValidationMessage && (
+          <p className={`mt-1 text-xs font-medium ${
+            emailValidationMessage.includes('❌') ? 'text-red-600' : 'text-green-600'
+          }`}>
+            {emailValidationMessage}
+          </p>
+        )}
+        <p className="mt-1 text-xs text-slate-500">
+          Assign a reviewer who will approve this content before it goes live.
+        </p>
       </div>
 
       <div>
@@ -377,124 +477,6 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
   );
 }
 
-// KPI Definitions Upload Component
-// function KPIDefinitionsUpload({ companyId }: { companyId?: string }) {
-//   const [file, setFile] = useState<File | null>(null);
-//   const [preview, setPreview] = useState<string[][]>([]);
-//   const [uploading, setUploading] = useState(false);
-//   const [result, setResult] = useState<KPIUploadResult | null>(null);
-//   const [error, setError] = useState("");
-
-//   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-//     setResult(null);
-//     setError("");
-//     const f = e.target.files?.[0] || null;
-//     setFile(f);
-//     if (!f) return setPreview([]);
-//     try {
-//       const arrayBuffer = await f.arrayBuffer();
-//       if (f.name.endsWith(".csv")) {
-//         const text = new TextDecoder().decode(arrayBuffer);
-//         const rows = text.split(/\r?\n/).map(line => line.split(",").map(cell => cell.trim()));
-//         setPreview(rows.slice(0, 10));
-//       } else if (f.name.endsWith(".xlsx")) {
-//         const xlsx = await import("xlsx");
-//         const workbook = xlsx.read(arrayBuffer, { type: "array" });
-//         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-//         const rows = xlsx.utils.sheet_to_json(sheet, { header: 1 });
-//         setPreview((rows as string[][]).slice(0, 10));
-//       } else {
-//         setError("Unsupported file type. Only CSV or XLSX allowed.");
-//         setPreview([]);
-//       }
-//     } catch (err) {
-//       setError("Failed to parse file for preview.");
-//       setPreview([]);
-//     }
-//   };
-
-//   const handleUpload = async () => {
-//     if (!file || !companyId) return;
-//     setUploading(true);
-//     setResult(null);
-//     setError("");
-//     try {
-//       const formData = new FormData();
-//       formData.append("file", file);
-//       const res = await fetch("/api/admin/kpi/upload-definitions", {
-//         method: "POST",
-//         body: formData,
-//         headers: { "x-company-id": companyId },
-//       });
-//       const json = await res.json();
-//       if (!res.ok) {
-//         setError(json.error || "Upload failed");
-//       } else {
-//         setResult(json);
-//       }
-//     } catch (err) {
-//       setError("Upload failed.");
-//     } finally {
-//       setUploading(false);
-//     }
-//   };
-
-//   return (
-//     <div className="space-y-4">
-//       <div className="flex gap-2 items-center mb-2">
-//         <Input type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
-//         <Button onClick={handleUpload} disabled={!file || uploading}>
-//           {uploading ? "Uploading..." : "Upload"}
-//         </Button>
-//       </div>
-
-//       <div className="text-xs text-gray-500">
-//         Expected format: kpi_name, description, category, target_value, unit
-//       </div>
-
-//       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-
-//       {preview.length > 0 && (
-//         <div className="mb-2">
-//           <div className="font-semibold mb-1">Preview (first 10 rows):</div>
-//           <div className="border rounded max-h-40 overflow-auto">
-//             <table className="text-sm border-collapse w-full">
-//               <tbody>
-//                 {preview.map((row, i) => (
-//                   <tr key={i} className={i === 0 ? "bg-gray-50" : ""}>
-//                     {row.map((cell, j) => (
-//                       <td key={j} className="border px-2 py-1 text-xs">{cell}</td>
-//                     ))}
-//                   </tr>
-//                 ))}
-//               </tbody>
-//             </table>
-//           </div>
-//         </div>
-//       )}
-
-//       {result && (
-//         <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded">
-//           <div className="font-semibold text-green-800">Upload Result:</div>
-//           <div className="text-sm text-green-700">
-//             Created: {result.created || 0}, Updated: {result.updated || 0}
-//           </div>
-//           {result.skipped && result.skipped.length > 0 && (
-//             <div className="mt-1 text-xs text-gray-600">
-//               Skipped rows:
-//               <ul className="ml-4">
-//                 {result.skipped.map((s, i) => (
-//                   <li key={i}>Row {s.row}: {s.reason}</li>
-//                 ))}
-//               </ul>
-//             </div>
-//           )}
-//         </div>
-//       )}
-//     </div>
-//   );
-// }
-
 // Training Content Management Component
 function TrainingContentManagement({ companyId, adminId }: { companyId: string; adminId: string }) {
   const [trainingModules, setTrainingModules] = useState<any[]>([]);
@@ -584,6 +566,26 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
         return <Badge className="bg-red-100 text-red-800">Failed</Badge>;
       default:
         return <Badge variant="secondary">{status}</Badge>;
+    }
+  };
+
+  const getReviewStageColor = (stage?: string) => {
+    switch (stage) {
+      case 'approved': return 'bg-green-100 text-green-700 border-green-200';
+      case 'in_review': return 'bg-blue-100 text-blue-700 border-blue-200';
+      case 'rejected': return 'bg-red-100 text-red-700 border-red-200';
+      case 'pending': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+      default: return 'bg-gray-100 text-gray-700 border-gray-200';
+    }
+  };
+
+  const getReviewStageLabel = (stage?: string) => {
+    switch (stage) {
+      case 'approved': return 'Approved';
+      case 'in_review': return 'In Review';
+      case 'rejected': return 'Rejected';
+      case 'pending': return 'Pending Review';
+      default: return 'Unknown';
     }
   };
 
@@ -708,6 +710,9 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                       <div className="flex items-center gap-3 mb-2">
                         <h4 className="font-medium text-gray-900">{module.title}</h4>
                         {getStatusBadge(module.processing_status)}
+                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border ${getReviewStageColor(module.review_stage)}`}>
+                          {getReviewStageLabel(module.review_stage)}
+                        </span>
                       </div>
 
                       {module.description && (
@@ -750,11 +755,6 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           </div>
         )}
       </div>
-
-      {/* Uploaded Files List */}
-      {/* <div className="border-t pt-4">
-        <UploadedFilesList companyId={companyId} />
-      </div> */}
     </div>
   );
 }
@@ -854,67 +854,6 @@ export default function UploadsPage() {
         <p className="text-gray-600 mt-1">Upload training content for your organization</p>
       </div>
 
-      {/* <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        KPI Scores Upload
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <BarChart3 className="w-5 h-5 mr-2" />
-              KPI Scores Upload
-            </CardTitle>
-            <CardDescription>
-              Upload employee KPI scores and performance data
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4">
-              <Button asChild variant="outline" size="sm">
-                <a
-                  href="https://hyxqwqshhlebaybjpzcz.supabase.co/storage/v1/object/public/KPIs/Sample_KPI_Scores.xlsx"
-                  download
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Download Sample File
-                </a>
-              </Button>
-            </div>
-            <KPIScoresUpload companyId={admin.company_id} admin={admin} />
-          </CardContent>
-        </Card>
-
-        KPI Definitions Upload
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <FileText className="w-5 h-5 mr-2" />
-              KPI Definitions Upload
-            </CardTitle>
-            <CardDescription>
-              Define KPI metrics and their target values
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4">
-              <Button asChild variant="outline" size="sm">
-                <a
-                  href="https://hyxqwqshhlebaybjpzcz.supabase.co/storage/v1/object/public/KPIs/Sample_KPI_Definitions.xlsx"
-                  download
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Download Sample File
-                </a>
-              </Button>
-            </div>
-            <KPIDefinitionsUpload companyId={admin.company_id} />
-          </CardContent>
-        </Card>
-      </div> */}
-
-      {/* Training Content Management */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center">

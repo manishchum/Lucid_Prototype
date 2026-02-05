@@ -1003,7 +1003,7 @@ function TrainingPlanContent() {
                 <div className="mt-8 p-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl border border-yellow-200 shadow-lg">
                   <div className="font-bold text-xl mb-4 text-yellow-900 flex items-center gap-2">
                     {/* <span className="text-2xl">🧠</span> */}
-                    Understand How Your Mastery Roadmap Is Crafted
+                    Understand How Your Sprint Is Crafted
                   </div>
                   <div className="text-yellow-800">
                     {renderReasoning(reasoning)}
