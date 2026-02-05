@@ -1281,7 +1281,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       
       if (file.name.endsWith('.csv')) {
         const text = new TextDecoder().decode(arrayBuffer);
-        // console.log(text.split(/\r?\n/).map(line => line.split(',')));
+        // console.log(text.split(/\r?\n/).map(line => line.split(',')))
         rows = text.split(/\r?\n/).map(line => line.split(',').map(cell => cell.trim()));
       } else if (file.name.endsWith('.xlsx')) {
         // Dynamically import xlsx for processing
@@ -1366,7 +1366,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             departmentId = departmentsMap.get(deptKey) || null;
             
             if (!departmentId) {
-              // console.log("Error because of the department ID is missing");
+              // console.log("Error because of the department ID is missing")
               results.errors.push(`${email}: Department "${department}" - "${subDepartment}" not found`);
               continue;
             }
@@ -1799,6 +1799,15 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
     }
 
     try {
+      // Fetch company's learning style setting
+      const { data: companyData } = await supabase
+        .from('companies')
+        .select('learning_style')
+        .eq('company_id', companyId)
+        .single();
+      
+      const learningStyleEnabled = companyData?.learning_style;
+
       // Create user in users table
       const { data: userData, error: userError } = await supabase
         .from('users')
@@ -1816,6 +1825,24 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
         .single();
 
       if (userError) throw userError;
+
+      // If learning style is disabled, create entry in employee_learning_style table
+      if (!learningStyleEnabled) {
+        const { error: learningStyleError } = await supabase
+          .from('employee_learning_style')
+          .insert({
+            user_id: userData.user_id,
+            learning_style: 'default',
+            answers: {},
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+        if (learningStyleError) {
+          console.error('Failed to set default learning style:', learningStyleError);
+          // Don't fail the entire operation if learning style insert fails
+        }
+      }
 
       // If roles are selected, create multiple role assignments
       if (formData.selected_roles.length > 0) {
@@ -2067,6 +2094,9 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
                       ) : null;
                     })}
                   </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    B = Baseline Assessment Required
+                  </div>
                 </div>
               )}
             </div>
@@ -2171,11 +2201,29 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
     setError('');
     
     try {
+      // First get all completed content jobs
+      const { data: completedJobs, error: jobsError } = await supabase
+        .from('content_jobs')
+        .select('module_id')
+        .eq('status', 'completed');
+    
+      if (jobsError) throw jobsError;
+    
+      // Extract module IDs from completed jobs
+      const completedModuleIds = completedJobs?.map(job => job.module_id) || [];
+      
+      if (completedModuleIds.length === 0) {
+        setModules([]);
+        setModuleBaselineSettings({});
+        return;
+      }
+      
+      // Now fetch only modules that have completed jobs
       const { data, error: modulesError } = await supabase
         .from('training_modules')
         .select('*')
         .eq('company_id', companyId)
-        .eq('processing_status', 'completed')
+        .in('module_id', completedModuleIds)
         .order('title');
         
       if (modulesError) throw modulesError;
@@ -2915,7 +2963,7 @@ function UpdateEmployeeModal({
         return false;
       }
       
-      return !!data;
+      return !!data; // Returns true if email exists
     } catch (error) {
       console.error('Error checking email:', error);
       return false;
@@ -3201,6 +3249,9 @@ function UpdateEmployeeModal({
                         </span>
                       ) : null;
                     })}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    B = Baseline Assessment Required
                   </div>
                 </div>
               )}

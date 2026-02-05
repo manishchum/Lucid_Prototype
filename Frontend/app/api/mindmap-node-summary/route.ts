@@ -25,7 +25,7 @@ export async function POST(req: Request) {
 Output ONLY plain text with three sections separated by a blank line:\n\nDefinition: (1-2 sentences)\n\nKey points:\n- point 1\n- point 2\n- point 3\n\nPractical tip: (1 short actionable tip)\n\nWhen possible, ground content strictly in the provided module content. If the content lacks detail, provide concise, accurate best-practice guidance and prepend '\\(Inferred\\)' to the Definition line. Keep total length under 140 words. No JSON, no extra explanation.`;
 
         const prompt = `Label: ${label}\n\nContent:\n${source}`;
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' });
         const result = await model.generateContent(`${system}\n\n${prompt}`);
         const response = await result.response;
         let aiText = '';
