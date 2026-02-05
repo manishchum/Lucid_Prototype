@@ -165,7 +165,7 @@ def extract_json_array(text: str):
 async def planScenes(content: str) -> List[Scene]:
     async with httpx.AsyncClient(timeout=300) as client:
         res = await client.post(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent",
     params={"key": os.environ.get("GEMINI_API_KEY")},
     headers={"Content-Type": "application/json"},
     json={
@@ -239,7 +239,7 @@ async def generateImagenImage(prompt: str, outFile: str):
         # Try Gemini API first
         async with httpx.AsyncClient(timeout=300) as client:
             res = await client.post(
-                f"https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-exp:generateContent?key={key}",
+                f"https://generativelanguage.googleapis.com/v1/models/gemini-3-pro-preview:generateContent?key={key}",
                 headers={"Content-Type": "application/json"},
                 json={
                     "contents": [{

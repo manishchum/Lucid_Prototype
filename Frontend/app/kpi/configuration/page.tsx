@@ -156,12 +156,33 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
 
   return (
     <div>
-      <div className="flex gap-2 items-center mb-2">
-        <Input key={fileInputKey} type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
+        {/* <Input key={fileInputKey} type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
         <Button onClick={handleUpload} disabled={!file || uploading}>
           {uploading ? "Uploading..." : "Upload"}
-        </Button>
-      </div>
+        </Button> */}
+  <Card>
+
+                  <div className="space-y-4">
+                    <label
+                      htmlFor="file-upload"
+                      className="flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-all duration-300"
+                    >
+                      <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center mb-3">
+                        <Upload className="w-8 h-8 text-purple-600" />
+                      </div>
+                      <span className="text-sm font-medium text-gray-700">Click to upload Excel file</span>
+                      <span className="text-xs text-gray-500 mt-1">Supported: .xlsx, .xls</span>
+                      <span className="text-xs text-gray-500 mt-1 text-center">Refer to the predefined data fields in the<br/> template before uploading the data</span>
+                    </label>
+                    <Input
+                      id="file-upload"
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      />
+                  </div>
+                      </Card>
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       {preview.length > 0 && (
         <div className="mb-2">
@@ -630,7 +651,7 @@ export default function KPIConfigurationPage() {
           {/* Header */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900">KPI Configuration</h1>
-            <p className="text-gray-600 mt-1">Configure role-based success metrics and upload definitions via Excel</p>
+            <p className="text-gray-600 mt-1">Upload KPI scores and definitions to configure success metrics</p>
           </div>
 
           {/* Upload Sections - Consistent Design */}
@@ -662,7 +683,7 @@ export default function KPIConfigurationPage() {
                         rel="noopener noreferrer"
                       >
                         <Download className="w-4 h-4 mr-2" />
-                        Download Sample File
+                        Download Template
                       </a>
                     </Button>
                   </div>
@@ -679,7 +700,7 @@ export default function KPIConfigurationPage() {
                     <div>
                       <CardTitle className="text-lg text-gray-900">KPI Definitions Upload</CardTitle>
                       <CardDescription className="text-sm mt-1">
-                        Upload KPI definitions & formulas (Excel)
+                        Upload KPI definitions & formulas (CSV or XLSX)
                       </CardDescription>
                     </div>
                   </div>
@@ -695,6 +716,7 @@ export default function KPIConfigurationPage() {
                       </div>
                       <span className="text-sm font-medium text-gray-700">Click to upload Excel file</span>
                       <span className="text-xs text-gray-500 mt-1">Supported: .xlsx, .xls</span>
+                      <span className="text-xs text-gray-500 mt-1 text-center">Refer to the predefined data fields in the<br/> template before uploading the data</span>
                     </label>
                     <Input
                       id="file-upload"
@@ -721,7 +743,7 @@ export default function KPIConfigurationPage() {
           )}
 
           {/* Required Columns Info Card */}
-          {!showPreview && (
+          {/* {!showPreview && (
             <Card className="border border-gray-200 shadow-sm">
               <CardHeader className="bg-gradient-to-r from-gray-50 to-blue-50 border-b border-gray-100">
                 <div className="flex items-center gap-3">
@@ -758,7 +780,7 @@ export default function KPIConfigurationPage() {
                 </div>
               </CardContent>
             </Card>
-          )}
+          )} */}
 
           {/* Preview Section */}
           {showPreview && (
@@ -1024,7 +1046,7 @@ export default function KPIConfigurationPage() {
                               <Target className="w-6 h-6 text-green-600 mb-2" />
                               <div className="text-3xl font-bold text-gray-900">{kpi.target}%</div>
                               <div className="text-xs text-gray-600 mt-1">Target</div>
-                              <div className="text-xs text-green-600 mt-2">Avg: {Math.floor(kpi.target * 0.85)}%</div>
+                              {/* <div className="text-xs text-green-600 mt-2">Avg: {Math.floor(kpi.target * 0.85)}%</div> */}
                             </div>
                           </div>
                         </div>

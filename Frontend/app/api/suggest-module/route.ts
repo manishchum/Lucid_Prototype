@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Use Gemini to find the best matching module
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' });
 
     const prompt = `Given the following ${type} indicator: "${indicator}"
 

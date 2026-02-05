@@ -139,6 +139,7 @@ INSTRUCTION_PROMPT = """You are an expert instructional designer. Your job is to
 3. **EXTRACT TOPICS FROM SOURCE** - List only topics explicitly mentioned or directly implied in the source material.
 4. **GROUND OBJECTIVES IN SOURCE** - Each objective must state what learners will know/do based on content present in the source.
 5. **NO HALLUCINATION** - Do not create, assume, or infer learning outcomes not supported by the source material.
+6. **STRICT FORMAT COMPLIANCE** - You MUST use the EXACT format specified below. Use #### for module headers, not ###.
 
 Processing steps (apply exactly):
 1. Identify Overall Learning Goal
@@ -151,26 +152,42 @@ Processing steps (apply exactly):
   - Time-to-Mastery Rule: If the source topic is complex, split into smaller modules.
   - Single-Outcome Rule: Split if the source presents multiple distinct learning outcomes.
   - Cognitive Load Rule: Split if the source introduces >1–3 new concepts at once.
-  - For each module, list which rules triggered a split based on SOURCE ANALYSIS.
 5. Arrange Modules Logically
   - Order from foundational → intermediate → advanced based on the SOURCE structure.
-  - Provide sequencing rationale based on source material flow.
 6. Validate Module Independence
   - Ensure each module is self-contained using only source content and delivers one clear learning outcome assessable from the source.
 
-Output format for each module:
-#### Module [#]: [Accurate Title from Source]
+⚠️ CRITICAL: Use this EXACT output format (use #### for modules, not ###):
+
+#### Module 1: [Accurate Title from Source]
 **Topics:**
+- [topic explicitly in source]
 - [topic explicitly in source]
 - [topic explicitly in source]
 
 **Objectives:**
-- Learners will [action] [concept from source]
-- Learners will [action] [concept from source]
+- Learners will [action verb] [specific concept from source]
+- Learners will [action verb] [specific concept from source]
+- Learners will [action verb] [specific concept from source]
 
-⚠️ IF SOURCE IS INCOMPLETE: List clarifying questions about missing context (e.g., target proficiency, compliance requirements) but DO NOT INVENT CONTENT.
+#### Module 2: [Next Module Title]
+**Topics:**
+- [topic from source]
+
+**Objectives:**
+- Learners will [action] [concept]
+
+⚠️ FORMAT RULES:
+- Use #### (four hashes) for module headers, NOT ### (three hashes)
+- Always include both **Topics:** and **Objectives:** sections for each module
+- List at least 2-3 topics and 2-3 objectives per module
+- Do NOT include "Module Splitting Checks", "Sequencing Rationale", or "Clarifying Questions" sections
+- Start directly with #### Module 1, no preamble
+- End after the last module, no conclusion
+
+⚠️ IF SOURCE IS INCOMPLETE: Still follow the format above but note limitations in objectives.
 ⚠️ NEVER EXTRAPOLATE: Strictly bind all content to source material. Gaps in source = gaps in modules, not invention.
-Respond ONLY in MARKDOWN format with NO additional commentary and always return a module related to the provided content.
+Respond ONLY in the EXACT MARKDOWN format specified above with NO additional commentary.
 """
 
 
@@ -213,12 +230,18 @@ async def processAndStoreResults(moduleId: str, message: str):
         if modulesStart:
             modulesSection = modulesSection[modulesStart.start():]
 
-        cutoffRegex = re.search(r"(Module Splitting Checks|Sequencing Rationale|Module Independence|Additional Clarifying Questions)", modulesSection, re.I)
+        # Enhanced cutoff to handle various footer sections that aren't modules
+        cutoffRegex = re.search(
+            r"(Module Splitting Checks|Sequencing Rationale|Module Independence|Additional Clarifying Questions|Clarifying Questions|###\s*Sequencing|###\s*Clarifying|\*\*Module Splitting Checks)", 
+            modulesSection, 
+            re.I
+        )
         if cutoffRegex:
             modulesSection = modulesSection[:cutoffRegex.start()]
 
+        # Updated regex to handle both ### and #### module headers
         moduleRegex = re.compile(
-            r"(####\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*|$))",
+            r"(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*)([\s\S]*?)(?=(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*|$))",
             re.I
         )
 
@@ -230,8 +253,9 @@ async def processAndStoreResults(moduleId: str, message: str):
             })
 
         if len(moduleMatches) == 0:
+            # Fallback regex also handles both ### and #### formats
             fallbackRegex = re.compile(
-                r"(####\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|$))",
+                r"(#{3,4}\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|$))",
                 re.I
             )
             for m in fallbackRegex.finditer(message):
@@ -241,54 +265,79 @@ async def processAndStoreResults(moduleId: str, message: str):
                 })
 
         print(f"[processAndStoreResults] Found {len(moduleMatches)} module matches.")
-
-        for i in range(len(moduleMatches)):
-            moduleData = moduleMatches[i]
+        
+        for i, moduleData in enumerate(moduleMatches):
             block = moduleData["content"]
+            
+            print(f"[processAndStoreResults] Processing module {i + 1}/{len(moduleMatches)}")
 
             titleMatch = re.search(r"^(?:\*\*|###)?\s*([A-Za-z0-9 .\-]+)(?:\*\*|:)?", block)
             title = titleMatch.group(1).strip() if titleMatch else f"Module {i + 1}"
+            
+            print(f"[processAndStoreResults] Module title: {title}")
 
             topics: List[str] = []
             objectives: List[str] = []
 
-            topicsSection = re.search(r"topics?:\s*([\s\S]*?)(?=objectives?:|$)", block, re.I)
+            # Extract topics section more robustly
+            topicsSection = re.search(r"\*\*Topics?:\*\*\s*([\s\S]*?)(?=\*\*Objectives?:\*\*|####|$)", block, re.I)
+            if not topicsSection:
+                topicsSection = re.search(r"Topics?:\s*([\s\S]*?)(?=Objectives?:|####|$)", block, re.I)
+            
             if topicsSection and topicsSection.group(1):
-                topics.extend([
-                    re.sub(r"^\*\*?Topic:?\*\*?", "", re.sub(r"^[-*]\s*", "", line)).strip()
-                    for line in re.split(r"\n|\r", topicsSection.group(1))
-                    if line.strip() and (re.match(r"^[-*]", line.strip()) or re.match(r"^[A-Za-z0-9 .\-]+$", line.strip()))
-                ])
-                topics = [t for t in topics if t]
+                topic_lines = [
+                    re.sub(r"^\*\*?Topic:?\*\*?", "", re.sub(r"^[-*•]\s*", "", line)).strip()
+                    for line in topicsSection.group(1).split('\n')
+                    if line.strip() and re.match(r"^[-*•]\s", line.strip())
+                ]
+                topics = [t for t in topic_lines if t and len(t) > 3]
+                print(f"[processAndStoreResults] Extracted {len(topics)} topics from module {i + 1}")
 
-            objectivesSection = re.search(r"objectives?:\s*([\s\S]*)", block, re.I)
+            # Extract objectives section more robustly
+            objectivesSection = re.search(r"\*\*Objectives?:\*\*\s*([\s\S]*?)(?=####|$)", block, re.I)
+            if not objectivesSection:
+                objectivesSection = re.search(r"Objectives?:\s*([\s\S]*?)(?=####|$)", block, re.I)
+            
             if objectivesSection and objectivesSection.group(1):
-                objectives.extend([
-                    re.sub(r"^\*\*?Objective:?\*\*?", "", re.sub(r"^[-*]\s*", "", line)).strip()
-                    for line in re.split(r"\n|\r", objectivesSection.group(1))
-                    if line.strip() and (re.match(r"^[-*]", line.strip()) or re.match(r"^[A-Za-z0-9 .\-]+$", line.strip()))
-                ])
-                objectives = [o for o in objectives if o]
+                obj_lines = [
+                    re.sub(r"^\*\*?Objective:?\*\*?", "", re.sub(r"^[-*•]\s*", "", line)).strip()
+                    for line in objectivesSection.group(1).split('\n')
+                    if line.strip() and re.match(r"^[-*•]\s", line.strip())
+                ]
+                objectives = [o for o in obj_lines if o and len(o) > 5]
+                print(f"[processAndStoreResults] Extracted {len(objectives)} objectives from module {i + 1}")
 
+            # Fallback: extract any bullet points if primary extraction failed
             if len(topics) == 0:
-                topics.extend([
-                    re.sub(r"^[-*]\s*", "", line).strip()
-                    for line in re.split(r"\n|\r", block)
-                    if re.match(r"^[-*]", line.strip()) and not re.search(r"objective", line, re.I)
-                ])
-                topics = [t for t in topics if t]
+                print(f"[processAndStoreResults] No topics found with primary regex, trying fallback for module {i + 1}")
+                all_bullets = [
+                    re.sub(r"^[-*•]\s*", "", line).strip()
+                    for line in block.split('\n')
+                    if re.match(r"^[-*•]\s", line.strip()) and not re.search(r"objective|learner", line, re.I)
+                ]
+                topics = [t for t in all_bullets if t and len(t) > 3][:10]  # Limit to first 10
 
             if len(objectives) == 0:
-                objectives.extend([
-                    re.sub(r"^[-*]\s*", "", line).strip()
-                    for line in re.split(r"\n|\r", block)
-                    if re.match(r"^[-*]", line.strip()) and re.search(r"objective", line, re.I)
-                ])
-                objectives = [o for o in objectives if o]
+                print(f"[processAndStoreResults] No objectives found with primary regex, trying fallback for module {i + 1}")
+                obj_bullets = [
+                    re.sub(r"^[-*•]\s*", "", line).strip()
+                    for line in block.split('\n')
+                    if re.match(r"^[-*•]\s", line.strip()) and re.search(r"learner|will|understand|identify|apply", line, re.I)
+                ]
+                objectives = [o for o in obj_bullets if o and len(o) > 5][:10]  # Limit to first 10
 
-            ai_modules.append({"title": title, "topics": topics, "objectives": objectives})
-            ai_topics.extend(topics)
-            ai_objectives.extend(objectives)
+            print(f"[processAndStoreResults] Final counts for module {i + 1}: topics={len(topics)}, objectives={len(objectives)}")
+            
+            # Stricter validation: require BOTH topics AND objectives
+            if topics and objectives and len(topics) >= 1 and len(objectives) >= 1:
+                ai_modules.append({"title": title, "topics": topics, "objectives": objectives})
+                ai_topics.extend(topics)
+                ai_objectives.extend(objectives)
+            else:
+                print(f"[processAndStoreResults] ⚠️ WARNING: Module {i + 1} ({title}) rejected - topics={len(topics)}, objectives={len(objectives)}")
+                print(f"[processAndStoreResults] Module content preview: {block[:200]}...")
+        
+        print(f"[processAndStoreResults] Total accumulated: {len(ai_modules)} modules, {len(ai_topics)} topics, {len(ai_objectives)} objectives")
 
     except Exception as parseError:
         print("[processAndStoreResults] Error during parsing:", parseError)
