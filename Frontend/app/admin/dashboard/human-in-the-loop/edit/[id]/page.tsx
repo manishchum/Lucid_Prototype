@@ -8,6 +8,7 @@ import { ArrowLeft, Eye, GitCompare, Edit3, Sparkles, ShieldAlert, Lock, RotateC
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import EmployeeNavigation from '@/components/employee-navigation';
 
 interface TrainingModule {
   module_id: string;
@@ -317,7 +318,9 @@ export default function EditModulePage() {
   }
 
   return (
+    
     <div className="min-h-screen bg-[#FAFBFC]">
+      {/* <EmployeeNavigation /> */}
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="px-8 py-4">
