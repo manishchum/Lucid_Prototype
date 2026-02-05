@@ -144,9 +144,8 @@ export default function EditModulePage() {
   };
 
   const handleContentEditableChange = () => {
-    if (contentEditableRef.current) {
-      const newContent = contentEditableRef.current.innerHTML;
-      setEditedContent(newContent);
+    // Just mark as having unsaved changes, don't update state on every keystroke
+    if (!hasUnsavedChanges) {
       setHasUnsavedChanges(true);
     }
   };
@@ -164,12 +163,15 @@ export default function EditModulePage() {
   };
 
   const handleSaveChanges = async () => {
-    if (!selectedSubModule) return;
+    if (!selectedSubModule || !contentEditableRef.current) return;
+
+    // Only NOW do we read the content from the contentEditable div
+    const newContent = contentEditableRef.current.innerHTML;
 
     try {
       const { error } = await supabase
         .from('processed_modules')
-        .update({ content: editedContent })
+        .update({ content: newContent })
         .eq('processed_module_id', selectedSubModule.processed_module_id);
 
       if (error) throw error;
@@ -177,13 +179,15 @@ export default function EditModulePage() {
       alert('Changes saved successfully!');
       setHasUnsavedChanges(false);
       
+      // Update local state with the saved content
       const updatedSubModules = subModules.map(sm => 
         sm.processed_module_id === selectedSubModule.processed_module_id 
-          ? { ...sm, content: editedContent }
+          ? { ...sm, content: newContent }
           : sm
       );
       setSubModules(updatedSubModules);
-      setSelectedSubModule({ ...selectedSubModule, content: editedContent });
+      setSelectedSubModule({ ...selectedSubModule, content: newContent });
+      setEditedContent(newContent);
     } catch (error) {
       console.error('Error saving changes:', error);
       alert('Failed to save changes');
@@ -325,16 +329,18 @@ export default function EditModulePage() {
 
   const EditableContent = ({ htmlContent }: { htmlContent: string }) => {
     useEffect(() => {
-      if (contentEditableRef.current && !hasUnsavedChanges) {
+      // Set innerHTML only when switching sub-modules
+      if (contentEditableRef.current && selectedSubModule) {
         contentEditableRef.current.innerHTML = htmlContent;
       }
-    }, [htmlContent]);
+    }, [selectedSubModule?.processed_module_id]);
 
     return (
       <div
         ref={contentEditableRef}
         contentEditable={true}
         onInput={handleContentEditableChange}
+        onBlur={handleContentEditableChange}
         suppressContentEditableWarning={true}
         className="prose prose-sm max-w-none min-h-[500px] p-6 border-2 border-blue-200 rounded-lg focus:outline-none focus:border-blue-400 bg-white
           prose-headings:font-bold prose-headings:text-[#1E293B]
@@ -353,8 +359,8 @@ export default function EditModulePage() {
           prose-th:border prose-th:border-slate-300 prose-th:px-4 prose-th:py-3 prose-th:text-left prose-th:font-semibold prose-th:text-slate-900
           prose-td:border prose-td:border-slate-200 prose-td:px-4 prose-td:py-3 prose-td:text-slate-700
           prose-img:rounded-lg prose-img:shadow-md prose-img:my-6"
-        dangerouslySetInnerHTML={{ __html: htmlContent }}
-      />
+      >
+      </div>
     );
   };
 
