@@ -431,14 +431,17 @@ export default function EditModulePage() {
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
               <div className="flex gap-2">
                 <button
-                  onClick={() => setActiveView('final')}
+                  onClick={() => { setActiveView('edit'); setIsEditing(true); }}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeView === 'final' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'
+                    activeView === 'edit' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'
                   }`}
                 >
-                  <Eye size={16} />
-                  Final Output
+                  <Edit3 size={16} />
+                  Edit Text
                 </button>
+
+
+
                 <button
                   onClick={() => setActiveView('diff')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -446,16 +449,18 @@ export default function EditModulePage() {
                   }`}
                 >
                   <GitCompare size={16} />
-                  Diff View
+                  Delta View
                 </button>
+                
+
                 <button
-                  onClick={() => { setActiveView('edit'); setIsEditing(true); }}
+                  onClick={() => setActiveView('final')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeView === 'edit' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'
+                    activeView === 'final' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'
                   }`}
                 >
-                  <Edit3 size={16} />
-                  Rich Edit
+                  <Eye size={16} />
+                  Final Output
                 </button>
               </div>
               
