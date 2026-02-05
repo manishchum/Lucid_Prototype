@@ -498,7 +498,52 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setTrainingModules(data || []);
+
+      // For each module, check content_jobs status
+      const modulesWithStatus = await Promise.all(
+        (data || []).map(async (module) => {
+          // Check if module exists in content_jobs
+          const { data: jobData, error: jobError } = await supabase
+            .from('content_jobs')
+            .select('status')
+            .eq('module_id', module.module_id)
+            .single();
+
+          let finalStatus = module.processing_status;
+
+          if (jobError || !jobData) {
+            // Module not in content_jobs yet - keep as "processing"
+            if (finalStatus?.toLowerCase() !== 'processing') {
+              finalStatus = 'processing';
+            }
+          } else {
+            // Module exists in content_jobs
+            if (jobData.status === 'completed') {
+              finalStatus = 'completed';
+            } else if (jobData.status === 'failed') {
+              finalStatus = 'failed';
+            } else {
+              // Job exists but not completed - set to "pending"
+              finalStatus = 'pending';
+            }
+          }
+
+          // Update module status in database if it changed
+          if (finalStatus !== module.processing_status) {
+            await supabase
+              .from('training_modules')
+              .update({ processing_status: finalStatus })
+              .eq('module_id', module.module_id);
+          }
+
+          return {
+            ...module,
+            processing_status: finalStatus
+          };
+        })
+      );
+
+      setTrainingModules(modulesWithStatus);
     } catch (error: any) {
       console.error('Failed to load training modules:', error);
       setError('Failed to load training modules');
