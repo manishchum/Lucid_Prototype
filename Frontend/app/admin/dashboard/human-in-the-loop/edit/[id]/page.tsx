@@ -1,13 +1,13 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
 import { ArrowLeft, Eye, GitCompare, Edit3, Sparkles, ShieldAlert, Lock, RotateCcw, XCircle, AlertTriangle, CheckCircle, FileText, Upload, UserCheck } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import EmployeeNavigation from '@/components/employee-navigation';
 
 interface TrainingModule {
   module_id: string;
@@ -53,12 +53,7 @@ export default function EditModulePage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<'uploader' | 'reviewer' | 'both' | null>(null);
 
-  // Mock data for source chunks (you can replace with real data later)
-  const [sourceChunks] = useState<SourceChunk[]>([
-    { id: 's1', pageNumber: 3, text: 'Sales representatives must follow regional discount approval policies for any reduction > 5%.', relevanceScore: 95 },
-    { id: 's2', pageNumber: 7, text: 'Compliance Guidelines: CRM logging is mandatory.', relevanceScore: 88 },
-    { id: 's3', pageNumber: 12, text: 'Objection Handling: Focus on value, not price.', relevanceScore: 72 }
-  ]);
+  const contentEditableRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (user?.email) {
@@ -102,7 +97,6 @@ export default function EditModulePage() {
     try {
       setLoading(true);
       
-      // Fetch main training module
       const { data: moduleData, error: moduleError } = await supabase
         .from('training_modules')
         .select('*')
@@ -114,7 +108,6 @@ export default function EditModulePage() {
       if (moduleData) {
         setModule(moduleData);
         
-        // Determine user's role for this module
         const isUploader = moduleData.uploaded_by === currentUserId;
         const isReviewer = moduleData.reviewer_id === currentUserId;
         
@@ -129,7 +122,6 @@ export default function EditModulePage() {
         
         setUserRole(role);
         
-        // Fetch all processed sub-modules for this module
         const { data: subModulesData, error: subModulesError } = await supabase
           .from('processed_modules')
           .select('*')
@@ -140,7 +132,6 @@ export default function EditModulePage() {
         
         if (subModulesData && subModulesData.length > 0) {
           setSubModules(subModulesData);
-          // Auto-select the first sub-module
           setSelectedSubModule(subModulesData[0]);
           setEditedContent(subModulesData[0].content);
         }
@@ -152,9 +143,11 @@ export default function EditModulePage() {
     }
   };
 
-  const handleContentChange = (value: string) => {
-    setEditedContent(value);
-    setHasUnsavedChanges(true);
+  const handleContentEditableChange = () => {
+    // Just mark as having unsaved changes, don't update state on every keystroke
+    if (!hasUnsavedChanges) {
+      setHasUnsavedChanges(true);
+    }
   };
 
   const handleSubModuleClick = (subModule: ProcessedModule) => {
@@ -170,12 +163,15 @@ export default function EditModulePage() {
   };
 
   const handleSaveChanges = async () => {
-    if (!selectedSubModule) return;
+    if (!selectedSubModule || !contentEditableRef.current) return;
+
+    // Only NOW do we read the content from the contentEditable div
+    const newContent = contentEditableRef.current.innerHTML;
 
     try {
       const { error } = await supabase
         .from('processed_modules')
-        .update({ content: editedContent })
+        .update({ content: newContent })
         .eq('processed_module_id', selectedSubModule.processed_module_id);
 
       if (error) throw error;
@@ -183,14 +179,15 @@ export default function EditModulePage() {
       alert('Changes saved successfully!');
       setHasUnsavedChanges(false);
       
-      // Update local state
+      // Update local state with the saved content
       const updatedSubModules = subModules.map(sm => 
         sm.processed_module_id === selectedSubModule.processed_module_id 
-          ? { ...sm, content: editedContent }
+          ? { ...sm, content: newContent }
           : sm
       );
       setSubModules(updatedSubModules);
-      setSelectedSubModule({ ...selectedSubModule, content: editedContent });
+      setSelectedSubModule({ ...selectedSubModule, content: newContent });
+      setEditedContent(newContent);
     } catch (error) {
       console.error('Error saving changes:', error);
       alert('Failed to save changes');
@@ -305,6 +302,154 @@ export default function EditModulePage() {
     }
   };
 
+  const ContentRenderer = ({ htmlContent }: { htmlContent: string }) => {
+    return (
+      <div 
+        className="prose prose-sm max-w-none
+          prose-headings:font-bold prose-headings:text-[#1E293B]
+          prose-h1:text-3xl prose-h1:mb-6 prose-h1:mt-8
+          prose-h2:text-2xl prose-h2:mb-4 prose-h2:mt-6 prose-h2:pb-2 prose-h2:border-b prose-h2:border-slate-200
+          prose-h3:text-xl prose-h3:mb-3 prose-h3:mt-4
+          prose-h4:text-lg prose-h4:mb-2 prose-h4:mt-3
+          prose-p:text-slate-700 prose-p:leading-relaxed prose-p:mb-4
+          prose-strong:text-slate-900 prose-strong:font-semibold
+          prose-ul:list-disc prose-ul:ml-6 prose-ul:mb-4
+          prose-ol:list-decimal prose-ol:ml-6 prose-ol:mb-4
+          prose-li:text-slate-700 prose-li:mb-2
+          prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:bg-blue-50 prose-blockquote:py-2 prose-blockquote:my-4
+          prose-table:w-full prose-table:border-collapse prose-table:my-6
+          prose-thead:bg-slate-100
+          prose-th:border prose-th:border-slate-300 prose-th:px-4 prose-th:py-3 prose-th:text-left prose-th:font-semibold prose-th:text-slate-900
+          prose-td:border prose-td:border-slate-200 prose-td:px-4 prose-td:py-3 prose-td:text-slate-700
+          prose-img:rounded-lg prose-img:shadow-md prose-img:my-6"
+        dangerouslySetInnerHTML={{ __html: htmlContent }}
+      />
+    );
+  };
+
+  const EditableContent = ({ htmlContent }: { htmlContent: string }) => {
+    useEffect(() => {
+      // Set innerHTML only when switching sub-modules
+      if (contentEditableRef.current && selectedSubModule) {
+        contentEditableRef.current.innerHTML = htmlContent;
+      }
+    }, [selectedSubModule?.processed_module_id]);
+
+    return (
+      <div
+        ref={contentEditableRef}
+        contentEditable={true}
+        onInput={handleContentEditableChange}
+        onBlur={handleContentEditableChange}
+        suppressContentEditableWarning={true}
+        className="prose prose-sm max-w-none min-h-[500px] p-6 border-2 border-blue-200 rounded-lg focus:outline-none focus:border-blue-400 bg-white
+          prose-headings:font-bold prose-headings:text-[#1E293B]
+          prose-h1:text-3xl prose-h1:mb-6 prose-h1:mt-8
+          prose-h2:text-2xl prose-h2:mb-4 prose-h2:mt-6 prose-h2:pb-2 prose-h2:border-b prose-h2:border-slate-200
+          prose-h3:text-xl prose-h3:mb-3 prose-h3:mt-4
+          prose-h4:text-lg prose-h4:mb-2 prose-h4:mt-3
+          prose-p:text-slate-700 prose-p:leading-relaxed prose-p:mb-4
+          prose-strong:text-slate-900 prose-strong:font-semibold
+          prose-ul:list-disc prose-ul:ml-6 prose-ul:mb-4
+          prose-ol:list-decimal prose-ol:ml-6 prose-ol:mb-4
+          prose-li:text-slate-700 prose-li:mb-2
+          prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:bg-blue-50 prose-blockquote:py-2 prose-blockquote:my-4
+          prose-table:w-full prose-table:border-collapse prose-table:my-6
+          prose-thead:bg-slate-100
+          prose-th:border prose-th:border-slate-300 prose-th:px-4 prose-th:py-3 prose-th:text-left prose-th:font-semibold prose-th:text-slate-900
+          prose-td:border prose-td:border-slate-200 prose-td:px-4 prose-td:py-3 prose-td:text-slate-700
+          prose-img:rounded-lg prose-img:shadow-md prose-img:my-6"
+      >
+      </div>
+    );
+  };
+
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      .callout {
+        padding: 1rem;
+        margin: 1.5rem 0;
+        border-radius: 0.5rem;
+        border-left: 4px solid;
+      }
+      .callout.tip {
+        background-color: #f0f9ff;
+        border-color: #3b82f6;
+      }
+      .callout.warning {
+        background-color: #fef3c7;
+        border-color: #f59e0b;
+      }
+      .callout.definition {
+        background-color: #f3f4f6;
+        border-color: #6b7280;
+      }
+      .callout h4 {
+        margin-top: 0;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+      }
+      .key-takeaway {
+        background-color: #ecfdf5;
+        border-left: 4px solid #10b981;
+        padding: 1rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+      }
+      .key-takeaway strong {
+        color: #047857;
+      }
+      .learning-objectives {
+        background-color: #f9fafb;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        margin-bottom: 2rem;
+      }
+      .learning-objectives h2 {
+        color: #1e293b;
+        margin-top: 0;
+      }
+      .learning-objectives ol {
+        margin-bottom: 0;
+      }
+      .module-section {
+        margin-bottom: 3rem;
+      }
+      .activity {
+        background-color: #fef3c7;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #f59e0b;
+        margin: 2rem 0;
+      }
+      .activity h3 {
+        color: #92400e;
+        margin-top: 0;
+      }
+      .module-summary {
+        background-color: #dbeafe;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        margin-top: 3rem;
+      }
+      .module-summary h2 {
+        color: #1e40af;
+        margin-top: 0;
+      }
+      table caption {
+        caption-side: top;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        color: #1e293b;
+      }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
   const isReviewer = userRole === 'reviewer' || userRole === 'both';
   const isUploader = userRole === 'uploader';
 
@@ -318,7 +463,6 @@ export default function EditModulePage() {
 
   return (
     <div className="min-h-screen bg-[#FAFBFC]">
-      {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="px-8 py-4">
           <div className="flex items-center justify-between mb-4">
@@ -347,7 +491,6 @@ export default function EditModulePage() {
             </div>
           </div>
 
-          {/* Info Banner */}
           {isUploader && (
             <div className="bg-purple-50 border border-purple-200 text-purple-800 px-4 py-3 rounded-lg flex items-center gap-3">
               <Upload size={18} />
@@ -371,9 +514,7 @@ export default function EditModulePage() {
         </div>
       </header>
 
-      {/* Main Content - Three Column Layout */}
       <div className="grid grid-cols-12 gap-6 p-8 h-[calc(100vh-200px)]">
-        {/* Left Panel - Sub-Modules List */}
         <div className="col-span-3 flex flex-col">
           <Card className="flex-1 bg-white border-slate-200 overflow-hidden flex flex-col">
             <div className="p-4 border-b border-slate-200">
@@ -424,10 +565,8 @@ export default function EditModulePage() {
           </Card>
         </div>
 
-        {/* Center Panel - Content View/Edit */}
         <div className="col-span-8 flex flex-col">
           <Card className="flex-1 bg-white border-slate-200 overflow-hidden flex flex-col">
-            {/* Tabs */}
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
               <div className="flex gap-2">
                 <button
@@ -437,10 +576,8 @@ export default function EditModulePage() {
                   }`}
                 >
                   <Edit3 size={16} />
-                  Edit Text
+                  Edit Content
                 </button>
-
-
 
                 <button
                   onClick={() => setActiveView('diff')}
@@ -449,10 +586,9 @@ export default function EditModulePage() {
                   }`}
                 >
                   <GitCompare size={16} />
-                  Delta View
+                  Compare Changes
                 </button>
                 
-
                 <button
                   onClick={() => setActiveView('final')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -460,15 +596,15 @@ export default function EditModulePage() {
                   }`}
                 >
                   <Eye size={16} />
-                  Final Output
+                  Preview
                 </button>
               </div>
               
               <div className="flex items-center gap-2">
                 {hasUnsavedChanges && (
-                  <span className="text-xs text-orange-600 font-medium">Unsaved changes</span>
+                  <span className="text-xs text-orange-600 font-medium">● Unsaved changes</span>
                 )}
-                {activeView === 'edit' && hasUnsavedChanges && (
+                {hasUnsavedChanges && (
                   <Button size="sm" onClick={handleSaveChanges} className="bg-blue-600 hover:bg-blue-700">
                     Save Changes
                   </Button>
@@ -476,7 +612,6 @@ export default function EditModulePage() {
               </div>
             </div>
 
-            {/* Content Area */}
             <div className="flex-1 overflow-y-auto p-6">
               {!selectedSubModule ? (
                 <div className="flex items-center justify-center h-full text-slate-400">
@@ -488,51 +623,55 @@ export default function EditModulePage() {
               ) : (
                 <>
                   {activeView === 'final' && (
-                    <div className="prose prose-sm max-w-none">
-                      <div className="mb-4 pb-4 border-b border-slate-200">
-                        <h2 className="text-lg font-bold text-[#1E293B] mb-1">{selectedSubModule.title}</h2>
+                    <div>
+                      <div className="mb-6 pb-4 border-b border-slate-200">
+                        <h2 className="text-2xl font-bold text-[#1E293B] mb-2">{selectedSubModule.title}</h2>
                         {selectedSubModule.section_type && (
-                          <span className="text-xs text-slate-500">Section: {selectedSubModule.section_type}</span>
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
+                            {selectedSubModule.section_type}
+                          </span>
                         )}
                       </div>
-                      <div className="whitespace-pre-wrap text-sm text-slate-800 leading-relaxed">
-                        {editedContent}
-                      </div>
+                      <ContentRenderer htmlContent={editedContent} />
                     </div>
                   )}
 
                   {activeView === 'diff' && (
                     <div className="space-y-4">
                       <div className="p-4 bg-blue-50 border-l-4 border-blue-400 rounded">
-                        <p className="text-xs font-semibold text-blue-800 mb-2">Original Content</p>
-                        <p className="text-sm font-mono text-slate-700">
-                          {selectedSubModule.content}
-                        </p>
+                        <p className="text-xs font-semibold text-blue-800 mb-3">Original Content</p>
+                        <div className="bg-white p-4 rounded border border-blue-200">
+                          <ContentRenderer htmlContent={selectedSubModule.content} />
+                        </div>
                       </div>
                       {editedContent !== selectedSubModule.content && (
                         <div className="p-4 bg-green-50 border-l-4 border-green-400 rounded">
-                          <p className="text-xs font-semibold text-green-800 mb-2">Modified Content</p>
-                          <p className="text-sm font-mono text-green-700">
-                            {editedContent}
-                          </p>
+                          <p className="text-xs font-semibold text-green-800 mb-3">Modified Content</p>
+                          <div className="bg-white p-4 rounded border border-green-200">
+                            <ContentRenderer htmlContent={editedContent} />
+                          </div>
                         </div>
                       )}
                     </div>
                   )}
 
                   {activeView === 'edit' && (
-                    <div className="space-y-4">
-                      <div className="mb-4">
-                        <label className="text-sm font-semibold text-slate-700 mb-2 block">
+                    <div>
+                      <div className="mb-4 pb-3 border-b border-slate-200">
+                        <label className="text-sm font-semibold text-slate-700 block mb-1">
                           Editing: {selectedSubModule.title}
                         </label>
+                        <p className="text-xs text-slate-500">
+                          Click anywhere in the content below to start editing. Your changes will be preserved in HTML format.
+                        </p>
                       </div>
-                      <Textarea
-                        value={editedContent}
-                        onChange={(e) => handleContentChange(e.target.value)}
-                        className="w-full min-h-[500px] font-mono text-sm border-slate-200 focus:border-blue-400 focus:ring-blue-400"
-                        placeholder="Edit content here..."
-                      />
+                      <EditableContent htmlContent={editedContent} />
+                      <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <p className="text-xs text-blue-800">
+                          <strong>💡 Editing Tips:</strong> You can directly edit text, format using your browser's native editing features, 
+                          and the HTML structure will be preserved automatically. Use Ctrl+B for bold, Ctrl+I for italic, etc.
+                        </p>
+                      </div>
                     </div>
                   )}
                 </>
@@ -540,83 +679,8 @@ export default function EditModulePage() {
             </div>
           </Card>
         </div>
-
-        {/* Right Panel - Explainability */}
-        {/* <div className="col-span-3 flex flex-col">
-          <Card className="flex-1 bg-white border-slate-200 overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-slate-200">
-              <div className="flex items-center gap-2 mb-2">
-                <Sparkles size={18} className="text-purple-600" />
-                <h3 className="font-semibold text-[#1E293B]">Explainability</h3>
-              </div>
-              <p className="text-xs text-slate-500">Generation logic & stats</p>
-            </div> */}
-
-            {/* <div className="flex-1 overflow-y-auto p-4 space-y-6"> */}
-              {/* Module Info */}
-              {/* <div>
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">MODULE INFO</h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Total Sub-Modules:</span>
-                    <span className="font-semibold text-slate-800">{subModules.length}</span>
-                  </div>
-                  {selectedSubModule && (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Current:</span>
-                        <span className="font-semibold text-slate-800">
-                          #{subModules.findIndex(sm => sm.processed_module_id === selectedSubModule.processed_module_id) + 1}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Section Type:</span>
-                        <span className="font-semibold text-slate-800">{selectedSubModule.section_type || 'N/A'}</span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div> */}
-
-              {/* Model Telemetry */}
-              {/* <div>
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <Sparkles size={14} />
-                  MODEL TELEMETRY
-                </h4>
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <p className="text-xs text-slate-500 mb-1">Model</p>
-                      <p className="text-sm font-semibold text-slate-800">GPT-4.1</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500 mb-1">Prompt</p>
-                      <p className="text-sm font-semibold text-slate-800">v3.2</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500 mb-1">Temperature</p>
-                      <p className="text-sm font-semibold text-slate-800">0.4</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500 mb-1">RAG Confidence</p>
-                      <p className="text-sm font-semibold text-green-600">87%</p>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-900 rounded-lg p-3 text-xs font-mono text-green-400">
-                    <div>TOKEN_IN: 4500</div>
-                    <div>TOKEN_OUT: 1200</div>
-                    <div className="text-slate-500">ID: gen_{moduleId.slice(0, 8)}</div>
-                  </div>
-                </div>
-              </div> */}
-            {/* </div> */}
-          {/* </Card>
-        </div> */}
       </div>
 
-      {/* Footer Actions */}
       <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-8 py-4">
         <div className="flex items-center justify-between">
           <Button
@@ -629,7 +693,6 @@ export default function EditModulePage() {
           </Button>
 
           <div className="flex items-center gap-3">
-            {/* Show Reject button for everyone */}
             <Button
               variant="outline"
               onClick={handleReject}
@@ -639,7 +702,6 @@ export default function EditModulePage() {
               Reject
             </Button>
             
-            {/* Show Request Changes only for uploaders */}
             {isUploader && (
               <Button
                 variant="outline"
@@ -651,7 +713,6 @@ export default function EditModulePage() {
               </Button>
             )}
             
-            {/* Show Final Approval only for reviewers */}
             {isReviewer && (
               <Button
                 onClick={handleFinalApproval}
