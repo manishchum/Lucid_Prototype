@@ -589,7 +589,6 @@ export default function EditModulePage() {
 
   return (
     <div className="min-h-screen bg-[#FAFBFC]">
-      {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="px-8 py-4">
           <div className="flex items-center justify-between mb-3">
@@ -729,7 +728,6 @@ export default function EditModulePage() {
         {/* Center Panel - Content View/Edit/Diff */}
         <div className="col-span-9 flex flex-col">
           <Card className="flex-1 bg-white border-slate-200 overflow-hidden flex flex-col">
-            {/* Tabs */}
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
               <div className="flex gap-2">
                 <button
@@ -785,7 +783,6 @@ export default function EditModulePage() {
               </div>
             </div>
 
-            {/* Content Area */}
             <div className="flex-1 overflow-y-auto p-6">
               {!selectedSubModule ? (
                 <div className="flex items-center justify-center h-full text-slate-400">
