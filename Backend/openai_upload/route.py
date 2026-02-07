@@ -328,22 +328,14 @@ async def processAndStoreResults(moduleId: str, message: str):
 
             print(f"[processAndStoreResults] Final counts for module {i + 1}: topics={len(topics)}, objectives={len(objectives)}")
             
-<<<<<<< HEAD
-            if topics or objectives:  # Only add module if it has content
-=======
             # Stricter validation: require BOTH topics AND objectives
             if topics and objectives and len(topics) >= 1 and len(objectives) >= 1:
->>>>>>> 099ee589b808c5b69b07a4194d9c6196918e49d2
                 ai_modules.append({"title": title, "topics": topics, "objectives": objectives})
                 ai_topics.extend(topics)
                 ai_objectives.extend(objectives)
             else:
-<<<<<<< HEAD
-                print(f"[processAndStoreResults] WARNING: Module {i + 1} ({title}) has no topics or objectives, skipping")
-=======
                 print(f"[processAndStoreResults] ⚠️ WARNING: Module {i + 1} ({title}) rejected - topics={len(topics)}, objectives={len(objectives)}")
                 print(f"[processAndStoreResults] Module content preview: {block[:200]}...")
->>>>>>> 099ee589b808c5b69b07a4194d9c6196918e49d2
         
         print(f"[processAndStoreResults] Total accumulated: {len(ai_modules)} modules, {len(ai_topics)} topics, {len(ai_objectives)} objectives")
 

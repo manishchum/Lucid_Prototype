@@ -363,6 +363,9 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     console.log('📝 Last 3 messages:', messages.slice(-3));
     
     setConversationHistory(messages);
+
+    // console.log()
+    console.log(sessionId)
     setCurrentSessionId(sessionId || null);
     setIsGeneratingAssessment(true);
     setError(null);
@@ -399,7 +402,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       if (employeeId) {
         try {
           console.log('💾 Saving assessment to database...', {
-            // sessionId,
+            sessionId,
             employeeId,
             assessment
           });
