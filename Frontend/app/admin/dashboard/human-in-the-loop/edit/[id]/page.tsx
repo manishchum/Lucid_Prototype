@@ -244,24 +244,24 @@ export default function EditModulePage() {
       if (updateError) throw updateError;
 
       setHasUnsavedChanges(false);
+<<<<<<< HEAD
       alert('Changes submitted for review! The reviewer will be notified.');
 
       // Refresh data
       await fetchPendingHistory();
       // Refresh module to get updated review_stage
       const { data: updatedModule } = await supabase
-        .from('training_modules')
         .select('*')
         .eq('module_id', moduleId)
         .single();
       if (updatedModule) setModule(updatedModule);
-    } catch (error) {
-      console.error('Error requesting approval:', error);
-      alert('Failed to submit for review');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+=======
+      
+      // Update local state with the saved content
+      const updatedSubModules = subModules.map(sm => 
+        sm.processed_module_id === selectedSubModule.processed_module_id 
+          ? { ...sm, content: newContent }
+          : sm
 
   // REVIEWER: Save reviewer edits to history (overwrite the in_review entry)
   const handleReviewerSave = async () => {
