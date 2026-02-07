@@ -13,6 +13,8 @@ def ingest_by_module_id(module_id: str):
 
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
+    
+    print("[RAG] Found PDF, starting ingestion for module_id:", module_id)
 
     ingest_pdf_for_rag(
         pdf_path=pdf_path,

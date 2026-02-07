@@ -4,14 +4,24 @@ from unstructured.documents.elements import (
     Title, NarrativeText, ListItem, Table, Image
 )
 
+from PIL import Image as PILImage
+import pytesseract
+import pandas as pd
+
+def ocr_image(el):
+    if hasattr(el, "image") and el.image:
+        # el.image is usually a PIL.Image object
+        return pytesseract.image_to_string(el.image, lang="eng")
+    return ""
+
 
 def parse_pdf_rich(pdf_path: str) -> str:
-    print("I am here")
+    
     elements = partition(
         filename=pdf_path,
         extract_images_in_pdf=True,
         infer_table_structure=True,
-        strategy="fast",
+        strategy="hi_res",
         ocr_languages="eng",
     )
 
@@ -28,9 +38,18 @@ def parse_pdf_rich(pdf_path: str) -> str:
             parts.append(f"- {el.text}")
 
         elif isinstance(el, Table):
+            
             parts.append("\n[TABLE]\n")
-            parts.append(el.text)
+            df = pd.DataFrame(el.cells)
+            parts.append(df.to_markdown())
             parts.append("\n[/TABLE]\n")
+        
+        elif isinstance(el, Image):
+            ocr_text = el.text or ocr_image(el)
+            if ocr_text.strip():
+                parts.append("\n[IMAGE OCR]\n")
+                parts.append(ocr_text)
+                parts.append("\n[/IMAGE OCR]\n")        
 
         elif isinstance(el, Image) and el.text:
             parts.append("\n[IMAGE OCR]\n")
