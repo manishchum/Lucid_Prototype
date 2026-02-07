@@ -44,6 +44,9 @@ function ContentUpload({
   const [retrievedReviewerId, setRetrievedReviewerId] = useState<string | null>(null);
   const [emailValidationMessage, setEmailValidationMessage] = useState<string>('');
   const [isValidatingEmail, setIsValidatingEmail] = useState(false);
+  const [additionalLinks, setAdditionalLinks] = useState<Array<{ title: string; url: string }>>([]);
+  const [linkTitle, setLinkTitle] = useState('');
+  const [linkUrl, setLinkUrl] = useState('');
 
   // Debounce timer for email validation
   useEffect(() => {
@@ -81,6 +84,18 @@ function ContentUpload({
       setEmailValidationMessage('❌ Error validating email');
       setRetrievedReviewerId(null);
     }
+  };
+
+  const handleAddLink = () => {
+    if (linkTitle.trim() && linkUrl.trim()) {
+      setAdditionalLinks([...additionalLinks, { title: linkTitle.trim(), url: linkUrl.trim() }]);
+      setLinkTitle('');
+      setLinkUrl('');
+    }
+  };
+
+  const handleRemoveLink = (index: number) => {
+    setAdditionalLinks(additionalLinks.filter((_, i) => i !== index));
   };
 
   const [title, setTitle] = useState('');
@@ -179,7 +194,8 @@ function ContentUpload({
             processing_status: 'pending',
             uploaded_by:adminId,
             threshold_value:thresholdValue,
-            reviewer_id:retrievedReviewerId
+            reviewer_id:retrievedReviewerId,
+            additional_readings: additionalLinks.length > 0 ? additionalLinks : null
           })
           .select()
           .single();
@@ -195,6 +211,9 @@ function ContentUpload({
       setFile(null);
       setTitle('');
       setDescription('');
+      setAdditionalLinks([]);
+      setLinkTitle('');
+      setLinkUrl('');
       onUploadComplete();
       alert('Content uploaded! AI analysis is running in the background.');
     } catch (error: any) {
@@ -276,6 +295,34 @@ function ContentUpload({
         <p className="mt-1 text-xs text-slate-500">
           Assign a reviewer who will approve this content before it goes live.
         </p>
+      </div>
+
+      {/* Additional Links Input */}
+      <div>
+        <Label>Additional Reference Links</Label>
+        <div className="space-y-2">
+          {additionalLinks.map((link, index) => (
+            <div key={index} className="flex items-center space-x-2">
+              <span className="flex-1 truncate">{link.title} - {link.url}</span>
+              <Button variant="outline" size="sm" onClick={() => handleRemoveLink(index)}>
+                Remove
+              </Button>
+            </div>
+          ))}
+        </div>
+        <div className="flex space-x-2 mt-2">
+          <Input
+            placeholder="Link Title"
+            value={linkTitle}
+            onChange={(e) => setLinkTitle(e.target.value)}
+          />
+          <Input
+            placeholder="Link URL"
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+          />
+          <Button onClick={handleAddLink}>Add</Button>
+        </div>
       </div>
 
       <div>
