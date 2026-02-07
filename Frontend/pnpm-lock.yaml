@@ -218,9 +218,6 @@ importers:
       sonner:
         specifier: ^1.7.1
         version: 1.7.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      supabase-js:
-        specifier: ^0.0.1-security
-        version: 0.0.1-security
       tailwind-merge:
         specifier: ^2.5.5
         version: 2.6.1
@@ -3386,9 +3383,6 @@ packages:
     resolution: {integrity: sha512-DhuTmvZWux4H1UOnWMB3sk0sbaCVOoQZjv8u1rDoTV0HTdGem9hkAZtl4JZy8P2z4Bg0nT+YMeOFyVr4zcG5Tw==}
     engines: {node: '>=16 || 14 >=14.17'}
     hasBin: true
-
-  supabase-js@0.0.1-security:
-    resolution: {integrity: sha512-PbsAWLAaduzyPDZymFxbVH/qCOe0rL0PYm3rK0S2GP6hqJICUTkDAisgAYEJVDCWaiGk13onNBOVAHbGQJjffg==}
 
   supports-color@8.1.1:
     resolution: {integrity: sha512-MpUEN2OodtUzxvKQl72cUF7RQ5EiHsGvSsVG0ia9c5RbWGL2CI4C7EpPS8UTBIplnlzZiNuV56w+FuNxy3ty2Q==}
@@ -7178,8 +7172,6 @@ snapshots:
       pirates: 4.0.7
       tinyglobby: 0.2.15
       ts-interface-checker: 0.1.13
-
-  supabase-js@0.0.1-security: {}
 
   supports-color@8.1.1:
     dependencies:
