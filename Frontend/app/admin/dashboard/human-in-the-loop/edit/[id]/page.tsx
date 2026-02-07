@@ -244,7 +244,7 @@ export default function EditModulePage() {
       if (updateError) throw updateError;
 
       setHasUnsavedChanges(false);
-<<<<<<< HEAD
+
       alert('Changes submitted for review! The reviewer will be notified.');
 
       // Refresh data
@@ -255,14 +255,22 @@ export default function EditModulePage() {
         .eq('module_id', moduleId)
         .single();
       if (updatedModule) setModule(updatedModule);
-=======
+
       
       // Update local state with the saved content
       const updatedSubModules = subModules.map(sm => 
         sm.processed_module_id === selectedSubModule.processed_module_id 
           ? { ...sm, content: newContent }
-          : sm
+          : sm)
 
+      setSubModules(updatedSubModules);
+    } catch (error) {
+      console.error('Error submitting for approval:', error);
+      alert('Failed to submit for review');
+    } finally {
+      setSubmitting(false);
+    }  };
+      
   // REVIEWER: Save reviewer edits to history (overwrite the in_review entry)
   const handleReviewerSave = async () => {
     if (!selectedSubModule || !contentEditableRef.current) return;
