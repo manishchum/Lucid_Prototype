@@ -139,6 +139,7 @@ INSTRUCTION_PROMPT = """You are an expert instructional designer. Your job is to
 3. **EXTRACT TOPICS FROM SOURCE** - List only topics explicitly mentioned or directly implied in the source material.
 4. **GROUND OBJECTIVES IN SOURCE** - Each objective must state what learners will know/do based on content present in the source.
 5. **NO HALLUCINATION** - Do not create, assume, or infer learning outcomes not supported by the source material.
+6. **STRICT FORMAT COMPLIANCE** - You MUST use the EXACT format specified below. Use #### for module headers, not ###.
 
 Processing steps (apply exactly):
 1. Identify Overall Learning Goal
@@ -151,26 +152,42 @@ Processing steps (apply exactly):
   - Time-to-Mastery Rule: If the source topic is complex, split into smaller modules.
   - Single-Outcome Rule: Split if the source presents multiple distinct learning outcomes.
   - Cognitive Load Rule: Split if the source introduces >1–3 new concepts at once.
-  - For each module, list which rules triggered a split based on SOURCE ANALYSIS.
 5. Arrange Modules Logically
   - Order from foundational → intermediate → advanced based on the SOURCE structure.
-  - Provide sequencing rationale based on source material flow.
 6. Validate Module Independence
   - Ensure each module is self-contained using only source content and delivers one clear learning outcome assessable from the source.
 
-Output format for each module:
-#### Module [#]: [Accurate Title from Source]
+⚠️ CRITICAL: Use this EXACT output format (use #### for modules, not ###):
+
+#### Module 1: [Accurate Title from Source]
 **Topics:**
+- [topic explicitly in source]
 - [topic explicitly in source]
 - [topic explicitly in source]
 
 **Objectives:**
-- Learners will [action] [concept from source]
-- Learners will [action] [concept from source]
+- Learners will [action verb] [specific concept from source]
+- Learners will [action verb] [specific concept from source]
+- Learners will [action verb] [specific concept from source]
 
-⚠️ IF SOURCE IS INCOMPLETE: List clarifying questions about missing context (e.g., target proficiency, compliance requirements) but DO NOT INVENT CONTENT.
+#### Module 2: [Next Module Title]
+**Topics:**
+- [topic from source]
+
+**Objectives:**
+- Learners will [action] [concept]
+
+⚠️ FORMAT RULES:
+- Use #### (four hashes) for module headers, NOT ### (three hashes)
+- Always include both **Topics:** and **Objectives:** sections for each module
+- List at least 2-3 topics and 2-3 objectives per module
+- Do NOT include "Module Splitting Checks", "Sequencing Rationale", or "Clarifying Questions" sections
+- Start directly with #### Module 1, no preamble
+- End after the last module, no conclusion
+
+⚠️ IF SOURCE IS INCOMPLETE: Still follow the format above but note limitations in objectives.
 ⚠️ NEVER EXTRAPOLATE: Strictly bind all content to source material. Gaps in source = gaps in modules, not invention.
-Respond ONLY in MARKDOWN format with NO additional commentary and always return a module related to the provided content.
+Respond ONLY in the EXACT MARKDOWN format specified above with NO additional commentary.
 """
 
 
@@ -213,12 +230,18 @@ async def processAndStoreResults(moduleId: str, message: str):
         if modulesStart:
             modulesSection = modulesSection[modulesStart.start():]
 
-        cutoffRegex = re.search(r"(Module Splitting Checks|Sequencing Rationale|Module Independence|Additional Clarifying Questions)", modulesSection, re.I)
+        # Enhanced cutoff to handle various footer sections that aren't modules
+        cutoffRegex = re.search(
+            r"(Module Splitting Checks|Sequencing Rationale|Module Independence|Additional Clarifying Questions|Clarifying Questions|###\s*Sequencing|###\s*Clarifying|\*\*Module Splitting Checks)", 
+            modulesSection, 
+            re.I
+        )
         if cutoffRegex:
             modulesSection = modulesSection[:cutoffRegex.start()]
 
+        # Updated regex to handle both ### and #### module headers
         moduleRegex = re.compile(
-            r"(####\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*|$))",
+            r"(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*)([\s\S]*?)(?=(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*|$))",
             re.I
         )
 
@@ -230,8 +253,9 @@ async def processAndStoreResults(moduleId: str, message: str):
             })
 
         if len(moduleMatches) == 0:
+            # Fallback regex also handles both ### and #### formats
             fallbackRegex = re.compile(
-                r"(####\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|$))",
+                r"(#{3,4}\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|$))",
                 re.I
             )
             for m in fallbackRegex.finditer(message):
@@ -304,12 +328,22 @@ async def processAndStoreResults(moduleId: str, message: str):
 
             print(f"[processAndStoreResults] Final counts for module {i + 1}: topics={len(topics)}, objectives={len(objectives)}")
             
+<<<<<<< HEAD
             if topics or objectives:  # Only add module if it has content
+=======
+            # Stricter validation: require BOTH topics AND objectives
+            if topics and objectives and len(topics) >= 1 and len(objectives) >= 1:
+>>>>>>> 099ee589b808c5b69b07a4194d9c6196918e49d2
                 ai_modules.append({"title": title, "topics": topics, "objectives": objectives})
                 ai_topics.extend(topics)
                 ai_objectives.extend(objectives)
             else:
+<<<<<<< HEAD
                 print(f"[processAndStoreResults] WARNING: Module {i + 1} ({title}) has no topics or objectives, skipping")
+=======
+                print(f"[processAndStoreResults] ⚠️ WARNING: Module {i + 1} ({title}) rejected - topics={len(topics)}, objectives={len(objectives)}")
+                print(f"[processAndStoreResults] Module content preview: {block[:200]}...")
+>>>>>>> 099ee589b808c5b69b07a4194d9c6196918e49d2
         
         print(f"[processAndStoreResults] Total accumulated: {len(ai_modules)} modules, {len(ai_topics)} topics, {len(ai_objectives)} objectives")
 

@@ -54,31 +54,6 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     difficulty: 'Medium' as 'Easy' | 'Medium' | 'Hard',
     tone: 'Neutral' as 'Friendly' | 'Neutral' | 'Aggressive'
   });
-  const [allScenarios, setAllScenarios] = useState<Scenario[]>([]);
-  const [loadingScenarios, setLoadingScenarios] = useState<boolean>(true);
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
-  const [showAssignModal, setShowAssignModal] = useState<boolean>(false);
-  const [assigningScenario, setAssigningScenario] = useState<Scenario | null>(null);
-  const [assignmentType, setAssignmentType] = useState<'department' | 'sub_department' | 'user'>('user');
-  const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
-  const [departments, setDepartments] = useState<any[]>([]);
-  const [subDepartments, setSubDepartments] = useState<any[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
-  const [companyId, setCompanyId] = useState<string>('');
-  const [userId, setUserId] = useState<string>('');
-  
-  // Fetch all scenarios from the database on mount
-  useEffect(() => {
-    const fetchScenarios = async () => {
-      if (!userId) return;
-      setLoadingScenarios(true);
-      const { data, error } = await fetchScenariosForUser(userId, isAdmin);
-      if (data) setAllScenarios(data);
-      if (error) setError('Failed to load scenarios');
-      setLoadingScenarios(false);
-    };
-    fetchScenarios();
-  }, [userId, isAdmin]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -132,176 +107,12 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     fetchEmployeeId();
   }, [user]);
 
-  // Check if user has admin role
-  useEffect(() => {
-    const checkAdminRole = async () => {
-      if (user?.email) {
-        try {
-          // Get user data
-          const { data: userData, error: userError } = await supabase
-            .from('users')
-            .select('user_id')
-            .eq('email', user.email)
-            .eq('is_active', true)
-            .single();
-
-          if (userError || !userData) {
-            setIsAdmin(false);
-            return;
-          }
-
-          // Check user role assignments
-          const { data: roleData, error: roleError } = await supabase
-            .from('user_role_assignments')
-            .select(`
-              role_id,
-              roles!inner(name)
-            `)
-            .eq('user_id', userData.user_id)
-            .eq('is_active', true)
-            .eq('scope_type', 'COMPANY');
-
-          if (roleError || !roleData || roleData.length === 0) {
-            setIsAdmin(false);
-            return;
-          }
-
-          // Check if user has Admin role
-          const hasAdminRole = roleData.some((assignment: any) => 
-            ['admin', 'super_admin', 'ceo'].includes(assignment.roles?.name?.toLowerCase())
-          );
-
-          setIsAdmin(hasAdminRole);
-        } catch (error) {
-          console.error('Error checking admin role:', error);
-          setIsAdmin(false);
-        }
-      }
-    };
-    checkAdminRole();
-  }, [user]);
-
   const handleScenarioSelect = (scenario: Scenario) => {
           console.log('Loaded custom scenario from sessionStorage:', scenario);
 
     setSelectedScenario(scenario);
     setCurrentScreen('config');
     setError(null);
-  };
-
-  const handleEditScenario = (scenario: Scenario, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card click
-    // Store scenario data in sessionStorage for the create page to load
-    sessionStorage.setItem('editScenario', JSON.stringify(scenario));
-    router.push('/employee/roleplay/create?edit=true');
-  };
-
-  const handleDeleteScenario = async (scenario: Scenario, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card click
-    
-    // Confirm deletion
-    if (!confirm(`Are you sure you want to delete "${scenario.title}"? This action cannot be undone.`)) {
-      return;
-    }
-
-    try {
-      const { error } = await deleteCustomScenario(scenario.id);
-      
-      if (error) {
-        console.error('Error deleting scenario:', error);
-        setError('Failed to delete scenario');
-        return;
-      }
-
-      // Refresh scenarios list
-      const { data, error: fetchError } = await fetchScenariosForUser(userId, isAdmin);
-      if (data) {
-        setAllScenarios(data);
-      }
-      if (fetchError) {
-        console.error('Error refreshing scenarios:', fetchError);
-      }
-
-      // Clear selected scenario if it was deleted
-      if (selectedScenario?.id === scenario.id) {
-        setSelectedScenario(null);
-      }
-    } catch (err) {
-      console.error('Exception deleting scenario:', err);
-      setError('Failed to delete scenario');
-    }
-  };
-
-  const handleAssignScenario = async (scenario: Scenario, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card click
-    setAssigningScenario(scenario);
-    setShowAssignModal(true);
-    
-    // Fetch departments (where sub_department_name IS NULL) and users for the dropdown
-    try {
-      // Fetch departments (entries with department_name and no sub_department_name)
-      const { data: deptData } = await supabase
-        .from('sub_department')
-        .select('department_id, department_name')
-        // .is('sub_department_name', null);
-      
-      // Remove duplicates based on department_name
-      const uniqueDepts = deptData?.reduce((acc: any[], curr: any) => {
-        if (!acc.find(d => d.department_name === curr.department_name)) {
-          acc.push(curr);
-        }
-        return acc;
-      }, []);
-      setDepartments(uniqueDepts || []);
-
-      // Fetch sub-departments (entries with both department_name and sub_department_name)
-      const { data: subDeptData } = await supabase
-        .from('sub_department')
-        .select('department_id, department_name, sub_department_name')
-        .not('sub_department_name', 'is', null);
-      setSubDepartments(subDeptData || []);
-
-      // Fetch users for this company
-      const { data: usersData } = await supabase
-        .from('users')
-        .select('user_id, name, email, department_id')
-        .eq('company_id', companyId)
-        .eq('is_active', true);
-      setUsers(usersData || []);
-    } catch (error) {
-      console.error('Error fetching assignment targets:', error);
-    }
-  };
-
-  const handleSaveAssignment = async () => {
-    if (!assigningScenario || selectedTargets.length === 0) {
-      alert('Please select at least one target');
-      return;
-    }
-
-    try {
-      const { error } = await assignScenario(
-        assigningScenario.id,
-        assignmentType,
-        selectedTargets,
-        companyId
-      );
-
-      if (error) {
-        console.error('Error assigning scenario:', error);
-        setError('Failed to assign scenario');
-        return;
-      }
-
-      // Close modal and reset
-      setShowAssignModal(false);
-      setAssigningScenario(null);
-      setSelectedTargets([]);
-      alert('Scenario assigned successfully!');
-    } catch (err) {
-      console.error('Exception assigning scenario:', err);
-      setError('Failed to assign scenario');
-    }
   };
 
   const handleConfigStart = (config: RoleplayConfig) => {
@@ -513,34 +324,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                   }`}
                   onClick={() => setSelectedScenario(scenario)}
                 >
-                  {/* Edit, Delete, and Assign buttons for custom scenarios - admin only */}
-                  {isAdmin && scenario.isCustom && (
-                    <div className="absolute top-3 right-3 flex gap-2">
-                      <button
-                        onClick={(e) => handleAssignScenario(scenario, e)}
-                        className="p-2 rounded-lg bg-slate-100 hover:bg-green-100 text-slate-600 hover:text-green-600 transition-colors"
-                        title="Assign scenario"
-                      >
-                        <UserPlus className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => handleEditScenario(scenario, e)}
-                        className="p-2 rounded-lg bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-600 transition-colors"
-                        title="Edit scenario"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => handleDeleteScenario(scenario, e)}
-                        className="p-2 rounded-lg bg-slate-100 hover:bg-red-100 text-slate-600 hover:text-red-600 transition-colors"
-                        title="Delete scenario"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
-                  
-                  <h3 className="text-xl font-semibold text-gray-800 mb-3 pr-10">{scenario.title}</h3>
+                  <h3 className="text-xl font-semibold text-gray-800 mb-3">{scenario.title}</h3>
                   <p className="text-gray-600 mb-4 text-sm leading-relaxed">{scenario.description}</p>
                   
                   {/* Role Information - Hidden */}
@@ -573,29 +357,27 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                 </Card>
               ))}
               
-              {/* Create Your Own Roleplay Card - Only show for admins */}
-              {isAdmin && (
-                <Card
-                  className="cursor-pointer p-6 hover:border-purple-400 hover:shadow-lg transition-all border-2 border-dashed border-purple-300 bg-purple-50/30"
-                  onClick={() => router.push('/employee/roleplay/create')}
-                >
-                  <h3 className="text-xl font-semibold text-purple-700 mb-3 flex items-center gap-2">
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    Create Your Own Roleplay
-                  </h3>
-                  <p className="text-gray-600 mb-4 text-sm leading-relaxed">
-                    Design a custom scenario tailored to your specific needs and practice objectives.
-                  </p>
-                  <div className="flex justify-between items-center text-sm font-medium">
-                    <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full">Custom Scenario</span>
-                    <span className="px-3 py-1 rounded-full bg-purple-100 text-purple-700">
-                      Flexible
-                    </span>
-                  </div>
-                </Card>
-              )}
+              {/* Create Your Own Roleplay Card */}
+              <Card
+                className="cursor-pointer p-6 hover:border-purple-400 hover:shadow-lg transition-all border-2 border-dashed border-purple-300 bg-purple-50/30"
+                onClick={() => router.push('/employee/roleplay/create')}
+              >
+                <h3 className="text-xl font-semibold text-purple-700 mb-3 flex items-center gap-2">
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Create Your Own Roleplay
+                </h3>
+                <p className="text-gray-600 mb-4 text-sm leading-relaxed">
+                  Design a custom scenario tailored to your specific needs and practice objectives.
+                </p>
+                <div className="flex justify-between items-center text-sm font-medium">
+                  <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full">Custom Scenario</span>
+                  <span className="px-3 py-1 rounded-full bg-purple-100 text-purple-700">
+                    Flexible
+                  </span>
+                </div>
+              </Card>
             </div>
 
             <div className="flex justify-center">

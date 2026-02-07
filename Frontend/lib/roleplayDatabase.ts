@@ -48,6 +48,24 @@ export async function insertCustomScenario(scenario: Scenario, companyId:string)
   }
 }
 
+export async function fetchAssignedScenarioIdsForUser(userId: string): Promise<{ data: string[] | null; error: any }> 
+{
+  try {
+    const { data, error } = await supabase
+      .from('scenario_assignments')
+      .select('scenario_id')
+      .eq('user_id', userId)
+
+    if (error) {
+      return { data: null, error };
+    }
+    const scenarioIds = data ? data.map(item => item.scenario_id) : [];
+    return { data: scenarioIds, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
 /**
  * Fetch all scenarios (default + custom from database)
  */
@@ -153,15 +171,32 @@ export async function fetchScenariosForUser(userId: string, isAdmin: boolean): P
   try {
     // Admin users see all scenarios
     if (isAdmin) {
+      console.log("He is admin");
       return await fetchAllScenarios();
     }
 
     // Get scenarios assigned to this user
     const { data: assignedScenarioIds, error: assignError } = await getAssignedScenariosForUser(userId);
-    
+    console.log("Scenarios Ids",assignedScenarioIds);
+    console.log(userId);
     if (assignError) {
       console.error('Error fetching assigned scenarios:', assignError);
       return { data: SCENARIOS, error: null };
+    }else if(assignedScenarioIds){
+
+
+      const { data: assignedScenarios, error: scenError } = await supabase
+      .from('scenarios')
+      .select('*')
+      .in('scenario_id', assignedScenarioIds)
+      .order('created_at', { ascending: false });
+      if (scenError) {
+        console.error('Error fetching assigned scenarios details:', scenError);
+        return { data: SCENARIOS, error: null };
+      }
+      console.log("Assigned Scenario Ids for the user are ",assignedScenarioIds);
+      return { data: assignedScenarios, error: null };
+    
     }
 
     // Fetch all scenarios first
@@ -259,7 +294,7 @@ export async function assignScenario(
     const assignments = targetIds.map(targetId => ({
       scenario_id: scenarioId,
       assignment_type: assignmentType,
-      target_id: targetId,
+      user_id: targetId,
       company_id: companyId,
       assigned_at: new Date().toISOString(),
     }));
@@ -267,7 +302,7 @@ export async function assignScenario(
     const { data, error } = await supabase
       .from('scenario_assignments')
       .upsert(assignments, {
-        onConflict: 'scenario_id,assignment_type,target_id',
+        onConflict: 'scenario_id,assignment_type,department_id',
         ignoreDuplicates: false
       })
       .select();
@@ -317,11 +352,35 @@ export async function removeScenarioAssignments(assignmentIds: string[]) {
 export async function getAssignedScenariosForUser(userId: string) {
   try {
     // Get user's department_id
+    console.log("Inside fetching scenarios id for the user",userId);
     const { data: userData, error: userError } = await supabase
       .from('users')
       .select('department_id')
       .eq('user_id', userId)
       .single();
+
+
+      const {data:role_ids, error: roleErrors} = await supabase
+      .from('user_role_assignments')
+      .select('role_id')
+      .eq('user_id', userId)
+      
+      if(roleErrors){
+        console.error('Error fetching user roles:', roleErrors);
+        return { data: [], error: roleErrors };
+      }
+      if(role_ids && role_ids.length >1){
+        console.log("User has multiple roles assigned");
+        console.log("He is admin");
+        const {data:allScenarios, error: scenError} = await supabase  
+        .from('scenarios')
+        .select('scenario_id')
+        .order('created_at', { ascending: false })
+        ;
+        return allScenarios;
+      
+      }
+
 
     if (userError) {
       console.error('Error fetching user data:', userError);
@@ -329,20 +388,35 @@ export async function getAssignedScenariosForUser(userId: string) {
     }
 
     // Build OR condition for assignments
-    let orCondition = `target_id.eq.${userId}`;
+    let orCondition = `user_id.eq.${userId}`;
     if (userData.department_id) {
-      orCondition += `,target_id.eq.${userData.department_id}`;
+      orCondition += `,department_id.eq.${userData.department_id}`;
     }
 
     // Get all assignments for this user (direct or department)
     const { data: assignments, error: assignError } = await supabase
       .from('scenario_assignments')
       .select('scenario_id')
-      .or(orCondition);
+      .eq('user_id', userId)
+      // .or(orCondition);
 
+      // if()
     if (assignError) {
-      console.error('Error fetching assignments:', assignError);
-      return { data: [], error: assignError };
+      const {data:assignments, error: assignError} = await supabase
+      .from('scenario_assignments')
+      .select('scenario_id')
+      .eq('department_id', userData.department_id);
+      
+      
+      
+      if (assignError) {
+        console.log("No Modules found for the user");
+      return { data: [], error: assignError };}
+
+
+
+    const scenarioIds = [...new Set(assignments?.map((a: any) => a.scenario_id) || [])];
+    return { data: scenarioIds, error: null };
     }
 
     // Extract unique scenario IDs
