@@ -243,7 +243,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       }
 
       // Clear selected scenario if it was deleted
-      if (selectedScenario?.id === scenario.id) {
+      if (selectedScenario?.scenario_id === scenario.scenario_id) {
         setSelectedScenario(null);
       }
     } catch (err) {
@@ -304,7 +304,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       console.log(selectedTargets);
       
       const { error } = await assignScenario(
-        assigningScenario.id,
+        assigningScenario.scenario_id,
         assignmentType,
         selectedTargets,
         companyId
@@ -449,7 +449,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
     // Create a custom scenario object
     const newScenario: Scenario = {
-      id: 'custom-' + Date.now(),
+      scenario_id: 'custom-' + Date.now(),
       title: customScenario.title,
       description: customScenario.description,
       role: customScenario.aiRole,
@@ -531,9 +531,9 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                 <div className="col-span-2 text-center text-slate-500">No scenarios found.</div>
               ) : allScenarios.map((scenario) => (
                 <Card
-                  key={scenario.id}
+                  key={scenario.scenario_id}
                   className={`cursor-pointer p-6 hover:border-blue-400 hover:shadow-lg transition-all relative ${
-                    selectedScenario?.id === scenario.id
+                    selectedScenario?.scenario_id === scenario.scenario_id
                       ? 'border-2 border-blue-500 shadow-lg'
                       : 'border border-slate-200'
                   }`}

@@ -524,21 +524,22 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
       try {
         console.log('Creating session with data:', {
           employeeId: employeeId,
-          scenarioId: scenario.id,
+          scenarioId: scenario.scenario_id,
           moduleId
         });
         
 
         console.log('📤 Sending request to createRolePlaySession...');
+        console.log('Scenario Variables',scenario);
         console.log("scenario details:", {
-          id: await scenario.id,
+          id: await scenario.scenario_id,
           title: scenario.title,
           role: scenario.role,
           difficulty: scenario.difficulty
         });
         const { data, error } = await createRolePlaySession(
           employeeId,
-          scenario.id,
+          scenario.scenario_id,
           scenario.title,
           scenario.role,
           scenario.difficulty,
