@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { BarChart3, TrendingUp, CheckCircle, User, BookOpen, AlertCircle, Target, Brain, FileText, Clock, Award } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -37,6 +38,14 @@ ChartJS.register(
   LineElement
 );
 
+interface Admin {
+  user_id: string;
+  email: string;
+  name: string | null;
+  company_id: string;
+}
+
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 // Enhanced Progress Analytics Component with real database schema and charts
 function ProgressAnalytics({ companyId }: { companyId: string }) {
   const [progressData, setProgressData] = useState<any[]>([]);
@@ -1584,6 +1593,7 @@ export default function AnalyticsPage() {
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const currentUserId = admin?.user_id || null;
   useEffect(() => {
     if (user?.email) {
       checkAdminAccess();
@@ -1594,20 +1604,26 @@ export default function AnalyticsPage() {
     if (!user?.email) return;
 
     try {
-      // Get user data from users table
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("user_id, email, name, company_id")
-        .eq("email", user.email)
-        .eq("is_active", true)
-        .single();
+      // Get user data from users table via backend API
+      const userRes = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
 
-      if (userError || !userData) {
-        console.error("User not found or inactive:", userError);
+      if (!userRes.ok) {
+        console.error("User not found or inactive:");
         return;
       }
 
       // Check if user has admin role through user_role_assignments
+      const responseData = await userRes.json();
+      
+      // Handle both wrapped and unwrapped responses
+      const userData = responseData.user || responseData;
+      
+      // Validate response
+      if (!userData || !userData.user_id) {
+        console.error("Invalid user data returned from backend:", responseData);
+        return;
+      }
+      
       const { data: roleData, error: roleError } = await supabase
         .from("user_role_assignments")
         .select(`
@@ -1626,7 +1642,8 @@ export default function AnalyticsPage() {
       // Check if user has Admin role
       const hasAdminRole = roleData.some((assignment: any) => 
         assignment.roles?.name?.toLowerCase() === 'admin' || 
-        assignment.roles?.name?.toLowerCase() === 'super_admin'
+        assignment.roles?.name?.toLowerCase() === 'super_admin' ||
+        assignment.roles?.name?.toLowerCase() === 'ceo'
       );
 
       if (!hasAdminRole) {

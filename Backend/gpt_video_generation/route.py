@@ -14,7 +14,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from fastapi.concurrency import run_in_threadpool
 
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase
 
 from google.cloud import texttospeech
 
@@ -60,10 +61,10 @@ dynamic = "force-dynamic"
 # ------------------------------------------------------------------
 # SUPABASE INIT
 # ------------------------------------------------------------------
-supabase: Client = create_client(
-    os.environ["NEXT_PUBLIC_SUPABASE_URL"],
-    os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-)
+# supabase: Client = create_client(
+#     os.environ["NEXT_PUBLIC_SUPABASE_URL"],
+#     os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+# )
 
 BUCKET = "module-visuals"
 

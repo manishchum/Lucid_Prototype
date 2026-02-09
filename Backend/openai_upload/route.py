@@ -12,7 +12,8 @@ import pandas as pd
 from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import JSONResponse
 
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase
 
 # ✅ Gemini v1 SDK
 from google import genai  # type: ignore
@@ -40,19 +41,19 @@ router = APIRouter()
 # -------------------------
 # Supabase client (same role as "../../../lib/supabase")
 # -------------------------
-supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
+# supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+# supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
 
-print(supabase_url)
-if not supabase_url:
-    print("[openai_upload] ERROR: NEXT_PUBLIC_SUPABASE_URL not set!")
-if not supabase_key:
-    print("[openai_upload] ERROR: Neither SUPABASE_SERVICE_ROLE_KEY nor SUPABASE_ANON_KEY is set!")
-else:
-    key_preview = f"{supabase_key[:20]}...{supabase_key[-10:]}" if len(supabase_key) > 30 else "***"
-    print(f"[openai_upload] Using Supabase key: {key_preview}")
+# print(supabase_url)
+# if not supabase_url:
+#     print("[openai_upload] ERROR: NEXT_PUBLIC_SUPABASE_URL not set!")
+# if not supabase_key:
+#     print("[openai_upload] ERROR: Neither SUPABASE_SERVICE_ROLE_KEY nor SUPABASE_ANON_KEY is set!")
+# else:
+#     key_preview = f"{supabase_key[:20]}...{supabase_key[-10:]}" if len(supabase_key) > 30 else "***"
+#     print(f"[openai_upload] Using Supabase key: {key_preview}")
 
-supabase: Client = create_client(supabase_url, supabase_key)
+# supabase: Client = create_client(supabase_url, supabase_key)
 
 # -------------------------
 # CloudConvert setup

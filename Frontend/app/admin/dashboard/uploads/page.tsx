@@ -19,6 +19,8 @@ interface Admin {
   company_id: string
 }
 
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+
 type KPIUploadResult = {
   created?: number;
   updated?: number;
@@ -774,16 +776,22 @@ export default function UploadsPage() {
     if (!user?.email) return;
 
     try {
-      // Get user data from users table
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("user_id, email, name, company_id")
-        .eq("email", user.email)
-        .eq("is_active", true)
-        .single();
+      // Get user data from users table via backend API
+      const userRes = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
 
-      if (userError || !userData) {
-        console.error("User not found or inactive:", userError);
+      if (!userRes.ok) {
+        console.error("User not found or inactive");
+        return;
+      }
+
+      const responseData = await userRes.json();
+      
+      // Handle both wrapped and unwrapped responses
+      const userData = responseData.user || responseData;
+      
+      // Validate response
+      if (!userData || !userData.user_id) {
+        console.error("Invalid user data returned from backend:", responseData);
         return;
       }
 
