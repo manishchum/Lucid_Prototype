@@ -17,6 +17,8 @@ interface RolePlayConversationProps {
   voiceGender?: 'female' | 'male';
 }
 
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL
+;
 export default function RolePlayConversation({ scenario, onEndSession, moduleId, voiceGender = 'female' }: RolePlayConversationProps) {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -193,7 +195,7 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
       console.log('📜 Sending conversation history with', updatedHistory.length, 'messages');
       
       // Call API to get AI response
-      const response = await fetch('/api/roleplay/conversation', {
+      const response = await fetch(`${API_URL}/api/roleplay/conversation`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
