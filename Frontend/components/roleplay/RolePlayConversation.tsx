@@ -522,9 +522,12 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
     // Create database session
     if (employeeId) {
       try {
+        // Ensure scenario has a valid scenario_id
+        const scenarioId = scenario.scenario_id || `temp-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+        
         console.log('Creating session with data:', {
           employeeId: employeeId,
-          scenarioId: scenario.scenario_id,
+          scenarioId: scenarioId,
           moduleId
         });
         
@@ -532,14 +535,14 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
         console.log('📤 Sending request to createRolePlaySession...');
         console.log('Scenario Variables',scenario);
         console.log("scenario details:", {
-          id: await scenario.scenario_id,
+          id: scenarioId,
           title: scenario.title,
           role: scenario.role,
           difficulty: scenario.difficulty
         });
         const { data, error } = await createRolePlaySession(
           employeeId,
-          scenario.scenario_id,
+          scenarioId,
           scenario.title,
           scenario.role,
           scenario.difficulty,

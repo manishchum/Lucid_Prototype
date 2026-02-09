@@ -104,6 +104,12 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       if (customScenarioData) {
         try {
           const scenario = JSON.parse(customScenarioData);
+          
+          // Ensure scenario has a scenario_id
+          if (!scenario.scenario_id) {
+            scenario.scenario_id = `custom-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+          }
+          
           console.log('Loaded custom scenario from sessionStorage:', scenario);
           setSelectedScenario(scenario);
           setCurrentScreen('config'); // Show config page first
@@ -399,7 +405,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       setCurrentScreen('assessmentReport');
 
       // Save assessment to database if we have a session ID
-      if (employeeId) {
+      if (sessionId && employeeId) {
         try {
           console.log('💾 Saving assessment to database...', {
             sessionId,
@@ -447,9 +453,10 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       return;
     }
 
-    // Create a custom scenario object
+    // Create a custom scenario object with a guaranteed scenario_id
+    const scenarioId = `custom-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     const newScenario: Scenario = {
-      scenario_id: 'custom-' + Date.now(),
+      scenario_id: scenarioId,
       title: customScenario.title,
       description: customScenario.description,
       role: customScenario.aiRole,
