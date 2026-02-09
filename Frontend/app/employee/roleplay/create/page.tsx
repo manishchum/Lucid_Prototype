@@ -51,10 +51,7 @@ const CreateRoleplayComponent = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isEditMode = searchParams.get('edit') === 'true';
-
   const { user, loading: authLoading, logout } = useAuth();
-      
-    
   const [activeTab, setActiveTab] = useState<string>('learner-brief');
   const [hasSavedDraft, setHasSavedDraft] = useState<boolean>(false);
   const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
