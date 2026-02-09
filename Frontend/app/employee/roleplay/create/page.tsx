@@ -91,7 +91,7 @@ const CreateRoleplayComponent = () => {
       if (editScenarioData) {
         try {
           const scenario: Scenario = JSON.parse(editScenarioData);
-          setEditingScenarioId(scenario.id);
+          setEditingScenarioId(scenario.scenario_id);
           
           // Ensure evaluationParams is an array
           let evalParams = [
