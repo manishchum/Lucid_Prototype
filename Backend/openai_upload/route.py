@@ -130,64 +130,152 @@ if not os.getenv("GEMINI_API_KEY"):
 
 gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY") or "")
 
+SOURCE_FACT_INDEX_PROMPT = """
+You are extracting FACTS from a single source document.
 
-INSTRUCTION_PROMPT = """You are an expert instructional designer. Your job is to decompose a learning asset into a clear sequence of self-contained learning modules. CRITICAL RULES:
+Your task:
+- Identify ONLY facts explicitly stated in the document.
+- Facts must be domain-specific and concrete.
+- Do NOT infer, generalize, or teach.
 
-⚠️ STRICTLY FOLLOW THESE RULES:
-1. **ONLY USE SOURCE MATERIAL** - Every module, topic, and objective MUST be derived from the provided content. Do NOT add, infer, or extrapolate information outside the source.
-2. **ACCURATE MODULE TITLES** - Use descriptive titles directly reflecting the source content (e.g., "Introduction to REST API Architecture" not "API Basics").
-3. **EXTRACT TOPICS FROM SOURCE** - List only topics explicitly mentioned or directly implied in the source material.
-4. **GROUND OBJECTIVES IN SOURCE** - Each objective must state what learners will know/do based on content present in the source.
-5. **NO HALLUCINATION** - Do not create, assume, or infer learning outcomes not supported by the source material.
-6. **STRICT FORMAT COMPLIANCE** - You MUST use the EXACT format specified below. Use #### for module headers, not ###.
+FACT TYPES TO EXTRACT:
+- Core domain concepts explicitly defined
+- Named frameworks, models, or methods
+- Rules, constraints, or principles
+- Named risks or limitations
+- Explicitly described outcomes or goals
 
-Processing steps (apply exactly):
-1. Identify Overall Learning Goal
-  - State the single end competency learners achieve after completing ALL modules, derived ONLY from source content.
-2. Segment into Themes
-  - Cluster related ideas from the SOURCE into natural, self-contained modules.
-3. Apply One Core Idea Rule
-  - Each module centers on ONE core concept from the source. If a module mixes unrelated source topics, split it.
-4. Apply Module Splitting Checks (for every module)
-  - Time-to-Mastery Rule: If the source topic is complex, split into smaller modules.
-  - Single-Outcome Rule: Split if the source presents multiple distinct learning outcomes.
-  - Cognitive Load Rule: Split if the source introduces >1–3 new concepts at once.
-5. Arrange Modules Logically
-  - Order from foundational → intermediate → advanced based on the SOURCE structure.
-6. Validate Module Independence
-  - Ensure each module is self-contained using only source content and delivers one clear learning outcome assessable from the source.
+DO NOT INCLUDE:
+- Analogies
+- Examples not present in the text
+- Organizational theory unless explicitly mentioned
+- Cross-domain interpretations
 
-⚠️ CRITICAL: Use this EXACT output format (use #### for modules, not ###):
+OUTPUT FORMAT (JSON ONLY):
 
-#### Module 1: [Accurate Title from Source]
+{
+  "source_facts": [
+    {
+      "id": "F1",
+      "fact": "<verbatim or near-verbatim statement>",
+      "type": "concept | framework | risk | rule | goal"
+    }
+  ]
+}
+
+If something is not clearly stated in the document, do NOT include it.
+"""
+
+INSTRUCTION_PROMPT = """
+You are an expert instructional designer analyzing a SINGLE provided learning asset.
+
+Your task is to decompose the asset into learning modules that are STRICTLY AND EXCLUSIVELY
+grounded in the source content.
+
+Treat extracted text, headings, tables, product names, timelines, numeric limits, and
+regulatory references as authoritative source material.
+
+CRITICAL: You must first extract an internal SOURCE FACT INDEX and then generate
+learning modules using ONLY those facts.
+
+-------------------------------------------------
+STEP 1 — SOURCE FACT INDEX (INTERNAL, NON-OUTPUT)
+-------------------------------------------------
+
+Before creating modules, internally extract a list of facts from the document.
+
+Rules for SOURCE FACT INDEX:
+- Include ONLY facts explicitly stated in the document
+- No inference, no teaching, no cross-domain reasoning
+- No organizational theory unless explicitly present
+- No examples unless present in the document
+
+Fact types allowed:
+- Defined concepts
+- Named frameworks, models, or methods
+- Explicit risks or limitations
+- Explicit goals or outcomes
+- Explicit metrics or constraints
+
+If a fact is not clearly stated in the document, it MUST NOT appear later.
+
+-------------------------------------------------
+NON-NEGOTIABLE GROUNDING RULES
+-------------------------------------------------
+
+1. FACT-LOCK
+- Every module title, topic, and objective MUST map to at least one source fact.
+- If a concept could exist without this document, DO NOT include it.
+
+2. NO CROSS-DOMAIN LEAKAGE
+- Do NOT introduce organizational theory, productivity models, security metrics,
+  system design concepts, or management frameworks unless explicitly named
+  in the document.
+
+3. NO GENERIC KNOWLEDGE
+- Do NOT “educate beyond the document” by adding external frameworks.
+- Elaboration is allowed ONLY to clarify document facts.
+
+4. VERBATIM ANCHORING
+- Reuse document terminology exactly (framework names, prompt patterns, risks).
+- Do not rename or abstract them.
+
+5. COMPANY CONTEXT ENFORCEMENT (CRITICAL)
+
+If the source document explicitly names:
+- a company,
+- brand,
+- organization,
+- founders,
+- locations,
+- mission statements,
+- strategic positioning,
+- product portfolios tied to the organization,
+- products
+
+THEN:
+
+- The company name MUST appear explicitly in module titles, topics, or explanatory text where relevant.
+- Use direct, natural phrasing such as:
+  “At <Company Name>…”
+  “For sales representatives at <Company Name>…”
+  “<Company Name>’s mission emphasizes…”
+
+- Do NOT anonymize, generalize, or abstract company identity.
+- This is a company onboarding asset, not a generic industry guide.
+
+If the document is company-specific, the learning modules MUST be company-specific.
+
+-------------------------------------------------
+PROCESSING STEPS
+-------------------------------------------------
+1. Identify ONE overall learning goal using document language.
+2. Segment modules strictly along document sections.
+3. Each module must cover ONE dominant document idea.
+4. Preserve document order.
+
+-------------------------------------------------
+OUTPUT FORMAT (MARKDOWN ONLY)
+-------------------------------------------------
+
+#### Module [#]: [Source-anchored title]
+
 **Topics:**
-- [topic explicitly in source]
-- [topic explicitly in source]
-- [topic explicitly in source]
+- Topic using exact or near-exact source terminology
+- Topic using exact or near-exact source terminology
 
 **Objectives:**
-- Learners will [action verb] [specific concept from source]
-- Learners will [action verb] [specific concept from source]
-- Learners will [action verb] [specific concept from source]
+- Learners will [action] [specific concept, product, rule, or process from source]
+- Learners will [action] [specific concept, product, rule, or process from source]
 
-#### Module 2: [Next Module Title]
-**Topics:**
-- [topic from source]
+-------------------------------------------------
+SOURCE GAP HANDLING
+-------------------------------------------------
+If the source does NOT explicitly define something:
+- List a clarifying question
+- Do NOT invent or generalize
 
-**Objectives:**
-- Learners will [action] [concept]
-
-⚠️ FORMAT RULES:
-- Use #### (four hashes) for module headers, NOT ### (three hashes)
-- Always include both **Topics:** and **Objectives:** sections for each module
-- List at least 2-3 topics and 2-3 objectives per module
-- Do NOT include "Module Splitting Checks", "Sequencing Rationale", or "Clarifying Questions" sections
-- Start directly with #### Module 1, no preamble
-- End after the last module, no conclusion
-
-⚠️ IF SOURCE IS INCOMPLETE: Still follow the format above but note limitations in objectives.
-⚠️ NEVER EXTRAPOLATE: Strictly bind all content to source material. Gaps in source = gaps in modules, not invention.
-Respond ONLY in the EXACT MARKDOWN format specified above with NO additional commentary.
+Respond ONLY in Markdown.
 """
 
 

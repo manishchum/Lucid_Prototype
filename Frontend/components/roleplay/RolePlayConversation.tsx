@@ -8,6 +8,7 @@ import { Scenario, Message } from '@/lib/roleplay/types';
 import { createRolePlaySession, updateRolePlaySession } from '@/lib/roleplayDatabase';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
+import { callGemini } from '@/lib/gemini-helper';
 
 interface RolePlayConversationProps {
   scenario: Scenario;
@@ -521,15 +522,27 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
     // Create database session
     if (employeeId) {
       try {
+        // Ensure scenario has a valid scenario_id
+        const scenarioId = scenario.scenario_id || `temp-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+        
         console.log('Creating session with data:', {
           employeeId: employeeId,
-          scenarioId: scenario.id,
+          scenarioId: scenarioId,
           moduleId
         });
         
+
+        console.log('📤 Sending request to createRolePlaySession...');
+        console.log('Scenario Variables',scenario);
+        console.log("scenario details:", {
+          id: scenarioId,
+          title: scenario.title,
+          role: scenario.role,
+          difficulty: scenario.difficulty
+        });
         const { data, error } = await createRolePlaySession(
           employeeId,
-          scenario.id,
+          scenarioId,
           scenario.title,
           scenario.role,
           scenario.difficulty,
