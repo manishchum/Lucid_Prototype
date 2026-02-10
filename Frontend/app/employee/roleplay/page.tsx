@@ -314,7 +314,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       console.log(selectedTargets);
       
       const { error } = await assignScenario(
-        assigningScenario.id,
+        assigningScenario.scenario_id,
         assignmentType,
         selectedTargets,
         companyId
