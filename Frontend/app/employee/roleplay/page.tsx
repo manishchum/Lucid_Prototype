@@ -16,7 +16,6 @@ import { createRolePlayAssessment } from '@/lib/roleplayDatabase';
 import { supabase } from '@/lib/supabase';
 import { callGemini } from '@/lib/gemini-helper';
 
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 interface AssessmentReport {
   overallScore: number;
   summary: string;
@@ -105,6 +104,12 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       if (customScenarioData) {
         try {
           const scenario = JSON.parse(customScenarioData);
+          
+          // Ensure scenario has a scenario_id
+          if (!scenario.scenario_id) {
+            scenario.scenario_id = `custom-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+          }
+          
           console.log('Loaded custom scenario from sessionStorage:', scenario);
           setSelectedScenario(scenario);
           setCurrentScreen('config'); // Show config page first
@@ -225,7 +230,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     }
 
     try {
-      const { error } = await deleteCustomScenario(scenario.id);
+      const { error } = await deleteCustomScenario(scenario.scenario_id);
       
       if (error) {
         console.error('Error deleting scenario:', error);
@@ -373,7 +378,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
     try {
       console.log('📊 Generating fresh assessment...');
-      const response = await fetch(`${API_URL}/api/roleplay/assessment`, {
+      const response = await fetch('/api/roleplay/assessment', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -400,7 +405,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       setCurrentScreen('assessmentReport');
 
       // Save assessment to database if we have a session ID
-      if (employeeId) {
+      if (sessionId && employeeId) {
         try {
           console.log('💾 Saving assessment to database...', {
             sessionId,
@@ -448,9 +453,10 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       return;
     }
 
-    // Create a custom scenario object
+    // Create a custom scenario object with a guaranteed scenario_id
+    const scenarioId = `custom-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     const newScenario: Scenario = {
-      scenario_id: 'custom-' + Date.now(),
+      scenario_id: scenarioId,
       title: customScenario.title,
       description: customScenario.description,
       role: customScenario.aiRole,
