@@ -225,7 +225,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     }
 
     try {
-      const { error } = await deleteCustomScenario(scenario.id);
+      const { error } = await deleteCustomScenario(scenario.scenario_id);
       
       if (error) {
         console.error('Error deleting scenario:', error);
