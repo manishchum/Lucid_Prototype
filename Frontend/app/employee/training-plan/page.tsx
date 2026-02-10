@@ -34,6 +34,7 @@ function TrainingPlanContent() {
   const [moduleBaselineStatus, setModuleBaselineStatus] = useState<Map<string, boolean>>(new Map());
   const [completedModules, setCompletedModules] = useState<string[]>([]);
   const [actualUserId, setActualUserId] = useState<string | null>(null);
+  const [additionalReadings, setAdditionalReadings] = useState<any[] | null>(null);
 
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
 
@@ -316,7 +317,28 @@ function TrainingPlanContent() {
       if (moduleId) {
         requestBody.module_id = moduleId;
         requestBody.processedModuleIds = processedModuleIds;
+
+        // Fetch additional_readings from training_modules for this sprint-level module
+        try {
+          const { data: tmData } = await supabase
+            .from("training_modules")
+            .select("additional_readings")
+            .eq("module_id", moduleId)
+            .single();
+          if (tmData?.additional_readings) {
+            const readings = typeof tmData.additional_readings === "string"
+              ? JSON.parse(tmData.additional_readings)
+              : tmData.additional_readings;
+            setAdditionalReadings(Array.isArray(readings) ? readings : [readings]);
+          } else {
+            setAdditionalReadings(null);
+          }
+        } catch (e) {
+          console.error("[training-plan] Error fetching additional_readings:", e);
+          setAdditionalReadings(null);
+        }
       }
+
       // console.log("[training-plan] Fetching plan with body:", requestBody);
       const res = await fetch(`${API_BASE}/api/training-plan`, {
         method: "POST",
@@ -870,6 +892,32 @@ function TrainingPlanContent() {
                           </div>
                         );
                       })()}
+
+                      {/* Additional Readings (sprint-level) */}
+                      {additionalReadings && additionalReadings.length > 0 && (
+                        <div className="mt-4 mb-3 px-4 py-3 bg-indigo-50 rounded-xl border border-indigo-200 shadow-sm">
+                          <div className="font-bold text-xl text-indigo-900 mb-2">Additional Resources</div>
+                          <ul className="list-disc list-inside space-y-2 pl-1">
+                            {additionalReadings.map((item: any, idx: number) => {
+                              const url = typeof item === "string" ? item : (item?.url || item?.link || item?.href);
+                              const title = typeof item === "string" ? url : (item?.title || item?.name || item?.label || url);
+                              if (!url) return null;
+                              return (
+                                <li key={idx} className="text-indigo-800 text-sm">
+                                  <a
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="underline hover:text-indigo-600 transition-colors font-medium"
+                                  >
+                                    {title}
+                                  </a>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      )}
 
                       {/* Actions */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

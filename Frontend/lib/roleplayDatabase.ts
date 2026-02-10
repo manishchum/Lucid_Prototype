@@ -194,6 +194,8 @@ export async function fetchScenariosForUser(userId: string, isAdmin: boolean): P
         console.error('Error fetching assigned scenarios details:', scenError);
         return { data: SCENARIOS, error: null };
       }
+
+      console.log("Assigned Scenarios for the user are ",assignedScenarios);
       console.log("Assigned Scenario Ids for the user are ",assignedScenarioIds);
       return { data: assignedScenarios, error: null };
     
@@ -216,7 +218,7 @@ export async function fetchScenariosForUser(userId: string, isAdmin: boolean): P
       // Always show default scenarios (no isCustom flag)
       if (!scenario.isCustom) return true;
       // Show custom scenarios only if assigned
-      return (assignedScenarioIds as string[]).includes(scenario.id);
+      return (assignedScenarioIds as string[]).includes(scenario.scenario_id);
     });
 
     return { data: filteredScenarios, error: null };
@@ -473,6 +475,10 @@ export async function createRolePlaySession(
   scenarioDifficulty: string,
   moduleId?: string
 ): Promise<{ data: any; error: any }> {
+
+
+  console.log("This is creating roleplay session")
+  console.log("Scenario Id",scenarioId);
   const { data, error } = await supabase
     .from('roleplay_sessions')
     .insert({
@@ -539,6 +545,10 @@ export async function createRolePlayAssessment(
     recommendations: string[];
   }
 ): Promise<{ data: any; error: any }> {
+
+
+  console.log("This is saving the assessment")
+  console.log("This is the session id",sessionId);
   const { data, error } = await supabase
     .from('roleplay_assessments')
     .insert({

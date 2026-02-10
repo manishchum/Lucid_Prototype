@@ -51,10 +51,7 @@ const CreateRoleplayComponent = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isEditMode = searchParams.get('edit') === 'true';
-
   const { user, loading: authLoading, logout } = useAuth();
-      
-    
   const [activeTab, setActiveTab] = useState<string>('learner-brief');
   const [hasSavedDraft, setHasSavedDraft] = useState<boolean>(false);
   const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
@@ -94,7 +91,7 @@ const CreateRoleplayComponent = () => {
       if (editScenarioData) {
         try {
           const scenario: Scenario = JSON.parse(editScenarioData);
-          setEditingScenarioId(scenario.id);
+          setEditingScenarioId(scenario.scenario_id);
           
           // Ensure evaluationParams is an array
           let evalParams = [
@@ -269,7 +266,7 @@ const CreateRoleplayComponent = () => {
 
     // Create a scenario object from the form data
     const customScenario: Scenario = {
-      id: editingScenarioId || ('custom-' + Date.now()),
+      scenario_id: editingScenarioId || ('custom-' + Date.now()),
       title: formData.title,
       description: formData.description || formData.learnerBrief,
       role: formData.aiRole,
