@@ -3,7 +3,7 @@ from unstructured.cleaners.core import clean_extra_whitespace
 from unstructured.documents.elements import (
     Title, NarrativeText, ListItem, Table, Image
 )
-
+import io
 from PIL import Image as PILImage
 import pytesseract
 import pandas as pd
@@ -38,11 +38,25 @@ def parse_pdf_rich(pdf_path: str) -> str:
             parts.append(f"- {el.text}")
 
         elif isinstance(el, Table):
-            
             parts.append("\n[TABLE]\n")
-            df = pd.DataFrame(el.cells)
-            parts.append(df.to_markdown())
+            html_str = el.metadata.text_as_html
+
+            if html_str:
+                try:
+                    # Wrap the string in StringIO so pandas treats it as a file
+                    dfs = pd.read_html(io.StringIO(html_str))
+                    if dfs:
+                        # Convert the first found table to markdown
+                        parts.append(dfs[0].to_markdown(index=False))
+                except Exception as e:
+                    print(f"Error parsing table: {e}")
+                    parts.append(el.text) # Fallback to raw text
+            else:
+                parts.append(el.text)
+
             parts.append("\n[/TABLE]\n")
+
+
         
         elif isinstance(el, Image):
             ocr_text = el.text or ocr_image(el)

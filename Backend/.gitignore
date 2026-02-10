@@ -24,3 +24,5 @@ htmlcov/
 
 # Logs
 *.log
+
+/storage

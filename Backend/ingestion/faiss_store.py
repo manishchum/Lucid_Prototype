@@ -5,6 +5,7 @@ from ingestion.config import VECTOR_DB_ROOT, EMBEDDING_DIM
 
 def get_doc_dir(doc_id: str):
     path = os.path.join(VECTOR_DB_ROOT, doc_id)
+    print("database folder created at:", path)
     os.makedirs(path, exist_ok=True)
     return path
 

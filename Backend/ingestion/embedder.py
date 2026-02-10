@@ -8,12 +8,6 @@ _model = SentenceTransformer(
     device= "cpu"
 )
 
-# def _has_cuda():
-#     try:
-#         import torch
-#         return torch.cuda.is_available()
-#     except Exception:
-#         return False
 
 
 def embed_chunks(chunks: list[str]) -> np.ndarray:
