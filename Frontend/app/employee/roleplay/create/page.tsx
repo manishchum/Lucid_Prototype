@@ -266,7 +266,7 @@ const CreateRoleplayComponent = () => {
 
     // Create a scenario object from the form data
     const customScenario: Scenario = {
-      id: editingScenarioId || ('custom-' + Date.now()),
+      scenario_id: editingScenarioId || ('custom-' + Date.now()),
       title: formData.title,
       description: formData.description || formData.learnerBrief,
       role: formData.aiRole,
