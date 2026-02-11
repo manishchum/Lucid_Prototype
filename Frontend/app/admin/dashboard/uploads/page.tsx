@@ -71,6 +71,7 @@ function ContentUpload({
         .from('users')
         .select('user_id, name, email')
         .eq('email', email)
+        .eq('company_id', companyId)
         .single();
 
       if (error || !data) {
