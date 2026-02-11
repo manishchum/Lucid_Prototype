@@ -2851,6 +2851,20 @@ function UpdateEmployeeModal({
   const [companies, setCompanies] = useState<any[]>([]);
   const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
+  // Email validation function
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  // Phone validation function
+  const validatePhone = (phone: string): boolean => {
+    if (!phone) return true; // Phone is optional
+    const phoneRegex = /^[\+]?[\d\s\(\)\-\.]{10,15}$/;
+    const digitsOnly = phone.replace(/\D/g, '');
+    return phoneRegex.test(phone) && digitsOnly.length >= 10 && digitsOnly.length <= 15;
+  };
+
   // Initialize form data when employee prop changes
   useEffect(() => {
     if (employee && isOpen) {

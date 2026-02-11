@@ -43,6 +43,7 @@ class UpdateUserRequest(BaseModel):
     title_id: Optional[str] = None
     function_id: Optional[str] = None
     sub_function_id: Optional[str] = None
+    ready_status: Optional[bool] = None
 
 
 class AssignRoleRequest(BaseModel):

@@ -204,9 +204,7 @@ async def delete_user(
     
     try:
         # Soft delete
-        response = supabase.table('users').update({
-            'employment_status': 'terminated'
-        }).eq('user_id', target_user_id).execute()
+        response = supabase.table('users').delete().eq('user_id', target_user_id).execute()
         
         return {"data": response.data, "error": None}
     except Exception as e:

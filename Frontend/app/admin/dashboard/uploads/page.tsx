@@ -66,18 +66,21 @@ function ContentUpload({
 
   const validateReviewerEmail = async (email: string) => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('user_id, name, email')
-        .eq('email', email)
-        .single();
-
-      if (error || !data) {
-        setEmailValidationMessage('❌ User with this email does not exist');
+      const res = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(email)}`);
+      if(!res.ok){
+        setEmailValidationMessage('User with this email does not exist.');
+        setRetrievedReviewerId(null);
+        return;
+      }
+      const payload = await req.json();
+      let user = payload?.user ?? payload;
+      if (Array.isArray(user)) user = user[0];
+      if(!user || !user.user_id){
+        setEmailValidationMessage('User with this email does not exist.');
         setRetrievedReviewerId(null);
       } else {
-        setEmailValidationMessage(`✅ Reviewer found: ${data.name || data.email}`);
-        setRetrievedReviewerId(data.user_id);
+        setEmailValidationMessage(`Reviewer found: ${user.name || user.email}`);
+        setRetrievedReviewerId(user.user_id);
       }
     } catch (error) {
       setEmailValidationMessage('❌ Error validating email');

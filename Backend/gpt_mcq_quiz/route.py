@@ -188,14 +188,19 @@ async def POST(request: Request):
 
     # Per-module quiz branch: supports BOTH keys exactly like TS
     explicitModuleId = (
-        body.get("moduleIds")
-        or body.get("moduleId")
+        body.get("moduleId")
         or body.get("processed_module_id")
         or body.get("module_id")
         or None
     )
-    singleFromArray = str(body["moduleIds"][0]) if isinstance(body.get("moduleIds"), list) and len(body.get("moduleIds")) == 1 else None
-    moduleId = str(explicitModuleId) if explicitModuleId else singleFromArray
+    
+    # Handle moduleIds array - extract first element if it's a list
+    if not explicitModuleId and body.get("moduleIds"):
+        moduleIds = body.get("moduleIds")
+        if isinstance(moduleIds, list) and len(moduleIds) > 0:
+            explicitModuleId = moduleIds[0]
+    
+    moduleId = str(explicitModuleId) if explicitModuleId else None
 
     if moduleId and (not isBaselineRequest):
         if (not moduleId) or moduleId == "undefined" or moduleId == "null":
@@ -275,7 +280,7 @@ async def POST(request: Request):
                 tmRes = (
                     supabase
                     .table("training_modules")
-                    .select("module_id, title, gpt_summary, content")
+                    .select("module_id, title, gpt_summary")
                     .eq("module_id", moduleId)
                     .single()
                     .execute()
@@ -296,7 +301,7 @@ async def POST(request: Request):
                     .insert({
                         "original_module_id": str(moduleId),
                         "title": trainingModule.get("title"),
-                        "content": trainingModule.get("gpt_summary") or trainingModule.get("content"),
+                        "content": trainingModule.get("gpt_summary") or "",
                         "learning_style": learningStyle,
                     }, returning="representation")
                     .execute()

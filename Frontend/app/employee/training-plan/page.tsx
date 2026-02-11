@@ -16,6 +16,18 @@ import { supabase } from "@/lib/supabase";
 import EmployeeNavigation from "@/components/employee-navigation";
 import { Users, ChevronLeft } from "lucide-react";
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByEmail = async (email: string) => {
+  if(!email) return null;
+  const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+  if (!res.ok) return null;
+  const payload = await res.json();
+  let u = payload?.user || payload;
+  if (Array.isArray(u)) u = u[0];
+  return u || null;
+};
+
 function TrainingPlanContent() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -46,18 +58,13 @@ function TrainingPlanContent() {
     // console.log("[training-plan] Fetching completed modules for user:", user?.email);
     async function fetchCompletedModules() {
       if (!user?.email) return;
-      console.log('Inside but escaped')
-      // Get employee id
-      const { data: employeeData } = await supabase
-        .from("users")
-        .select("user_id")
-        .eq("email", user.email)
-        .single();
-
-        console.log(employeeData)
+      const employeeData = await fetchUserByEmail(user.email);
+      if(!employeeData?.user_id){
+        setLoading(false);
+        return;
+      }
       userId = employeeData.user_id;
       setActualUserId(employeeData.user_id);
-      if (!employeeData?.user_id) return;
 
       // Get completed modules for employee (match employee/welcome logic)
       const { data: progressData } = await supabase
@@ -205,12 +212,8 @@ function TrainingPlanContent() {
         setLoading(false);
         return;
       }
-      const { data: employeeData, error: employeeError } = await supabase
-        .from("users")
-        .select("user_id, company_id")
-        .eq("email", user.email)
-        .single();
-      if (employeeError || !employeeData?.user_id) {
+      const employeeData = await fetchUserByEmail(user.email);
+      if(!employeeData?.user_id){
         setPlan("Could not find employee record.");
         setLoading(false);
         return;
@@ -478,9 +481,7 @@ function TrainingPlanContent() {
           user_id:userId,
           processed_module_id:m,
         },
-        {
-          onConflict:'user_id, processed_module_id'
-        }
+        
       
       )
         // console.log(insertedData);
