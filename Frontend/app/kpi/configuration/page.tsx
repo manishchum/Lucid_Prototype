@@ -334,23 +334,23 @@ const [companyId, setCompanyId] = useState<string>("")
       }
 
       setCompanyId(employeeData.company_id)
-        // Fetch KPIs for the company with related data
-        const { data: kpiData, error: kpiError } = await supabase
-          .from("kpis")
-          .select(`
-            *,
-            function:function_id (function_name),
-            sub_function:sub_function_id (sub_function_name),
-            titles:title_id (title_name)
-          `)
-          .eq("company_id", userData.company_id)
-          .order("created_at", { ascending: false })
+      
+      // Fetch KPIs for the company with related data
+      const { data: kpiData, error: kpiError } = await supabase
+        .from("kpis")
+        .select(`
+          *,
+          function:function_id (function_name),
+          sub_function:sub_function_id (sub_function_name),
+          titles:title_id (title_name)
+        `)
+        .eq("company_id", employeeData.company_id)
+        .order("created_at", { ascending: false })
 
-        if (kpiError) throw kpiError
-        
-        setKpis(kpiData || [])
-        setFilteredKpis(kpiData || [])
-      }
+      if (kpiError) throw kpiError
+      
+      setKpis(kpiData || [])
+      setFilteredKpis(kpiData || [])
     } catch (error) {
       console.error("Error fetching data:", error)
     } finally {
