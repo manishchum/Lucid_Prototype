@@ -91,6 +91,7 @@ const fetchUserByEmail = async (email: string | null) => {
     console.error("Error fetching user by email:", e);
     return null;
   }
+};
 
 function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Admin | null }) {
   const [file, setFile] = useState<File | null>(null);
@@ -235,16 +236,16 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
 }
 
 export default function KPIConfigurationPage() {
-  const router = useRouter()
-  const { user } = useAuth()
-  const [kpis, setKpis] = useState<KPI[]>([])
-  const [filteredKpis, setFilteredKpis] = useState<KPI[]>([])
-  const [loading, setLoading] = useState(true)
-  const [uploading, setUploading] = useState(false)
-  const [parsedData, setParsedData] = useState<ParsedKPI[]>([])
-  const [showPreview, setShowPreview] = useState(false)
-  const [companyId, setCompanyId] = useState<string>("")
-  
+const router = useRouter()
+const { user } = useAuth()
+const [kpis, setKpis] = useState<KPI[]>([])
+const [filteredKpis, setFilteredKpis] = useState<KPI[]>([])
+const [loading, setLoading] = useState(true)
+const [uploading, setUploading] = useState(false)
+const [parsedData, setParsedData] = useState<ParsedKPI[]>([])
+const [showPreview, setShowPreview] = useState(false)
+const [companyId, setCompanyId] = useState<string>("")
+
   // Filter data from database
   const [functions, setFunctions] = useState<FunctionData[]>([])
   const [subFunctions, setSubFunctions] = useState<SubFunctionData[]>([])
