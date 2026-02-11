@@ -1584,7 +1584,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
           <div className="mt-4 sm:mt-0">
             <Button asChild variant="outline" size="sm">
               <a
-                href="https://hyxqwqshhlebaybjpzcz.supabase.co/storage/v1/object/public/KPIs/Sample_Emplyee_No_KPI%20(1).xlsx"
+                href="https://fmkikkebrxyzjsffqgex.supabase.co/storage/v1/object/public/KPIs/Sample_Emplyee_No_KPI%20(1).xlsx"
                 download
                 target="_blank"
                 rel="noopener noreferrer"

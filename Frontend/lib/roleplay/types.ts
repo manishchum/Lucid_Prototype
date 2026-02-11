@@ -5,7 +5,7 @@ export interface EvaluationParameter {
 }
 
 export interface Scenario {
-  id: string;
+  scenario_id: string;
   title: string;
   description: string;
   initialPrompt: string;

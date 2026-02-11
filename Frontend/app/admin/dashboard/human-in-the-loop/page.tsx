@@ -93,38 +93,52 @@ export default function HumanInTheLoopPage() {
   const fetchModules = async () => {
     try {
       setLoading(true);
-      
-      // Fetch modules where user is either uploader OR reviewer
-      const { data, error } = await supabase
+      if (!currentUserId) return;
+
+      // Fetch modules where the user is uploader
+      const { data: uploadedModules, error: uploadError } = await supabase
         .from('training_modules')
         .select('*')
-        .or(`uploaded_by.eq.${currentUserId},reviewer_id.eq.${currentUserId}`)
-        .order('created_at', { ascending: false });
+        .eq('uploaded_by', currentUserId);
 
-      if (error) throw error;
+      if (uploadError) throw uploadError;
 
-      if (data) {
-        // Determine user's role for each module
-        const modulesWithRole = data.map(module => {
-          const isUploader = module.uploaded_by === currentUserId;
-          const isReviewer = module.reviewer_id === currentUserId;
-          
-          let userRole: 'uploader' | 'reviewer' | 'both' = 'uploader';
-          if (isUploader && isReviewer) {
-            userRole = 'both';
-          } else if (isReviewer) {
-            userRole = 'reviewer';
-          }
-          
-          return {
-            ...module,
-            user_role: userRole
-          };
-        });
+      // Fetch modules where the user is reviewer — only show if review_stage is 'in_review'
+      const { data: reviewModules, error: reviewError } = await supabase
+        .from('training_modules')
+        .select('*')
+        .eq('reviewer_id', currentUserId)
+        .eq('review_stage', 'in_review')
+        .neq('uploaded_by', currentUserId); // exclude if already shown as uploader
 
-        setModules(modulesWithRole);
-        calculateStats(modulesWithRole);
+      if (reviewError) throw reviewError;
+
+      // Build sets for quick lookup
+      const uploadedIds = new Set((uploadedModules || []).map(m => m.module_id));
+      const reviewIds = new Set((reviewModules || []).map(m => m.module_id));
+
+      // Merge both lists, deduplicate by module_id, and tag with user_role
+      const allModules = [...(uploadedModules || []), ...(reviewModules || [])];
+      const uniqueModules: TrainingModule[] = [];
+      const seen = new Set<string>();
+
+      for (const mod of allModules) {
+        if (seen.has(mod.module_id)) continue;
+        seen.add(mod.module_id);
+
+        const isUploader = uploadedIds.has(mod.module_id);
+        const isReviewer = reviewIds.has(mod.module_id) || (isUploader && mod.reviewer_id === currentUserId);
+
+        let role: 'uploader' | 'reviewer' | 'both' = 'uploader';
+        if (isUploader && isReviewer) role = 'both';
+        else if (isReviewer) role = 'reviewer';
+        else if (isUploader) role = 'uploader';
+
+        uniqueModules.push({ ...mod, user_role: role });
       }
+
+      setModules(uniqueModules);
+      calculateStats(uniqueModules);
     } catch (error) {
       console.error('Error fetching modules:', error);
     } finally {

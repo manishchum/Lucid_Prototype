@@ -26,6 +26,8 @@ from routes import users  # add this line
 
 # Import user routes
 # from routes.users import router as users_router
+from roleplay.assessment.route import router as roleplay_assessment_router
+from roleplay.assessment.conversation.route import router as roleplay_conversation_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -89,6 +91,8 @@ app.include_router(gpt_video_generation_router, prefix="/api", tags=["gpt-video-
 app.include_router(generate_infographic_router, prefix="/api", tags=["generate-infographic"])
 app.include_router(flashcard_generation_router, prefix="/api", tags=["flashcard-generation"])
 app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindmap"])
+app.include_router(roleplay_assessment_router, prefix="/api", tags=["roleplay-assessment"])
+app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
 
 
 

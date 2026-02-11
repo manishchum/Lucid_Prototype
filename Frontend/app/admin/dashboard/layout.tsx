@@ -12,7 +12,7 @@ export default function AdminDashboardLayout({
     <div className="min-h-screen bg-gray-50">
       
       {/* Employee Navigation includes admin sub-navigation */}
-      <EmployeeNavigation showBack={false} showForward={false} />
+      <EmployeeNavigation showBack={true} showForward={false} />
       
       {/* Main content area that adapts to sidebar */}
       <div 
