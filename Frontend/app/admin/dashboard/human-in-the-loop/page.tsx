@@ -21,6 +21,8 @@ interface TrainingModule {
   reviewer_id: string;
   uploaded_by: string;
   user_role?: 'uploader' | 'reviewer' | 'both';
+  reviewer_name?: string;
+  uploader_name?: string;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -41,7 +43,7 @@ const fetchUserByEmail = async (email: string | null) => {
 };
 
 export default function HumanInTheLoopPage() {
-  const { user } = useAuth();
+  const { user, loading:authLoading } = useAuth();
   const router = useRouter();
   const [modules, setModules] = useState<TrainingModule[]>([]);
   const [filteredModules, setFilteredModules] = useState<TrainingModule[]>([]);
@@ -74,6 +76,16 @@ export default function HumanInTheLoopPage() {
   useEffect(() => {
     filterModules();
   }, [searchQuery, reviewFilter, roleFilter, modules]);
+  
+  
+  useEffect(() => {
+      if (!authLoading) {
+        if (!user) router.push("/login");
+        else getCurrentUser();
+        
+      }
+    }, [user, authLoading, router]);
+
 
   const getCurrentUser = async () => {
     try {
@@ -95,10 +107,14 @@ export default function HumanInTheLoopPage() {
       setLoading(true);
       if (!currentUserId) return;
 
-      // Fetch modules where the user is uploader
+      // Fetch modules where the user is uploader - with reviewer name
       const { data: uploadedModules, error: uploadError } = await supabase
         .from('training_modules')
-        .select('*')
+        .select(`
+          *,
+          reviewer:users!training_modules_reviewer_id_fkey(name),
+          uploader:users!training_modules_uploaded_by_fkey(name)
+        `)
         .eq('uploaded_by', currentUserId);
 
       if (uploadError) throw uploadError;
@@ -106,7 +122,11 @@ export default function HumanInTheLoopPage() {
       // Fetch modules where the user is reviewer — only show if review_stage is 'in_review'
       const { data: reviewModules, error: reviewError } = await supabase
         .from('training_modules')
-        .select('*')
+        .select(`
+          *,
+          reviewer:users!training_modules_reviewer_id_fkey(name),
+          uploader:users!training_modules_uploaded_by_fkey(name)
+        `)
         .eq('reviewer_id', currentUserId)
         .eq('review_stage', 'in_review')
         .neq('uploaded_by', currentUserId); // exclude if already shown as uploader
@@ -134,7 +154,12 @@ export default function HumanInTheLoopPage() {
         else if (isReviewer) role = 'reviewer';
         else if (isUploader) role = 'uploader';
 
-        uniqueModules.push({ ...mod, user_role: role });
+        uniqueModules.push({ 
+          ...mod, 
+          user_role: role,
+          reviewer_name: (mod as any).reviewer?.name || 'Not Assigned',
+          uploader_name: (mod as any).uploader?.name || 'Unknown'
+        });
       }
 
       setModules(uniqueModules);
@@ -370,7 +395,8 @@ export default function HumanInTheLoopPage() {
                   <thead className="bg-slate-50 border-b border-slate-100">
                     <tr>
                       <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Module</th>
-                      <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Your Role</th>
+                      <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Uploaded By</th>
+                      <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Reviewer</th>
                       <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Processing Status</th>
                       <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Review Stage</th>
                       <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Created</th>
@@ -379,7 +405,7 @@ export default function HumanInTheLoopPage() {
                   <tbody className="divide-y divide-slate-100">
                     {filteredModules.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center">
+                        <td colSpan={6} className="px-6 py-12 text-center">
                           <AlertCircle className="mx-auto mb-3 text-slate-300" size={48} />
                           <p className="text-slate-500 font-medium mb-1">No modules found</p>
                           <p className="text-sm text-slate-400">Modules you uploaded or are assigned to review will appear here</p>
@@ -404,7 +430,20 @@ export default function HumanInTheLoopPage() {
                             </div>
                           </td>
                           <td className="px-6 py-4">
-                            {getRoleBadge(module.user_role)}
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
+                                <Upload size={14} className="text-purple-600" />
+                              </div>
+                              <span className="text-sm font-medium text-slate-700">{module.uploader_name}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                                <UserCheck size={14} className="text-blue-600" />
+                              </div>
+                              <span className="text-sm font-medium text-slate-700">{module.reviewer_name}</span>
+                            </div>
                           </td>
                           <td className="px-6 py-4">
                             <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getProcessingStatusColor(module.processing_status)}`}>

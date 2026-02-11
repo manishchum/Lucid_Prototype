@@ -70,23 +70,23 @@ function ContentUpload({
   const validateReviewerEmail = async (email: string) => {
     try {
       const res = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(email)}`);
-      if(!res.ok){
+      if (!res.ok) {
         setEmailValidationMessage('User with this email does not exist.');
         setRetrievedReviewerId(null);
         return;
       }
-      const payload = await req.json();
+      const payload = await res.json();
       let user = payload?.user ?? payload;
       if (Array.isArray(user)) user = user[0];
-      if(!user || !user.user_id){
+      if (!user || !user.user_id || user.company_id !== companyId) {
         setEmailValidationMessage('User with this email does not exist.');
         setRetrievedReviewerId(null);
-      } else {
-        setEmailValidationMessage(`Reviewer found: ${user.name || user.email}`);
-        setRetrievedReviewerId(user.user_id);
+        return;
       }
+      setEmailValidationMessage(`Reviewer found: ${user.name || user.email}`);
+      setRetrievedReviewerId(user.user_id);
     } catch (error) {
-      setEmailValidationMessage('❌ Error validating email');
+      setEmailValidationMessage('Error validating email');
       setRetrievedReviewerId(null);
     }
   };
