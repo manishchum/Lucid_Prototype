@@ -16,6 +16,7 @@ import { createRolePlayAssessment } from '@/lib/roleplayDatabase';
 import { supabase } from '@/lib/supabase';
 import { callGemini } from '@/lib/gemini-helper';
 
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 interface AssessmentReport {
   overallScore: number;
   summary: string;
@@ -104,6 +105,12 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       if (customScenarioData) {
         try {
           const scenario = JSON.parse(customScenarioData);
+          
+          // Ensure scenario has a scenario_id
+          if (!scenario.scenario_id) {
+            scenario.scenario_id = `custom-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+          }
+          
           console.log('Loaded custom scenario from sessionStorage:', scenario);
           setSelectedScenario(scenario);
           setCurrentScreen('config'); // Show config page first
@@ -224,7 +231,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     }
 
     try {
-      const { error } = await deleteCustomScenario(scenario.id);
+      const { error } = await deleteCustomScenario(scenario.scenario_id);
       
       if (error) {
         console.error('Error deleting scenario:', error);
@@ -243,7 +250,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       }
 
       // Clear selected scenario if it was deleted
-      if (selectedScenario?.id === scenario.id) {
+      if (selectedScenario?.scenario_id === scenario.scenario_id) {
         setSelectedScenario(null);
       }
     } catch (err) {
@@ -254,6 +261,9 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
   const handleAssignScenario = async (scenario: Scenario, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click
+
+
+    console.log('Assigning scenario:', scenario);
     setAssigningScenario(scenario);
     setShowAssignModal(true);
     
@@ -304,7 +314,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       console.log(selectedTargets);
       
       const { error } = await assignScenario(
-        assigningScenario.id,
+        assigningScenario.scenario_id,
         assignmentType,
         selectedTargets,
         companyId
@@ -363,13 +373,16 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     console.log('📝 Last 3 messages:', messages.slice(-3));
     
     setConversationHistory(messages);
+
+    // console.log()
+    console.log(sessionId)
     setCurrentSessionId(sessionId || null);
     setIsGeneratingAssessment(true);
     setError(null);
 
     try {
       console.log('📊 Generating fresh assessment...');
-      const response = await fetch('/api/roleplay/assessment', {
+      const response = await fetch(`${API_URL}/api/roleplay/assessment`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -396,10 +409,10 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       setCurrentScreen('assessmentReport');
 
       // Save assessment to database if we have a session ID
-      if (employeeId) {
+      if (sessionId && employeeId) {
         try {
           console.log('💾 Saving assessment to database...', {
-            // sessionId,
+            sessionId,
             employeeId,
             assessment
           });
@@ -444,9 +457,10 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       return;
     }
 
-    // Create a custom scenario object
+    // Create a custom scenario object with a guaranteed scenario_id
+    const scenarioId = `custom-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     const newScenario: Scenario = {
-      id: 'custom-' + Date.now(),
+      scenario_id: scenarioId,
       title: customScenario.title,
       description: customScenario.description,
       role: customScenario.aiRole,
@@ -528,9 +542,9 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                 <div className="col-span-2 text-center text-slate-500">No scenarios found.</div>
               ) : allScenarios.map((scenario) => (
                 <Card
-                  key={scenario.id}
+                  key={scenario.scenario_id}
                   className={`cursor-pointer p-6 hover:border-blue-400 hover:shadow-lg transition-all relative ${
-                    selectedScenario?.id === scenario.id
+                    selectedScenario?.scenario_id === scenario.scenario_id
                       ? 'border-2 border-blue-500 shadow-lg'
                       : 'border border-slate-200'
                   }`}

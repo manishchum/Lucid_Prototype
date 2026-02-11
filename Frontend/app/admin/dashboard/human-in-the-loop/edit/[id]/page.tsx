@@ -62,6 +62,11 @@ export default function EditModulePage() {
   const [hasPendingReview, setHasPendingReview] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Version control state
+  const [pendingHistoryMap, setPendingHistoryMap] = useState<Record<string, ContentHistory>>({});
+  const [hasPendingReview, setHasPendingReview] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
   const contentEditableRef = useRef<HTMLDivElement>(null);
 
   // Check authentication on mount
@@ -967,6 +972,33 @@ export default function EditModulePage() {
                               <ContentRenderer htmlContent={currentPending.content} />
                             </div>
                           </div>
+
+                          {/* Right: Proposed Changes */}
+                          <div>
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                                <Edit3 size={12} className="mr-1" />
+                                Proposed Changes (In Review)
+                              </span>
+                              <span className="text-xs text-slate-400">
+                                {new Date(currentPending.created_at).toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="border-2 border-amber-300 rounded-lg p-4 bg-amber-50/30 max-h-[600px] overflow-y-auto">
+                              <ContentRenderer htmlContent={currentPending.content} />
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                          <GitCompare size={48} className="mb-4 opacity-50" />
+                          <p className="font-medium text-slate-600 mb-1">No pending changes to compare</p>
+                          <p className="text-sm">
+                            {isUploader
+                              ? 'Edit the content and click "Request Approval" to create a review request.'
+                              : 'No review requests have been submitted for this sub-module yet.'
+                            }
+                          </p>
                         </div>
                       ) : (
                         <div className="flex flex-col items-center justify-center py-16 text-slate-400">
