@@ -26,7 +26,7 @@ interface TrainingModule {
 }
 
 export default function HumanInTheLoopPage() {
-  const { user } = useAuth();
+  const { user, loading:authLoading } = useAuth();
   const router = useRouter();
   const [modules, setModules] = useState<TrainingModule[]>([]);
   const [filteredModules, setFilteredModules] = useState<TrainingModule[]>([]);
@@ -59,6 +59,16 @@ export default function HumanInTheLoopPage() {
   useEffect(() => {
     filterModules();
   }, [searchQuery, reviewFilter, roleFilter, modules]);
+  
+  
+  useEffect(() => {
+      if (!authLoading) {
+        if (!user) router.push("/login");
+        else getCurrentUser();
+        
+      }
+    }, [user, authLoading, router]);
+
 
   const getCurrentUser = async () => {
     try {
