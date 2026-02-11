@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import EmployeeNavigation from "@/components/employee-navigation";
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
 // --- Types ---
 interface Employee {
   user_id: string
@@ -62,6 +64,15 @@ export default function EmployeeWelcome() {
   
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
+
+  const fetchUserByEmail = async (email: string) => {
+    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if (!res.ok) return null;
+    const payload = await res.json();
+    let u = payload?.user ?? payload;
+    if (Array.isArray(u)) u = u[0];
+    return u || null;
+  };
 
   // --- Login Toast System (only show when a login/signup flow sets a flag) ---
   // Behavior: login/signup pages should set sessionStorage.setItem('show_login_toast_next', '1')
@@ -189,15 +200,15 @@ export default function EmployeeWelcome() {
       if (!learningPlans || learningPlans.length === 0) {
         console.log('[updateUserReadyStatus] No learning plans found for user');
         
-        const { error: updateError } = await supabase
-          .from('users')
-          .update({ ready_status: false })
-          .eq('user_id', userId);
-
-        if (updateError) {
-          console.error('[updateUserReadyStatus] Error updating user ready_status to false:', updateError);
-        } else {
-          console.log('[updateUserReadyStatus] User ready_status set to false (no learning plans)');
+        try{
+          await fetch(`${API_BASE}/api/users/${userId}`,{
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json', 'X-User-ID': userId},
+            body: JSON.stringify({ ready_status: false }),
+          });
+          console.log('[updateUserReadyStatus] User has no learning plans, ready_status set to false');
+        } catch (e) {
+          console.error('[updateUserReadyStatus] Error updating user ready_status for no learning plans case:', e);
         }
         return;
       }
@@ -209,15 +220,15 @@ export default function EmployeeWelcome() {
       console.log('[updateUserReadyStatus] All plans completed:', allPlansCompleted);
 
       // Update the ready_status in users table
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ ready_status: allPlansCompleted })
-        .eq('user_id', userId);
-
-      if (updateError) {
-        console.error('[updateUserReadyStatus] Error updating user ready_status:', updateError);
-      } else {
-        console.log(`[updateUserReadyStatus] User ready_status updated to: ${allPlansCompleted}`);
+      try{
+        await fetch(`${API_BASE}/api/users/${userId}`,{
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json', 'X-User-ID': userId},
+          body: JSON.stringify({ ready_status: allPlansCompleted })
+        });
+        console.log('[updateUserReadyStatus] Updated user ready_status to:', allPlansCompleted);
+      } catch (e) {
+        console.error('[updateUserReadyStatus] Error updating user ready_status:', e);
       }
     } catch (e) {
       console.error('[updateUserReadyStatus] Unexpected error:', e);
@@ -227,15 +238,12 @@ export default function EmployeeWelcome() {
   const checkEmployeeAccess = async () => {
     if (!user?.email) return;
     try {
-      const { data: employeeData, error: employeeError } = await supabase
-        .from("users").select("*").eq("email", user.email).single();
-
-      if (employeeError || !employeeData) {
+      const employeeData = await fetchUserByEmail(user.email);
+      if (!employeeData) {
         router.push("/login");
         return;
       }
       setEmployee(employeeData);
-
       // Learning Style Fetch
       const { data: styleData } = await supabase
         .from("employee_learning_style").select("learning_style").eq("user_id", employeeData.user_id).maybeSingle();
@@ -349,9 +357,13 @@ export default function EmployeeWelcome() {
 
   const fetchCompanyStats = async (companyId: string, userId: string, userProgress: number) => {
     try {
-      const { data: companyEmployees } = await supabase.from('users').select('user_id').eq('company_id', companyId);
-      if (!companyEmployees) return;
-      const total = companyEmployees.length;
+      const res = await fetch(`${API_BASE}/api/users/company/${companyId}`, {
+        headers: { 'X-User-ID': userId }
+      });
+      if (!res.ok) return;
+      const payload = await res.json();
+      const users = payload?.users ?? payload;
+      const total = Array.isArray(users) ? users.length : 0;
       // Placeholder for your rank logic
       setCompanyStats({ totalEmployees: total, completedEmployees: 5, userRank: 1, topPercentile: 10 });
       generateNudgeMessage(userProgress, 1, total, 10, 5);

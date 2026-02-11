@@ -22,12 +22,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // console.log('[module-progress] Recording progress:', { 
-    //   user_id, 
-    //   processed_module_id, 
-    //   quiz_score, 
-    //   max_score 
-    // })
+    console.log('[module-progress] Recording progress:', { 
+      user_id, 
+      processed_module_id, 
+      quiz_score, 
+      max_score,
+      module_id
+    })
 
     // Check if progress record already exists
     console.log(processed_module_id)
