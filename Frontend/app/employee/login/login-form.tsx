@@ -13,6 +13,8 @@ import { auth, googleProvider } from "@/lib/firebase"
 import { supabase } from "@/lib/supabase"
 import { Users, Mail } from "lucide-react"
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+
 export default function EmployeeLoginForm() {
   const [email, setEmail] = useState("")
   const [loading, setLoading] = useState(false)
@@ -46,17 +48,23 @@ export default function EmployeeLoginForm() {
   }, [searchParams])
 
   const checkEmployeeAccess = async (userEmail: string) => {
-    const { data: employeeData, error: employeeError } = await supabase
-      .from("users")
-      .select("*")
-      .eq("email", userEmail)
-      .single()
-
-    if (employeeError || !employeeData) {
-      throw new Error("Access denied. Your email is not in the allowed employees list.")
+    try {
+      const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(userEmail)}`)
+      if (!res.ok) {
+        throw new Error("Access denied. Your email is not in the allowed employees list.")
+      }
+      const payload = await res.json()
+      let employeeData = payload?.user ?? payload
+      if (Array.isArray(employeeData)) employeeData = employeeData[0]
+      
+      if (!employeeData) {
+        throw new Error("Access denied. Your email is not in the allowed employees list.")
+      }
+      
+      return employeeData
+    } catch (error: any) {
+      throw new Error(error.message || "Access denied. Your email is not in the allowed employees list.")
     }
-
-    return employeeData
   }
 
   const handleEmailLinkSignIn = async () => {

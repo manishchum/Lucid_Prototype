@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     let progressData
     const completionTime = new Date().toISOString()
 
-    if (existingProgress) {
+    if (existingProgress && existingProgress.length > 0) {
       console.log('📚 DEBUG: Updating existing progress record:', existingProgress[0].module_progress_id)
       console.log("Module Id is :",moduleId)
 
@@ -79,6 +79,7 @@ export async function POST(request: NextRequest) {
         .from('module_progress')
         .update(updateData)
         .eq('module_progress_id', existingProgress[0].module_progress_id)
+        .select()  // Add this to return the updated data
 
       if (updateError) {
         console.error('📚 DEBUG: Error updating module progress:', updateError)
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         )
       }
-      progressData = data[0]
+      progressData = data?.[0] || null
     } else {
       // console.log('📚 DEBUG: Creating new progress record')
       
@@ -102,12 +103,12 @@ export async function POST(request: NextRequest) {
       }
 
 
-      console.log("Error not here")
+      console.log("Creating new progress record")
 
       const { data, error: insertError } = await supabase
         .from('module_progress')
-        .update(insertData)
-        .eq('module_progress_id', existingProgress[0].module_progress_id)
+        .insert(insertData)  // Changed from .update() to .insert()
+        .select()  // Add this to return the inserted data
 
       if (insertError) {
         console.error('📚 DEBUG: Error creating module progress:', insertError)
@@ -116,7 +117,7 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         )
       }
-      progressData = data
+      progressData = data?.[0] || null
     }
 
     // console.log('📚 DEBUG: Module completion recorded successfully:', progressData)

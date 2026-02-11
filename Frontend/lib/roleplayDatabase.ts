@@ -194,6 +194,8 @@ export async function fetchScenariosForUser(userId: string, isAdmin: boolean): P
         console.error('Error fetching assigned scenarios details:', scenError);
         return { data: SCENARIOS, error: null };
       }
+
+      console.log("Assigned Scenarios for the user are ",assignedScenarios);
       console.log("Assigned Scenario Ids for the user are ",assignedScenarioIds);
       return { data: assignedScenarios, error: null };
     

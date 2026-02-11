@@ -11,6 +11,17 @@ import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import RolePlayReports from "@/components/roleplay/RolePlayReports";
 
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByEmail = async (email: string) => {
+  const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+  if (!res.ok) return null;
+  const payload = await res.json();
+  let u = payload?.user ?? payload;
+  if (Array.isArray(u)) u = u[0]; 
+  return u || null;
+};
 // Helper component to format question-specific feedback
 // Robust parsing of: JSON array, comma-separated quoted tokens, or free-form sections
 const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { feedback: string; employeeName: string; totalQuestions?: number }) => {
@@ -269,11 +280,7 @@ export default function ScoreHistoryPage() {
     setLoading(true);
     try {
       // First, get employee data including name and company_id
-      const { data: employeeData } = await supabase
-        .from("users")
-        .select("user_id, name, company_id")
-        .eq("email", email)
-        .single();
+      const employeeData = await fetchUserByEmail(email);
       
       if (!employeeData?.user_id) {
         setLoading(false);

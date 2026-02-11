@@ -38,10 +38,27 @@ interface ContentHistory {
   created_at: string;
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByEmail = async (email: string | null) => {
+  if(!email) return null;
+  try{
+    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if (!res.ok) return null;
+    const payload = await res.json();
+    let u = payload?.user ?? payload;
+    if (Array.isArray(u)) u = u[0];
+    return u || null;
+  } catch(e) {
+    console.error("Error fetching user by email:", e);
+    return null;
+  }
+};
+
 export default function EditModulePage() {
   const params = useParams();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user,loading:authLoading } = useAuth();
   const moduleId = params.id as string;
 
   const [module, setModule] = useState<TrainingModule | null>(null);
@@ -54,6 +71,8 @@ export default function EditModulePage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<'uploader' | 'reviewer' | 'both' | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [isAuthorized, setIsAuthorized] = useState(false);
 
   // Version control state
   const [pendingHistoryMap, setPendingHistoryMap] = useState<Record<string, ContentHistory>>({});
@@ -62,17 +81,17 @@ export default function EditModulePage() {
 
   const contentEditableRef = useRef<HTMLDivElement>(null);
 
+  // Check authentication on mount
   useEffect(() => {
-    if (user?.email) {
-      getCurrentUser();
-    }
-  }, [user]);
+    checkAuth();
+  }, []);
 
+  // const {user,loading:authLoading,logout} = await useAuth();
   useEffect(() => {
-    if (currentUserId) {
+    if (currentUserId && isAuthorized) {
       fetchModuleAndSubModules();
     }
-  }, [moduleId, currentUserId]);
+  }, [moduleId, currentUserId, isAuthorized]);
 
   useEffect(() => {
     if (selectedSubModule) {
@@ -85,17 +104,87 @@ export default function EditModulePage() {
       }
     }
   }, [selectedSubModule, pendingHistoryMap, userRole]);
+  useEffect(() => {
+      if (!authLoading) {
+        if (!user) router.push("/login");
+        else checkAuth();
+        
+      }
+    }, [user, authLoading, router]);
+  const checkAuth = async () => {
+    try {
+      setAuthChecking(true);
+
+      // // Check if user session exists
+      // const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      console.log(user);
+      if(!user?.email)return
+      
+
+      // Verify user exists and get their details
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('user_id, email')
+        .eq('email', user?.email)
+        .single();
+
+      if (userError || !userData) {
+        console.error('User not found in database:', userError);
+        router.push('/login');
+        return;
+      }
+
+      setCurrentUserId(userData.user_id);
+
+      // Fetch the module to check authorization
+      const { data: moduleData, error: moduleError } = await supabase
+        .from('training_modules')
+        .select('module_id, uploaded_by, reviewer_id, title')
+        .eq('module_id', moduleId)
+        .single();
+
+      if (moduleError) {
+        console.error('Module not found:', moduleError);
+        alert('Module not found or you do not have permission to access it.');
+        router.push('/admin/dashboard/human-in-the-loop');
+        return;
+      }
+
+      // Check if user is either the uploader or reviewer
+      const isUploader = moduleData.uploaded_by === userData.user_id;
+      const isReviewer = moduleData.reviewer_id === userData.user_id;
+
+      console.log(userData)
+      console.log(moduleData)
+      console.log(isReviewer)
+      console.log(isUploader)
+      if (!isUploader && !isReviewer) {
+        console.error('User not authorized to access this module');
+        alert('You are not authorized to access this module. You must be either the uploader or assigned reviewer.');
+        router.push('/admin/dashboard/human-in-the-loop');
+        return;
+      }
+
+      // User is authorized
+      setIsAuthorized(true);
+      setAuthChecking(false);
+    } catch (error) {
+      console.error('Auth check error:', error);
+      alert('An error occurred while verifying your access.');
+      router.push('/admin/dashboard/human-in-the-loop');
+    }
+  };
 
   const getCurrentUser = async () => {
     try {
       if (!user?.email) return;
-      const { data: userData, error } = await supabase
-        .from('users')
-        .select('user_id')
-        .eq('email', user.email)
-        .single();
-      if (error) throw error;
-      if (userData) setCurrentUserId(userData.user_id);
+
+      const emp = await fetchUserByEmail(user.email);
+      if (emp &&  emp.user_id) {
+        setCurrentUserId(emp.user_id);
+      } else {
+        console.warn("Current user not found in database:", user.email);
+      }
     } catch (error) {
       console.error('Error fetching current user:', error);
     }
@@ -105,19 +194,43 @@ export default function EditModulePage() {
     try {
       setLoading(true);
 
+      // Verify session is still valid before fetching
+        // const { data: { session } } = await supabase.auth.getSession();
+        // if (!session) {
+        //   console.error('Session expired during fetch');
+        //   router.push('/login');
+        //   return;
+        // }
+
       const { data: moduleData, error: moduleError } = await supabase
         .from('training_modules')
         .select('*')
         .eq('module_id', moduleId)
         .single();
 
-      if (moduleError) throw moduleError;
+      if (moduleError) {
+        // Check if error is due to expired session
+        if (moduleError.message.includes('JWT') || moduleError.message.includes('session') || moduleError.message.includes('expired')) {
+          console.error('Session expired:', moduleError);
+          router.push('/login');
+          return;
+        }
+        throw moduleError;
+      }
 
       if (moduleData) {
-        setModule(moduleData);
-
+        // Double-check authorization (in case of race conditions)
         const isUploader = moduleData.uploaded_by === currentUserId;
         const isReviewer = moduleData.reviewer_id === currentUserId;
+
+        if (!isUploader && !isReviewer) {
+          console.error('Authorization check failed during fetch');
+          alert('You are not authorized to access this module.');
+          router.push('/admin/dashboard/human-in-the-loop');
+          return;
+        }
+
+        setModule(moduleData);
 
         let role: 'uploader' | 'reviewer' | 'both' | null = null;
         if (isUploader && isReviewer) role = 'both';
@@ -131,7 +244,14 @@ export default function EditModulePage() {
           .eq('original_module_id', moduleId)
           .order('order_index', { ascending: true });
 
-        if (subModulesError) throw subModulesError;
+        if (subModulesError) {
+          if (subModulesError.message.includes('JWT') || subModulesError.message.includes('session') || subModulesError.message.includes('expired')) {
+            console.error('Session expired:', subModulesError);
+            router.push('/login');
+            return;
+          }
+          throw subModulesError;
+        }
 
         if (subModulesData && subModulesData.length > 0) {
           setSubModules(subModulesData);
@@ -144,6 +264,7 @@ export default function EditModulePage() {
       }
     } catch (error) {
       console.error('Error fetching module:', error);
+      alert('Failed to load module data.');
     } finally {
       setLoading(false);
     }
@@ -589,6 +710,7 @@ export default function EditModulePage() {
 
   return (
     <div className="min-h-screen bg-[#FAFBFC]">
+      {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="px-8 py-4">
           <div className="flex items-center justify-between mb-3">
@@ -728,6 +850,7 @@ export default function EditModulePage() {
         {/* Center Panel - Content View/Edit/Diff */}
         <div className="col-span-9 flex flex-col">
           <Card className="flex-1 bg-white border-slate-200 overflow-hidden flex flex-col">
+            {/* Tabs */}
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
               <div className="flex gap-2">
                 <button
@@ -783,6 +906,7 @@ export default function EditModulePage() {
               </div>
             </div>
 
+            {/* Content Area */}
             <div className="flex-1 overflow-y-auto p-6">
               {!selectedSubModule ? (
                 <div className="flex items-center justify-center h-full text-slate-400">
@@ -842,6 +966,22 @@ export default function EditModulePage() {
                             </div>
                             <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 max-h-[600px] overflow-y-auto">
                               <ContentRenderer htmlContent={selectedSubModule.content} />
+                            </div>
+                          </div>
+
+                          {/* Right: Proposed Changes */}
+                          <div>
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                                <Edit3 size={12} className="mr-1" />
+                                Proposed Changes (In Review)
+                              </span>
+                              <span className="text-xs text-slate-400">
+                                {new Date(currentPending.created_at).toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="border-2 border-amber-300 rounded-lg p-4 bg-amber-50/30 max-h-[600px] overflow-y-auto">
+                              <ContentRenderer htmlContent={currentPending.content} />
                             </div>
                           </div>
 
