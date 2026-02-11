@@ -159,8 +159,8 @@ export default function SignupPage() {
           name: formData.name,
           email: formData.email,
           password: hashedPassword,
-          phone_number: formData.phoneNumber
-          hire_date: new Date().toISOString()
+          phone_number: formData.phoneNumber,
+          hire_date: new Date().toISOString(),
           is_active: true
         })
       })
