@@ -30,6 +30,7 @@ const fetchUserByEmail = async (email: string) => {
     console.error("Error fetching user by email:", e);
     return null;
   }
+};
 
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
   const [lastUserInputWasVoice, setLastUserInputWasVoice] = useState(false);
