@@ -62,11 +62,6 @@ export default function EditModulePage() {
   const [hasPendingReview, setHasPendingReview] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Version control state
-  const [pendingHistoryMap, setPendingHistoryMap] = useState<Record<string, ContentHistory>>({});
-  const [hasPendingReview, setHasPendingReview] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
   const contentEditableRef = useRef<HTMLDivElement>(null);
 
   // Check authentication on mount
@@ -988,17 +983,6 @@ export default function EditModulePage() {
                               <ContentRenderer htmlContent={currentPending.content} />
                             </div>
                           </div>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-                          <GitCompare size={48} className="mb-4 opacity-50" />
-                          <p className="font-medium text-slate-600 mb-1">No pending changes to compare</p>
-                          <p className="text-sm">
-                            {isUploader
-                              ? 'Edit the content and click "Request Approval" to create a review request.'
-                              : 'No review requests have been submitted for this sub-module yet.'
-                            }
-                          </p>
                         </div>
                       ) : (
                         <div className="flex flex-col items-center justify-center py-16 text-slate-400">
