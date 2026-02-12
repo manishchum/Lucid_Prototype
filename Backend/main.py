@@ -95,9 +95,6 @@ app.include_router(roleplay_assessment_router, prefix="/api", tags=["roleplay-as
 app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
 
 
-
-
-
 # Router Includes are here
 # app.include_router(users_router, prefix="/api/users", tags=["users Router"])
 app.include_router(users.router)  # add this line (place with other app.include_router calls)
