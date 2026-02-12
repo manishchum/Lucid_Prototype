@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { toast as shadcnToast } from '@/hooks/use-toast';
 import { formatContentType } from '@/lib/contentType';
+import { useRouter } from 'next/navigation';
 
 // Types
 interface Admin {
@@ -94,7 +95,8 @@ interface TrainingModule {
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL; 
 export default function EmployeesPage() {
-  const { user } = useAuth();
+  const router  = useRouter();
+  const { user,loading:authLoading } = useAuth();
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
@@ -125,15 +127,15 @@ export default function EmployeesPage() {
   const [selectedSubDepartments, setSelectedSubDepartments] = useState<string[]>([]);
   const [showDepartmentDropdown, setShowDepartmentDropdown] = useState(false);
   const [showSubDepartmentDropdown, setShowSubDepartmentDropdown] = useState(false);
-
-  // Get current user ID from admin state
   const currentUserId = admin?.user_id || null;
-  // let temp = false;
-  useEffect(() => {
-    if (user?.email) {
-      checkAdminAccess();
-    }
-  }, [user]);
+  
+   useEffect(() => {
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else checkAdminAccess();
+          
+        }
+      }, [user, authLoading, router]);
 
   useEffect(() => {
     if (admin?.company_id) {
