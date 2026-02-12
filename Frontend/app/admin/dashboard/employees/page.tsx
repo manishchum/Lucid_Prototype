@@ -128,6 +128,7 @@ export default function EmployeesPage() {
   const [showDepartmentDropdown, setShowDepartmentDropdown] = useState(false);
   const [showSubDepartmentDropdown, setShowSubDepartmentDropdown] = useState(false);
 
+  const currentUserId  = admin?.user_id;
    useEffect(() => {
         if (!authLoading) {
           if (!user) router.push("/login");

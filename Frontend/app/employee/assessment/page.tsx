@@ -126,11 +126,12 @@ const AssessmentContent = () => {
             .eq('module_id', urlModuleId)
             .single()
 
-          isBaselineRequest = Boolean(learningPlan && learningPlan.baseline_assessment === 1);
-          // console.log(isBaselineRequest)
-          // console.log")
-            // console.log("Inside the if statement for per-module quiz request.");
-          // console.log(urlModuleId)
+          isBaselineRequest = Boolean(learningPlan && learningPlan.baseline_assessment === true);
+          console.log(isBaselineRequest)
+          console.log("Learning Plan")
+          console.log(learningPlan)
+            console.log("Inside the if statement for per-module quiz request.");
+          console.log(urlModuleId)
           res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
