@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
         // console.log('📧 DEBUG: Triggering admin notification for new completion')
         
         // Call the admin notification API
-        const notificationResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/notify-admin-completion`, {
+        const notificationResponse = await fetch(`${process.env.INTERNAL_API_BASE_URL}/api/notify-admin-completion`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
