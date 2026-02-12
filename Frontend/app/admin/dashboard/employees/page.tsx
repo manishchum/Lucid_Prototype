@@ -1399,7 +1399,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
           }
 
           // Check if email already exists (but not for current user)
-          const emailExists = await checkEmailExists(email, '');
+          const emailExists = await checkEmailExists(email);
           if (emailExists) {
             results.errors.push('An employee with this email already exists');
           }
