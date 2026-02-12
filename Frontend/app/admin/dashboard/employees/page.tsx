@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { toast as shadcnToast } from '@/hooks/use-toast';
 import { formatContentType } from '@/lib/contentType';
+import { useRouter } from 'next/navigation';
 
 // Types
 interface Admin {
@@ -91,8 +92,11 @@ interface TrainingModule {
   created_at: string;
 }
 
+
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL; 
 export default function EmployeesPage() {
-  const { user } = useAuth();
+  const router  = useRouter();
+  const { user,loading:authLoading } = useAuth();
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
@@ -124,11 +128,13 @@ export default function EmployeesPage() {
   const [showDepartmentDropdown, setShowDepartmentDropdown] = useState(false);
   const [showSubDepartmentDropdown, setShowSubDepartmentDropdown] = useState(false);
 
-  useEffect(() => {
-    if (user?.email) {
-      checkAdminAccess();
-    }
-  }, [user]);
+   useEffect(() => {
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else checkAdminAccess();
+          
+        }
+      }, [user, authLoading, router]);
 
   useEffect(() => {
     if (admin?.company_id) {
@@ -149,26 +155,20 @@ export default function EmployeesPage() {
     if (!user?.email) return;
 
     try {
-      // Get user data from users table
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("user_id, email, name, company_id")
-        .eq("email", user.email)
-        .eq("is_active", true)
-        .single();
+      // First get user by email via API (no auth needed for bootstrap)
+      const userRes = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
 
-      if (userError || !userData) {
+      if (!userRes.ok) {
         setError("User not found or inactive");
         return;
       }
 
-      // Check if user has admin role through user_role_assignments
+      const { user: userData } = await userRes.json();
+
+      // Then check roles...
       const { data: roleData, error: roleError } = await supabase
         .from("user_role_assignments")
-        .select(`
-          role_id,
-          roles!inner(name)
-        `)
+        .select(`role_id, roles!inner(name)`)
         .eq("user_id", userData.user_id)
         .eq("is_active", true)
         .eq("scope_type", "COMPANY");
@@ -187,7 +187,7 @@ export default function EmployeesPage() {
         setError("Console access required");
         return;
       }
-
+      
       // Set admin data using user data
       const adminData: Admin = {
         user_id: userData.user_id,
@@ -195,7 +195,7 @@ export default function EmployeesPage() {
         name: userData.name,
         company_id: userData.company_id
       };
-
+      
       setAdmin(adminData);
     } catch (error: any) {
       setError(`Authentication error: ${error.message}`);
@@ -203,41 +203,19 @@ export default function EmployeesPage() {
       setLoading(false);
     }
   };
-
+  
   const loadUsers = async (companyId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select(`
-          *,
-          department:sub_department(department_name, sub_department_name, department_id)
-        `)
-        .eq('company_id', companyId)
-        .eq('is_active', true);
+      
+      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+        headers: { 'X-User-ID': currentUserId }
+      });
+      if (!res.ok) throw await res.json();
+      const payload = await res.json();
+      const users = payload.users || [];
 
-      if (error) throw error;
-
-      // Load role assignments for each user
-      const usersWithRoles = await Promise.all(
-        (data || []).map(async (user:any) => {
-          const { data: roleAssignments } = await supabase
-            .from('user_role_assignments')
-            .select(`
-              *,
-              role:roles(name, display_name, level)
-            `)
-            .eq('user_id', user.user_id)
-            .eq('is_active', true)
-            .limit(1);
-
-          return {
-            ...user,
-            role: roleAssignments?.[0]?.role
-          };
-        })
-      );
-
-      setUsers(usersWithRoles);
+      setUsers(users);
+      console.log("payload:", payload)
     } catch (error: any) {
       setError(`Failed to load users: ${error.message}`);
     }
@@ -438,21 +416,24 @@ export default function EmployeesPage() {
   };
 
   const confirmDeleteUser = async () => {
-    if (!userToDelete) return;
+    if (!userToDelete || !currentUserId) return;
 
     try {
       setLoading(true);
       setError('');
       
-      // Soft delete - mark user as inactive instead of hard delete
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ is_active: false })
-        .eq('user_id', userToDelete.user_id);
+      // Use API to delete user (soft delete)
+      const res = await fetch(`${API_URL}/api/users/${userToDelete.user_id}`, {
+        method: 'DELETE',
+        headers: { 'X-User-ID': currentUserId },
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || 'Failed to delete user');
+      }
 
-      if (updateError) throw updateError;
-
-      // Also deactivate user role assignments
+      // Also deactivate user role assignments (keeping this direct call for now as role assignments table not migrated yet)
       await supabase
         .from('user_role_assignments')
         .update({ is_active: false })
@@ -502,6 +483,38 @@ export default function EmployeesPage() {
     // Clear the transient success message so the old banner doesn't re-render
     setSuccess('');
   }, [success]);
+
+  const createUser = async (data: any) => {
+    if (!currentUserId) throw new Error('User not authenticated');
+    const res = await fetch(`${API_URL}/api/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUserId },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw await res.json();
+    return await res.json();
+  };
+
+  const updateUser = async (id: string, updates: any) => {
+    if (!currentUserId) throw new Error('User not authenticated');
+    const res = await fetch(`${API_URL}/api/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUserId },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) throw await res.json();
+    return await res.json();
+  };
+
+  const deleteUser = async (id: string) => {
+    if (!currentUserId) throw new Error('User not authenticated');
+    const res = await fetch(`${API_URL}/api/users/${id}`, {
+      method: 'DELETE',
+      headers: { 'X-User-ID': currentUserId },
+    });
+    if (!res.ok) throw await res.json();
+    return await res.json();
+  };
 
   if (loading) {
     return (
@@ -1087,6 +1100,7 @@ export default function EmployeesPage() {
           isOpen={showUpdateModal}
           onClose={() => setShowUpdateModal(false)}
           employee={selectedEmployee}
+          adminId={admin.user_id}
           currentRole={selectedEmployee.role ? [selectedEmployee.role.name] : []}
           onSuccess={() => {
             loadUsers(admin.company_id);
@@ -1163,6 +1177,26 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
 
+  // Add checkEmailExists function here
+  const checkEmailExists = async (email: string): Promise<boolean> => {
+    try {
+      if (!companyId || !adminId) return false;
+      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+        headers: { 'X-User-ID': adminId }
+      });
+      
+      if (!res.ok) return false;
+      
+      const { users } = await res.json();
+      return users?.some((u: any) => 
+        u.email?.toLowerCase() === email.toLowerCase()
+      ) || false;
+    } catch (error) {
+      console.error('Error checking email:', error);
+      return false;
+    }
+  };
+
   // Load departments and roles when component mounts
   useEffect(() => {
     loadDropdownData();
@@ -1207,22 +1241,39 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
 
       for (const email of emails) {
         try {
-          const { error } = await supabase
-            .from("users")
-            .insert({
+          // Check if email already exists via API
+          const checkRes = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+            headers: { 'X-User-ID': adminId }
+          });
+          let exists = false;
+          if (checkRes.ok) {
+            const checkData = await checkRes.json();
+            exists = checkData.users?.some((u: any) => u.email.toLowerCase() === email.toLowerCase());
+          }
+          if (exists) {
+            results.skipped++;
+            continue;
+          }
+          // Create user via backend API
+          const createRes = await fetch(`${API_URL}/api/users`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-ID': adminId
+            },
+            body: JSON.stringify({
               email: email.toLowerCase(),
               company_id: companyId,
-            });
-
-          if (error) {
-            if (error.code === '23505') { // Unique violation
-              results.skipped++;
-            } else {
-              results.errors.push(`${email}: ${error.message}`);
-            }
-          } else {
-            results.added++;
+              hire_date: new Date().toISOString().split('T')[0],
+              password: null
+            })
+          });
+          if (!createRes.ok) {
+            const errorData = await createRes.json();
+            results.errors.push(`${email}: ${errorData.detail || 'Failed to create user'}`);
+            continue;
           }
+          results.added++;
         } catch (err) {
           results.errors.push(`${email}: Failed to add`);
         }
@@ -1323,7 +1374,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       const rolesMap = new Map(rolesData?.map((r: any) => [r.name.toLowerCase(), r.role_id]) || []);
       const departmentsMap = new Map(departmentsData?.map((d: any) => [`${d.department_name.toLowerCase()}-${d.sub_department_name.toLowerCase()}`, d.department_id]) || []);
       const companiesMap = new Map(companiesData?.map((c: any) => [c.name.toLowerCase(), c.company_id]) || []);
-
+      let temp = false;
       for (const row of dataRows) {
         // Expected format from old admin: company_user_id, email, name, company_name, department, sub_department, employment_status, roles, position, phone
         if (row.length < 3 || !row[1]) continue; // Need at least company_user_id, email, name
@@ -1346,17 +1397,10 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             continue;
           }
 
-          // Check if email already exists
-          const { data: existingUser } = await supabase
-            .from('users')
-            .select('user_id')
-            .eq('email', email.toLowerCase())
-            .single();
-
-          if (existingUser) {
-            results.skipped++;
-            // console.log("Error because of existing user")
-            continue;
+          // Check if email already exists (but not for current user)
+          const emailExists = await checkEmailExists(email, '');
+          if (emailExists) {
+            results.errors.push('An employee with this email already exists');
           }
 
           // Find department ID
@@ -1381,78 +1425,80 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             }
           }
 
-          // Create user in users table
-          const { data: userData, error: userError } = await supabase
-            .from('users')
-            .insert({
-              name: name,
-              email: email.toLowerCase(),
-              company_id: userCompanyId,
-              department_id: departmentId,
-              position: position || null,
-              phone: phone || null,
-              hire_date: new Date().toISOString().split('T')[0],
-              employment_status: employmentStatus || 'ACTIVE'
-            })
-            .select()
-            .single();
+          // Create user via API
+          try {
+            const createRes = await fetch(`${API_URL}/api/users`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': adminId
+              },
+              body: JSON.stringify({
+                name: name,
+                email: email.toLowerCase(),
+                company_id: userCompanyId,
+                department_id: departmentId,
+                position: position || null,
+                phone: phone ? String(phone) : null,
+                hire_date: new Date().toISOString().split('T')[0],
+                password: null // Default password for bulk uploads
+              })
+            });
 
-          // console.log("User Data after creation");
-          // console.log(userData)
-          if (userError) {
-            if (userError.code === '23505') { // Unique violation
-              results.skipped++;
-            } else {
-              results.errors.push(`${email}: ${userError.message}`);
+            if (!createRes.ok) {
+              const errorData = await createRes.json();
+              results.errors.push(`${email}: ${errorData.detail || 'Failed to create user'}`);
+              continue;
             }
-            continue;
-          }
-          
-          // Process roles if provided (using old admin logic)
-          if (userData) {
-            let roleNames = [];
-            
-            if (roles && roles.trim()) {
-              // If roles are provided, use them
-              roleNames = roles.split(',').map(role => role.trim()).filter(role => role);
-            } else {
-              // If no roles provided, assign default "User" role
-              roleNames = ['USER'];
-            }
-            
-            const roleAssignments = [];
 
-            for (const roleName of roleNames) {
-              const roleId = rolesMap.get(roleName.toLowerCase());
-              if (roleId) {
-                roleAssignments.push({
+            const { user: userData } = await createRes.json();
+            
+            
+            // If learning style is disabled, create entry in employee_learning_style table
+            if (!temp) {
+              const { error: learningStyleError } = await supabase
+                .from('employee_learning_style')
+                .insert({
                   user_id: userData.user_id,
-                  role_id: roleId,
-                  scope_type: 'COMPANY',
-                  scope_id: userData.company_id,
-                  assigned_by: adminId,
-                  is_active: true
+                  learning_style: 'default',
+                  answers: {},
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
                 });
-              } else {
-                results.errors.push(`${email}: Role "${roleName}" not found`);
+
+              if (learningStyleError) {
+                console.error('Failed to set default learning style:', learningStyleError);
+                // Don't fail the entire operation if learning style insert fails
               }
             }
 
-            if (roleAssignments.length > 0) {
+            // If roles are selected, create multiple role assignments
+            if (formData.selected_roles.length > 0) {
+              const roleAssignments = formData.selected_roles.map(roleId => ({
+                user_id: userData.user_id,
+                role_id: roleId,
+                scope_type: 'COMPANY',
+                scope_id: companyId,  // Use companyId prop instead of userData.company_id
+                assigned_by: adminId,
+                is_active: true
+              }));
+
               const { error: roleError } = await supabase
                 .from('user_role_assignments')
                 .insert(roleAssignments);
 
               if (roleError) {
-                console.error(`Role assignment failed for ${email}:`, roleError);
+                console.error('Role assignment failed:', roleError);
                 // Don't fail the entire operation if role assignment fails
               }
             }
-          }
 
-          results.added++;
-        } catch (err) {
-          results.errors.push(`${email}: Failed to add user`);
+            results.added++;
+          } catch (createError: any) {
+            results.errors.push(`${email}: ${createError.message || 'Failed to create user'}`);
+          }
+        } catch (e){
+          console.warn(e);
         }
       }
 
@@ -1626,7 +1672,7 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<{[key: string]: string}>({});
   const [companies, setCompanies] = useState<any[]>([]);
-
+  let temp = false;
   // Load dropdown data
   useEffect(() => {
     if (isOpen) {
@@ -1682,7 +1728,7 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
         }));
       } else {
         // Check if email already exists
-        const emailExists = await checkEmailExists(value);
+        const emailExists = await checkEmailExists(value, '');
         if (emailExists) {
           setFieldErrors(prev => ({
             ...prev,
@@ -1728,27 +1774,29 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
   // Phone validation function  
   const validatePhone = (phone: string): boolean => {
     if (!phone) return true; // Phone is optional
-    // Allow various phone formats: +1234567890, (123) 456-7890, 123-456-7890, 123.456.7890, 1234567890
     const phoneRegex = /^[\+]?[\d\s\(\)\-\.]{10,15}$/;
     const digitsOnly = phone.replace(/\D/g, '');
     return phoneRegex.test(phone) && digitsOnly.length >= 10 && digitsOnly.length <= 15;
   };
 
-  // Check if email already exists in database
-  const checkEmailExists = async (email: string): Promise<boolean> => {
+  // Check if email already exists in database (excluding current user)
+  const checkEmailExists = async (email: string, currentUserId: string): Promise<boolean> => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('user_id')
-        .eq('email', email.toLowerCase())
-        .maybeSingle();
+      if (!companyId || !adminId) return false;
+      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+        headers: { 'X-User-ID': adminId }
+      });
       
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows returned"
-        console.error('Error checking email:', error);
+      if (!res.ok) {
+        console.error('Failed to check email');
         return false;
       }
       
-      return !!data; // Returns true if email exists
+      const { users } = await res.json();
+      return users?.some((u: any) => 
+        u.email?.toLowerCase() === email.toLowerCase() && 
+        u.user_id !== currentUserId
+      ) || false;
     } catch (error) {
       console.error('Error checking email:', error);
       return false;
@@ -1768,12 +1816,11 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
       errors.email = 'Email is required';
     } else if (!validateEmail(formData.email)) {
       errors.email = 'Please enter a valid email address';
-    } else {
-      // Check if email already exists
-      const emailExists = await checkEmailExists(formData.email);
+    } else{
+      const emailExists = await checkEmailExists(formData.email, '');
       if (emailExists) {
         errors.email = 'An employee with this email already exists';
-      }
+    }
     }
 
     // Phone validation (optional field)
@@ -1797,35 +1844,57 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
       setLoading(false);
       return;
     }
-
     try {
       // Fetch company's learning style setting
-      const { data: companyData } = await supabase
+      const { data: companyData, error: e } = await supabase
         .from('companies')
         .select('learning_style')
         .eq('company_id', companyId)
         .single();
+        if (e) {
+          console.error('Failed to fetch company data:', e);
+        }
       
       const learningStyleEnabled = companyData?.learning_style;
-
-      // Create user in users table
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .insert({
+      temp = learningStyleEnabled;
+      // Create user via API
+      const createRes = await fetch(`${API_URL}/api/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': adminId
+        },
+        body: JSON.stringify({
           name: formData.name,
           email: formData.email.toLowerCase(),
           company_id: companyId,
           department_id: formData.department_id || null,
           position: formData.position || null,
           phone: formData.phone || null,
-          hire_date: new Date().toISOString().split('T')[0], // Today's date
-          employment_status: formData.employment_status || 'ACTIVE'
+          hire_date: new Date().toISOString().split('T')[0],
+          password: null // Default password
         })
-        .select()
-        .single();
+      });
 
-      if (userError) throw userError;
+      if (!createRes.ok) {
+        const errorData = await createRes.json();
+        throw new Error(errorData.detail || 'Failed to create user');
+      }
 
+      const responseData = await createRes.json();
+      console.log(responseData);
+      // Handle both array and object responses from backend
+      const userData = Array.isArray(responseData.user) 
+        ? responseData.user[0] 
+        : responseData.user;
+      
+      // Validate that we received a valid user with user_id
+      if (!userData || !userData.user_id) {
+        setError('Failed to create user: No user ID returned from server');
+        setLoading(false);
+        return;
+      }
+      
       // If learning style is disabled, create entry in employee_learning_style table
       if (!learningStyleEnabled) {
         const { error: learningStyleError } = await supabase
@@ -1850,7 +1919,7 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
           user_id: userData.user_id,
           role_id: roleId,
           scope_type: 'COMPANY',
-          scope_id: userData.company_id,
+          scope_id: companyId,  // Use companyId prop instead of userData.company_id
           assigned_by: adminId,
           is_active: true
         }));
@@ -2751,13 +2820,15 @@ function DuplicateAssignmentModal({
 function UpdateEmployeeModal({ 
   isOpen, 
   onClose, 
-  employee, 
+  employee,
+  adminId, 
   currentRole, 
   onSuccess 
 }: { 
   isOpen: boolean;
   onClose: () => void;
   employee: User;
+  adminId: string;
   currentRole: string[];
   onSuccess: () => void;
 }) {
@@ -2779,6 +2850,21 @@ function UpdateEmployeeModal({
   const [subDepartments, setSubDepartments] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
+  const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+  // Email validation function
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  // Phone validation function
+  const validatePhone = (phone: string): boolean => {
+    if (!phone) return true; // Phone is optional
+    const phoneRegex = /^[\+]?[\d\s\(\)\-\.]{10,15}$/;
+    const digitsOnly = phone.replace(/\D/g, '');
+    return phoneRegex.test(phone) && digitsOnly.length >= 10 && digitsOnly.length <= 15;
+  };
 
   // Initialize form data when employee prop changes
   useEffect(() => {
@@ -2889,83 +2975,31 @@ function UpdateEmployeeModal({
     }));
   };
 
-  const handleInputChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-
-    // Clear previous field error
-    if (fieldErrors[name]) {
-      setFieldErrors(prev => ({
-        ...prev,
-        [name]: ''
-      }));
-    }
-
-    // Real-time validation
-    if (name === 'email' && value && value !== employee.email) {
-      if (!validateEmail(value)) {
-        setFieldErrors(prev => ({
-          ...prev,
-          email: 'Please enter a valid email address'
-        }));
-      } else {
-        // Check if email already exists (but not for current user)
-        const emailExists = await checkEmailExists(value, employee.user_id);
-        if (emailExists) {
-          setFieldErrors(prev => ({
-            ...prev,
-            email: 'An employee with this email already exists'
-          }));
-        }
-      }
-    }
-
-    if (name === 'phone' && value) {
-      if (!validatePhone(value)) {
-        setFieldErrors(prev => ({
-          ...prev,
-          phone: 'Please enter a valid phone number (10-15 digits)'
-        }));
-      }
+    setFormData((prev: any) => ({ ...prev, [name]: value }));
+    // only run email check when email field changes
+    if (name === 'email') {
+      checkEmailExists(value).then((exists) => {
+        setFieldErrors((prev: any) => ({ ...prev, email: exists ? 'Email already exists' : '' }));
+      });
     }
   };
 
-  // Email validation function
-  const validateEmail = (email: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
-
-  // Phone validation function  
-  const validatePhone = (phone: string): boolean => {
-    if (!phone) return true; // Phone is optional
-    const phoneRegex = /^[\+]?[\d\s\(\)\-\.]{10,15}$/;
-    const digitsOnly = phone.replace(/\D/g, '');
-    return phoneRegex.test(phone) && digitsOnly.length >= 10 && digitsOnly.length <= 15;
-  };
-
-  // Check if email already exists in database (excluding current user)
-  const checkEmailExists = async (email: string, currentUserId: string): Promise<boolean> => {
+  const checkEmailExists = async (email: string, currentUserId?: string): Promise<boolean> => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('user_id')
-        .eq('email', email.toLowerCase())
-        .neq('user_id', currentUserId)
-        .maybeSingle();
-      
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error checking email:', error);
-        return false;
-      }
-      
-      return !!data; // Returns true if email exists
-    } catch (error) {
-      console.error('Error checking email:', error);
+      if (!companyId || !adminId) return false;
+      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+        headers: { 'X-User-ID': adminId }
+      });
+      if (!res.ok) return false;
+      const { users } = await res.json();
+      return users?.some((u: any) =>
+        u.email?.toLowerCase() === email.toLowerCase() &&
+        (currentUserId ? u.user_id !== currentUserId : true)
+      ) || false;
+    } catch (err) {
+      console.error('Error checking email:', err);
       return false;
     }
   };
@@ -3014,10 +3048,14 @@ function UpdateEmployeeModal({
     }
 
     try {
-      // Update user in users table
-      const { error: userError } = await supabase
-        .from('users')
-        .update({
+      // Update user via API
+      const updateRes = await fetch(`${API_URL}/api/users/${employee.user_id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': adminId
+        },
+        body: JSON.stringify({
           name: formData.name,
           email: formData.email.toLowerCase(),
           department_id: formData.department_id || null,
@@ -3025,9 +3063,12 @@ function UpdateEmployeeModal({
           phone: formData.phone || null,
           employment_status: formData.employment_status || 'ACTIVE'
         })
-        .eq('user_id', employee.user_id);
+      });
 
-      if (userError) throw userError;
+      if (!updateRes.ok) {
+        const errorData = await updateRes.json();
+        throw new Error(errorData.detail || 'Failed to update user');
+      }
 
       // Update role assignments
       // First, deactivate all existing role assignments
@@ -3047,7 +3088,7 @@ function UpdateEmployeeModal({
           role_id: roleId,
           scope_type: 'COMPANY',
           scope_id: employee.company_id,
-          assigned_by: employee.user_id, // In a real app, this would be the admin's ID
+          assigned_by: adminId,
           is_active: true
         }));
 

@@ -16,6 +16,8 @@ import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import bcrypt from "bcryptjs"
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
 function LoginContent() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -46,14 +48,21 @@ function LoginContent() {
   }, [searchParams])
 
   const checkUserAccess = async (userEmail: string) => {
-    const { data: userData, error: userError } = await supabase
-      .from("users")
-      .select("user_id")
-      .eq("email", userEmail)
-      .maybeSingle()
-
-    if (userError || !userData) {
-      throw new Error("Access denied. Your email is not in the allowed users list.")
+    try{
+      const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(userEmail)}`)
+      if (!res.ok) {
+        throw new Error("Access denied. Your email is not in the allowed users list.")
+      }
+    
+      const payload = await res.json();
+      let employeeData = payload?.user ?? payload;
+      if (Array.isArray(employeeData)) employeeData = employeeData[0];
+      if (!employeeData) {
+        throw new Error("Access denied. Your email is not in the allowed users list.")
+      }
+      return employeeData;
+    } catch (error: any) {
+      throw new Error(error.message || "Failed to verify user access.")
     }
 
     const { data: roleData, error: roleError } = await supabase
@@ -85,16 +94,16 @@ function LoginContent() {
     setError("")
 
     try {
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("user_id, email, password, name")
-        .eq("email", email)
-        .maybeSingle()
-
-      if (userError || !userData) {
+      const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`)
+      if (!res.ok) {
         throw new Error("Invalid email or password")
       }
-
+      const payload = await res.json();
+      let userData = payload?.user || payload;
+      if (Array.isArray(userData)) userData = userData[0];
+      if (!userData){
+        throw new Error("Invalid email or password")
+      }
       if (!userData.password) {
         throw new Error("This account uses Google sign-in. Please use 'Continue with Google' button.")
       }

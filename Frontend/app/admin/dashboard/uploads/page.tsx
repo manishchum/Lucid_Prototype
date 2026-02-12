@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download } from "lucide-react";
 import { formatContentType } from '@/lib/contentType';
+import { useRouter } from "next/navigation";
 
 interface Admin {
   user_id: string
@@ -18,6 +19,8 @@ interface Admin {
   name: string | null
   company_id: string
 }
+
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 type KPIUploadResult = {
   created?: number;
@@ -67,21 +70,24 @@ function ContentUpload({
 
   const validateReviewerEmail = async (email: string) => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('user_id, name, email')
-        .eq('email', email)
-        .single();
-
-      if (error || !data) {
-        setEmailValidationMessage('❌ User with this email does not exist');
+      const res = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(email)}`);
+      if (!res.ok) {
+        setEmailValidationMessage('User with this email does not exist.');
         setRetrievedReviewerId(null);
-      } else {
-        setEmailValidationMessage(`✅ Reviewer found: ${data.name || data.email}`);
-        setRetrievedReviewerId(data.user_id);
+        return;
       }
+      const payload = await res.json();
+      let user = payload?.user ?? payload;
+      if (Array.isArray(user)) user = user[0];
+      if (!user || !user.user_id || user.company_id !== companyId) {
+        setEmailValidationMessage('User with this email does not exist.');
+        setRetrievedReviewerId(null);
+        return;
+      }
+      setEmailValidationMessage(`Reviewer found: ${user.name || user.email}`);
+      setRetrievedReviewerId(user.user_id);
     } catch (error) {
-      setEmailValidationMessage('❌ Error validating email');
+      setEmailValidationMessage('Error validating email');
       setRetrievedReviewerId(null);
     }
   };
@@ -807,30 +813,39 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 }
 
 export default function UploadsPage() {
-  const { user } = useAuth();
+  const { user,loading:authLoading } = useAuth();
+  const router = useRouter();
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user?.email) {
-      checkAdminAccess();
-    }
-  }, [user]);
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else checkAdminAccess();
+          
+        }
+      }, [user, authLoading, router]);
 
   const checkAdminAccess = async () => {
     if (!user?.email) return;
 
     try {
-      // Get user data from users table
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("user_id, email, name, company_id")
-        .eq("email", user.email)
-        .eq("is_active", true)
-        .single();
+      // Get user data from users table via backend API
+      const userRes = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
 
-      if (userError || !userData) {
-        console.error("User not found or inactive:", userError);
+      if (!userRes.ok) {
+        console.error("User not found or inactive");
+        return;
+      }
+
+      const responseData = await userRes.json();
+      
+      // Handle both wrapped and unwrapped responses
+      const userData = responseData.user || responseData;
+      
+      // Validate response
+      if (!userData || !userData.user_id) {
+        console.error("Invalid user data returned from backend:", responseData);
         return;
       }
 

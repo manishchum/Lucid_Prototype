@@ -69,6 +69,31 @@ interface HeatmapData {
   }[];
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByFilter = async (filters: {
+  functionId?: string;
+  subFunctionId?: string;
+  titleId?: string;
+}) => {
+  try{
+    const params = new URLSearchParams();
+    if (filters.functionId) params.append('function_id', filters.functionId);
+    if (filters.subFunctionId) params.append('sub_function_id', filters.subFunctionId);
+    if (filters.titleId) params.append('title_id', filters.titleId);
+    params.append('is_active', 'true');
+    params.append('employment_status', 'ACTIVE');
+
+    const res = await fetch(`${API_BASE}/api/users?${params.toString()}`);
+    if (!res.ok) return [];
+    const payload = await res.json();
+    const users = payload?.users ?? payload;
+    return Array.isArray(users) ? users : users ? [users] : [];
+  } catch(e) {
+    console.error('Error fetching users:', e);
+    return [];
+  }
+};
 export default function KPITurbocharge() {
   const [functions, setFunctions] = useState<Array<{ function_id: string; function_name: string }>>([]);
   const [subFunctions, setSubFunctions] = useState<Array<{ sub_function_id: string; sub_function_name: string }>>([]);
@@ -297,22 +322,13 @@ export default function KPITurbocharge() {
 
   const fetchModulePerformance = async () => {
     try {
-      let userQuery = supabase
-        .from('users')
-        .select('user_id')
-        .eq('is_active', true)
-        .eq('employment_status', 'ACTIVE');
+      const users = await fetchUserByFilter({
+        functionId: selectedFunctionId,
+        subFunctionId: selectedSubFunctionId,
+        titleId: selectedTitleId
+      });
 
-      if (selectedTitleId) {
-        userQuery = userQuery.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
-        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
-        userQuery = userQuery.eq('function_id', selectedFunctionId);
-      }
-
-      const { data: users } = await userQuery;
-      const userIds = users?.map(u => u.user_id) || [];
+      const userIds = users.map(u => u.user_id);
 
       if (userIds.length === 0) {
         setTopModules([]);
@@ -406,21 +422,13 @@ export default function KPITurbocharge() {
 
   const fetchRecommendedActions = async () => {
     try {
-      let userQuery = supabase
-        .from('users')
-        .select('user_id, name, function_id, sub_function_id, title_id')
-        .eq('is_active', true)
-        .eq('employment_status', 'ACTIVE');
+      const allUsers = await fetchUserByFilter({
+        functionId: selectedFunctionId,
+        subFunctionId: selectedSubFunctionId,
+        titleId: selectedTitleId
+      });
 
-      if (selectedTitleId) {
-        userQuery = userQuery.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
-        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
-        userQuery = userQuery.eq('function_id', selectedFunctionId);
-      }
-
-      const { data: users } = await userQuery.limit(4);
+      const users = allUsers.slice(0, 4);
 
       if (!users || users.length === 0) {
         setRecommendedActions([]);
@@ -481,22 +489,11 @@ export default function KPITurbocharge() {
 
   const fetchScatterPlotData = async () => {
     try {
-      // Get users based on selected filters
-      let userQuery = supabase
-        .from('users')
-        .select('user_id, name')
-        .eq('is_active', true)
-        .eq('employment_status', 'ACTIVE');
-
-      if (selectedTitleId) {
-        userQuery = userQuery.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
-        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
-        userQuery = userQuery.eq('function_id', selectedFunctionId);
-      }
-
-      const { data: users } = await userQuery;
+      const users = await fetchUserByFilter({
+        functionId: selectedFunctionId,
+        subFunctionId: selectedSubFunctionId,
+        titleId: selectedTitleId
+      });
 
       if (!users || users.length === 0) {
         setScatterData([]);
@@ -594,22 +591,11 @@ export default function KPITurbocharge() {
 
   const fetchHeatmapData = async () => {
     try {
-      // Get users based on selected filters
-      let userQuery = supabase
-        .from('users')
-        .select('user_id, name')
-        .eq('is_active', true)
-        .eq('employment_status', 'ACTIVE');
-
-      if (selectedTitleId) {
-        userQuery = userQuery.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
-        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
-        userQuery = userQuery.eq('function_id', selectedFunctionId);
-      }
-
-      const { data: users } = await userQuery;
+      const users = await fetchUserByFilter({
+        functionId: selectedFunctionId,
+        subFunctionId: selectedSubFunctionId,
+        titleId: selectedTitleId
+      });
 
       if (!users || users.length === 0) {
         setHeatmapData([]);
@@ -800,22 +786,13 @@ export default function KPITurbocharge() {
       }
 
       // Get users based on selected filters
-      let userQuery = supabase
-        .from('users')
-        .select('user_id')
-        .eq('is_active', true)
-        .eq('employment_status', 'ACTIVE');
-
-      if (selectedTitleId) {
-        userQuery = userQuery.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
-        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
-        userQuery = userQuery.eq('function_id', selectedFunctionId);
-      }
-
-      const { data: users } = await userQuery;
-      const userIds = users?.map(u => u.user_id) || [];
+      const users = await fetchUserByFilter({
+        functionId: selectedFunctionId,
+        subFunctionId: selectedSubFunctionId,
+        titleId: selectedTitleId
+      });
+      
+      const userIds = users.map((u:any) => u.user_id);
 
       if (userIds.length === 0) {
         setWorkforceReadiness({ score: 0, change: 0, status: 'No Users Found' });
@@ -885,22 +862,11 @@ export default function KPITurbocharge() {
 
   const calculateOrganizationFunctionReadiness = async () => {
     try {
-      // Get users based on selected filters (function or organization level)
-      let userQuery = supabase
-        .from('users')
-        .select('user_id, ready_status')
-        .eq('is_active', true)
-        .eq('employment_status', 'ACTIVE');
-
-      if (selectedTitleId) {
-        userQuery = userQuery.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
-        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
-        userQuery = userQuery.eq('function_id', selectedFunctionId);
-      }
-
-      const { data: users } = await userQuery;
+      const users = await fetchUserByFilter({
+        functionId: selectedFunctionId,
+        subFunctionId: selectedSubFunctionId,
+        titleId: selectedTitleId
+      });
 
       if (!users || users.length === 0) {
         setWorkforceReadiness({ score: 0, change: 0, status: 'No Users Found' });

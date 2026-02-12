@@ -20,6 +20,21 @@ interface EmployeeNavigationProps {
   onLogout?: () => void;
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByEmail = async (email: string | undefined | null) => {
+  if (!email) return null;
+  const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+  if (!res.ok) {
+    console.error('[employee-navigation] Failed to fetch user by email:', res.status, await res.text().catch(()=>''));
+    return null;
+  }
+  const payload = await res.json();
+  let u = payload?.user ?? payload;
+  if (Array.isArray(u)) u = u[0];
+  return u || null;
+};
+
 const EmployeeNavigation = ({ 
   user: providedUser,
   onLogout: providedOnLogout
@@ -64,11 +79,10 @@ const EmployeeNavigation = ({
     if (!providedUser && authUser?.email) {
       const fetchEmployee = async () => {
         try {
-          const { data: employeeData } = await supabase
-            .from("users").select("*").eq("email", authUser.email).single();
-          
+          const employeeData = await fetchUserByEmail(authUser.email);
           if (employeeData) {
             setEmployee(employeeData);
+            // fetch role assignments (keeps using supabase for role assignments)
             const { data: roleData } = await supabase
               .from("user_role_assignments")
               .select(`roles!inner(name)`)

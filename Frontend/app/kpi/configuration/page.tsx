@@ -76,6 +76,23 @@ interface TitleData {
   sub_function_id: string
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByEmail = async (email: string | null) => {
+  if (!email) return null;
+  try{
+    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if(!res.ok) return null;
+    const payload = await res.json();
+    let u = payload?.user ?? payload;
+    if (Array.isArray(u)) u = u[0];
+    return u || null;
+  } catch (e){
+    console.error("Error fetching user by email:", e);
+    return null;
+  }
+};
+
 function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Admin | null }) {
   const [file, setFile] = useState<File | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
@@ -219,16 +236,16 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
 }
 
 export default function KPIConfigurationPage() {
-  const router = useRouter()
-  const { user } = useAuth()
-  const [kpis, setKpis] = useState<KPI[]>([])
-  const [filteredKpis, setFilteredKpis] = useState<KPI[]>([])
-  const [loading, setLoading] = useState(true)
-  const [uploading, setUploading] = useState(false)
-  const [parsedData, setParsedData] = useState<ParsedKPI[]>([])
-  const [showPreview, setShowPreview] = useState(false)
-  const [companyId, setCompanyId] = useState<string>("")
-  
+const router = useRouter()
+const { user } = useAuth()
+const [kpis, setKpis] = useState<KPI[]>([])
+const [filteredKpis, setFilteredKpis] = useState<KPI[]>([])
+const [loading, setLoading] = useState(true)
+const [uploading, setUploading] = useState(false)
+const [parsedData, setParsedData] = useState<ParsedKPI[]>([])
+const [showPreview, setShowPreview] = useState(false)
+const [companyId, setCompanyId] = useState<string>("")
+
   // Filter data from database
   const [functions, setFunctions] = useState<FunctionData[]>([])
   const [subFunctions, setSubFunctions] = useState<SubFunctionData[]>([])
@@ -254,13 +271,11 @@ export default function KPIConfigurationPage() {
 
   const fetchAdminId = async () => {
     try {
-      const { data: adminData, error: adminError } = await supabase
-        .from("users")
-        .select("user_id, email, name, company_id")
-        .eq("email", user?.email)
-        .single()
-      if (adminError) throw adminError
-      setAdmin(adminData)
+      if (!user?.email) return;
+      const employeeData = await fetchUserByEmail(user.email);
+      if (!employeeData){
+        throw new Error("Admin user not found.")
+      }
     } catch (error) {
       console.error("Error fetching admin data:", error)
     }
@@ -307,34 +322,35 @@ export default function KPIConfigurationPage() {
       setLoading(true)
       
       // Fetch user's company
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("company_id")
-        .eq("email", user?.email)
-        .single()
-
-      if (userError) throw userError
-      
-      if (userData?.company_id) {
-        setCompanyId(userData.company_id)
-        
-        // Fetch KPIs for the company with related data
-        const { data: kpiData, error: kpiError } = await supabase
-          .from("kpis")
-          .select(`
-            *,
-            function:function_id (function_name),
-            sub_function:sub_function_id (sub_function_name),
-            titles:title_id (title_name)
-          `)
-          .eq("company_id", userData.company_id)
-          .order("created_at", { ascending: false })
-
-        if (kpiError) throw kpiError
-        
-        setKpis(kpiData || [])
-        setFilteredKpis(kpiData || [])
+      if(!user?.email) {
+        setLoading(false);
+        return;
       }
+        
+      const employeeData = await fetchUserByEmail(user.email);
+      if (!employeeData?.company_id) {
+        setLoading(false);
+        return;
+      }
+
+      setCompanyId(employeeData.company_id)
+      
+      // Fetch KPIs for the company with related data
+      const { data: kpiData, error: kpiError } = await supabase
+        .from("kpis")
+        .select(`
+          *,
+          function:function_id (function_name),
+          sub_function:sub_function_id (sub_function_name),
+          titles:title_id (title_name)
+        `)
+        .eq("company_id", employeeData.company_id)
+        .order("created_at", { ascending: false })
+
+      if (kpiError) throw kpiError
+      
+      setKpis(kpiData || [])
+      setFilteredKpis(kpiData || [])
     } catch (error) {
       console.error("Error fetching data:", error)
     } finally {
