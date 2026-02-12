@@ -2,13 +2,16 @@ from fastapi import APIRouter, HTTPException, Header, Query
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 
-from utils.db_operations import (
+from utils.db.users_db import (
     get_user_by_email,
     get_users_by_company,
     get_user_by_id,
     create_user,
     update_user,
-    delete_user,
+    delete_user
+)
+
+from utils.db.roles_db import (
     assign_user_role,
     get_user_roles
 )

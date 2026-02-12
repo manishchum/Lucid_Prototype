@@ -22,7 +22,7 @@ from gpt_video_generation.route import router as gpt_video_generation_router
 from generate_infographic.route import router as generate_infographic_router
 from flashcard_generation.route import router as flashcard_generation_router
 from generate_mindmap.route import router as generate_mindmap_router
-from routes import users  # add this line
+from routes import users, roles  # add this line
 
 # Import user routes
 # from routes.users import router as users_router
@@ -56,7 +56,7 @@ async def health_check():
 @app.get("/debug/user/{user_id}")
 async def debug_user(user_id: str):
     """Debug endpoint to check user permissions"""
-    from utils.db_operations import check_user_permission, check_company_access
+    from utils.db.permissions import check_user_permission, check_company_access
     from utils.supabase_client import supabase
     
     # Get user info
@@ -101,6 +101,7 @@ app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-
 # Router Includes are here
 # app.include_router(users_router, prefix="/api/users", tags=["users Router"])
 app.include_router(users.router)  # add this line (place with other app.include_router calls)
+app.include_router(roles.router)  # roles router
 
 if __name__ == "__main__":
     import uvicorn

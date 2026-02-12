@@ -164,22 +164,29 @@ export default function EmployeesPage() {
 
       const { user: userData } = await userRes.json();
 
-      // Then check roles...
-      const { data: roleData, error: roleError } = await supabase
-        .from("user_role_assignments")
-        .select(`role_id, roles!inner(name)`)
-        .eq("user_id", userData.user_id)
-        .eq("is_active", true)
-        .eq("scope_type", "COMPANY");
+      // Get user roles via backend API instead of direct Supabase call
+      const rolesRes = await fetch(`${API_URL}/api/roles/users/${userData.user_id}`, {
+        headers: { 'X-User-ID': userData.user_id }
+      });
 
-      if (roleError || !roleData || roleData.length === 0) {
+      if (!rolesRes.ok) {
+        setError("No active roles found for user");
+        return;
+      }
+
+      const { assignments } = await rolesRes.json();
+
+      if (!assignments || assignments.length === 0) {
         setError("No active roles found for user");
         return;
       }
 
       // Check if user has Admin role
-      const hasAdminRole = roleData.some((assignment: any) => 
-        ['admin', 'super_admin', 'ceo'].includes(assignment.roles?.name?.toLowerCase())
+      const hasAdminRole = assignments.some((assignment: any) => 
+        assignment.role && (
+          assignment.role.level >= 3 ||
+          ['admin', 'super_admin', 'ceo'].includes(assignment.role.name?.toLowerCase())
+        )
       );
 
       if (!hasAdminRole) {
@@ -432,11 +439,22 @@ export default function EmployeesPage() {
         throw new Error(errorData.detail || 'Failed to delete user');
       }
 
-      // Also deactivate user role assignments (keeping this direct call for now as role assignments table not migrated yet)
-      await supabase
-        .from('user_role_assignments')
-        .update({ is_active: false })
-        .eq('user_id', userToDelete.user_id);
+      // Revoke all role assignments via backend API
+      const roleAssignmentsRes = await fetch(`${API_URL}/api/roles/users/${userToDelete.user_id}`, {
+        headers: { 'X-User-ID': currentUserId }
+      });
+
+      if (roleAssignmentsRes.ok) {
+        const { assignments } = await roleAssignmentsRes.json();
+        
+        // Revoke each assignment
+        for (const assignment of assignments) {
+          await fetch(`${API_URL}/api/roles/assignments/${assignment.user_role_assignment_id}`, {
+            method: 'DELETE',
+            headers: { 'X-User-ID': currentUserId }
+          });
+        }
+      }
 
       setSuccess(`User ${userToDelete.name} has been deactivated successfully`);
       setShowDeleteConfirm(false);
@@ -1473,22 +1491,25 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
 
             // If roles are selected, create multiple role assignments
             if (formData.selected_roles.length > 0) {
-              const roleAssignments = formData.selected_roles.map(roleId => ({
-                user_id: userData.user_id,
-                role_id: roleId,
-                scope_type: 'COMPANY',
-                scope_id: companyId,  // Use companyId prop instead of userData.company_id
-                assigned_by: adminId,
-                is_active: true
-              }));
-
-              const { error: roleError } = await supabase
-                .from('user_role_assignments')
-                .insert(roleAssignments);
-
-              if (roleError) {
-                console.error('Role assignment failed:', roleError);
-                // Don't fail the entire operation if role assignment fails
+              for (const roleId of formData.selected_roles) {
+                try {
+                  await fetch(`${API_URL}/api/roles/assignments`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'X-User-ID': adminId
+                    },
+                    body: JSON.stringify({
+                      user_id: userData.user_id,
+                      role_id: roleId,
+                      scope_type: 'COMPANY',
+                      scope_id: companyId,
+                      notes: 'Assigned during user creation'
+                    })
+                  });
+                } catch (err) {
+                  console.error('Role assignment failed for role', roleId, err);
+                }
               }
             }
 
@@ -1914,22 +1935,25 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
 
       // If roles are selected, create multiple role assignments
       if (formData.selected_roles.length > 0) {
-        const roleAssignments = formData.selected_roles.map(roleId => ({
-          user_id: userData.user_id,
-          role_id: roleId,
-          scope_type: 'COMPANY',
-          scope_id: companyId,  // Use companyId prop instead of userData.company_id
-          assigned_by: adminId,
-          is_active: true
-        }));
-
-        const { error: roleError } = await supabase
-          .from('user_role_assignments')
-          .insert(roleAssignments);
-
-        if (roleError) {
-          console.error('Role assignment failed:', roleError);
-          // Don't fail the entire operation if role assignment fails
+        for (const roleId of formData.selected_roles) {
+          try {
+            await fetch(`${API_URL}/api/roles/assignments`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': adminId
+              },
+              body: JSON.stringify({
+                user_id: userData.user_id,
+                role_id: roleId,
+                scope_type: 'COMPANY',
+                scope_id: companyId,
+                notes: 'Assigned during user creation'
+              })
+            });
+          } catch (err) {
+            console.error('Role assignment failed for role', roleId, err);
+          }
         }
       }
 
@@ -2893,18 +2917,20 @@ function UpdateEmployeeModal({
 
   const loadUserRoles = async () => {
     try {
-      const { data: roleAssignments, error } = await supabase
-        .from('user_role_assignments')
-        .select(`
-          role_id,
-          roles!inner(role_id, name)
-        `)
-        .eq('user_id', employee.user_id)
-        .eq('is_active', true);
+      // Get user roles via backend API instead of direct Supabase call
+      const rolesRes = await fetch(`${API_URL}/api/roles/users/${employee.user_id}`, {
+        headers: { 'X-User-ID': adminId }
+      });
 
-      if (error) throw error;
+      if (!rolesRes.ok) {
+        console.error('Failed to load user roles from backend');
+        return;
+      }
 
-      const currentRoleIds = roleAssignments?.map((assignment: any) => assignment.role_id) || [];
+      const rolesPayload = await rolesRes.json();
+      const assignments = rolesPayload.assignments || rolesPayload.data || rolesPayload || [];
+
+      const currentRoleIds = assignments.map((assignment: any) => assignment.role_id).filter(Boolean);
       setFormData(prev => ({
         ...prev,
         selected_roles: currentRoleIds
@@ -3069,35 +3095,50 @@ function UpdateEmployeeModal({
         throw new Error(errorData.detail || 'Failed to update user');
       }
 
-      // Update role assignments
-      // First, deactivate all existing role assignments
-      const { error: deactivateError } = await supabase
-        .from('user_role_assignments')
-        .update({ is_active: false })
-        .eq('user_id', employee.user_id);
+      // Update role assignments via backend API
+      // First, get current role assignments
+      const currentRolesRes = await fetch(`${API_URL}/api/roles/users/${employee.user_id}`, {
+        headers: { 'X-User-ID': adminId }
+      });
 
-      if (deactivateError) {
-        console.error('Failed to deactivate old roles:', deactivateError);
+      if (currentRolesRes.ok) {
+        const currentRolesPayload = await currentRolesRes.json();
+        const currentAssignments = currentRolesPayload.assignments || currentRolesPayload.data || [];
+        
+        // Revoke all existing assignments via DELETE endpoint
+        for (const assignment of currentAssignments) {
+          try {
+            await fetch(`${API_URL}/api/roles/assignments/${assignment.user_role_assignment_id}`, {
+              method: 'DELETE',
+              headers: { 'X-User-ID': adminId }
+            });
+          } catch (err) {
+            console.error('Failed to revoke role assignment:', assignment.user_role_assignment_id, err);
+          }
+        }
       }
 
       // Then create new role assignments for selected roles
       if (formData.selected_roles.length > 0) {
-        const roleAssignments = formData.selected_roles.map(roleId => ({
-          user_id: employee.user_id,
-          role_id: roleId,
-          scope_type: 'COMPANY',
-          scope_id: employee.company_id,
-          assigned_by: adminId,
-          is_active: true
-        }));
-
-        const { error: roleError } = await supabase
-          .from('user_role_assignments')
-          .insert(roleAssignments);
-
-        if (roleError) {
-          console.error('Role assignment failed:', roleError);
-          // Don't fail the entire operation if role assignment fails
+        for (const roleId of formData.selected_roles) {
+          try {
+            await fetch(`${API_URL}/api/roles/assignments`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': adminId
+              },
+              body: JSON.stringify({
+                user_id: employee.user_id,
+                role_id: roleId,
+                scope_type: 'COMPANY',
+                scope_id: employee.company_id,
+                notes: 'Updated role assignment'
+              })
+            });
+          } catch (err) {
+            console.error('Role assignment failed for role', roleId, err);
+          }
         }
       }
 

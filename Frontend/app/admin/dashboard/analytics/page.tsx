@@ -1633,27 +1633,35 @@ export default function AnalyticsPage() {
         return;
       }
       
-      const { data: roleData, error: roleError } = await supabase
-        .from("user_role_assignments")
-        .select(`
-          role_id,
-          roles!inner(name)
-        `)
-        .eq("user_id", userData.user_id)
-        .eq("is_active", true)
-        .eq("scope_type", "COMPANY")
+      // Check if user has admin role through backend API
+      const rolesRes = await fetch(`${API_URL}/api/roles/users/${userData.user_id}`, {
+        headers: {
+          'X-User-ID': userData.user_id
+        }
+      });
 
-      if (roleError || !roleData || roleData.length === 0) {
-        console.error("No active roles found for user:", roleError);
+      if (!rolesRes.ok) {
+        console.error("Failed to fetch user roles");
         return;
       }
 
-      // Check if user has Admin role
-      const hasAdminRole = roleData.some((assignment: any) => 
-        assignment.roles?.name?.toLowerCase() === 'admin' || 
-        assignment.roles?.name?.toLowerCase() === 'super_admin' ||
-        assignment.roles?.name?.toLowerCase() === 'ceo'
-      );
+      const rolesResponseData = await rolesRes.json();
+      const roleData = rolesResponseData.assignments || rolesResponseData;
+
+      if (!roleData || roleData.length === 0) {
+        console.error("No active roles found for user");
+        return;
+      }
+
+      // Check if user has Admin role (level >= 3)
+      const hasAdminRole = roleData.some((assignment: any) => {
+        const roleName = assignment.role?.name?.toLowerCase();
+        const roleLevel = assignment.role?.level;
+        return roleLevel >= 3 || 
+               roleName === 'admin' || 
+               roleName === 'super_admin' ||
+               roleName === 'ceo';
+      });
 
       if (!hasAdminRole) {
         console.error("User does not have admin role");

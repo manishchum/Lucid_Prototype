@@ -846,26 +846,29 @@ export default function UploadsPage() {
       }
 
       // Check if user has admin role through user_role_assignments
-      const { data: roleData, error: roleError } = await supabase
-        .from("user_role_assignments")
-        .select(`
-          role_id,
-          roles!inner(name)
-        `)
-        .eq("user_id", userData.user_id)
-        .eq("is_active", true)
-        .eq("scope_type", "COMPANY")
+      const roleRes = await fetch(`${API_URL}/api/roles/users/${userData.user_id}`, {
+        headers: { 'X-User-ID': userData.user_id }
+      });
 
-      if (roleError || !roleData || roleData.length === 0) {
-        console.error("No active roles found for user:", roleError);
+      if (!roleRes.ok) {
+        console.error("Failed to fetch user roles");
         return;
       }
 
+      const rolesPayload = await roleRes.json();
+      const assignments = rolesPayload.assignments || rolesPayload.data || rolesPayload || [];
+
+      if (!assignments || assignments.length === 0) {
+        console.error("No active role for user.");
+        return;
+      }
       // Check if user has Admin role
-      const hasAdminRole = roleData.some((assignment: any) =>
-        assignment.roles?.name?.toLowerCase() === 'admin' ||
-        assignment.roles?.name?.toLowerCase() === 'super_admin'
-      );
+      const hasAdminRole = assignments.some((assignment: any) => {
+        const roleObj = assignment.role || assignment.roles || assignment;
+        const name = (roleObj?.name || '').toString().toLowerCase();
+        const level = Number(roleObj?.level ?? -1);
+        return level >= 3 || ['admin', 'super-admin', 'ceo'].includes(name);
+    });
 
       if (!hasAdminRole) {
         console.error("User does not have admin role");
