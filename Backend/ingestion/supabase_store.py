@@ -3,6 +3,7 @@ from supabase import create_client
 from typing import List
 import numpy as np
 import os
+import config
 
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -32,7 +33,9 @@ def insert_chunks_to_supabase(
     embeddings: np.ndarray,
     source_file: str,
 ):
+    print("Inserting chunks into Supabase for module_id:", module_id)
     module = fetch_module_details(module_id)
+    print("Fetched module details:", module_id)
 
     rows = []
 
@@ -51,5 +54,6 @@ def insert_chunks_to_supabase(
                 "embedding_model": "bge-large-en-v1.5"
             }
         })
+        print(f"Prepared chunk {idx} for insertion")
 
     supabase.table("vectordb_chunks").insert(rows).execute()

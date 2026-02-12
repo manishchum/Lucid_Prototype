@@ -23,6 +23,7 @@ from flashcard_generation.route import router as flashcard_generation_router
 from generate_mindmap.route import router as generate_mindmap_router
 from roleplay.assessment.route import router as roleplay_assessment_router
 from roleplay.assessment.conversation.route import router as roleplay_conversation_router
+from ingestion.embedder import router as embed_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -64,8 +65,14 @@ app.include_router(flashcard_generation_router, prefix="/api", tags=["flashcard-
 app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindmap"])
 app.include_router(roleplay_assessment_router, prefix="/api", tags=["roleplay-assessment"])
 app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
+app.include_router(embed_router)
 
 if __name__ == "__main__":
     import uvicorn
     from config import HOST, PORT
     uvicorn.run("main:app", host=HOST, port=PORT, reload=True)
+
+
+
+
+

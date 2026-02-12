@@ -68,23 +68,48 @@ def embed_query(text: str) -> np.ndarray:
 # =========================
 # QUERY FAISS
 # =========================
-def query_faiss(index, chunks, query: str, top_k: config.TOP_K):
-    query_embedding = embed_query(query)
+# def query_faiss(index, chunks, query: str, top_k: config.TOP_K):
+#     query_embedding = embed_query(query)
 
-    scores, indices = index.search(query_embedding, top_k)
+#     scores, indices = index.search(query_embedding, top_k)
+
+#     results = []
+#     for rank, idx in enumerate(indices[0]):
+#         if idx == -1:
+#             continue
+
+#         results.append({
+#             "rank": rank + 1,
+#             "score": float(scores[0][rank]),
+#             "text": chunks[idx]
+#         })
+
+#     return results
+def query_supabase(module_id: str, query: str, top_k: int):
+    query_embedding = embed_query(query).tolist()[0]
+
+    response = supabase.rpc(
+        "match_module_chunks",
+        {
+            "query_embedding": query_embedding,
+            "p_module_id": module_id,
+            "match_count": top_k
+        }
+    ).execute()
+
+    if not response.data:
+        return []
 
     results = []
-    for rank, idx in enumerate(indices[0]):
-        if idx == -1:
-            continue
-
+    for rank, row in enumerate(response.data):
         results.append({
             "rank": rank + 1,
-            "score": float(scores[0][rank]),
-            "text": chunks[idx]
+            "score": float(row["similarity"]),
+            "text": row["content"]
         })
 
     return results
+
 
 
 

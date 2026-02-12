@@ -19,7 +19,7 @@ def parse_pdf_rich(pdf_path: str) -> str:
     
     elements = partition(
         filename=pdf_path,
-        extract_images_in_pdf=True,
+        extract_images_in_pdf=False,  #we will work on image RAG later and will directly extract images to supabase
         infer_table_structure=True,
         strategy="hi_res",
         ocr_languages="eng",

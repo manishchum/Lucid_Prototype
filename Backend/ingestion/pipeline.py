@@ -16,14 +16,9 @@ def ingest_pdf_for_rag(pdf_path: str, doc_id: str):
     # 3. Embed
     embeddings = embed_chunks(chunks)
 
-    # 4. Build FAISS
-    # index = create_index()
-    # index.add(embeddings)
-
-    # # 5. Store
-    # save_index(doc_id, index, chunks)
 
     # 4. Store in Supabase
+    print (f"Storing {len(chunks)} chunks in Supabase for doc_id: {doc_id}")
     insert_chunks_to_supabase(
         module_id=doc_id,
         chunks=chunks,
