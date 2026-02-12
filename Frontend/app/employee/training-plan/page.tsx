@@ -16,6 +16,18 @@ import { supabase } from "@/lib/supabase";
 import EmployeeNavigation from "@/components/employee-navigation";
 import { Users, ChevronLeft } from "lucide-react";
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByEmail = async (email: string) => {
+  if(!email) return null;
+  const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+  if (!res.ok) return null;
+  const payload = await res.json();
+  let u = payload?.user || payload;
+  if (Array.isArray(u)) u = u[0];
+  return u || null;
+};
+
 function TrainingPlanContent() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -34,6 +46,7 @@ function TrainingPlanContent() {
   const [moduleBaselineStatus, setModuleBaselineStatus] = useState<Map<string, boolean>>(new Map());
   const [completedModules, setCompletedModules] = useState<string[]>([]);
   const [actualUserId, setActualUserId] = useState<string | null>(null);
+  const [additionalReadings, setAdditionalReadings] = useState<any[] | null>(null);
 
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
 
@@ -46,18 +59,13 @@ function TrainingPlanContent() {
     // console.log("[training-plan] Fetching completed modules for user:", user?.email);
     async function fetchCompletedModules() {
       if (!user?.email) return;
-      console.log('Inside but escaped')
-      // Get employee id
-      const { data: employeeData } = await supabase
-        .from("users")
-        .select("user_id")
-        .eq("email", user.email)
-        .single();
-
-        console.log(employeeData)
+      const employeeData = await fetchUserByEmail(user.email);
+      if(!employeeData?.user_id){
+        setLoading(false);
+        return;
+      }
       userId = employeeData.user_id;
       setActualUserId(employeeData.user_id);
-      if (!employeeData?.user_id) return;
 
       // Get completed modules for employee (match employee/welcome logic)
       const { data: progressData } = await supabase
@@ -189,11 +197,13 @@ function TrainingPlanContent() {
     );
   }
 
-  useEffect(() => {
-    if (!authLoading && user?.email) {
-      fetchPlan();
-    }
-  }, [user, authLoading]);
+   useEffect(() => {
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else fetchPlan();
+          
+        }
+      }, [user, authLoading, router]);
   const moduleId = searchParams.get('module_id');
   const fetchPlan = async () => {
     // console.log("[training-plan] Fetching training plan...");
@@ -205,12 +215,8 @@ function TrainingPlanContent() {
         setLoading(false);
         return;
       }
-      const { data: employeeData, error: employeeError } = await supabase
-        .from("users")
-        .select("user_id, company_id")
-        .eq("email", user.email)
-        .single();
-      if (employeeError || !employeeData?.user_id) {
+      const employeeData = await fetchUserByEmail(user.email);
+      if(!employeeData?.user_id){
         setPlan("Could not find employee record.");
         setLoading(false);
         return;
@@ -316,7 +322,28 @@ function TrainingPlanContent() {
       if (moduleId) {
         requestBody.module_id = moduleId;
         requestBody.processedModuleIds = processedModuleIds;
+
+        // Fetch additional_readings from training_modules for this sprint-level module
+        try {
+          const { data: tmData } = await supabase
+            .from("training_modules")
+            .select("additional_readings")
+            .eq("module_id", moduleId)
+            .single();
+          if (tmData?.additional_readings) {
+            const readings = typeof tmData.additional_readings === "string"
+              ? JSON.parse(tmData.additional_readings)
+              : tmData.additional_readings;
+            setAdditionalReadings(Array.isArray(readings) ? readings : [readings]);
+          } else {
+            setAdditionalReadings(null);
+          }
+        } catch (e) {
+          console.error("[training-plan] Error fetching additional_readings:", e);
+          setAdditionalReadings(null);
+        }
       }
+
       // console.log("[training-plan] Fetching plan with body:", requestBody);
       const res = await fetch(`${API_BASE}/api/training-plan`, {
         method: "POST",
@@ -478,9 +505,7 @@ function TrainingPlanContent() {
           user_id:userId,
           processed_module_id:m,
         },
-        {
-          onConflict:'user_id, processed_module_id'
-        }
+        
       
       )
         // console.log(insertedData);
@@ -871,6 +896,32 @@ function TrainingPlanContent() {
                         );
                       })()}
 
+                      {/* Additional Readings (sprint-level) */}
+                      {additionalReadings && additionalReadings.length > 0 && (
+                        <div className="mt-4 mb-3 px-4 py-3 bg-indigo-50 rounded-xl border border-indigo-200 shadow-sm">
+                          <div className="font-bold text-xl text-indigo-900 mb-2">Additional Resources</div>
+                          <ul className="list-disc list-inside space-y-2 pl-1">
+                            {additionalReadings.map((item: any, idx: number) => {
+                              const url = typeof item === "string" ? item : (item?.url || item?.link || item?.href);
+                              const title = typeof item === "string" ? url : (item?.title || item?.name || item?.label || url);
+                              if (!url) return null;
+                              return (
+                                <li key={idx} className="text-indigo-800 text-sm">
+                                  <a
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="underline hover:text-indigo-600 transition-colors font-medium"
+                                  >
+                                    {title}
+                                  </a>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      )}
+
                       {/* Actions */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <Button
@@ -1003,7 +1054,7 @@ function TrainingPlanContent() {
                 <div className="mt-8 p-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl border border-yellow-200 shadow-lg">
                   <div className="font-bold text-xl mb-4 text-yellow-900 flex items-center gap-2">
                     {/* <span className="text-2xl">🧠</span> */}
-                    Understand How Your Mastery Roadmap Is Crafted
+                    Understand How Your Sprint Is Crafted
                   </div>
                   <div className="text-yellow-800">
                     {renderReasoning(reasoning)}

@@ -11,8 +11,10 @@ import httpx
 import pandas as pd
 from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import JSONResponse
+from ingestion import ingest_from_upload
 
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase
 
 # ✅ Gemini v1 SDK
 from google import genai  # type: ignore
@@ -40,19 +42,19 @@ router = APIRouter()
 # -------------------------
 # Supabase client (same role as "../../../lib/supabase")
 # -------------------------
-supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
+# supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+# supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
 
-print(supabase_url)
-if not supabase_url:
-    print("[openai_upload] ERROR: NEXT_PUBLIC_SUPABASE_URL not set!")
-if not supabase_key:
-    print("[openai_upload] ERROR: Neither SUPABASE_SERVICE_ROLE_KEY nor SUPABASE_ANON_KEY is set!")
-else:
-    key_preview = f"{supabase_key[:20]}...{supabase_key[-10:]}" if len(supabase_key) > 30 else "***"
-    print(f"[openai_upload] Using Supabase key: {key_preview}")
+# print(supabase_url)
+# if not supabase_url:
+#     print("[openai_upload] ERROR: NEXT_PUBLIC_SUPABASE_URL not set!")
+# if not supabase_key:
+#     print("[openai_upload] ERROR: Neither SUPABASE_SERVICE_ROLE_KEY nor SUPABASE_ANON_KEY is set!")
+# else:
+#     key_preview = f"{supabase_key[:20]}...{supabase_key[-10:]}" if len(supabase_key) > 30 else "***"
+#     print(f"[openai_upload] Using Supabase key: {key_preview}")
 
-supabase: Client = create_client(supabase_url, supabase_key)
+# supabase: Client = create_client(supabase_url, supabase_key)
 
 # -------------------------
 # CloudConvert setup
@@ -130,47 +132,152 @@ if not os.getenv("GEMINI_API_KEY"):
 
 gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY") or "")
 
+SOURCE_FACT_INDEX_PROMPT = """
+You are extracting FACTS from a single source document.
 
-INSTRUCTION_PROMPT = """You are an expert instructional designer. Your job is to decompose a learning asset into a clear sequence of self-contained learning modules. CRITICAL RULES:
+Your task:
+- Identify ONLY facts explicitly stated in the document.
+- Facts must be domain-specific and concrete.
+- Do NOT infer, generalize, or teach.
 
-⚠️ STRICTLY FOLLOW THESE RULES:
-1. **ONLY USE SOURCE MATERIAL** - Every module, topic, and objective MUST be derived from the provided content. Do NOT add, infer, or extrapolate information outside the source.
-2. **ACCURATE MODULE TITLES** - Use descriptive titles directly reflecting the source content (e.g., "Introduction to REST API Architecture" not "API Basics").
-3. **EXTRACT TOPICS FROM SOURCE** - List only topics explicitly mentioned or directly implied in the source material.
-4. **GROUND OBJECTIVES IN SOURCE** - Each objective must state what learners will know/do based on content present in the source.
-5. **NO HALLUCINATION** - Do not create, assume, or infer learning outcomes not supported by the source material.
+FACT TYPES TO EXTRACT:
+- Core domain concepts explicitly defined
+- Named frameworks, models, or methods
+- Rules, constraints, or principles
+- Named risks or limitations
+- Explicitly described outcomes or goals
 
-Processing steps (apply exactly):
-1. Identify Overall Learning Goal
-  - State the single end competency learners achieve after completing ALL modules, derived ONLY from source content.
-2. Segment into Themes
-  - Cluster related ideas from the SOURCE into natural, self-contained modules.
-3. Apply One Core Idea Rule
-  - Each module centers on ONE core concept from the source. If a module mixes unrelated source topics, split it.
-4. Apply Module Splitting Checks (for every module)
-  - Time-to-Mastery Rule: If the source topic is complex, split into smaller modules.
-  - Single-Outcome Rule: Split if the source presents multiple distinct learning outcomes.
-  - Cognitive Load Rule: Split if the source introduces >1–3 new concepts at once.
-  - For each module, list which rules triggered a split based on SOURCE ANALYSIS.
-5. Arrange Modules Logically
-  - Order from foundational → intermediate → advanced based on the SOURCE structure.
-  - Provide sequencing rationale based on source material flow.
-6. Validate Module Independence
-  - Ensure each module is self-contained using only source content and delivers one clear learning outcome assessable from the source.
+DO NOT INCLUDE:
+- Analogies
+- Examples not present in the text
+- Organizational theory unless explicitly mentioned
+- Cross-domain interpretations
 
-Output format for each module:
-#### Module [#]: [Accurate Title from Source]
+OUTPUT FORMAT (JSON ONLY):
+
+{
+  "source_facts": [
+    {
+      "id": "F1",
+      "fact": "<verbatim or near-verbatim statement>",
+      "type": "concept | framework | risk | rule | goal"
+    }
+  ]
+}
+
+If something is not clearly stated in the document, do NOT include it.
+"""
+
+INSTRUCTION_PROMPT = """
+You are an expert instructional designer analyzing a SINGLE provided learning asset.
+
+Your task is to decompose the asset into learning modules that are STRICTLY AND EXCLUSIVELY
+grounded in the source content.
+
+Treat extracted text, headings, tables, product names, timelines, numeric limits, and
+regulatory references as authoritative source material.
+
+CRITICAL: You must first extract an internal SOURCE FACT INDEX and then generate
+learning modules using ONLY those facts.
+
+-------------------------------------------------
+STEP 1 — SOURCE FACT INDEX (INTERNAL, NON-OUTPUT)
+-------------------------------------------------
+
+Before creating modules, internally extract a list of facts from the document.
+
+Rules for SOURCE FACT INDEX:
+- Include ONLY facts explicitly stated in the document
+- No inference, no teaching, no cross-domain reasoning
+- No organizational theory unless explicitly present
+- No examples unless present in the document
+
+Fact types allowed:
+- Defined concepts
+- Named frameworks, models, or methods
+- Explicit risks or limitations
+- Explicit goals or outcomes
+- Explicit metrics or constraints
+
+If a fact is not clearly stated in the document, it MUST NOT appear later.
+
+-------------------------------------------------
+NON-NEGOTIABLE GROUNDING RULES
+-------------------------------------------------
+
+1. FACT-LOCK
+- Every module title, topic, and objective MUST map to at least one source fact.
+- If a concept could exist without this document, DO NOT include it.
+
+2. NO CROSS-DOMAIN LEAKAGE
+- Do NOT introduce organizational theory, productivity models, security metrics,
+  system design concepts, or management frameworks unless explicitly named
+  in the document.
+
+3. NO GENERIC KNOWLEDGE
+- Do NOT “educate beyond the document” by adding external frameworks.
+- Elaboration is allowed ONLY to clarify document facts.
+
+4. VERBATIM ANCHORING
+- Reuse document terminology exactly (framework names, prompt patterns, risks).
+- Do not rename or abstract them.
+
+5. COMPANY CONTEXT ENFORCEMENT (CRITICAL)
+
+If the source document explicitly names:
+- a company,
+- brand,
+- organization,
+- founders,
+- locations,
+- mission statements,
+- strategic positioning,
+- product portfolios tied to the organization,
+- products
+
+THEN:
+
+- The company name MUST appear explicitly in module titles, topics, or explanatory text where relevant.
+- Use direct, natural phrasing such as:
+  “At <Company Name>…”
+  “For sales representatives at <Company Name>…”
+  “<Company Name>’s mission emphasizes…”
+
+- Do NOT anonymize, generalize, or abstract company identity.
+- This is a company onboarding asset, not a generic industry guide.
+
+If the document is company-specific, the learning modules MUST be company-specific.
+
+-------------------------------------------------
+PROCESSING STEPS
+-------------------------------------------------
+1. Identify ONE overall learning goal using document language.
+2. Segment modules strictly along document sections.
+3. Each module must cover ONE dominant document idea.
+4. Preserve document order.
+
+-------------------------------------------------
+OUTPUT FORMAT (MARKDOWN ONLY)
+-------------------------------------------------
+
+#### Module [#]: [Source-anchored title]
+
 **Topics:**
-- [topic explicitly in source]
-- [topic explicitly in source]
+- Topic using exact or near-exact source terminology
+- Topic using exact or near-exact source terminology
 
 **Objectives:**
-- Learners will [action] [concept from source]
-- Learners will [action] [concept from source]
+- Learners will [action] [specific concept, product, rule, or process from source]
+- Learners will [action] [specific concept, product, rule, or process from source]
 
-⚠️ IF SOURCE IS INCOMPLETE: List clarifying questions about missing context (e.g., target proficiency, compliance requirements) but DO NOT INVENT CONTENT.
-⚠️ NEVER EXTRAPOLATE: Strictly bind all content to source material. Gaps in source = gaps in modules, not invention.
-Respond ONLY in MARKDOWN format with NO additional commentary and always return a module related to the provided content.
+-------------------------------------------------
+SOURCE GAP HANDLING
+-------------------------------------------------
+If the source does NOT explicitly define something:
+- List a clarifying question
+- Do NOT invent or generalize
+
+Respond ONLY in Markdown.
 """
 
 
@@ -213,12 +320,18 @@ async def processAndStoreResults(moduleId: str, message: str):
         if modulesStart:
             modulesSection = modulesSection[modulesStart.start():]
 
-        cutoffRegex = re.search(r"(Module Splitting Checks|Sequencing Rationale|Module Independence|Additional Clarifying Questions)", modulesSection, re.I)
+        # Enhanced cutoff to handle various footer sections that aren't modules
+        cutoffRegex = re.search(
+            r"(Module Splitting Checks|Sequencing Rationale|Module Independence|Additional Clarifying Questions|Clarifying Questions|###\s*Sequencing|###\s*Clarifying|\*\*Module Splitting Checks)", 
+            modulesSection, 
+            re.I
+        )
         if cutoffRegex:
             modulesSection = modulesSection[:cutoffRegex.start()]
 
+        # Updated regex to handle both ### and #### module headers
         moduleRegex = re.compile(
-            r"(####\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*|$))",
+            r"(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*)([\s\S]*?)(?=(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*|$))",
             re.I
         )
 
@@ -230,8 +343,9 @@ async def processAndStoreResults(moduleId: str, message: str):
             })
 
         if len(moduleMatches) == 0:
+            # Fallback regex also handles both ### and #### formats
             fallbackRegex = re.compile(
-                r"(####\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|$))",
+                r"(#{3,4}\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|$))",
                 re.I
             )
             for m in fallbackRegex.finditer(message):
@@ -304,12 +418,14 @@ async def processAndStoreResults(moduleId: str, message: str):
 
             print(f"[processAndStoreResults] Final counts for module {i + 1}: topics={len(topics)}, objectives={len(objectives)}")
             
-            if topics or objectives:  # Only add module if it has content
+            # Stricter validation: require BOTH topics AND objectives
+            if topics and objectives and len(topics) >= 1 and len(objectives) >= 1:
                 ai_modules.append({"title": title, "topics": topics, "objectives": objectives})
                 ai_topics.extend(topics)
                 ai_objectives.extend(objectives)
             else:
-                print(f"[processAndStoreResults] WARNING: Module {i + 1} ({title}) has no topics or objectives, skipping")
+                print(f"[processAndStoreResults] ⚠️ WARNING: Module {i + 1} ({title}) rejected - topics={len(topics)}, objectives={len(objectives)}")
+                print(f"[processAndStoreResults] Module content preview: {block[:200]}...")
         
         print(f"[processAndStoreResults] Total accumulated: {len(ai_modules)} modules, {len(ai_topics)} topics, {len(ai_objectives)} objectives")
 
@@ -515,12 +631,27 @@ async def handleFileUpload(req: Request):
                         if len(row_values) > 0:
                             extractedText += f"Row {idx + 1}: {' | '.join(row_values)}\n"
 
+
+        
+
             try:
                 os.unlink(tempFilePath)
             except Exception:
                 pass
 
             return await processTextContent(extractedText, moduleId)
+        
+        documents_dir = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "storage","documents"
+        )
+        
+        documents_dir = os.path.abspath(documents_dir)
+        os.makedirs(documents_dir, exist_ok=True)
+        final_pdf_path = os.path.join(documents_dir, f"{moduleId}.pdf")
+        shutil.copyfile(tempFilePath, final_pdf_path)
+        print(f"Copied file to {final_pdf_path} for RAG ingestion.")
 
         # ------------------------------------------------------------------
         # ✅ GEMINI FILE UPLOAD + PROCESSING (replaces OpenAI Assistants)

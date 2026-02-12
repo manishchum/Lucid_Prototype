@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
@@ -19,6 +19,21 @@ interface EmployeeNavigationProps {
   user?: any;
   onLogout?: () => void;
 }
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByEmail = async (email: string | undefined | null) => {
+  if (!email) return null;
+  const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+  if (!res.ok) {
+    console.error('[employee-navigation] Failed to fetch user by email:', res.status, await res.text().catch(()=>''));
+    return null;
+  }
+  const payload = await res.json();
+  let u = payload?.user ?? payload;
+  if (Array.isArray(u)) u = u[0];
+  return u || null;
+};
 
 const EmployeeNavigation = ({ 
   user: providedUser,
@@ -64,11 +79,10 @@ const EmployeeNavigation = ({
     if (!providedUser && authUser?.email) {
       const fetchEmployee = async () => {
         try {
-          const { data: employeeData } = await supabase
-            .from("users").select("*").eq("email", authUser.email).single();
-          
+          const employeeData = await fetchUserByEmail(authUser.email);
           if (employeeData) {
             setEmployee(employeeData);
+            // fetch role assignments (keeps using supabase for role assignments)
             const { data: roleData } = await supabase
               .from("user_role_assignments")
               .select(`roles!inner(name)`)
@@ -298,6 +312,7 @@ const EmployeeNavigation = ({
                         { href: "/admin/dashboard/analytics", label: "Analytics", icon: BarChart3 },
                         { href: "/admin/dashboard/employees", label: "Employees", icon: Users },
                         { href: "/admin/dashboard/uploads", label: "Uploads", icon: Upload },
+                        { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
                     ].map((item) => (
                         <button
                             key={item.label}

@@ -142,7 +142,7 @@ Provide response in plain text. DO NOT include any HTML or markdown formatting. 
 
     // Call Gemini API
     const result = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-2.5-flash-lite',
       contents: prompt,
     });
     const assistantMessage = result.text;

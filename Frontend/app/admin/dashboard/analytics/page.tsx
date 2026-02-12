@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { BarChart3, TrendingUp, CheckCircle, User, BookOpen, AlertCircle, Target, Brain, FileText, Clock, Award } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -23,6 +24,7 @@ import {
   LineElement,
 } from 'chart.js';
 import { Bar, Pie, Doughnut, Line } from 'react-chartjs-2';
+import { useRouter } from "next/navigation";
 
 // Register ChartJS components
 ChartJS.register(
@@ -37,8 +39,43 @@ ChartJS.register(
   LineElement
 );
 
-// Enhanced Progress Analytics Component with real database schema and charts
-function ProgressAnalytics({ companyId }: { companyId: string }) {
+interface Admin {
+  user_id: string;
+  email: string;
+  name: string | null;
+  company_id: string;
+}
+
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+// helper: fetch users for a company via backend (do not query users table from frontend)
+const fetchCompanyUsers = async (companyId: string, adminUserId?: string) => {
+  try {
+    const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+      headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
+    });
+    if (!res.ok) return [];
+    const payload = await res.json();
+    const users = payload?.users ?? payload;
+    return Array.isArray(users) ? users : users ? [users] : [];
+  } catch (e) {
+    console.error('[fetchCompanyUsers] error', e);
+    return [];
+  }
+};
+
+const loadModules = async (companyId: string) => {
+  const { data: moduleData } = await supabase
+    .from('training_modules')
+    .select('module_id, title, processing_status, created_at')
+    .eq('company_id', companyId)
+    .order('title');
+  
+  return moduleData || [];
+};
+
+// Update ProgressAnalytics to accept adminUserId so it can call backend safely
+function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, adminUserId?: string }) {
   const [progressData, setProgressData] = useState<any[]>([]);
   const [moduleStats, setModuleStats] = useState<any[]>([]);
   const [assessmentStats, setAssessmentStats] = useState<any[]>([]);
@@ -98,117 +135,110 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
     }
   };
 
-  const loadModules = async () => {
-    const { data: moduleData } = await supabase
-      .from('training_modules')
-      .select('module_id, title, processing_status, created_at')
-      .eq('company_id', companyId)
-      .order('title');
-    
-    setModules(moduleData || []);
-  };
-
   const loadLearningPlanData = async () => {
-    let query = supabase
-      .from('learning_plan')
-      .select(`
-        learning_plan_id,
-        status,
-        assigned_on,
-        started_at,
-        completed_at,
-        due_date,
-        baseline_assessment,
-        module_id,
-        user_id,
-        users!inner(user_id, name, email, department_id, employment_status),
-        training_modules!inner(title, module_id, processing_status)
-      `)
-      .eq('users.company_id', companyId);
+    try {
+      // Fetch company users via backend and build userId list
+      const companyUsers = await fetchCompanyUsers(companyId, adminUserId);
+      const companyUserIds = (companyUsers || []).map((u: any) => u.user_id).filter(Boolean);
+      if (companyUserIds.length === 0) {
+        setProgressData([]);
+        setModules([]);
+        return;
+      }
 
-    // Apply module filter
-    if (selectedModule !== 'all') {
-      query = query.eq('module_id', selectedModule);
-    }
+      // Query learning_plan for users in this company
+      let query = supabase
+        .from('learning_plan')
+        .select(`
+          learning_plan_id,
+          status,
+          assigned_on,
+          started_at,
+          completed_at,
+          due_date,
+          baseline_assessment,
+          module_id,
+          user_id,
+          training_modules!inner(title, module_id, processing_status)
+        `)
+        .in('user_id', companyUserIds);
 
-    // Apply time range filter
-    if (selectedTimeRange !== 'all') {
-      const daysAgo = new Date();
-      daysAgo.setDate(daysAgo.getDate() - parseInt(selectedTimeRange));
-      query = query.gte('assigned_on', daysAgo.toISOString());
-    }
+      // Apply module filter
+      if (selectedModule !== 'all') {
+        query = query.eq('module_id', selectedModule);
+      }
 
-    const { data: progressResults, error } = await query.order('assigned_on', { ascending: false });
+      // Apply time range filter
+      if (selectedTimeRange !== 'all') {
+        const daysAgo = new Date();
+        daysAgo.setDate(daysAgo.getDate() - parseInt(selectedTimeRange));
+        query = query.gte('assigned_on', daysAgo.toISOString());
+      }
 
-    if (error) throw error;
+      const { data: progressResults, error } = await query.order('assigned_on', { ascending: false });
 
-    // Enrich learning plan data with module_progress info to get actual completion status
-    let enrichedResults = progressResults || [];
-    
-    if (enrichedResults.length > 0) {
-      // Get all processed modules for these training modules to find module_id -> processed_module_id mapping
-      const moduleIds = [...new Set(enrichedResults.map(r => r.module_id))];
-      
-      const { data: processedModulesData } = await supabase
-        .from('processed_modules')
-        .select('processed_module_id, original_module_id')
-        .in('original_module_id', moduleIds);
+      if (error) throw error;
 
-      // Create mapping from original_module_id to processed_module_ids
-      const moduleIdToProcessedIds = new Map();
-      processedModulesData?.forEach(pm => {
-        if (!moduleIdToProcessedIds.has(pm.original_module_id)) {
-          moduleIdToProcessedIds.set(pm.original_module_id, []);
-        }
-        moduleIdToProcessedIds.get(pm.original_module_id).push(pm.processed_module_id);
-      });
+      let enrichedResults = progressResults || [];
 
-      // Get all module progress data for these users and processed modules
-      const allProcessedModuleIds = Array.from(moduleIdToProcessedIds.values()).flat();
-      
-      const { data: moduleProgressData } = await supabase
-        .from('module_progress')
-        .select('user_id, processed_module_id, completed_at')
-        .in('processed_module_id', allProcessedModuleIds);
+      if (enrichedResults.length > 0) {
+        // Get original module ids and processed modules as before
+        const moduleIds = [...new Set(enrichedResults.map(r => r.module_id))];
 
-      // Create a map for quick lookup of module progress by user and processed module
-      const progressMap = new Map();
-      moduleProgressData?.forEach(mp => {
-        const key = `${mp.user_id}-${mp.processed_module_id}`;
-        progressMap.set(key, mp);
-      });
+        const { data: processedModulesData } = await supabase
+          .from('processed_modules')
+          .select('processed_module_id, original_module_id')
+          .in('original_module_id', moduleIds);
 
-      // Enrich learning plan records with actual module progress
-      enrichedResults = enrichedResults.map(record => {
-        const processedModuleIds = moduleIdToProcessedIds.get(record.module_id) || [];
-        
-        // Check if any processed module items have been completed
-        const completedProcessedModules = processedModuleIds.filter(pmId => {
-          const key = `${record.user_id}-${pmId}`;
-          return progressMap.has(key);
+        const moduleIdToProcessedIds = new Map();
+        processedModulesData?.forEach(pm => {
+          if (!moduleIdToProcessedIds.has(pm.original_module_id)) {
+            moduleIdToProcessedIds.set(pm.original_module_id, []);
+          }
+          moduleIdToProcessedIds.get(pm.original_module_id).push(pm.processed_module_id);
         });
 
-        // Determine status based on completed processed modules
-        let calculatedStatus = 'ASSIGNED';
-        if (completedProcessedModules.length > 0) {
-          if (completedProcessedModules.length === processedModuleIds.length) {
-            calculatedStatus = 'COMPLETED';
-          } else {
-            calculatedStatus = 'IN_PROGRESS';
-          }
-        }
-        
-        return {
-          ...record,
-          status: calculatedStatus,
-          completedItems: completedProcessedModules.length,
-          totalItems: processedModuleIds.length
-        };
-      });
-    }
+        const allProcessedModuleIds = Array.from(moduleIdToProcessedIds.values()).flat();
 
-    setProgressData(enrichedResults);
-    calculateModuleStatistics(enrichedResults);
+        const { data: moduleProgressData } = await supabase
+          .from('module_progress')
+          .select('user_id, processed_module_id, completed_at')
+          .in('processed_module_id', allProcessedModuleIds);
+
+        const progressMap = new Map();
+        moduleProgressData?.forEach(mp => {
+          const key = `${mp.user_id}-${mp.processed_module_id}`;
+          progressMap.set(key, mp);
+        });
+
+        // Merge user info from companyUsers (avoid direct users table calls)
+        const userMap = new Map((companyUsers || []).map((u: any) => [u.user_id, u]));
+
+        enrichedResults = enrichedResults.map(record => {
+          const processedModuleIds = moduleIdToProcessedIds.get(record.module_id) || [];
+          const completedProcessedModules = processedModuleIds.filter(pmId => {
+            const key = `${record.user_id}-${pmId}`;
+            return progressMap.has(key);
+          });
+
+          const user = userMap.get(record.user_id) || { name: 'Unknown', email: '', department_id: null };
+
+          return {
+            ...record,
+            users: user,
+            status: (completedProcessedModules.length === 0) ? 'ASSIGNED' :
+                    (completedProcessedModules.length === processedModuleIds.length) ? 'COMPLETED' : 'IN_PROGRESS',
+            completedItems: completedProcessedModules.length,
+            totalItems: processedModuleIds.length
+          };
+        });
+      }
+
+      setProgressData(enrichedResults);
+      calculateModuleStatistics(enrichedResults);
+    } catch (err) {
+      console.error('loadLearningPlanData error', err);
+    }
   };
 
   const loadAssessmentData = async () => {
@@ -262,7 +292,6 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
 
   const loadLearningStyleData = async () => {
     try {
-      // First get all learning styles
       const { data: learningStyleResults, error: styleError } = await supabase
         .from('employee_learning_style')
         .select('*');
@@ -272,24 +301,14 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
         return;
       }
 
-      // Then get users for this company
-      const { data: companyUsers, error: userError } = await supabase
-        .from('users')
-        .select('user_id, name, email, company_id, department_id')
-        .eq('company_id', companyId);
+      // Get users for this company via backend
+      const companyUsers = await fetchCompanyUsers(companyId, adminUserId);
 
-      if (userError) {
-        console.error('Error fetching users:', userError);
-        return;
-      }
+      const userIds = new Set((companyUsers || []).map(u => u.user_id));
+      const filteredResults = (learningStyleResults || []).filter((ls: any) => userIds.has(ls.user_id));
 
-      // Filter learning styles by company users
-      const userIds = new Set(companyUsers?.map(u => u.user_id) || []);
-      const filteredResults = learningStyleResults?.filter(ls => userIds.has(ls.user_id)) || [];
-
-      // Merge user data
-      const mergedResults = filteredResults.map(ls => {
-        const user = companyUsers?.find(u => u.user_id === ls.user_id);
+      const mergedResults = filteredResults.map((ls: any) => {
+        const user = (companyUsers || []).find((u: any) => u.user_id === ls.user_id);
         return {
           ...ls,
           users: user || { name: 'Unknown', email: '', company_id: companyId, department_id: null }
@@ -330,74 +349,74 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
   };
 
   const loadOverallStatistics = async () => {
-    // Get total employees
-    const { data: employeeData } = await supabase
-      .from('users')
-      .select('user_id, employment_status')
-      .eq('company_id', companyId);
+    try {
+      // Get company users via backend
+      const companyUsers = await fetchCompanyUsers(companyId, adminUserId);
+      const totalEmployees = companyUsers.length;
+      const activeEmployees = companyUsers.filter(emp => emp.employment_status === 'ACTIVE').length;
 
-    const totalEmployees = employeeData?.length || 0;
-    const activeEmployees = employeeData?.filter(emp => emp.employment_status === 'ACTIVE').length || 0;
+      // Other stats remain the same (modules, assessments, kpIs, learning style counts)
+      const { data: moduleData } = await supabase
+        .from('training_modules')
+        .select('module_id')
+        .eq('company_id', companyId);
 
-    // Get total modules
-    const { data: moduleData } = await supabase
-      .from('training_modules')
-      .select('module_id')
-      .eq('company_id', companyId);
+      const totalModules = moduleData?.length || 0;
 
-    const totalModules = moduleData?.length || 0;
+      const { data: assessmentData } = await supabase
+        .from('employee_assessments')
+        .select(`
+          score,
+          max_score,
+          users!inner(company_id)
+        `)
+        .eq('users.company_id', companyId);
 
-    // Get assessment completion data
-    const { data: assessmentData } = await supabase
-      .from('employee_assessments')
-      .select(`
-        score,
-        max_score,
-        users!inner(company_id)
-      `)
-      .eq('users.company_id', companyId);
+      const totalAssessments = assessmentData?.length || 0;
+      const completedAssessments = assessmentData?.filter(assessment => assessment.score !== null).length || 0;
+      const averageAssessmentScore = assessmentData && assessmentData.length > 0
+        ? Math.round(assessmentData
+            .filter(assessment => assessment.score !== null && assessment.max_score > 0)
+            .reduce((sum: number, assessment: any) => sum + (assessment.score / assessment.max_score * 100), 0) /
+              assessmentData.filter((assessment: any) => assessment.score !== null && assessment.max_score > 0).length)
+        : 0;
 
-    const totalAssessments = assessmentData?.length || 0;
-    const completedAssessments = assessmentData?.filter(assessment => assessment.score !== null).length || 0;
-    const averageAssessmentScore = assessmentData && assessmentData.length > 0
-      ? Math.round(assessmentData
-          .filter(assessment => assessment.score !== null && assessment.max_score > 0)
-          .reduce((sum, assessment) => sum + (assessment.score / assessment.max_score * 100), 0) / 
-          assessmentData.filter(assessment => assessment.score !== null && assessment.max_score > 0).length)
-      : 0;
+      const { data: kpiData } = await supabase
+        .from('employee_kpi')
+        .select('score')
+        .eq('company_id', companyId);
 
-    // Get KPI average score
-    const { data: kpiData } = await supabase
-      .from('employee_kpi')
-      .select('score')
-      .eq('company_id', companyId);
+      const averageKpiScore = kpiData && kpiData.length > 0
+        ? Math.round(kpiData.reduce((sum: number, kpi: any) => sum + Number(kpi.score), 0) / kpiData.length)
+        : 0;
 
-    const averageKpiScore = kpiData && kpiData.length > 0
-      ? Math.round(kpiData.reduce((sum, kpi) => sum + Number(kpi.score), 0) / kpiData.length)
-      : 0;
+      const { data: learningStyleData } = await supabase
+        .from('employee_learning_style')
+        .select(`
+          user_id
+        `);
 
-    // Get learning style completion count
-    const { data: learningStyleData } = await supabase
-      .from('employee_learning_style')
-      .select(`
-        user_id,
-        users!inner(company_id)
-      `)
-      .eq('users.company_id', companyId);
+      const learningStylesCompleted = (learningStyleData || []).filter((ls: any) => userIdsHas(companyUsers, ls.user_id)).length;
 
-    const learningStylesCompleted = learningStyleData?.length || 0;
+      setOverallStats(prevStats => ({
+        ...prevStats,
+        totalEmployees,
+        activeEmployees,
+        totalModules,
+        totalAssessments,
+        completedAssessments,
+        averageAssessmentScore,
+        averageKpiScore,
+        learningStylesCompleted
+      }));
+    } catch (error) {
+      console.error('Failed to load overall statistics:', error);
+    }
+  };
 
-    setOverallStats(prevStats => ({
-      ...prevStats,
-      totalEmployees,
-      activeEmployees,
-      totalModules,
-      totalAssessments,
-      completedAssessments,
-      averageAssessmentScore,
-      averageKpiScore,
-      learningStylesCompleted
-    }));
+  // helper to check if a user_id exists in company users
+  const userIdsHas = (companyUsers: any[], userId: string) => {
+    return companyUsers.some((u: any) => u.user_id === userId);
   };
 
   const calculateModuleStatistics = (data: any[]) => {
@@ -496,7 +515,7 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
 
       if (item.score !== null && item.max_score > 0) {
         stats.completed++;
-        const scorePercent = (item.score / item.max_score) * 100;
+        const scorePercent = (item.score /item.max_score) * 100;
         stats.scores.push(scorePercent);
       }
     });
@@ -1580,34 +1599,43 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
 }
 
 export default function AnalyticsPage() {
-  const { user } = useAuth();
-  const [admin, setAdmin] = useState<Admin | null>(null);
+  const router = useRouter();
+  const { user,loading:authLoading } = useAuth();
+  const [admin, setAdmin] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (user?.email) {
-      checkAdminAccess();
-    }
-  }, [user]);
+   useEffect(() => {
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else checkAdminAccess();
+          
+        }
+      }, [user, authLoading, router]);
 
   const checkAdminAccess = async () => {
     if (!user?.email) return;
 
     try {
-      // Get user data from users table
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("user_id, email, name, company_id")
-        .eq("email", user.email)
-        .eq("is_active", true)
-        .single();
+      // Get user data from users table via backend API
+      const userRes = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
 
-      if (userError || !userData) {
-        console.error("User not found or inactive:", userError);
+      if (!userRes.ok) {
+        console.error("User not found or inactive:");
         return;
       }
 
       // Check if user has admin role through user_role_assignments
+      const responseData = await userRes.json();
+      
+      // Handle both wrapped and unwrapped responses
+      const userData = responseData.user || responseData;
+      
+      // Validate response
+      if (!userData || !userData.user_id) {
+        console.error("Invalid user data returned from backend:", responseData);
+        return;
+      }
+      
       const { data: roleData, error: roleError } = await supabase
         .from("user_role_assignments")
         .select(`
@@ -1626,7 +1654,8 @@ export default function AnalyticsPage() {
       // Check if user has Admin role
       const hasAdminRole = roleData.some((assignment: any) => 
         assignment.roles?.name?.toLowerCase() === 'admin' || 
-        assignment.roles?.name?.toLowerCase() === 'super_admin'
+        assignment.roles?.name?.toLowerCase() === 'super_admin' ||
+        assignment.roles?.name?.toLowerCase() === 'ceo'
       );
 
       if (!hasAdminRole) {
@@ -1674,7 +1703,7 @@ export default function AnalyticsPage() {
         <p className="text-gray-600 mt-1">Track employee progress across all training modules with detailed insights and performance metrics</p>
       </div>
       
-      <ProgressAnalytics companyId={admin.company_id} />
+      <ProgressAnalytics companyId={admin.company_id} adminUserId={admin?.user_id} />
     </div>
   );
 }

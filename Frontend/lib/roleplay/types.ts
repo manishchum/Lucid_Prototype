@@ -5,7 +5,7 @@ export interface EvaluationParameter {
 }
 
 export interface Scenario {
-  id: string;
+  scenario_id: string;
   title: string;
   description: string;
   initialPrompt: string;
@@ -21,6 +21,7 @@ export interface Scenario {
   endConditions?: string;
   evaluationParams?: EvaluationParameter[];
   passingScore?: number;
+  isCustom?: boolean; // Flag to indicate if this is a custom scenario from DB
 }
 
 export interface AssessmentParameter {

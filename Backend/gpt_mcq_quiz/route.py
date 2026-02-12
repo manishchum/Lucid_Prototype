@@ -6,7 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase
 
 import google.generativeai as genai
 
@@ -14,15 +15,15 @@ import google.generativeai as genai
 router = APIRouter()
 
 # Equivalent of: import { supabase } from '@/lib/supabase';
-supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
-supabaseKey = (
-    os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-    or os.getenv("SUPABASE_ANON_KEY")
-    or ""
-)
+# supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
+# supabaseKey = (
+#     os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+#     or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+#     or os.getenv("SUPABASE_ANON_KEY")
+#     or ""
+# )
 
-supabase: Client = create_client(supabaseUrl, supabaseKey)
+# supabase: Client = create_client(supabaseUrl, supabaseKey)
 
 # Verify GEMINI_API_KEY is loaded
 if not os.getenv("GEMINI_API_KEY"):
@@ -187,14 +188,19 @@ async def POST(request: Request):
 
     # Per-module quiz branch: supports BOTH keys exactly like TS
     explicitModuleId = (
-        body.get("moduleIds")
-        or body.get("moduleId")
+        body.get("moduleId")
         or body.get("processed_module_id")
         or body.get("module_id")
         or None
     )
-    singleFromArray = str(body["moduleIds"][0]) if isinstance(body.get("moduleIds"), list) and len(body.get("moduleIds")) == 1 else None
-    moduleId = str(explicitModuleId) if explicitModuleId else singleFromArray
+    
+    # Handle moduleIds array - extract first element if it's a list
+    if not explicitModuleId and body.get("moduleIds"):
+        moduleIds = body.get("moduleIds")
+        if isinstance(moduleIds, list) and len(moduleIds) > 0:
+            explicitModuleId = moduleIds[0]
+    
+    moduleId = str(explicitModuleId) if explicitModuleId else None
 
     if moduleId and (not isBaselineRequest):
         if (not moduleId) or moduleId == "undefined" or moduleId == "null":
@@ -274,7 +280,7 @@ async def POST(request: Request):
                 tmRes = (
                     supabase
                     .table("training_modules")
-                    .select("module_id, title, gpt_summary, content")
+                    .select("module_id, title, gpt_summary")
                     .eq("module_id", moduleId)
                     .single()
                     .execute()
@@ -295,7 +301,7 @@ async def POST(request: Request):
                     .insert({
                         "original_module_id": str(moduleId),
                         "title": trainingModule.get("title"),
-                        "content": trainingModule.get("gpt_summary") or trainingModule.get("content"),
+                        "content": trainingModule.get("gpt_summary") or "",
                         "learning_style": learningStyle,
                     }, returning="representation")
                     .execute()

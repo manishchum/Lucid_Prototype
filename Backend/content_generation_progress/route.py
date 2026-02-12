@@ -1,20 +1,20 @@
 import os
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from supabase import create_client, Client
+from utils.supabase_client import supabase
 
 
 router = APIRouter()
 
-# Supabase init (same behavior as "@/lib/supabase")
-supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
-supabaseKey = (
-    os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-    or os.getenv("SUPABASE_ANON_KEY")
-    or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    or ""
-)
-supabase: Client = create_client(supabaseUrl, supabaseKey)
+# # Supabase init (same behavior as "@/lib/supabase")
+# supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
+# supabaseKey = (
+#     os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+#     or os.getenv("SUPABASE_ANON_KEY")
+#     or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+#     or ""
+# )
+# supabase: Client = create_client(supabaseUrl, supabaseKey)
 
 
 @router.get("/processing-status")
