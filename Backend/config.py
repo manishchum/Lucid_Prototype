@@ -28,3 +28,6 @@ CLOUDCONVERT_API_KEY = os.getenv("CLOUDCONVERT_API_KEY")
 # Internal API configuration
 INTERNAL_API_BASE_URL = os.getenv("INTERNAL_API_BASE_URL")
 
+EMBEDDING_MODEL_NAME = "BAAI/bge-large-en-v1.5"
+DEVICE = "cuda" if os.getenv("USE_CUDA", "false").lower() == "true" else "cpu"
+TOP_K = 5
