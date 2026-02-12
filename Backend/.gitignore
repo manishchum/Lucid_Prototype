@@ -28,3 +28,4 @@ htmlcov/
 *.log
 
 /storage
+/ingestion/figures
