@@ -27,6 +27,15 @@ interface Company {
   name: string;
 }
 
+interface Admin {
+  user_id: string;
+  email: string;
+  name: string | null;
+  company_id: string;
+}
+
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+
 export default function AccountPage() {
   const { user, loading: authLoading } = useAuth();
   const [employee, setEmployee] = useState<Employee | null>(null);

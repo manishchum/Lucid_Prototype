@@ -6,21 +6,22 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase
 import google.generativeai as genai
 
 
 router = APIRouter()
 
 # Supabase client (same role as '@/lib/supabase')
-supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
-supabaseKey = (
-    os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-    or os.getenv("SUPABASE_ANON_KEY")
-    or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    or ""
-)
-supabase: Client = create_client(supabaseUrl, supabaseKey)
+# supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
+# supabaseKey = (
+#     os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+#     or os.getenv("SUPABASE_ANON_KEY")
+#     or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+#     or ""
+# )
+# supabase: Client = create_client(supabaseUrl, supabaseKey)
 
 # Gemini init
 genAI = genai  # keep same naming intent

@@ -16,6 +16,22 @@ import jsPDF from 'jspdf';
 import VoiceInput from '@/components/VoiceInput';
 import VoiceOutput from '@/components/VoiceOutput';
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByEmail = async (email: string) => {
+  try{
+    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if(!res.ok) return null;
+    const payload = await res.json();
+    let u = payload?.user ?? payload;
+    if (Array.isArray(u)) u = u[0];
+    return u || null;
+  } catch (e) {
+    console.error("Error fetching user by email:", e);
+    return null;
+  }
+};
+
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
   const [lastUserInputWasVoice, setLastUserInputWasVoice] = useState(false);
   const { user, loading: authLoading, logout } = useAuth()
@@ -48,28 +64,22 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       let empObj = null;
       let style = null;
       try {
-        const { data: userData } = await supabase.auth.getUser();
-        const employeeEmail = userData?.user?.email || null;
-        if (user?.email) {
-          const { data: emp } = await supabase
-            .from('users')
-            .select('user_id')
-            .eq('email', user?.email)
-            .maybeSingle();
-          if (emp?.user_id) {
+        if(user?.email) {
+          const emp = await fetchUserByEmail(user.email);
+          if (emp?.user_id){
             empObj = emp;
             setEmployee(emp);
             const { data: styleData } = await supabase
-              .from('employee_learning_style')
-              .select('learning_style')
-              .eq('user_id', emp.user_id)
-              .maybeSingle();
-            if (styleData?.learning_style) {
-              style = styleData.learning_style;
-              setLearningStyle(style);
-            }
+            .from("employee_learning_style")
+            .select("learning_style")
+            .eq("user_id", emp.user_id)
+            .maybeSingle();
+          if (styleData?.learning_style) {
+            style = styleData.learning_style;
+            setLearningStyle(style);
           }
         }
+      }
       } catch (e) {
         console.error('[module] employee fetch error', e);
       }
@@ -2346,7 +2356,7 @@ function sanitizeHTML(html: string): string {
 
 // Add GenerateAudioButton component
 
-const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+// const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 function GenerateAudioButton({ moduleId, onAudioGenerated, language = 'en' }: { moduleId: string, onAudioGenerated: (url: string, data?: { transcript?: string; timeline?: any; language?: 'en' | 'hinglish' }) => void, language?: 'en' | 'hinglish' }) {
   const [loading, setLoading] = useState(false);

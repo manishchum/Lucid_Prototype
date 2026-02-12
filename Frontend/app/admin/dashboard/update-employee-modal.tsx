@@ -41,6 +41,8 @@ interface UpdateEmployeeModalProps {
   onSuccess: () => void;
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
 const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
   isOpen,
   onClose,
@@ -149,21 +151,19 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
   // Check if email already exists (excluding current employee)
   const checkEmailExists = async (email: string): Promise<boolean> => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('user_id')
-        .eq('email', email.toLowerCase())
-        .neq('user_id', employee.user_id) // Exclude current employee
-        .single();
-      
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows returned"
-        console.error('Error checking email:', error);
+      const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+      if (res.status === 404) return false;
+      if (!res.ok) {
+        console.error('Failed to check email existence:', await res.text().catch(() => res.statusText));
         return false;
       }
-      
-      return !!data; // Returns true if email exists
+      const payload = await res.json();
+      let found = payload?.user ?? payload;
+      if (Array.isArray(found)) found = found[0];
+      if (!found) return false;
+      return String(found.user_id) !== String(employee.user_id);
     } catch (error) {
-      console.error('Error checking email:', error);
+      console.error('Failed to check email existence:', error);
       return false;
     }
   };
@@ -280,21 +280,32 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
     }
 
     try {
-      // Update user in users table
-      const { error: userError } = await supabase
-        .from('users')
-        .update({
+      const updateRes = await fetch(`${API_BASE}/api/users/${encodeURIComponent(employee.user_id)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
           name: formData.name,
-          email: formData.email.toLowerCase(),
+          email: formData.email.toLocaleLowerCase(),
           department_id: formData.department_id || null,
-          position: formData.position || null,
-          phone: formData.phone || null,
+          position: formData.phone || null,
+          phone: formData.position || null,
           employment_status: formData.employment_status
         })
-        .eq('user_id', employee.user_id);
+      });
 
-      if (userError) throw userError;
-
+      if (!updateRes.ok) {
+        const txt = await updateRes.text().catch(() => '');
+        const status = updateRes.status;
+        const msg = txt || updateRes.statusText || 'Failed to update user';
+        if (status === 409 || (msg && msg.toLowerCase().includes('email'))) {
+          setFieldErrors(prev => ({ ...prev, email: 'An employee with this email already exists' }));
+          throw new Error('Email already exists');
+        }
+        throw new Error(msg);
+      }
+      
       // Handle role assignment changes
       const currentRoleSet = new Set(currentRoleAssignments);
       const newRoleSet = new Set(formData.selected_roles);

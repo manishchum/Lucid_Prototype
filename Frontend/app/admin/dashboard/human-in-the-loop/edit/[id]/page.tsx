@@ -38,6 +38,23 @@ interface ContentHistory {
   created_at: string;
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByEmail = async (email: string | null) => {
+  if(!email) return null;
+  try{
+    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if (!res.ok) return null;
+    const payload = await res.json();
+    let u = payload?.user ?? payload;
+    if (Array.isArray(u)) u = u[0];
+    return u || null;
+  } catch(e) {
+    console.error("Error fetching user by email:", e);
+    return null;
+  }
+};
+
 export default function EditModulePage() {
   const params = useParams();
   const router = useRouter();
@@ -161,13 +178,13 @@ export default function EditModulePage() {
   const getCurrentUser = async () => {
     try {
       if (!user?.email) return;
-      const { data: userData, error } = await supabase
-        .from('users')
-        .select('user_id')
-        .eq('email', user.email)
-        .single();
-      if (error) throw error;
-      if (userData) setCurrentUserId(userData.user_id);
+
+      const emp = await fetchUserByEmail(user.email);
+      if (emp &&  emp.user_id) {
+        setCurrentUserId(emp.user_id);
+      } else {
+        console.warn("Current user not found in database:", user.email);
+      }
     } catch (error) {
       console.error('Error fetching current user:', error);
     }

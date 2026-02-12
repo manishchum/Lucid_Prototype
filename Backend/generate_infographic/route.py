@@ -5,7 +5,8 @@ from typing import Dict, Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase
 
 import google.generativeai as genai
 
@@ -29,10 +30,10 @@ model = genai.GenerativeModel("gemini-2.5-flash-lite")
 # SUPABASE INIT (same as TS import)
 # --------------------------------------------------------------------------
 
-supabase: Client = create_client(
-    os.environ["NEXT_PUBLIC_SUPABASE_URL"],
-    os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-)
+# supabase: Client = create_client(
+#     os.environ["NEXT_PUBLIC_SUPABASE_URL"],
+#     os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+# )
 
 # --------------------------------------------------------------------------
 # TYPES (Python equivalent)
