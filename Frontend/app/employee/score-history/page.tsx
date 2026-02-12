@@ -259,20 +259,22 @@ export default function ScoreHistoryPage() {
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   const router = useRouter();
 
-  useEffect(() => {
-    if (!authLoading && user?.email) {
-      fetchEmployeeAndHistory(user.email);
-    }
-  }, [user, authLoading]);
+   useEffect(() => {
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else fetchEmployeeAndHistory();
+          
+        }
+      }, [user, authLoading, router]);
 
-  const fetchEmployeeAndHistory = async (email: string) => {
+  const fetchEmployeeAndHistory = async () => {
     setLoading(true);
     try {
       // First, get employee data including name and company_id
       const { data: employeeData } = await supabase
         .from("users")
         .select("user_id, name, company_id")
-        .eq("email", email)
+        .eq("email", user?.email)
         .single();
       
       if (!employeeData?.user_id) {

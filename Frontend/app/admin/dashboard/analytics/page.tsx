@@ -23,6 +23,7 @@ import {
   LineElement,
 } from 'chart.js';
 import { Bar, Pie, Doughnut, Line } from 'react-chartjs-2';
+import { useRouter } from "next/navigation";
 
 // Register ChartJS components
 ChartJS.register(
@@ -1580,15 +1581,18 @@ function ProgressAnalytics({ companyId }: { companyId: string }) {
 }
 
 export default function AnalyticsPage() {
-  const { user } = useAuth();
-  const [admin, setAdmin] = useState<Admin | null>(null);
+  const router = useRouter();
+  const { user,loading:authLoading } = useAuth();
+  const [admin, setAdmin] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (user?.email) {
-      checkAdminAccess();
-    }
-  }, [user]);
+   useEffect(() => {
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else checkAdminAccess();
+          
+        }
+      }, [user, authLoading, router]);
 
   const checkAdminAccess = async () => {
     if (!user?.email) return;

@@ -173,12 +173,14 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       }
       setLoading(false);
     };
-    if (!moduleId) return;
-    if (authLoading) return;     // wait for auth
-  if (!user) return;
+         if (!authLoading) {
+           if (!user) router.push("/login");
+           else fetchModule();
+           
+         }
 
     
-  fetchModule();
+  // fetchModule();
   }, [moduleId,user,authLoading]);
 
   const handleSendChat = async (e: FormEvent<HTMLFormElement>, overrideInput?: string) => {

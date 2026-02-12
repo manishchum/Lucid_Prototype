@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download } from "lucide-react";
 import { formatContentType } from '@/lib/contentType';
+import { useRouter } from "next/navigation";
 
 interface Admin {
   user_id: string
@@ -808,15 +809,18 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 }
 
 export default function UploadsPage() {
-  const { user } = useAuth();
+  const { user,loading:authLoading } = useAuth();
+  const router = useRouter();
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user?.email) {
-      checkAdminAccess();
-    }
-  }, [user]);
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else checkAdminAccess();
+          
+        }
+      }, [user, authLoading, router]);
 
   const checkAdminAccess = async () => {
     if (!user?.email) return;

@@ -190,11 +190,13 @@ function TrainingPlanContent() {
     );
   }
 
-  useEffect(() => {
-    if (!authLoading && user?.email) {
-      fetchPlan();
-    }
-  }, [user, authLoading]);
+   useEffect(() => {
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else fetchPlan();
+          
+        }
+      }, [user, authLoading, router]);
   const moduleId = searchParams.get('module_id');
   const fetchPlan = async () => {
     // console.log("[training-plan] Fetching training plan...");
