@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   title: "Lucid Learning Platform",
   description: "AI-powered learning and development platform",
   icons: {
-    icon: "/logo.svg",
+    icon: "/images/icons/logo.svg",
   },
 };
 
