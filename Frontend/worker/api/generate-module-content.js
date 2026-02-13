@@ -15,7 +15,7 @@ console.log("Fetched supabase key succesfully", Boolean(SUPABASE_KEY))
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 console.log("Supabase client created successfully")
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || 'AIzaSyAo-ttMVlJ-CgkqPhbYG7z6neT350pdAQU' });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 // Configs 
 const TEMPERATURE = 0.2;
@@ -108,7 +108,7 @@ async function generateModuleContent({ moduleId = null } = {}) {
             
 
             async function generateEmbedding(text) {
-              const response = await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_URL}`, { text });
+              const response = await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_URL}/embed-query`, { text });
               return response.data.embedding;
             }
             const queryEmbedding = await generateEmbedding(semanticQuery);
