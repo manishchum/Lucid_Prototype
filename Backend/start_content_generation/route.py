@@ -3,6 +3,7 @@ import os
 from utils.supabase_client import supabase
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from ingestion.ingest_from_upload import ingest_by_module_id
 
 router = APIRouter()
 
@@ -92,6 +93,17 @@ async def POST(req: Request):
             requery_data = getattr(requery_resp, "data", None)
             if isinstance(requery_data, list) and len(requery_data) > 0:
                 inserted = requery_data[0]
+
+        try:
+            print("inside try")
+            
+            print("imported ingest_by_module_id")
+            
+            ingest_by_module_id (module_id)
+            
+             
+        except Exception as ingest_error:
+            print("Error during ingestion ") 
 
         return JSONResponse(content={
             "started": True,
