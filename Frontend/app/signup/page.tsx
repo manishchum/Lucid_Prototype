@@ -13,6 +13,9 @@ import { Brain, ArrowLeft, Eye, EyeOff } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import bcrypt from "bcryptjs"
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+
 export default function SignupPage() {
   const [formData, setFormData] = useState({
     companyName: "",
@@ -73,6 +76,7 @@ export default function SignupPage() {
     if (!valid) {
       const msg = validationMessage || "Please fill the required fields"
       setError(msg)
+      
 
       // send a non-blocking log about the validation failure so we capture attempts
       try {
@@ -132,16 +136,14 @@ export default function SignupPage() {
       }
 
       // Check if user already exists
-      const { data: existingUser } = await supabase
-        .from("users")
-        .select("email")
-        .eq("email", formData.email)
-        .maybeSingle()
-
-      if (existingUser) {
-        setError("User with this email already exists")
+      const cheskRes = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(formData.email)}`)
+      if (cheskRes.ok) {
+        setError("An account with this email already exists. Please login instead.")
         setLoading(false)
         return
+      } else if (cheskRes.status !== 404 && cheskRes.status !== 422) {
+        const txt = await cheskRes.text().catch(() => "")
+        throw new Error(`Error checking existing user: ${cheskRes.status} ${txt}`)
       }
 
       // Hash the password
@@ -149,23 +151,29 @@ export default function SignupPage() {
       const hashedPassword = await bcrypt.hash(formData.password, saltRounds)
 
       // Insert user into database with company_id
-      const { data: newUser, error: insertError } = await supabase
-        .from("users")
-        .insert({
+      const createRes = await fetch(`${API_BASE}/api/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           company_id: companyData.company_id,
           name: formData.name,
           email: formData.email,
           password: hashedPassword,
-          phone: formData.phoneNumber,
-          created_at: new Date().toISOString(),
-          hire_date:new Date().toISOString(),
+          phone_number: formData.phoneNumber,
+          hire_date: new Date().toISOString(),
           is_active: true
         })
-        .select()
-        .single()
+      })
 
-      if (insertError) {
-        throw new Error(insertError.message)
+      if (!createRes.ok) {
+        const errText = await createRes.text().catch(() => "")
+        throw new Error(`Failed to create account: ${createRes.status} ${errText}`)
+      }
+
+      const createPayload = await createRes.json().catch(() => null)
+      const newUser = (createPayload && (createPayload.user || createPayload)) || null
+      if (!newUser || !newUser.user_id) {
+        throw new Error("User created but response is missing user_id")
       }
 
       // Get the USER role ID from roles table
@@ -184,20 +192,27 @@ export default function SignupPage() {
       }
 
       // Assign USER role to the new user
-      const { error: roleAssignmentError } = await supabase
-        .from("user_role_assignments")
-        .insert({
+      const assignRes = await fetch(`${API_BASE}/api/roles/assignments`,{
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json", 
+          "X-User-Id": newUser.user_id
+        },
+        body: JSON.stringify({
           user_id: newUser.user_id,
           role_id: roleData.role_id,
           scope_type: "COMPANY",
-          assigned_by: newUser.user_id,
           scope_id: companyData.company_id,
+          assigned_by: newUser.user_id,
           assigned_at: new Date().toISOString(),
-          is_active: true
+          is_active: true,
+          notes: "Assigned during signup"
         })
+      })
 
-      if (roleAssignmentError) {
-        throw new Error("Error assigning role: " + roleAssignmentError.message)
+      if (!assignRes.ok) {
+        const errText = await assignRes.text().catch(() => "")
+        throw new Error(`Failed to assign USER role: ${assignRes.status} ${errText}`)
       }
 
       setSuccess("Account created successfully! You can now login.")

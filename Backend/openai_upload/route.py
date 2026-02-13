@@ -11,8 +11,10 @@ import httpx
 import pandas as pd
 from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import JSONResponse
+from ingestion import ingest_from_upload
 
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase
 
 # ✅ Gemini v1 SDK
 from google import genai  # type: ignore
@@ -40,19 +42,19 @@ router = APIRouter()
 # -------------------------
 # Supabase client (same role as "../../../lib/supabase")
 # -------------------------
-supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
+# supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+# supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
 
-print(supabase_url)
-if not supabase_url:
-    print("[openai_upload] ERROR: NEXT_PUBLIC_SUPABASE_URL not set!")
-if not supabase_key:
-    print("[openai_upload] ERROR: Neither SUPABASE_SERVICE_ROLE_KEY nor SUPABASE_ANON_KEY is set!")
-else:
-    key_preview = f"{supabase_key[:20]}...{supabase_key[-10:]}" if len(supabase_key) > 30 else "***"
-    print(f"[openai_upload] Using Supabase key: {key_preview}")
+# print(supabase_url)
+# if not supabase_url:
+#     print("[openai_upload] ERROR: NEXT_PUBLIC_SUPABASE_URL not set!")
+# if not supabase_key:
+#     print("[openai_upload] ERROR: Neither SUPABASE_SERVICE_ROLE_KEY nor SUPABASE_ANON_KEY is set!")
+# else:
+#     key_preview = f"{supabase_key[:20]}...{supabase_key[-10:]}" if len(supabase_key) > 30 else "***"
+#     print(f"[openai_upload] Using Supabase key: {key_preview}")
 
-supabase: Client = create_client(supabase_url, supabase_key)
+# supabase: Client = create_client(supabase_url, supabase_key)
 
 # -------------------------
 # CloudConvert setup
@@ -629,12 +631,27 @@ async def handleFileUpload(req: Request):
                         if len(row_values) > 0:
                             extractedText += f"Row {idx + 1}: {' | '.join(row_values)}\n"
 
+
+        
+
             try:
                 os.unlink(tempFilePath)
             except Exception:
                 pass
 
             return await processTextContent(extractedText, moduleId)
+        
+        documents_dir = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "storage","documents"
+        )
+        
+        documents_dir = os.path.abspath(documents_dir)
+        os.makedirs(documents_dir, exist_ok=True)
+        final_pdf_path = os.path.join(documents_dir, f"{moduleId}.pdf")
+        shutil.copyfile(tempFilePath, final_pdf_path)
+        print(f"Copied file to {final_pdf_path} for RAG ingestion.")
 
         # ------------------------------------------------------------------
         # ✅ GEMINI FILE UPLOAD + PROCESSING (replaces OpenAI Assistants)

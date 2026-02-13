@@ -22,12 +22,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // console.log('[module-progress] Recording progress:', { 
-    //   user_id, 
-    //   processed_module_id, 
-    //   quiz_score, 
-    //   max_score 
-    // })
+    console.log('[module-progress] Recording progress:', { 
+      user_id, 
+      processed_module_id, 
+      quiz_score, 
+      max_score,
+      module_id
+    })
 
     // Check if progress record already exists
     console.log(processed_module_id)
@@ -65,6 +66,23 @@ export async function POST(request: NextRequest) {
         })
       }
       console.log("Inside the if")
+      
+      // Fetch module_id from processed_modules if not provided
+      let actualModuleId = module_id
+      if (!actualModuleId) {
+        const { data: processedModule, error: pmError } = await supabase
+          .from('processed_modules')
+          .select('module_id')
+          .eq('processed_module_id', processed_module_id)
+          .single()
+        
+        if (pmError) {
+          console.error('[module-progress] Error fetching module_id from processed_modules:', pmError)
+        } else {
+          actualModuleId = processedModule?.module_id
+        }
+      }
+      
       // Update existing progress with quiz/completion data
       const updateData: any = {}
       if (quiz_score !== undefined) updateData.quiz_score = progressData.quiz_score
@@ -74,19 +92,27 @@ export async function POST(request: NextRequest) {
       const {data:threshold} = await supabase
       .from('training_modules')
       .select('threshold_value')
-      .eq('module_id',module_id)
+      .eq('module_id', actualModuleId)
       
+      console.log("Module Id is :", actualModuleId)
       console.log("Update Data:", updateData)
       console.log("Threshold Value:", threshold)
       console.log("Max Score:", max_score)
       console.log("User Score:", quiz_score)
       console.log("existingProgress:", existingProgress)
-      console.log("Module ID:", module_id)
+      console.log("Module ID:", actualModuleId)
       console.log("Processed Module ID:", processed_module_id)
 
-      if(quiz_score/max_score * 100 >= threshold[0].threshold_value){
-        updateData.pass_status = true
+      // Check if user passed the quiz based on threshold
+      if (quiz_score !== null && max_score && threshold && threshold.length > 0 && threshold[0].threshold_value) {
+        const scorePercentage = (quiz_score / max_score) * 100
+        if (scorePercentage >= threshold[0].threshold_value) {
+          updateData.pass_status = true
+        } else {
+          updateData.pass_status = false
+        }
       }
+      
       updateData.completed_at = new Date().toISOString()
 
       const { data, error } = await supabase

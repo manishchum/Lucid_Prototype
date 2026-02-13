@@ -40,19 +40,29 @@ const AssessmentContent = () => {
 
   const router = useRouter();
 
+
+  const fetchUserByEmail = async (email: string | undefined | null) => {
+    if (!email) return null;
+    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if (!res.ok){
+      const txt = await res.text().catch(() => "No response body");
+      throw new Error(`Failed to fetch user by email: ${res.status} ${txt}`);
+    }
+    const data = await res.json();
+    let user = data?.user ?? data;
+    if (Array.isArray(user)) user = user[0];
+    return user || null;
+  };
+
   useEffect(() => {
     const fetchModules = async () => {
       setLoading(true);
       setError("");
       try {
-        // Get employee's company_id first
+        // Get employee's company_id first via backend API
         let companyId: string | null = null;
         if (user?.email) {
-          const { data: empData } = await supabase
-            .from("users")
-            .select("company_id, user_id")
-            .eq("email", user.email)
-            .maybeSingle();
+          const empData = await fetchUserByEmail(user.email);
           companyId = empData?.company_id || null;
           setUserId(empData?.user_id || null);
         }
@@ -83,19 +93,24 @@ const AssessmentContent = () => {
       setLoading(true);
       setError("");
       try {
-        // Get employee's company_id and id
+        // Get employee's company_id and id via backend API
         let companyId: string | null = null;
         let employeeId: string | null = null;
         if (user?.email) {
-          const { data: empData } = await supabase
-            .from("users")
-            .select("user_id, company_id")
-            .eq("email", user.email)
-            .maybeSingle();
+          const empData = await fetchUserByEmail(user.email);
           companyId = empData?.company_id || null;
           employeeId = empData?.user_id || null;
         }
         if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
+        
+        // Fetch user's learning style
+        let learningStyle: string | null = null;
+        const { data: learningStyleData } = await supabase
+          .from('employee_learning_style')
+          .select('learning_style')
+          .eq('user_id', employeeId)
+          .maybeSingle();
+        learningStyle = learningStyleData?.learning_style || 'default';
         
         // If a moduleId query param is present, request a per-module quiz.
         const urlModuleId = searchParams.get('moduleId');
@@ -111,7 +126,7 @@ const AssessmentContent = () => {
             .eq('module_id', urlModuleId)
             .single()
 
-          isBaselineRequest = Boolean(learningPlan && learningPlan.baseline_assessment === 1);
+          isBaselineRequest = Boolean(learningPlan && learningPlan.baseline_assessment === true);
           // console.log(isBaselineRequest)
           // console.log")
             // console.log("Inside the if statement for per-module quiz request.");
@@ -123,6 +138,7 @@ const AssessmentContent = () => {
               moduleIds: [urlModuleId],
               companyId:companyId, 
               user_id: employeeId,
+              learningStyle: learningStyle,
               isBaseline: isBaselineRequest,
               assessmentType: isBaselineRequest ? 'baseline' : 'module'
             }),
@@ -136,6 +152,8 @@ const AssessmentContent = () => {
             body: JSON.stringify({ 
               moduleIds: modules.map(m => m.module_id), 
               companyId,
+              user_id: employeeId,
+              learningStyle: learningStyle,
               isBaseline: true,
               assessmentType: 'baseline'
             }),
@@ -241,14 +259,10 @@ const AssessmentContent = () => {
     setScore(result.score);
     setLoading(true);
     try {
-      // 1. Fetch employee UUID from users table using user.email
+      // 1. Fetch employee UUID via backend API
       let employeeId: string | null = null;
       if (user?.email) {
-        const { data: empData, error: empError } = await supabase
-          .from("users")
-          .select("user_id")
-          .eq("email", user.email)
-          .maybeSingle();
+        const empData = await fetchUserByEmail(user.email);
         if (empData?.user_id) {
           employeeId = empData.user_id;
         } else {

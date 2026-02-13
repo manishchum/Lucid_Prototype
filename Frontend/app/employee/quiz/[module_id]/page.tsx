@@ -10,8 +10,23 @@ import EmployeeNavigation from "@/components/employee-navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
+const fetchUserByEmail = async (email: string) => {
+  if(!email) return null;
+  try {
+    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if (!res.ok) return null;
+    const payload = await res.json();
+    let u = payload?.user ?? payload;
+    if (Array.isArray(u)) u = u[0];
+    return u || null;
+  } catch (e) {
+    console.error("Error fetching user by email:", e);
+    return null;
+  }
+};
+
 export default function ModuleQuizPage({ params }: { params: { module_id: string } }) {
-  let originalModuleId :any = null;
+  const [originalModuleId, setOriginalModuleId] = useState<string>(params.module_id);
 
   const { user, loading: authLoading } = useAuth();
   
@@ -66,13 +81,9 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     let employeeName: string | null = null;
     if (!authLoading && user?.email) {
       try {
-        const { data: emp } = await supabase
-          .from('users')
-          .select('user_id')
-          .eq('email', user.email)
-          .single();
+        const emp = await fetchUserByEmail(user.email);
         employeeId = emp?.user_id || null;
-  employeeName = (user as any)?.displayName || user.email || null;
+        employeeName = (user as any)?.displayName || user.email || null;
       } catch (err) {
         // console.log('[QUIZ] Error fetching employee record:', err);
       }
@@ -113,6 +124,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           body: JSON.stringify({
             user_id: employeeId,
             processed_module_id: resolvedModuleId || moduleId,
+            module_id: originalModuleId,
             quiz_score: typeof result.score === 'number' ? result.score : null,
             max_score: typeof result.maxScore === 'number' ? result.maxScore : quiz.length,
             quiz_feedback: feedbackText,
@@ -213,7 +225,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
 
         if (moduleData) {
           if (moduleData.title) setModuleName(moduleData.title);
-          if(moduleData.original_module_id) originalModuleId = moduleData.original_module_id;
+          if(moduleData.original_module_id) setOriginalModuleId(String(moduleData.original_module_id));
           if (moduleData.processed_module_id) setResolvedModuleId(String(moduleData.processed_module_id));
           console.log('Value of originalModuleId:', originalModuleId);
         }
@@ -226,16 +238,11 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         // console.log("Inside the quiz tab")
         // console.log(user.email)
         try {
-          const { data: emp } = await supabase
-            .from('users')
-            .select('user_id,company_id')
-            .eq('email', user.email)
-            .single();
-            userId = emp?.user_id || null;
-            companyId = emp?.company_id || null;
-            // console.log(userId)
+          const emp = await fetchUserByEmail(user.email);
+          userId = emp?.user_id || null;
+          companyId = emp?.company_id || null;
           if (emp?.user_id) {
-            const { data: styleData } = await supabase
+            const {data: styleData} = await supabase
               .from('employee_learning_style')
               .select('learning_style')
               .eq('user_id', emp.user_id)

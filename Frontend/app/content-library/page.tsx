@@ -5,9 +5,25 @@ import ContentLibrary from '@/components/content-library/ContentLibrary';
 import EmployeeNavigation from '@/components/employee-navigation';
 import EmployeeLayout from '@/components/employee-layout';
 import { useAuth } from '@/contexts/auth-context';
-import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 export const dynamic = "force-dynamic";
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByEmail = async (email: string | undefined | null) => {
+  if (!email) return null;
+  try{
+  const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+  if (!res.ok) return null;
+  const payload = await res.json();
+  let u = payload?.user ?? payload;
+  if (Array.isArray(u)) u = u[0];
+  return u || null;
+  } catch (e) {
+    console.error("Error fetching user by email:", e);
+    return null;
+  }
+};
 
 export default function ContentLibraryPage() {
   const { user, loading } = useAuth();
@@ -23,29 +39,22 @@ export default function ContentLibraryPage() {
       }
 
       try {
-        const { data: employeeData, error } = await supabase
-          .from('users')
-          .select('user_id')
-          .eq('email', user.email)
-          .single();
-
-        if (error || !employeeData) {
+        const employeeData = await fetchUserByEmail(user.email);
+        if (!employeeData.user_id) {
           setRoles([]);
           setChecking(false);
           return;
         }
 
-        const { data: roleData, error: roleError } = await supabase
-          .from('user_role_assignments')
-          .select('roles!inner(name)')
-          .eq('user_id', employeeData.user_id)
-          .eq('is_active', true);
+        const res = await fetch(`${API_BASE}/api/roles/users/${employeeData.user_id}`, {
+          headers: { 'X-User-ID': employeeData.user_id.toString() }
+        });
 
-        if (roleError) {
+        if (!res.ok) {
           setRoles([]);
         } else {
-          // @ts-ignore
-          const r = (roleData || []).map((a: any) => a.roles?.name).filter(Boolean);
+          const roleData = await res.json();
+          const r = (roleData || []).map((a: any) => a.role_name).filter(Boolean);
           setRoles(r);
         }
       } catch (e) {
