@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import EmployeeNavigation from '@/components/employee-navigation';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/auth-context';
+import { useRouter } from 'next/navigation';
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -67,6 +69,9 @@ interface KPIMapping {
 }
 
 export default function WorkforceOverview() {
+  const {user, loading: authLoading} = useAuth();
+
+  const router = useRouter();
   const [functions, setFunctions] = useState<Array<{ function_id: string; function_name: string }>>([]);
   const [subFunctions, setSubFunctions] = useState<Array<{ sub_function_id: string; sub_function_name: string }>>([]);
   const [titles, setTitles] = useState<Array<{ title_id: string; title_name: string }>>([]);
@@ -81,8 +86,12 @@ export default function WorkforceOverview() {
   const [kpiMappings, setKpiMappings] = useState<KPIMapping[]>([]);
 
   useEffect(() => {
-    loadFilters();
-  }, []);
+          if (!authLoading) {
+            if (!user) router.push("/login");
+            else loadFilters();
+            
+          }
+        }, [user, authLoading, router]);
 
   useEffect(() => {
     if (selectedFunctionId) {

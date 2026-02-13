@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import EmployeeNavigation from '@/components/employee-navigation';
 import { supabase } from '@/lib/supabase';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/auth-context';
 
 interface KPIData {
   id: string;
@@ -105,7 +107,9 @@ export default function KPITurbocharge() {
   const [selectedTitleId, setSelectedTitleId] = useState<string>('');
   const [selectedModuleId, setSelectedModuleId] = useState<string>('');
   const [selectedKpiId, setSelectedKpiId] = useState<string>('');
-  
+  const {user, loading:authLoading} = useAuth();
+  const router = useRouter();
+
   const [loading, setLoading] = useState(true);
   const [kpiData, setKpiData] = useState<KPIData[]>([]);
   const [topModules, setTopModules] = useState<ModulePerformance[]>([]);
@@ -118,6 +122,13 @@ export default function KPITurbocharge() {
   const [lucidAnalysis, setLucidAnalysis] = useState<string>('');
   const [workforceReadiness, setWorkforceReadiness] = useState({ score: 0, change: 0, status: 'Calculating...' });
 
+  useEffect(() => {
+          if (!authLoading) {
+            if (!user) router.push("/login");
+            // else checkAdminAccess();
+            
+          }
+        }, [user, authLoading, router]);
   useEffect(() => {
     loadFilters();
 

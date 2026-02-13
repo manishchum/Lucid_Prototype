@@ -52,6 +52,14 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading || generatingContent);
   const [voiceLoopActive, setVoiceLoopActive] = useState(false);
   const [autoStartMic, setAutoStartMic] = useState(false);
+
+  useEffect(() => {
+          if (!authLoading) {
+            if (!user) router.push("/login");
+            // else checkAdminAccess();
+            
+          }
+        }, [user, authLoading, router]);
   useEffect(() => {
     const fetchModule = async () => {
       setLoading(true);
