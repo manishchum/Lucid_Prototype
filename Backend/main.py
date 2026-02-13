@@ -22,12 +22,13 @@ from gpt_video_generation.route import router as gpt_video_generation_router
 from generate_infographic.route import router as generate_infographic_router
 from flashcard_generation.route import router as flashcard_generation_router
 from generate_mindmap.route import router as generate_mindmap_router
-from routes import users  # add this line
+from routes import users, roles  # add this line
 
 # Import user routes
 # from routes.users import router as users_router
 from roleplay.assessment.route import router as roleplay_assessment_router
 from roleplay.assessment.conversation.route import router as roleplay_conversation_router
+from ingestion.embedder import router as embed_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -56,7 +57,7 @@ async def health_check():
 @app.get("/debug/user/{user_id}")
 async def debug_user(user_id: str):
     """Debug endpoint to check user permissions"""
-    from utils.db_operations import check_user_permission, check_company_access
+    from utils.db.permissions import check_user_permission, check_company_access
     from utils.supabase_client import supabase
     
     # Get user info
@@ -93,16 +94,20 @@ app.include_router(flashcard_generation_router, prefix="/api", tags=["flashcard-
 app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindmap"])
 app.include_router(roleplay_assessment_router, prefix="/api", tags=["roleplay-assessment"])
 app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
-
-
-
+app.include_router(embed_router)
 
 
 # Router Includes are here
 # app.include_router(users_router, prefix="/api/users", tags=["users Router"])
 app.include_router(users.router)  # add this line (place with other app.include_router calls)
+app.include_router(roles.router)  # roles router
 
 if __name__ == "__main__":
     import uvicorn
     from config import HOST, PORT
     uvicorn.run("main:app", host=HOST, port=PORT, reload=True)
+
+
+
+
+

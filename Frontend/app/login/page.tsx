@@ -64,28 +64,6 @@ function LoginContent() {
     } catch (error: any) {
       throw new Error(error.message || "Failed to verify user access.")
     }
-
-    const { data: roleData, error: roleError } = await supabase
-      .from("user_role_assignments")
-      .select(`
-        user_role_assignment_id,
-        roles (
-          name
-        )
-      `)
-      .eq("user_id", userData.user_id)
-
-    if (roleError || !roleData || roleData.length === 0) {
-      throw new Error("Access denied. No roles assigned to this user.")
-    }
-
-    //@ts-ignore
-    const userRoles = roleData.map(assignment => assignment.roles?.name).filter(Boolean)
-
-    return {
-      userId: userData.user_id,
-      roles: userRoles
-    }
   }
 
   const handleEmailPasswordLogin = async (e: React.FormEvent) => {

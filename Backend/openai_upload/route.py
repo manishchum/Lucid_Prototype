@@ -11,6 +11,7 @@ import httpx
 import pandas as pd
 from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import JSONResponse
+from ingestion import ingest_from_upload
 
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
@@ -630,12 +631,27 @@ async def handleFileUpload(req: Request):
                         if len(row_values) > 0:
                             extractedText += f"Row {idx + 1}: {' | '.join(row_values)}\n"
 
+
+        
+
             try:
                 os.unlink(tempFilePath)
             except Exception:
                 pass
 
             return await processTextContent(extractedText, moduleId)
+        
+        documents_dir = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "storage","documents"
+        )
+        
+        documents_dir = os.path.abspath(documents_dir)
+        os.makedirs(documents_dir, exist_ok=True)
+        final_pdf_path = os.path.join(documents_dir, f"{moduleId}.pdf")
+        shutil.copyfile(tempFilePath, final_pdf_path)
+        print(f"Copied file to {final_pdf_path} for RAG ingestion.")
 
         # ------------------------------------------------------------------
         # ✅ GEMINI FILE UPLOAD + PROCESSING (replaces OpenAI Assistants)

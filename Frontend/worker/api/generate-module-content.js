@@ -1,13 +1,26 @@
 // Standalone version of generate-module-content for VM worker
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenAI } = require('@google/genai');
-require('dotenv').config();
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+require('../env').loadWorkerEnv();
+
+const axios = require('axios');
+console.log("Environment variables loaded successfully");
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+console.log("Fetched supabase url succesfully")
+
+console.log("Fetched supabase key succesfully", Boolean(SUPABASE_KEY))
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+console.log("Supabase client created successfully")
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+// Configs 
+const TEMPERATURE = 0.2;
+const TOP_P = 1.0;
+
 
 async function generateModuleContent({ moduleId = null } = {}) {
   // Fetch all processed_modules with empty or placeholder content (optionally scoped by moduleId)
@@ -35,56 +48,117 @@ async function generateModuleContent({ moduleId = null } = {}) {
       // Extract topics, objectives, and summaries from all related training_modules/ai_modules
       let topics = [];
       let objectives = [];
-      let globalObjectives = [];
-      let summaries = [];
+
       if (Array.isArray(mod.training_modules)) {
         for (const tm of mod.training_modules) {
           if (Array.isArray(tm.ai_modules)) {
-            for (const aimod of tm.ai_modules) {
-              if (Array.isArray(aimod.topics)) {
-                topics.push(...aimod.topics);
-              }
-              if (Array.isArray(aimod.objectives)) {
-                objectives.push(...aimod.objectives);
-              }
+            const matched = tm.ai_modules.find(m =>
+              m.title?.trim().toLowerCase() === mod.title?.trim().toLowerCase()
+            );
+            console.log("Processed title:", mod.title);
+            console.log("AI module titles:", tm.ai_modules.map(m => m.title));
+
+
+            if (matched) {
+              topics = Array.isArray(matched.topics) ? matched.topics : [];
+              objectives = Array.isArray(matched.objectives) ? matched.objectives : [];
             }
-          }
-          if (Array.isArray(tm.ai_objectives)) {
-            globalObjectives.push(...tm.ai_objectives);
-          }
-          if (tm.gpt_summary && typeof tm.gpt_summary === 'string') {
-            summaries.push(tm.gpt_summary);
           }
         }
       }
       topics = [...new Set(topics)];
       objectives = [...new Set(objectives)];
-      globalObjectives = [...new Set(globalObjectives)];
-      summaries = [...new Set(summaries)];
-      if (objectives.length === 0 && globalObjectives.length > 0) {
-        objectives = globalObjectives;
-      }
+      // globalObjectives = [...new Set(globalObjectives)];
+      // summaries = [...new Set(summaries)];
+      // if (objectives.length === 0 && globalObjectives.length > 0) {
+      //   objectives = globalObjectives;
+      // }
       const topicsText = topics.length > 0
         ? `Topics for this module:\n${topics.map((topic, idx) => `${idx + 1}. ${topic}`).join('\n')}`
         : '';
       const objectivesText = objectives.length > 0
         ? `Objectives for this module:\n${objectives.map((obj, idx) => `${idx + 1}. ${obj}`).join('\n')}`
         : '';
+
+      
+      
       //const companyContext = summaries.length > 0
       //  ? `\n\n**COMPANY-SPECIFIC CONTEXT (CRITICAL):**\n${summaries.join('\n\n')}`
       //  : '';
 
-            const documentContext =
-                summaries.length > 0
-                    ? `
+            // -------------------------------------
+            // STEP 1: Build semantic query
+            // -------------------------------------
+
+            const semanticQuery = `
+            Module Title:
+            ${mod.title}
+
+            ${topicsText}
+
+            ${objectivesText}
+            `;
+
+            console.log("Module:", mod.title);
+            
+            // -------------------------------------
+            // STEP 2: Generate embedding
+            // -------------------------------------
+
+            
+
+            async function generateEmbedding(text) {
+              const response = await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_URL}`, { text });
+              return response.data.embedding;
+            }
+            const queryEmbedding = await generateEmbedding(semanticQuery);
+
+
+            // -------------------------------------
+            // STEP 3: Fetch Top-K chunks
+            // -------------------------------------
+
+            const { data: matchedChunks, error: matchError } = await supabase.rpc(
+              'match_module_chunks',
+              {
+                query_embedding: queryEmbedding,
+                p_module_id: mod.original_module_id,
+                match_count: 6
+              }
+            );
+            console.log("Matched chunks count:", matchedChunks?.length);
+
+
+            if (matchError) {
+              console.error("Vector search error:", matchError);
+            }
+
+            // -------------------------------------
+            // STEP 4: Build RAG context
+            // -------------------------------------
+
+            const ragContext = (matchedChunks || [])
+              .map((c, idx) => {
+                const importance =
+                  idx === 0
+                    ? "CRITICAL PRIMARY SOURCE"
+                    : `SUPPORTING SOURCE (Rank ${idx + 1})`;
+
+                return `[${importance}]:\n${c.content}`;
+              })
+              .join("\n\n");
+
+            const documentContext = ragContext
+              ? `
             -----------------------------
             SOURCE DOCUMENT CONTEXT (AUTHORITATIVE)
             -----------------------------
-            The following content is extracted from the original uploaded document.
-            All company names, products, missions, dates, regulations, and terminology
-            present here are factual and MUST be reused verbatim when relevant.
+            The following content is retrieved using semantic similarity from the uploaded document.
+            All entities present here are FACTUAL and must be reused verbatim when relevant.
 
-            ${summaries.join("\n\n")}` : '';
+            ${ragContext}
+            `
+              : '';
 
             // Compose prompt for the learning style of this row
             const style = mod.learning_style;
@@ -115,37 +189,37 @@ ${documentContext}
 -----------------------------
 MODULE ISOLATION RULE (CRITICAL)
 -----------------------------
-- This module must be fully self-contained.
-- Do NOT reference other modules, earlier sections, or future modules.
-- Do NOT assume prior learner knowledge beyond what is implied by the topics.
+This module must be fully self-contained.
+Do NOT reference other modules, earlier sections, or future modules.
+Do NOT assume prior learner knowledge beyond what is implied by the topics.
 
 -----------------------------
 CONTENT BOUNDARIES (CRITICAL)
 -----------------------------
 
 ALLOWED:
-- Explain and elaborate on concepts present in the topics
-- Teach beyond the document by adding clarity, depth, and conceptual examples
-- Use neutral, generic scenarios (e.g., “an organization”, “a system”, “a team”)
-- Add analogies, explanations, and conceptual activities
+Explain and elaborate on concepts present in the topics
+Teach beyond the document by adding clarity, depth, and conceptual examples
+Use neutral, generic scenarios (e.g., “an organization”, “a system”, “a team”)
+Add analogies, explanations, and conceptual activities
 
 STRICTLY FORBIDDEN:
-- Do NOT invent or reference company names (real or fictional)
-- Do NOT invent policies, procedures, KPIs, workflows, or compliance rules
-- Do NOT attribute practices to any specific organization
-- Do NOT introduce tools, vendors, platforms, or products unless explicitly listed in the topics
-- Do NOT introduce unrelated domains outside the subject matter
+Do NOT invent or reference company names (real or fictional)
+Do NOT invent policies, procedures, KPIs, workflows, or compliance rules
+Do NOT attribute practices to any specific organization
+Do NOT introduce tools, vendors, platforms, or products unless explicitly listed in the topics
+Do NOT introduce unrelated domains outside the subject matter
 
 If information is insufficient:
-- Stay abstract and educational
-- Do NOT fabricate specificity
+Stay abstract and educational
+Do NOT fabricate specificity
 
 MANDATORY:
-- If a company name, product name, regulation, or date is present in the provided context, you MUST reuse it verbatim.
-- if any policies, procedures, KPIs, workflows, or compliance rules are present in the provided context, you MUST reuse it verbatim.
-- if any practices are present in the provided context, you MUST reuse it verbatim.
-- if any tools, vendors, platforms, or products are present in the provided context, you MUST reuse it verbatim.
-- Use only domains present in the subject matter
+If a company name, product name, regulation, or date is present in the provided context, you MUST reuse it verbatim.
+if any policies, procedures, KPIs, workflows, or compliance rules are present in the provided context, you MUST reuse it verbatim.
+if any practices are present in the provided context, you MUST reuse it verbatim.
+if any tools, vendors, platforms, or products are present in the provided context, you MUST reuse it verbatim.
+Use only domains present in the subject matter
 
 
 ------------------------------------------
@@ -153,22 +227,22 @@ DOCUMENT FIDELITY REQUIREMENT (CRITICAL)
 -----------------------------------------
 
 You MUST:
-- Reuse product names, ingredient names, regulations, timelines, numeric limits,
+Reuse product names, ingredient names, regulations, timelines, numeric limits,
   thresholds, caps, and process names exactly as provided in the Topics and Objectives.
-- Prefer concrete references explicitly present in the source.
+Prefer concrete references explicitly present in the source.
 
 You MAY:
-- Explain industry concepts ONLY to the extent required to understand
+Explain industry concepts ONLY to the extent required to understand
   the document-specific items.
-- Use industry terminology ONLY if it is explicitly named or directly implied
+Use industry terminology ONLY if it is explicitly named or directly implied
   by the document.
 
 You MUST NOT:
-- Replace document-specific rules, products, regulations, or workflows
+Replace document-specific rules, products, regulations, or workflows
   with generic industry explanations.
-- Introduce canonical frameworks, architectures, or best practices
+Introduce canonical frameworks, architectures, or best practices
   unless they are explicitly mentioned in the source.
-- Introduce examples that could apply equally to any other organization
+Introduce examples that could apply equally to any other organization
   or any other domain.
 
 If a concept is mentioned with specifics (numbers, durations, caps, product names),
@@ -180,39 +254,39 @@ If the source document is conceptual or educational
 (e.g., AI, GenAI, leadership theory, etc.) and does NOT contain
 company-specific entities:
 
-- Do NOT force company references
-- Stay domain-correct
-- Do NOT introduce enterprise frameworks not present in the source
+Do NOT force company references
+Stay domain-correct
+Do NOT introduce enterprise frameworks not present in the source
 
 -----------------------------
 PEDAGOGICAL EXPANSION RULE
 -----------------------------
 You are encouraged to teach deeply by:
-- Explaining “what”, “why”, and “how” concepts work
-- Rephrasing complex ideas in learner-friendly language
-- Adding neutral reflection questions or conceptual activities
+Explaining “what”, “why”, and “how” concepts work
+Rephrasing complex ideas in learner-friendly language
+Adding neutral reflection questions or conceptual activities
 
 Expansion is allowed ONLY within the scope of the provided topics and objectives.
 
 -----------------------------
 HTML FORMATTING REQUIREMENTS (STRICT)
 -----------------------------
-- Output ONLY valid HTML5 (no Markdown)
-- Use semantic elements: <section>, <article>, <h2>, <h3>, <h4>, <p>, <strong>, <em>, <ul>, <ol>, <li>, <table>, <thead>, <tbody>, <tr>, <th>, <td>, <blockquote>
-- Do NOT use Markdown symbols (#, **, ---, etc)
-- Close all HTML tags properly
-- Do NOT wrap the entire output in a single <div>
+Output ONLY valid HTML5 (no Markdown)
+Use semantic elements: <section>, <article>, <h2>, <h3>, <h4>, <p>, <strong>, <em>, <ul>, <ol>, <li>, <table>, <thead>, <tbody>, <tr>, <th>, <td>, <blockquote>
+Do NOT use Markdown symbols (#, **, ---, etc)
+Close all HTML tags properly
+Do NOT wrap the entire output in a single <div>
 
 -----------------------------
 TABLE REQUIREMENTS
 -----------------------------
-- Use tables when comparing concepts, steps, or categories
-- Comparison tables MUST include:
+Use tables when comparing concepts, steps, or categories
+Comparison tables MUST include:
   <table data-comparison="true">
-- Step tables MUST include columns:
+Step tables MUST include columns:
   Step # | Action | Explanation
-- All tables MUST use <thead> and <tbody>
-- Every table must have a <caption> OR a heading immediately before it
+All tables MUST use <thead> and <tbody>
+Every table must have a <caption> OR a heading immediately before it
 
 -----------------------------
 VISUAL PLACEHOLDERS
@@ -228,16 +302,16 @@ Use visuals only when they add learning value.
 LEARNING STYLE ADAPTATION
 -----------------------------
 CS (Concrete Sequential):
-- Structured steps, ordered tables, checkpoints
+Structured steps, ordered tables, checkpoints
 
 CR (Concrete Random):
-- Exploratory problems, open-ended prompts
+Exploratory problems, open-ended prompts
 
 AS (Abstract Sequential):
-- Conceptual models, comparison tables, structured analysis
+Conceptual models, comparison tables, structured analysis
 
 AR (Abstract Random):
-- Narrative explanations, reflective prompts, discussion activities
+Narrative explanations, reflective prompts, discussion activities
 
 -----------------------------
 REQUIRED HTML STRUCTURE
@@ -308,14 +382,14 @@ REQUIRED HTML STRUCTURE
 FINAL SELF-CHECK (MANDATORY)
 -----------------------------
 Before responding, confirm:
-- No company names invented or fabricated, use verbatim company names
-- No invented policies or procedures appear, use verbatim policies or procedures
-- No invented tools, vendors, platforms, or products appear, use verbatim tools, vendors, platforms, or products
-- All content stays within the provided topics
+No company names invented or fabricated, use verbatim company names
+No invented policies or procedures appear, use verbatim policies or procedures
+No invented tools, vendors, platforms, or products appear, use verbatim tools, vendors, platforms, or products
+All content stays within the provided topics
 
 If violations exist, remove them.
 
-Output ONLY the final HTML5.`;
+Output ONLY the final HTML5`;
 
             console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
             const response = await ai.models.generateContent({
@@ -323,6 +397,8 @@ Output ONLY the final HTML5.`;
                 contents: stylePrompt,
                 generationConfig: {
                     maxOutputTokens: 6000,
+                    temperature: TEMPERATURE,
+                    topP: TOP_P
                 }
             });
             let aiContent = response.text;

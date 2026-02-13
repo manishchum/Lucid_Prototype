@@ -5,7 +5,6 @@ import ContentLibrary from '@/components/content-library/ContentLibrary';
 import EmployeeNavigation from '@/components/employee-navigation';
 import EmployeeLayout from '@/components/employee-layout';
 import { useAuth } from '@/contexts/auth-context';
-import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 export const dynamic = "force-dynamic";
@@ -56,17 +55,15 @@ useEffect(() => {
           return;
         }
 
-        const { data: roleData, error: roleError } = await supabase
-          .from('user_role_assignments')
-          .select('roles!inner(name)')
-          .eq('user_id', employeeData.user_id)
-          .eq('is_active', true);
+        const res = await fetch(`${API_BASE}/api/roles/users/${employeeData.user_id}`, {
+          headers: { 'X-User-ID': employeeData.user_id.toString() }
+        });
 
-        if (roleError) {
+        if (!res.ok) {
           setRoles([]);
         } else {
-          // @ts-ignore
-          const r = (roleData || []).map((a: any) => a.roles?.name).filter(Boolean);
+          const roleData = await res.json();
+          const r = (roleData || []).map((a: any) => a.role_name).filter(Boolean);
           setRoles(r);
         }
       } catch (e) {
