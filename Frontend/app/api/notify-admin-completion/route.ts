@@ -173,17 +173,33 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get module details
+    // Get module details - check if moduleId is a processed_module_id or module_id
+    // First try to fetch from processed_modules to get the actual module_id
+    const { data: processedModuleData } = await supabase
+      .from('processed_modules')
+      .select('module_id')
+      .eq('processed_module_id', moduleId)
+      .maybeSingle()
+
+    // Use the actual module_id (either from processed_modules or the original moduleId)
+    const actualModuleId = processedModuleData?.module_id || moduleId
+
+    console.log('📧 DEBUG: Module ID resolution:', { 
+      receivedModuleId: moduleId, 
+      actualModuleId,
+      fromProcessedModules: !!processedModuleData 
+    })
+
     const { data: moduleData, error: moduleError } = await supabase
       .from('training_modules')
       .select('module_id, title, company_id')
-      .eq('module_id', moduleId)
-      .single()
+      .eq('module_id', actualModuleId)
+      .maybeSingle()
 
-    if (moduleError) {
+    if (moduleError || !moduleData) {
       console.error('📧 DEBUG: Error fetching module:', moduleError)
       return NextResponse.json(
-        { error: 'Failed to fetch module details' },
+        { error: 'Failed to fetch module details', details: moduleError },
         { status: 500 }
       )
     }
@@ -204,15 +220,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Get admin users for this company using the new role-based system
+    // Fetch users with role level >= 3 (Admin level)
     const { data: adminData, error: adminError } = await supabase
       .from('user_role_assignments')
       .select(`
         user_id,
         users!inner(email, name, company_id),
-        roles!inner(name)
+        roles!inner(name, level)
       `)
       .eq('users.company_id', employeeData.company_id)
-      .eq('roles.name', 'Admin')
+      .gte('roles.level', 3)
       .eq('is_active', true)
       .eq('scope_type', 'COMPANY')
       .eq('scope_id', employeeData.company_id)
@@ -233,7 +250,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const adminEmails = adminData.map((admin: any) => admin.email)
+    const adminEmails = adminData.map((admin: any) => admin.users.email)
     // console.log(`📧 DEBUG: Sending notifications to ${adminEmails.length} admins:`, adminEmails)
 
     // Create email transporter

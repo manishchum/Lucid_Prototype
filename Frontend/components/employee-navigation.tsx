@@ -81,25 +81,59 @@ const EmployeeNavigation = ({
         try {
           const employeeData = await fetchUserByEmail(authUser.email);
           if (employeeData) {
+            // always set employee so name/email render even if role fetch fails
             setEmployee(employeeData);
-            // fetch role assignments (keeps using supabase for role assignments)
-            const { data: roleData } = await supabase
-              .from("user_role_assignments")
-              .select(`roles!inner(name)`)
-              .eq("user_id", employeeData.user_id)
-              .eq("is_active", true);
 
-            if (roleData) {
-              const roles = roleData.map((ra: any) => ra.roles?.name);
-              setIsAdmin(roles.some((r: string | undefined) => ['ADMIN', 'SUPER_ADMIN', 'Admin'].includes(String(r))));
+            // fetch role assignments via backend API instead of direct Supabase access
+            try {
+              const rolesRes = await fetch(`${API_BASE}/api/roles/users/${employeeData.user_id}`, {
+                headers: { 'X-User-ID': employeeData.user_id }
+              });
+
+              if (!rolesRes.ok) {
+                console.error('[employee-navigation] Failed to fetch user roles from backend:', rolesRes.status, await rolesRes.text().catch(()=>''));
+                // keep user visible but not admin
+                setIsAdmin(false);
+                setUserRoles([]);
+                return;
+              }
+
+              const payload = await rolesRes.json().catch(() => null);
+              const assignments = payload?.assignments ?? payload?.data ?? payload ?? [];
+
+              // normalize and extract role objects
+              const normalizedRoles = (assignments || []).map((ra: any) => {
+                const r = ra.role ?? ra.roles ?? ra;
+                return {
+                  name: (r?.name ?? '').toString(),
+                  level: Number(r?.level ?? -1),
+                  id: r?.role_id ?? r?.id ?? null
+                };
+              }).filter((r: any) => r.name || r.level >= 0);
+
+              setUserRoles(normalizedRoles.map((r: any) => r.name));
+
+              // admin detection: role.level >= 3 OR known admin names
+              const hasAdminRole = normalizedRoles.some((r: any) => {
+                const name = (r.name || '').toLowerCase().replace(/[-_\s]/g, '');
+                return r.level >= 3 || ['admin','superadmin','super_admin','ceo'].includes(name);
+              });
+
+              setIsAdmin(hasAdminRole);
+            } catch (e) {
+              console.error('[employee-navigation] Error fetching user roles:', e);
+              setIsAdmin(false);
+              setUserRoles([]);
             }
           }
-        } catch (e) { console.error(e); }
+        } catch (e) {
+          console.error(e);
+        }
       };
       fetchEmployee();
     }
   }, [providedUser, authUser?.email, pathname]);
-
+    
   useEffect(() => {
     setIsNavigating(false);
   }, [pathname]);
