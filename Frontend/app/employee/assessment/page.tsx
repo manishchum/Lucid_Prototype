@@ -126,7 +126,7 @@ const AssessmentContent = () => {
             .eq('module_id', urlModuleId)
             .single()
 
-          isBaselineRequest = Boolean(learningPlan && learningPlan.baseline_assessment === 1);
+          isBaselineRequest = Boolean(learningPlan && learningPlan.baseline_assessment === true);
           // console.log(isBaselineRequest)
           // console.log")
             // console.log("Inside the if statement for per-module quiz request.");

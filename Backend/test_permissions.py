@@ -2,7 +2,7 @@
 Quick script to test permission checking logic
 """
 import asyncio
-from utils.db_operations import check_user_permission, check_company_access
+from Backend.utils.db.users import check_user_permission, check_company_access
 
 async def main():
     user_id = 'ca356a93-4a24-41da-85d1-3dcf9de8f714'

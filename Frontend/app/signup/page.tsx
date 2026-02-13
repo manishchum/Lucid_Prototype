@@ -170,6 +170,12 @@ export default function SignupPage() {
         throw new Error(`Failed to create account: ${createRes.status} ${errText}`)
       }
 
+      const createPayload = await createRes.json().catch(() => null)
+      const newUser = (createPayload && (createPayload.user || createPayload)) || null
+      if (!newUser || !newUser.user_id) {
+        throw new Error("User created but response is missing user_id")
+      }
+
       // Get the USER role ID from roles table
       const { data: roleData, error: roleError } = await supabase
         .from("roles")
@@ -186,20 +192,27 @@ export default function SignupPage() {
       }
 
       // Assign USER role to the new user
-      const { error: roleAssignmentError } = await supabase
-        .from("user_role_assignments")
-        .insert({
+      const assignRes = await fetch(`${API_BASE}/api/roles/assignments`,{
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json", 
+          "X-User-Id": newUser.user_id
+        },
+        body: JSON.stringify({
           user_id: newUser.user_id,
           role_id: roleData.role_id,
           scope_type: "COMPANY",
-          assigned_by: newUser.user_id,
           scope_id: companyData.company_id,
+          assigned_by: newUser.user_id,
           assigned_at: new Date().toISOString(),
-          is_active: true
+          is_active: true,
+          notes: "Assigned during signup"
         })
+      })
 
-      if (roleAssignmentError) {
-        throw new Error("Error assigning role: " + roleAssignmentError.message)
+      if (!assignRes.ok) {
+        const errText = await assignRes.text().catch(() => "")
+        throw new Error(`Failed to assign USER role: ${assignRes.status} ${errText}`)
       }
 
       setSuccess("Account created successfully! You can now login.")
