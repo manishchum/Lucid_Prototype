@@ -15,7 +15,8 @@ console.log("Fetched supabase key succesfully", Boolean(SUPABASE_KEY))
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 console.log("Supabase client created successfully")
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY  });
+
 
 // Configs 
 const TEMPERATURE = 0.2;
@@ -95,6 +96,7 @@ async function generateModuleContent({ moduleId = null } = {}) {
       }
       
       topics = [...new Set(topics)];
+      console.log("Extracted topics:", topics);
       objectives = [...new Set(objectives)];
       console.log(`[EXTRACT] Final counts - Topics: ${topics.length}, Objectives: ${objectives.length}`);
       
