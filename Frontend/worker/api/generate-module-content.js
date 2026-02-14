@@ -15,7 +15,8 @@ console.log("Fetched supabase key succesfully", Boolean(SUPABASE_KEY))
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 console.log("Supabase client created successfully")
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY  });
+
 
 // Configs 
 const TEMPERATURE = 0.2;
@@ -23,145 +24,193 @@ const TOP_P = 1.0;
 
 
 async function generateModuleContent({ moduleId = null } = {}) {
+  console.log(`[GENERATE] Starting content generation ${moduleId ? `for module: ${moduleId}` : 'for all modules'}`);
+  
   // Fetch all processed_modules with empty or placeholder content (optionally scoped by moduleId)
   let query = supabase
     .from('processed_modules')
-    .select('processed_module_id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives, gpt_summary)')
+    .select(`
+      processed_module_id,
+      title,
+      content,
+      original_module_id,
+      learning_style,
+      training_modules (
+        ai_modules,
+        ai_topics,
+        ai_objectives,
+        gpt_summary
+      )
+    `)
     .or('content.is.null,content.eq.\'\',content.eq.""');
 
   if (moduleId) {
+    console.log(`[GENERATE] Filtering by module_id: ${moduleId}`);
     query = query.eq('original_module_id', moduleId);
   }
 
+  console.log(`[GENERATE] Fetching modules from Supabase...`);
   const { data: modules, error } = await query;
 
   if (error) {
-    console.error('Supabase fetch error:', error);
+    console.error('[GENERATE] Supabase fetch error:', error);
     throw new Error(error.message);
   }
 
-  // console.log(`Fetched ${modules?.length || 0} modules for content generation.`);
+  console.log(`[GENERATE] Fetched ${modules?.length || 0} modules for content generation`);
 
   let updated = 0;
   for (const mod of modules || []) {
+    console.log(`\n[MODULE] ======================================`);
+    console.log(`[MODULE] Processing: ${mod.title}`);
+    console.log(`[MODULE] ID: ${mod.processed_module_id}`);
+    console.log(`[MODULE] Learning Style: ${mod.learning_style}`);
+    console.log(`[MODULE] ======================================\n`);
+    
     try {
-      // Extract topics, objectives, and summaries from all related training_modules/ai_modules
       let topics = [];
       let objectives = [];
-
+      
+      console.log(`[EXTRACT] Found ${mod.training_modules?.length || 0} training modules`);
+      
       if (Array.isArray(mod.training_modules)) {
         for (const tm of mod.training_modules) {
           if (Array.isArray(tm.ai_modules)) {
+            console.log(`[EXTRACT] Checking ${tm.ai_modules.length} AI modules for match`);
             const matched = tm.ai_modules.find(m =>
               m.title?.trim().toLowerCase() === mod.title?.trim().toLowerCase()
             );
-            console.log("Processed title:", mod.title);
-            console.log("AI module titles:", tm.ai_modules.map(m => m.title));
-
+            console.log(`[EXTRACT] Processed title: "${mod.title}"`);
+            console.log(`[EXTRACT] AI module titles:`, tm.ai_modules.map(m => m.title));
 
             if (matched) {
+              console.log(`[EXTRACT] Found matching module!`);
               topics = Array.isArray(matched.topics) ? matched.topics : [];
               objectives = Array.isArray(matched.objectives) ? matched.objectives : [];
+              console.log(`[EXTRACT] Extracted ${topics.length} topics, ${objectives.length} objectives`);
+            } else {
+              console.log(`[EXTRACT] No matching module found`);
             }
           }
         }
       }
+      
       topics = [...new Set(topics)];
+      console.log("Extracted topics:", topics);
       objectives = [...new Set(objectives)];
-      // globalObjectives = [...new Set(globalObjectives)];
-      // summaries = [...new Set(summaries)];
-      // if (objectives.length === 0 && globalObjectives.length > 0) {
-      //   objectives = globalObjectives;
-      // }
+      console.log(`[EXTRACT] Final counts - Topics: ${topics.length}, Objectives: ${objectives.length}`);
+      
       const topicsText = topics.length > 0
         ? `Topics for this module:\n${topics.map((topic, idx) => `${idx + 1}. ${topic}`).join('\n')}`
         : '';
+      
       const objectivesText = objectives.length > 0
         ? `Objectives for this module:\n${objectives.map((obj, idx) => `${idx + 1}. ${obj}`).join('\n')}`
         : '';
-
       
+      console.log(`[QUERY] Building semantic query...`);
       
-      //const companyContext = summaries.length > 0
-      //  ? `\n\n**COMPANY-SPECIFIC CONTEXT (CRITICAL):**\n${summaries.join('\n\n')}`
-      //  : '';
+      // -------------------------------------
+      // STEP 1: Build semantic query
+      // -------------------------------------
 
-            // -------------------------------------
-            // STEP 1: Build semantic query
-            // -------------------------------------
+      const semanticQuery = `
+Module Title:
+${mod.title}
 
-            const semanticQuery = `
-            Module Title:
-            ${mod.title}
+${topicsText}
 
-            ${topicsText}
+${objectivesText}
+`;
 
-            ${objectivesText}
-            `;
+      console.log(`[QUERY] Semantic query built for: ${mod.title}`);
+      console.log("Module:", mod.title);
+      
+      // -------------------------------------
+      // STEP 2: Generate embedding
+      // -------------------------------------
 
-            console.log("Module:", mod.title);
-            
-            // -------------------------------------
-            // STEP 2: Generate embedding
-            // -------------------------------------
-
-            
-
-            async function generateEmbedding(text) {
-              const response = await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_URL}`, { text });
-              return response.data.embedding;
-            }
-            const queryEmbedding = await generateEmbedding(semanticQuery);
-
-
-            // -------------------------------------
-            // STEP 3: Fetch Top-K chunks
-            // -------------------------------------
-
-            const { data: matchedChunks, error: matchError } = await supabase.rpc(
-              'match_module_chunks',
-              {
-                query_embedding: queryEmbedding,
-                p_module_id: mod.original_module_id,
-                match_count: 6
+      async function generateEmbedding(text) {
+        try {
+          console.log(`[EMBEDDING] Starting embedding generation for text length: ${text.length}`);
+          console.log(`[EMBEDDING] Backend URL: ${process.env.NEXT_PUBLIC_BACKEND_URL}/api/embed-query`);
+          
+          const response = await axios.post(
+            `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/embed-query`, 
+            { text },
+            {
+              headers: {
+                'Content-Type': 'application/json'
               }
-            );
-            console.log("Matched chunks count:", matchedChunks?.length);
-
-
-            if (matchError) {
-              console.error("Vector search error:", matchError);
             }
+          );
+          
+          console.log(`[EMBEDDING] Successfully generated embedding`);
+          return response.data.embedding;
+        } catch(err) {
+          console.error(`[EMBEDDING] Error generating embedding:`, err.message);
+          console.error(`[EMBEDDING] Error code:`, err.code);
+          if (err.response) {
+            console.error(`[EMBEDDING] Response status:`, err.response.status);
+            console.error(`[EMBEDDING] Response data:`, err.response.data);
+          }
+          throw err;
+        }
+      }
+      
+      console.log(`[RAG] Generating embedding for module: ${mod.title}`);
+      const queryEmbedding = await generateEmbedding(semanticQuery);
+      
+      console.log(`[RAG] Fetching top-K chunks from vector DB...`);
+      console.log(`[RAG] Module ID: ${mod.original_module_id}, Match count: 6`);
+      
+      const { data: matchedChunks, error: matchError } = await supabase.rpc(
+        'match_module_chunks',
+        {
+          query_embedding: queryEmbedding,
+          p_module_id: mod.original_module_id,
+          match_count: 6
+        }
+      );
+      
+      console.log(`[RAG] Matched chunks count: ${matchedChunks?.length || 0}`);
 
-            // -------------------------------------
-            // STEP 4: Build RAG context
-            // -------------------------------------
+      if (matchError) {
+        console.error(`[RAG] Vector search error:`, matchError);
+      }
 
-            const ragContext = (matchedChunks || [])
-              .map((c, idx) => {
-                const importance =
-                  idx === 0
-                    ? "CRITICAL PRIMARY SOURCE"
-                    : `SUPPORTING SOURCE (Rank ${idx + 1})`;
+      // -------------------------------------
+      // STEP 3: Build RAG context
+      // -------------------------------------
+      console.log(`[RAG] Building RAG context from matched chunks...`);
+      
+      const ragContext = (matchedChunks || [])
+        .map((c, idx) => {
+          const importance =
+            idx === 0
+              ? "CRITICAL PRIMARY SOURCE"
+              : `SUPPORTING SOURCE (Rank ${idx + 1})`;
 
-                return `[${importance}]:\n${c.content}`;
-              })
-              .join("\n\n");
+          return `[${importance}]:\n${c.content}`;
+        })
+        .join("\n\n");
 
-            const documentContext = ragContext
-              ? `
-            -----------------------------
-            SOURCE DOCUMENT CONTEXT (AUTHORITATIVE)
-            -----------------------------
-            The following content is retrieved using semantic similarity from the uploaded document.
-            All entities present here are FACTUAL and must be reused verbatim when relevant.
+      const documentContext = ragContext
+        ? `
+-----------------------------
+SOURCE DOCUMENT CONTEXT (AUTHORITATIVE)
+-----------------------------
+The following content is retrieved using semantic similarity from the uploaded document.
+All entities present here are FACTUAL and must be reused verbatim when relevant.
 
-            ${ragContext}
-            `
-              : '';
+${ragContext}
+`
+        : '';
+      
+      console.log(`[RAG] Document context built: ${documentContext ? 'YES' : 'NO'}, Length: ${documentContext.length}`);
 
-            // Compose prompt for the learning style of this row
-            const style = mod.learning_style;
+      // Compose prompt for the learning style of this row
+      const style = mod.learning_style;
 
             const stylePrompt = `You are an expert Instructional Designer and Technical Writer.
 
@@ -384,60 +433,74 @@ FINAL SELF-CHECK (MANDATORY)
 Before responding, confirm:
 No company names invented or fabricated, use verbatim company names
 No invented policies or procedures appear, use verbatim policies or procedures
-No invented tools, vendors, platforms, or products appear, use verbatim tools, vendors, platforms, or products
-All content stays within the provided topics
+No invented tools, vendors, or platforms appear, use verbatim tools, vendors, or platforms
+All examples are generic or domain-specific only
+Module is fully self-contained
+`;
 
-If violations exist, remove them.
-
-Output ONLY the final HTML5`;
-
-            console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
-            const response = await ai.models.generateContent({
-                model: 'gemini-3-pro-preview',
-                contents: stylePrompt,
-                generationConfig: {
-                    maxOutputTokens: 6000,
-                    temperature: TEMPERATURE,
-                    topP: TOP_P
-                }
-            });
-            let aiContent = response.text;
-
-            // Clean the response to remove any potential markdown code blocks
-            if (aiContent) {
-                if (aiContent.includes('```html')) {
-                    aiContent = aiContent.replace(/```html\n?/g, '').replace(/```\n?/g, '');
-                } else if (aiContent.includes('```')) {
-                    aiContent = aiContent.replace(/```[\s\S]*?```/g, '');
-                }
-                aiContent = aiContent.trim();
-            }
-            if (!aiContent) {
-                console.warn(`No content generated for module: ${mod.processed_module_id} style: ${style}`);
-                continue;
-            }
-
-            // Remove any learning style code references (CS, CR, AS, AR) from content
-            aiContent = aiContent.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
-            aiContent = aiContent.replace(/\b(CS|CR|AS|AR)\b/g, '');
-            // Upsert the content using processed_module_id as the conflict key.
-            const { data: upserted, error: updateError } = await supabase
-                .from('processed_modules')
-                .update({ content: aiContent })
-                .eq('processed_module_id', mod.processed_module_id)
-                .select('processed_module_id');
-            if (updateError) {
-                console.error(`Failed to upsert content for processed_module ${mod.processed_module_id} style ${style}:`, updateError);
-            } else {
-                updated++;
-                // console.log(`Upserted content for processed_module ${mod.processed_module_id} with AI content for style ${style}.`);
-            }
-        } catch (err) {
-            console.error(`Error processing module ${mod.module_id}:`, err);
-            console.error(`Error processing module ${mod.processed_module_id}:`, err);
+      console.log(`[GEMINI] Calling Gemini API...`);
+      console.log(`[GEMINI] Module: ${mod.title} (${mod.processed_module_id})`);
+      console.log(`[GEMINI] Learning style: ${style}`);
+      console.log(`[GEMINI] Prompt length: ${stylePrompt.length} chars`);
+      
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: stylePrompt,
+        generationConfig: {
+          maxOutputTokens: 6000,
+          temperature: TEMPERATURE,
+          topP: TOP_P
         }
-    }
+      });
+      
+      let aiContent = response.text || '';
+      
+      console.log(`[CLEAN] Cleaning AI content...`);
+      if (aiContent) {
+        if (aiContent.includes('```html')) {
+          console.log(`[CLEAN] Removing HTML code blocks`);
+          aiContent = aiContent.replace(/```html\n?/g, '').replace(/```\n?/g, '');
+        } else if (aiContent.includes('```')) {
+          console.log(`[CLEAN] Removing generic code blocks`);
+          aiContent = aiContent.replace(/```[\s\S]*?```/g, '');
+        }
+        aiContent = aiContent.trim();
+      }
+      
+      if (!aiContent) {
+        console.warn(`[CLEAN] No content generated for module: ${mod.processed_module_id} style: ${style}`);
+        continue;
+      }
 
+      // Remove any learning style code references (CS, CR, AS, AR) from content
+      console.log(`[CLEAN] Removing learning style references...`);
+      aiContent = aiContent.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
+      aiContent = aiContent.replace(/\b(CS|CR|AS|AR)\b/g, '');
+      
+      console.log(`[DB] Updating database for module: ${mod.processed_module_id}`);
+      const { data: upserted, error: updateError } = await supabase
+        .from('processed_modules')
+        .update({ content: aiContent })
+        .eq('processed_module_id', mod.processed_module_id)
+        .select('processed_module_id');
+      
+      if (updateError) {
+        console.error(`[DB] Failed to update content for processed_module ${mod.processed_module_id}:`, updateError);
+      } else {
+        updated++;
+        console.log(`[DB] ✅ Successfully updated module ${mod.processed_module_id} (${updated} total)`);
+      }
+    } catch (err) {
+      console.error(`[ERROR] Error processing module ${mod.processed_module_id}:`, err.message);
+      console.error(`[ERROR] Stack trace:`, err.stack);
+    }
+  }
+
+  console.log(`\n[GENERATE] ========================================`);
+  console.log(`[GENERATE] Content generation complete`);
+  console.log(`[GENERATE] Total modules updated: ${updated}`);
+  console.log(`[GENERATE] ========================================\n`);
+  
   return { message: `Updated ${updated} modules with AI-generated content.` };
 }
 
