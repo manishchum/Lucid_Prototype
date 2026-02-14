@@ -15,7 +15,8 @@ console.log("Fetched supabase key succesfully", Boolean(SUPABASE_KEY))
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 console.log("Supabase client created successfully")
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || 'AIzaSyAo-ttMVlJ-CgkqPhbYG7z6neT350pdAQU' });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY  });
+
 
 // Configs 
 const TEMPERATURE = 0.2;
@@ -67,7 +68,9 @@ async function generateModuleContent({ moduleId = null } = {}) {
         }
       }
       topics = [...new Set(topics)];
+      console.log("Extracted topics:", topics);
       objectives = [...new Set(objectives)];
+      console.log("Extracted objectives:", objectives)
       // globalObjectives = [...new Set(globalObjectives)];
       // summaries = [...new Set(summaries)];
       // if (objectives.length === 0 && globalObjectives.length > 0) {
@@ -86,9 +89,9 @@ async function generateModuleContent({ moduleId = null } = {}) {
       //  ? `\n\n**COMPANY-SPECIFIC CONTEXT (CRITICAL):**\n${summaries.join('\n\n')}`
       //  : '';
 
-            // -------------------------------------
+            // ------------------------------
             // STEP 1: Build semantic query
-            // -------------------------------------
+            // ------------------------------
 
             const semanticQuery = `
             Module Title:
@@ -101,9 +104,9 @@ async function generateModuleContent({ moduleId = null } = {}) {
 
             console.log("Module:", mod.title);
             
-            // -------------------------------------
+            // ----------------------------
             // STEP 2: Generate embedding
-            // -------------------------------------
+            // ----------------------------
 
             
 
