@@ -99,11 +99,14 @@ async def POST(req: Request):
             
             print("imported ingest_by_module_id")
             
-            ingest_by_module_id (module_id)
-            
+            ingest_by_module_id(module_id)
+            print("[RAG] Ingestion completed successfully")
              
         except Exception as ingest_error:
-            print("Error during ingestion ") 
+            print(f"[RAG ERROR] Error during ingestion: {type(ingest_error).__name__}")
+            print(f"[RAG ERROR] Error message: {str(ingest_error)}")
+            import traceback
+            print(f"[RAG ERROR] Traceback:\n{traceback.format_exc()}") 
 
         return JSONResponse(content={
             "started": True,

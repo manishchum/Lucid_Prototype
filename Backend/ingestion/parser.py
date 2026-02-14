@@ -19,10 +19,10 @@ def parse_pdf_rich(pdf_path: str) -> str:
     
     elements = partition(
         filename=pdf_path,
-        extract_images_in_pdf=False,  #we will work on image RAG later and will directly extract images to supabase
+        extract_images_in_pdf=False,  # we will work on image RAG later and will directly extract images to supabase
         infer_table_structure=True,
-        strategy="hi_res",
-        ocr_languages="eng",
+        strategy="fast",  # Changed from "hi_res" to avoid Tesseract dependency
+        # ocr_languages="eng",  # Removed - not needed for "fast" strategy
     )
 
     parts = []

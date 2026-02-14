@@ -56,4 +56,16 @@ def insert_chunks_to_supabase(
         })
         print(f"Prepared chunk {idx} for insertion")
 
-    supabase.table("vectordb_chunks").insert(rows).execute()
+    print(f"[SUPABASE] Attempting to insert {len(rows)} rows into vectordb_chunks...")
+    try:
+        response = supabase.table("vectordb_chunks").insert(rows).execute()
+        print(f"[SUPABASE] ✅ Successfully inserted {len(rows)} chunks")
+        if hasattr(response, 'data') and response.data:
+            print(f"[SUPABASE] Response data count: {len(response.data)}")
+        return response
+    except Exception as e:
+        print(f"[SUPABASE ERROR] Failed to insert chunks: {type(e).__name__}")
+        print(f"[SUPABASE ERROR] Error message: {str(e)}")
+        import traceback
+        print(f"[SUPABASE ERROR] Traceback:\n{traceback.format_exc()}")
+        raise
