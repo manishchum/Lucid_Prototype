@@ -23,6 +23,7 @@ const TEMPERATURE = 0.2;
 const TOP_P = 1.0;
 
 
+
 async function generateModuleContent({ moduleId = null } = {}) {
   console.log(`[GENERATE] Starting content generation ${moduleId ? `for module: ${moduleId}` : 'for all modules'}`);
   
@@ -43,6 +44,8 @@ async function generateModuleContent({ moduleId = null } = {}) {
       )
     `)
     .or('content.is.null,content.eq.\'\',content.eq.""');
+
+    
 
   if (moduleId) {
     console.log(`[GENERATE] Filtering by module_id: ${moduleId}`);
@@ -72,13 +75,23 @@ async function generateModuleContent({ moduleId = null } = {}) {
       let objectives = [];
       
       console.log(`[EXTRACT] Found ${mod.training_modules?.length || 0} training modules`);
+      function normalizeTitle(title) {
+        return title
+          ?.toLowerCase()
+          .replace(/[^\w\s]/g, '')   // remove punctuation
+          .replace(/\s+/g, ' ')      // collapse multiple spaces
+          .trim();
+      }
       
       if (Array.isArray(mod.training_modules)) {
         for (const tm of mod.training_modules) {
           if (Array.isArray(tm.ai_modules)) {
             console.log(`[EXTRACT] Checking ${tm.ai_modules.length} AI modules for match`);
+            // const matched = tm.ai_modules.find(m =>
+            //   m.title?.trim().toLowerCase() === mod.title?.trim().toLowerCase()
+            // );
             const matched = tm.ai_modules.find(m =>
-              m.title?.trim().toLowerCase() === mod.title?.trim().toLowerCase()
+              normalizeTitle(m.title) === normalizeTitle(mod.title)
             );
             console.log(`[EXTRACT] Processed title: "${mod.title}"`);
             console.log(`[EXTRACT] AI module titles:`, tm.ai_modules.map(m => m.title));
@@ -125,6 +138,8 @@ ${objectivesText}
 
       console.log(`[QUERY] Semantic query built for: ${mod.title}`);
       console.log("Module:", mod.title);
+      console.log(`Topics for ${mod.title}`, topicsText,"--notopic");
+      console.log(`Objectives for ${mod.title}`, objectivesText);
       
       // -------------------------------------
       // STEP 2: Generate embedding
@@ -218,14 +233,14 @@ Your task is to write ONE complete, self-contained training module, formatted as
 
 This module will be generated independently inside a loop. Treat it as fully isolated.
 
------------------------------
+-----------------------------c
 MODULE CONTEXT
 -----------------------------
 **Module Context:**
 * **Module Title:** "${mod.title}"
-* **Topics to Cover:** ${topicsText}
-* **Target Objectives:** ${objectivesText}
-* **Learning Style Focus:** ${style}
+// * **Topics to Cover:** ${topicsText}
+// * **Target Objectives:** ${objectivesText}
+// * **Learning Style Focus:** ${style}
 
 ────────────────────────────────────
 SOURCE CONTEXT (AUTHORITATIVE)
@@ -307,15 +322,59 @@ Do NOT force company references
 Stay domain-correct
 Do NOT introduce enterprise frameworks not present in the source
 
------------------------------
-PEDAGOGICAL EXPANSION RULE
------------------------------
-You are encouraged to teach deeply by:
-Explaining “what”, “why”, and “how” concepts work
-Rephrasing complex ideas in learner-friendly language
-Adding neutral reflection questions or conceptual activities
+**SOURCE TABLE REPLICATION RULE (MANDATORY)**
 
-Expansion is allowed ONLY within the scope of the provided topics and objectives.
+If ANY table exists in ${documentContext}:
+
+1. You MUST reproduce that table in the module.
+2. All rows, columns, headers, numbers, and wording MUST match verbatim.
+3. You may reformat it into valid HTML5 table structure,
+   but you MUST NOT:
+   - Modify wording
+   - Add rows
+   - Remove rows
+   - Summarize content
+   - Combine cells
+   - Interpret the table
+   - Add new comparison columns
+
+If multiple tables exist:
+→ Include ALL of them.
+
+If numeric values, thresholds, limits, or caps appear in a table:
+→ They MUST appear unchanged.
+
+If no table exists in the document:
+→ Only create a table if the document logically structures
+   comparative or stepwise content.
+→ Do NOT invent comparison categories.
+
+
+
+-----------------------------
+CONTROLLED EXPLANATION RULE
+-----------------------------
+
+Explanation is allowed ONLY to clarify document-stated content.
+
+You MAY:
+- Rephrase document language for clarity
+- Break long sentences into simpler explanations
+- Explain terminology only if used in the document
+- Add structural learning aids (headings, bullet organization)
+
+You MUST NOT:
+- Add conceptual depth beyond document scope
+- Add analogies
+- Add stories
+- Add hypothetical scenarios
+- Add industry comparisons
+- Add external examples
+- Add exploratory activities not grounded in document language
+
+All expansion must remain semantically equivalent to the source.
+No net-new conceptual information may be introduced.
+
 
 -----------------------------
 HTML FORMATTING REQUIREMENTS (STRICT)
@@ -347,20 +406,33 @@ Where helpful, insert placeholders if needed, if diagrams, charts or infographic
 
 Use visuals only when they add learning value.
 
------------------------------
-LEARNING STYLE ADAPTATION
------------------------------
-CS (Concrete Sequential):
-Structured steps, ordered tables, checkpoints
+STRICT DOCUMENT LOCK:
 
-CR (Concrete Random):
-Exploratory problems, open-ended prompts
+Every explanatory paragraph must be traceable to a specific concept,
+statement, number, or table found in ${documentContext}.
 
-AS (Abstract Sequential):
-Conceptual models, comparison tables, structured analysis
+If a reviewer cannot directly trace a sentence back to the document,
+that sentence MUST NOT exist.
 
-AR (Abstract Random):
-Narrative explanations, reflective prompts, discussion activities
+No conceptual expansion unless directly supported by document language.
+No contextual padding.
+No generic instructional filler.
+No external domain knowledge.
+
+// -----------------------------
+// LEARNING STYLE ADAPTATION
+// -----------------------------
+// CS (Concrete Sequential):
+// Structured steps, ordered tables, checkpoints
+
+// CR (Concrete Random):
+// Exploratory problems, open-ended prompts
+
+// AS (Abstract Sequential):
+// Conceptual models, comparison tables, structured analysis
+
+// AR (Abstract Random):
+// Narrative explanations, reflective prompts, discussion activities
 
 -----------------------------
 REQUIRED HTML STRUCTURE
@@ -475,6 +547,8 @@ Module is fully self-contained
       // Remove any learning style code references (CS, CR, AS, AR) from content
       console.log(`[CLEAN] Removing learning style references...`);
       aiContent = aiContent.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
+      // aiContent = aiContent.replace(/\s*\((CS|CR|AS|AR|cs|cr|as|ar)[,\s]*\)/gi, '');
+
       aiContent = aiContent.replace(/\b(CS|CR|AS|AR)\b/g, '');
       
       console.log(`[DB] Updating database for module: ${mod.processed_module_id}`);
