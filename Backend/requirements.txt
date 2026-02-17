@@ -1,6 +1,5 @@
-Backend
 cloudconvert
-faiss
+faiss-cpu
 fastapi
 ffmpeg
 httpx
