@@ -261,14 +261,21 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         return;
       }
       // 1. Try to fetch existing quiz for this module and Performance Sprint
-      let query = supabase
-        .from("assessments")
-        .select("assessment_id, questions, processed_modules!inner(original_module_id,user_id)")
-        .eq("type", "module")
-        .eq("processed_modules.original_module_id", moduleId)
-        .eq('processed_modules.user_id', userId)
-        .eq("learning_style", learningStyle);
-      const { data: assessment } = await query.maybeSingle();
+      let assessment = null;
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/assessments/filter/search?type=module&original_module_id=${moduleId}&learning_style=${encodeURIComponent(learningStyle)}&user_id_filter=${userId}`,
+          {
+            headers: { 'X-User-ID': userId }
+          }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          assessment = data.assessments && data.assessments.length > 0 ? data.assessments[0] : null;
+        }
+      } catch (e) {
+        console.error('[QUIZ] Error fetching assessment:', e);
+      }
       // console.log('[QUIZ DEBUG] Assessment fetch result:', assessment);
       // console.log(moduleId, learningStyle);
       if (assessment && assessment.questions) {
@@ -297,16 +304,27 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         if (result.quiz) {
           setQuiz(result.quiz);
           setAnswers(new Array(result.quiz.length).fill(-1));
-          const { data: newAssessment } = await supabase
-            .from("assessments")
-            .select("assessment_id")
-            .eq("type", "module")
-            .eq("processed_module_id", moduleId)
-            .eq("learning_style", learningStyle)
-            .maybeSingle();
-            // console.log("This is the module id:", moduleId)
-          // console.log('[QUIZ DEBUG] New assessment after quiz generation:', newAssessment);
-          if (newAssessment && newAssessment.assessment_id) setAssessmentId(newAssessment.assessment_id);
+          
+          // Fetch the newly created assessment from backend
+          try {
+            const assessmentRes = await fetch(
+              `${API_BASE}/api/assessments/filter/search?type=module&processed_module_id=${moduleId}&learning_style=${encodeURIComponent(learningStyle)}`,
+              {
+                headers: { 'X-User-ID': userId }
+              }
+            );
+            if (assessmentRes.ok) {
+              const assessmentData = await assessmentRes.json();
+              const newAssessment = assessmentData.assessments && assessmentData.assessments.length > 0 
+                ? assessmentData.assessments[0] 
+                : null;
+              // console.log("This is the module id:", moduleId)
+              // console.log('[QUIZ DEBUG] New assessment after quiz generation:', newAssessment);
+              if (newAssessment && newAssessment.assessment_id) setAssessmentId(newAssessment.assessment_id);
+            }
+          } catch (e) {
+            console.error('[QUIZ] Error fetching new assessment:', e);
+          }
        
        
        
