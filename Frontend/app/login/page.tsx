@@ -82,7 +82,9 @@ function LoginContent() {
       if (!userData){
         throw new Error("Invalid email or password")
       }
-      if (!userData.password) {
+      
+      // Check if user has a password set
+      if (!userData.password || userData.password === null || userData.password === '') {
         throw new Error("This account uses Google sign-in. Please use 'Continue with Google' button.")
       }
 
