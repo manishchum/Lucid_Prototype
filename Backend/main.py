@@ -94,7 +94,7 @@ app.include_router(flashcard_generation_router, prefix="/api", tags=["flashcard-
 app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindmap"])
 app.include_router(roleplay_assessment_router, prefix="/api", tags=["roleplay-assessment"])
 app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
-app.include_router(embed_router)
+app.include_router(embed_router, prefix="/api", tags=["embeddings"])
 
 
 # Router Includes are here
