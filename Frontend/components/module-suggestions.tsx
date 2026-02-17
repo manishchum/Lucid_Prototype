@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BookOpen, Database, Sparkles, Plus, ExternalLink, TrendingUp, TrendingDown, ChevronDown, ChevronUp } from 'lucide-react';
@@ -13,7 +13,7 @@ interface DatasetSuggestion {
   purpose: string;
 }
 
-interface SuggestedModule {
+export interface SuggestedModule {
   module_id?: string;
   title: string;
   description: string;
@@ -29,19 +29,24 @@ interface ModuleSuggestionsProps {
   leadIndicators: string[];
   lagIndicators: string[];
   roleName: string;
+  onModulesLoaded?: (modules: SuggestedModule[]) => void;
 }
 
-export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleName }: ModuleSuggestionsProps) {
+export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleName, onModulesLoaded }: ModuleSuggestionsProps) {
   const [suggestedModules, setSuggestedModules] = useState<SuggestedModule[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [expandedLeadKpis, setExpandedLeadKpis] = useState<Record<string, boolean>>({});
   const [expandedLagKpis, setExpandedLagKpis] = useState<Record<string, boolean>>({});
+  const lastFetchedKey = useRef<string>('');
 
   useEffect(() => {
-    if (leadIndicators.length > 0 || lagIndicators.length > 0) {
-      fetchModuleSuggestions();
-    }
-  }, [leadIndicators, lagIndicators]);
+    // const key = JSON.stringify([leadIndicators, lagIndicators]);
+    // if (key === lastFetchedKey.current) return;
+    // if (leadIndicators.length > 0 || lagIndicators.length > 0) {
+    //   lastFetchedKey.current = key;
+    // }
+    fetchModuleSuggestions();
+  }, []);
 
   const fetchModuleSuggestions = async () => {
     setIsLoading(true);
@@ -64,6 +69,7 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
 
       const data = await response.json();
       setSuggestedModules(data.modules);
+      onModulesLoaded?.(data.modules);
     } catch (error) {
       console.error('Error fetching module suggestions:', error);
     } finally {
@@ -127,8 +133,8 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
                   <div key={kpi} className="space-y-3">
                     <div className="flex items-start gap-2">
                       <div className="w-2 h-2 rounded-full bg-green-500 mt-2 flex-shrink-0"></div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between">
+                      <div className="flex-1" >
+                        <div className="flex items-center justify-between" onClick={() => toggleLeadKpi(kpi)}>
                           <h4 className="font-medium text-gray-900 mb-3">{kpi}</h4>
                           <button onClick={() => toggleLeadKpi(kpi)}>
                             {expandedLeadKpis[kpi] ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
@@ -238,9 +244,9 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
                   <div key={kpi} className="space-y-3">
                     <div className="flex items-start gap-2">
                       <div className="w-2 h-2 rounded-full bg-blue-500 mt-2 flex-shrink-0"></div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between">
-                          <h4 className="font-medium text-gray-900 mb-3">{kpi}</h4>
+                      <div className="flex-1" >
+                        <div className="flex items-center justify-between" onClick={() => toggleLagKpi(kpi)}>
+                          <h4 className="font-medium text-gray-900 mb-3" >{kpi}</h4>
                           <button onClick={() => toggleLagKpi(kpi)}>
                             {expandedLagKpis[kpi] ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
                           </button>
@@ -255,7 +261,7 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
                                 <div className="flex items-start justify-between mb-2">
                                   <div className="flex-1">
                                     <div className="flex items-center gap-2 mb-2">
-                                      <h5 className="font-semibold text-gray-900">{module.title}</h5>
+                                      <h5 className="font-semibold text-gray-900" >{module.title}</h5>
                                       {/* <Badge 
                                         variant={module.source === 'database' ? 'default' : 'secondary'}
                                         className={module.source === 'database' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}
