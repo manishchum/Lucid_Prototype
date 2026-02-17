@@ -52,6 +52,14 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading || generatingContent);
   const [voiceLoopActive, setVoiceLoopActive] = useState(false);
   const [autoStartMic, setAutoStartMic] = useState(false);
+
+  useEffect(() => {
+          if (!authLoading) {
+            if (!user) router.push("/login");
+            // else checkAdminAccess();
+            
+          }
+        }, [user, authLoading, router]);
   useEffect(() => {
     const fetchModule = async () => {
       setLoading(true);
@@ -273,55 +281,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       }
     }, 100);
   };
-
-  // const handleSendChat = async (e: FormEvent<HTMLFormElement>) => {
-  //   e.preventDefault();
-  //   if (!chatInput.trim() || chatLoading || !module?.processed_module_id) return;
-
-  //   const userMessage = chatInput.trim();
-  //   setChatInput('');
-
-  //   const newUserMessage = { role: 'user' as const, content: userMessage };
-  //   setUserChatHistory((prev) => [...prev, newUserMessage]);
-  //   setChatLoading(true);
-
-  //   try {
-  //     const response = await fetch('/api/module-chat', {
-  //       method: 'POST',
-  //       headers: { 'Content-Type': 'application/json' },
-  //       body: JSON.stringify({
-  //         processed_module_id: module.processed_module_id,
-  //         user_message: userMessage,
-  //         chat_history: userChatHistory,
-  //       }),
-  //     });
-
-  //     const data = await response.json();
-
-  //     if (response.ok && data.message) {
-  //       setUserChatHistory((prev) => [...prev, { role: 'assistant', content: data.message }]);
-  //     } else {
-  //       setUserChatHistory((prev) => [
-  //         ...prev,
-  //         {
-  //           role: 'assistant',
-  //           content: 'Sorry, I encountered an error. Please try again.',
-  //         },
-  //       ]);
-  //     }
-  //   } catch (error) {
-  //     console.error('Chat error:', error);
-  //     setUserChatHistory((prev) => [
-  //       ...prev,
-  //       {
-  //         role: 'assistant',
-  //         content: 'Sorry, I encountered an error. Please try again.',
-  //       },
-  //     ]);
-  //   } finally {
-  //     setChatLoading(false);
-  //   }
-  // };
 
   if (showLoadingProgress) {
     const label = generatingContent ? "Generating personalized content" : "Loading module content";
@@ -587,15 +546,45 @@ function ContentCards({ content }: { content: string }) {
   const activeGroup = tabGroups.find((group) => group.key === activeTab);
 
   function formatContent(content: string): string {
-    // Sanitize and format the content to ensure safe rendering
     const sanitizedContent = content
-      .replace(/<script[^>]*?>.*?<\/script>/gi, "") // Remove any script tags
-      .replace(/<style[^>]*?>.*?<\/style>/gi, "") // Remove any style tags
-      .replace(/on\w+="[^"]*"/gi, "") // Remove inline event handlers
-      .replace(/javascript:/gi, ""); // Remove javascript: URLs
-
+      .replace(/<script[^>]*?>.*?<\/script>/gi, "")
+      .replace(/<style[^>]*?>.*?<\/style>/gi, "")
+      .replace(/on\w+="[^"]*"/gi, "")
+      .replace(/javascript:/gi, "");
     return sanitizedContent;
   }
+
+  // Color palette for sections — cycling vibrant colors
+  const sectionStyles: Record<string, { bg: string; border: string; titleColor: string; icon: string }> = {
+    objectives: { bg: 'bg-gradient-to-br from-blue-50 via-blue-100 to-indigo-100', border: 'border-blue-400', titleColor: 'text-blue-800', icon: '🎯' },
+    activity: { bg: 'bg-gradient-to-br from-emerald-50 via-green-100 to-teal-100', border: 'border-emerald-400', titleColor: 'text-emerald-800', icon: '⚡' },
+    summary: { bg: 'bg-gradient-to-br from-violet-50 via-purple-100 to-fuchsia-100', border: 'border-purple-400', titleColor: 'text-purple-800', icon: '📝' },
+    discussion: { bg: 'bg-gradient-to-br from-amber-50 via-orange-100 to-yellow-100', border: 'border-amber-400', titleColor: 'text-amber-800', icon: '💬' },
+    example: { bg: 'bg-gradient-to-br from-cyan-50 via-sky-100 to-blue-100', border: 'border-cyan-400', titleColor: 'text-cyan-800', icon: '📖' },
+    definition: { bg: 'bg-gradient-to-br from-indigo-50 via-blue-100 to-violet-100', border: 'border-indigo-400', titleColor: 'text-indigo-800', icon: '📚' },
+    tip: { bg: 'bg-gradient-to-br from-lime-50 via-green-100 to-emerald-100', border: 'border-lime-500', titleColor: 'text-lime-800', icon: '💡' },
+    warning: { bg: 'bg-gradient-to-br from-red-50 via-rose-100 to-pink-100', border: 'border-red-400', titleColor: 'text-red-800', icon: '⚠️' },
+    intro: { bg: 'bg-gradient-to-br from-slate-50 via-gray-100 to-zinc-100', border: 'border-slate-300', titleColor: 'text-slate-800', icon: '📋' },
+  };
+
+  // Cycling colors for generic "section" types
+  const sectionCycleColors = [
+    { bg: 'bg-gradient-to-br from-rose-50 via-pink-100 to-fuchsia-100', border: 'border-rose-400', titleColor: 'text-rose-800', icon: '🔷' },
+    { bg: 'bg-gradient-to-br from-teal-50 via-emerald-100 to-green-100', border: 'border-teal-400', titleColor: 'text-teal-800', icon: '🔶' },
+    { bg: 'bg-gradient-to-br from-sky-50 via-blue-100 to-indigo-100', border: 'border-sky-400', titleColor: 'text-sky-800', icon: '🟣' },
+    { bg: 'bg-gradient-to-br from-orange-50 via-amber-100 to-yellow-100', border: 'border-orange-400', titleColor: 'text-orange-800', icon: '🟢' },
+    { bg: 'bg-gradient-to-br from-fuchsia-50 via-purple-100 to-violet-100', border: 'border-fuchsia-400', titleColor: 'text-fuchsia-800', icon: '🔴' },
+    { bg: 'bg-gradient-to-br from-emerald-50 via-teal-100 to-cyan-100', border: 'border-emerald-400', titleColor: 'text-emerald-800', icon: '🟡' },
+  ];
+
+  let sectionColorIdx = 0;
+
+  const getStyle = (type: string) => {
+    if (sectionStyles[type]) return sectionStyles[type];
+    const style = sectionCycleColors[sectionColorIdx % sectionCycleColors.length];
+    sectionColorIdx++;
+    return style;
+  };
 
   return (
     <div className="space-y-6 mb-8">
@@ -605,10 +594,10 @@ function ContentCards({ content }: { content: string }) {
             key={group.key}
             onClick={() => setActiveTab(group.key)}
             className={clsx(
-              'px-1 pb-2 text-sm font-semibold transition-all border-b-2',
+              'px-3 pb-2 text-sm font-semibold transition-all border-b-2 rounded-t-md',
               activeTab === group.key
-                ? 'text-blue-700 border-blue-600'
-                : 'text-gray-500 border-transparent hover:text-gray-800 hover:border-gray-300'
+                ? 'text-blue-700 border-blue-600 bg-blue-50'
+                : 'text-gray-500 border-transparent hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50'
             )}
           >
             {group.label}
@@ -616,43 +605,32 @@ function ContentCards({ content }: { content: string }) {
         ))}
       </div>
 
-      {activeGroup?.items.map((section, index) => (
-        <div
-          key={index}
-          className={clsx(
-            "rounded-xl border-2 shadow-md p-8 transition-all hover:shadow-lg",
-            section.type === 'objectives' ? 'bg-gradient-to-br from-blue-50 to-blue-100 border-blue-300' :
-              section.type === 'activity' ? 'bg-gradient-to-br from-green-50 to-green-100 border-green-300' :
-                section.type === 'summary' ? 'bg-gradient-to-br from-purple-50 to-purple-100 border-purple-300' :
-                  section.type === 'discussion' ? 'bg-gradient-to-br from-orange-50 to-orange-100 border-orange-300' :
-                    'bg-white border-gray-300'
-          )}
-        >
-          {section.title && (
-            <div className="flex items-center gap-3 mb-6">
-              {/* {section.type === 'objectives' && <Lightbulb className="w-6 h-6 text-blue-600" />} */}
-              {/* {section.type === 'activity' && <Zap className="w-6 h-6 text-green-600" />}
-              {section.type === 'summary' && <BookOpen className="w-6 h-6 text-purple-600" />}
-              {section.type === 'discussion' && <Info className="w-6 h-6 text-orange-600" />} */}
-              <h2 className={clsx(
-                "font-bold",
-                section.type === 'objectives' ? 'text-2xl text-blue-900' :
-                  // section.type === 'section' ? 'text-2xl text-gray-900' :
-                    section.type === 'activity' ? 'text-xl text-green-900' :
-                      section.type === 'summary' ? 'text-xl text-purple-900' :
-                        section.type === 'discussion' ? 'text-xl text-orange-900' :
-                          ' text-gray-800'
-              )}>
-                {/* {section.title} */}
-              </h2>
-            </div>
-          )}
+      {activeGroup?.items.map((section, index) => {
+        const style = getStyle(section.type);
+        return (
           <div
-            className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: formatContent(section.content) }}
-          />
-        </div>
-      ))}
+            key={index}
+            className={clsx(
+              "rounded-2xl border-2 shadow-md p-8 transition-all hover:shadow-xl hover:scale-[1.005]",
+              style.bg,
+              style.border
+            )}
+          >
+            {section.title && (
+              <div className="flex items-center gap-3 mb-6">
+                <span className="text-2xl">{style.icon}</span>
+                <h2 className={clsx("font-bold text-xl", style.titleColor)}>
+                  {section.title}
+                </h2>
+              </div>
+            )}
+            <div
+              className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: formatContent(section.content) }}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -668,143 +646,94 @@ function parseContentIntoSections(content: string) {
   const isHTML = /<[^>]+>/.test(content);
 
   if (isHTML) {
-    // Parse HTML content
-    return parseHTMLContent(content);
+    console.log("This is returning html content");
+    // Split HTML content into sections based on h2/h3 headings
+    return splitHTMLIntoSections(content);
   } else {
     // Parse markdown-style content (legacy fallback)
     return parseMarkdownContent(content);
   }
 }
 
-function parseHTMLContent(content: string) {
+function splitHTMLIntoSections(content: string): Array<{ type: string; title: string; content: string }> {
   const sections: Array<{ type: string; title: string; content: string }> = [];
 
-  // Create a temporary DOM parser
-  if (typeof window === 'undefined') {
-    // Server-side: return raw content as single section
-    return [{ type: 'intro', title: '', content }];
-  }
+  // Use regex to split by <h2> or <h3> tags
+  // We capture the heading tag and its content, then everything until the next heading
+  const headingRegex = /<(h[1-3])[^>]*>(.*?)<\/\1>/gi;
+  const matches: Array<{ index: number; tag: string; title: string }> = [];
 
-  try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(content, 'text/html');
-
-    // Extract sections from HTML structure
-    const htmlSections = doc.querySelectorAll('section');
-    
-    if (htmlSections.length === 0) {
-      // No semantic sections, parse by h2 headings
-      return parseHTMLByHeadings(doc);
-    }
-
-    // Parse by semantic sections
-    htmlSections.forEach((section) => {
-      const classList = section.className;
-      let type = 'section';
-      
-      if (classList.includes('learning-objectives')) {
-        type = 'objectives';
-      } else if (classList.includes('activity')) {
-        type = 'activity';
-      } else if (classList.includes('module-section')) {
-        type = 'section';
-      } else if (classList.includes('module-summary')) {
-        type = 'summary';
-      } else if (classList.includes('next-steps')) {
-        type = 'conclusion';
-      }
-
-      // Extract title from h2 or h3
-      const h2 = section.querySelector('h2');
-      const h3 = section.querySelector('h3');
-      const title = (h2?.textContent || h3?.textContent || '').trim();
-
-      // Get inner HTML
-      const sectionHTML = section.innerHTML;
-
-      if (sectionHTML.trim()) {
-        sections.push({
-          type,
-          title,
-          content: sectionHTML
-        });
-      }
+  let match;
+  while ((match = headingRegex.exec(content)) !== null) {
+    matches.push({
+      index: match.index,
+      tag: match[1],
+      title: match[2].replace(/<[^>]*>/g, '').trim(), // strip inner HTML tags from title
     });
-
-    // If sections were extracted, return them
-    if (sections.length > 0) {
-      return sections;
-    }
-
-    // Fallback: parse by h2 headings
-    return parseHTMLByHeadings(doc);
-  } catch (error) {
-    console.error('Error parsing HTML content:', error);
-    // Fallback to raw content
-    return [{ type: 'intro', title: '', content }];
   }
-}
 
-function parseHTMLByHeadings(doc: Document) {
-  const sections: Array<{ type: string; title: string; content: string }> = [];
-  const wrapper = document.createElement('div');
-  wrapper.innerHTML = doc.body.innerHTML;
+  if (matches.length === 0) {
+    // No headings found — return as single styled section
+    const styledContent = styleHTMLContent(content);
+    return [{ type: 'intro', title: '', content: styledContent }];
+  }
 
-  let currentSection: { type: string; title: string; html: HTMLElement } | null = null;
+  // Capture content before the first heading as intro
+  const beforeFirst = content.substring(0, matches[0].index).trim();
+  if (beforeFirst) {
+    const styledIntro = styleHTMLContent(beforeFirst);
+    // Only add if there's meaningful content
+    const stripped = styledIntro.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+    if (stripped.length > 0) {
+      sections.push({ type: 'intro', title: '', content: styledIntro });
+    }
+  }
 
-  const children = Array.from(wrapper.children);
+  // Determine section types based on title keywords
+  const getSectionType = (title: string, idx: number): string => {
+    const lower = title.toLowerCase();
+    if (lower.includes('objective') || lower.includes('goal') || lower.includes('outcome')) return 'objectives';
+    if (lower.includes('activity') || lower.includes('exercise') || lower.includes('practice')) return 'activity';
+    if (lower.includes('summary') || lower.includes('conclusion') || lower.includes('recap') || lower.includes('key takeaway')) return 'summary';
+    if (lower.includes('discussion') || lower.includes('question') || lower.includes('reflect')) return 'discussion';
+    if (lower.includes('example') || lower.includes('case study') || lower.includes('scenario')) return 'example';
+    if (lower.includes('definition') || lower.includes('concept') || lower.includes('overview')) return 'definition';
+    if (lower.includes('tip') || lower.includes('best practice') || lower.includes('recommendation')) return 'tip';
+    if (lower.includes('warning') || lower.includes('caution') || lower.includes('important') || lower.includes('critical')) return 'warning';
+    return 'section';
+  };
 
-  for (const child of children) {
-    if (child.tagName === 'H2') {
-      // Start new section
-      if (currentSection) {
-        sections.push({
-          type: getTypeFromHeading(currentSection.html),
-          title: currentSection.html.querySelector('h2')?.textContent || '',
-          content: currentSection.html.innerHTML
-        });
-      }
+  // Build sections from each heading
+  for (let i = 0; i < matches.length; i++) {
+    const heading = matches[i];
+    const startIdx = heading.index;
+    const endIdx = i + 1 < matches.length ? matches[i + 1].index : content.length;
 
-      currentSection = {
-        type: 'section',
-        title: child.textContent || '',
-        html: document.createElement('div')
-      };
+    // Get the content after the heading tag up to next heading
+    const headingTagEnd = content.indexOf('>', startIdx) + 1;
+    const closingTag = `</${heading.tag}>`;
+    const closingIdx = content.indexOf(closingTag, headingTagEnd);
+    const sectionStart = closingIdx >= 0 ? closingIdx + closingTag.length : headingTagEnd;
+    const sectionContent = content.substring(sectionStart, endIdx).trim();
 
-      currentSection.html.appendChild(child.cloneNode(true));
-    } else if (currentSection) {
-      currentSection.html.appendChild(child.cloneNode(true));
-    } else {
-      // Content before first h2
-      const div = document.createElement('div');
-      div.appendChild(child.cloneNode(true));
+    if (sectionContent || heading.title) {
+      const styledContent = styleHTMLContent(sectionContent);
+      const sectionType = getSectionType(heading.title, i);
       sections.push({
-        type: 'intro',
-        title: '',
-        content: div.innerHTML
+        type: sectionType,
+        title: heading.title,
+        content: styledContent,
       });
     }
   }
 
-  // Add last section
-  if (currentSection) {
-    sections.push({
-      type: getTypeFromHeading(currentSection.html),
-      title: currentSection.html.querySelector('h2')?.textContent || '',
-      content: currentSection.html.innerHTML
-    });
+  // If no meaningful sections were extracted, return as single section
+  if (sections.length === 0) {
+    const styledContent = styleHTMLContent(content);
+    return [{ type: 'intro', title: '', content: styledContent }];
   }
 
   return sections;
-}
-
-function getTypeFromHeading(element: HTMLElement): string {
-  const text = element.textContent?.toLowerCase() || '';
-  if (text.includes('objective')) return 'objectives';
-  if (text.includes('activity')) return 'activity';
-  if (text.includes('summary')) return 'summary';
-  if (text.includes('next steps')) return 'conclusion';
-  return 'section';
 }
 
 function parseMarkdownContent(content: string) {
@@ -974,6 +903,7 @@ function groupSectionsForTabs(sections: SectionBlock[]): TabGroup[] {
     ensureGroup(key, label).items.push(section);
   });
 
+  console.log("These are the groups", groups);
   return groups;
 }
 
@@ -985,28 +915,28 @@ function extractPlainText(content: string) {
     .trim();
 }
 
-function parseChatFromTranscript(transcript: string): Array<{ speaker: string; text: string }> {
-  const messages: Array<{ speaker: string; text: string }> = [];
+// function parseChatFromTranscript(transcript: string): Array<{ speaker: string; text: string }> {
+//   const messages: Array<{ speaker: string; text: string }> = [];
 
 
-  // Split by sentence boundaries and alternate speakers
-  const sentences = transcript.match(/[^.!?]+[.!?]+/g) || [];
-  let isSarah = true; // Start with Sarah to match TTS API
+//   // Split by sentence boundaries and alternate speakers
+//   const sentences = transcript.match(/[^.!?]+[.!?]+/g) || [];
+//   let isSarah = true; // Start with Sarah to match TTS API
 
 
-  for (const sentence of sentences) {
-    const trimmed = sentence.trim();
-    if (trimmed) {
-      messages.push({
-        speaker: isSarah ? 'sarah' : 'mark',
-        text: trimmed
-      });
-      isSarah = !isSarah;
-    }
-  }
+//   for (const sentence of sentences) {
+//     const trimmed = sentence.trim();
+//     if (trimmed) {
+//       messages.push({
+//         speaker: isSarah ? 'sarah' : 'mark',
+//         text: trimmed
+//       });
+//       isSarah = !isSarah;
+//     }
+//   }
 
-  return messages;
-}
+//   return messages;
+// }
 
 function ContentTransformer({
   module,
@@ -2139,13 +2069,18 @@ function formatContent(content: string) {
     return styleHTMLContent(content);
   }
 
+  console.log("This is not a html content")
+
   // Legacy markdown-to-HTML conversion for backward compatibility
   return styleMarkdownContent(content);
 }
 
 function styleHTMLContent(content: string): string {
+
+  console.log("Style the html content is called")
   // Create a temporary container to work with HTML
   if (typeof window === 'undefined') {
+    console.log("Inside this if")
     // Server-side fallback
     return sanitizeHTML(content);
   }
@@ -2157,12 +2092,20 @@ function styleHTMLContent(content: string): string {
     // Style tables with Tailwind classes
     const tables = container.querySelectorAll('table');
     tables.forEach((table) => {
-      table.className = 'w-full border-collapse border border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
+      table.className = 'w-full  border-2 border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
+      table.setAttribute('style', 'border-collapse: collapse; border: 2px solid rgb(0, 0, 0);');
       
       // Style table headers
       const headers = table.querySelectorAll('thead th, thead td');
       headers.forEach((header) => {
         header.className = 'bg-blue-50 border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900 text-sm';
+        (header as HTMLElement).style.cssText = 'border: 1px solid rgb(0, 0, 0); padding: 12px 16px; background-color: #eff6ff; font-weight: 600;';
+      });
+
+      // Style table rows
+      const rows = table.querySelectorAll('tr');
+      rows.forEach((row) => {
+        (row as HTMLElement).style.cssText = 'border-bottom: 2px solidrgb(21, 22, 22);';
       });
 
       // Style table body
@@ -2170,7 +2113,13 @@ function styleHTMLContent(content: string): string {
       cells.forEach((cell, idx) => {
         const isEvenRow = Math.floor(idx / (table.querySelectorAll('tbody tr')[0]?.children.length || 1)) % 2;
         cell.className = `border border-gray-300 px-4 py-3 text-gray-800 text-sm ${isEvenRow ? 'bg-white' : 'bg-gray-50'}`;
+        (cell as HTMLElement).style.cssText = `border: 1px solidrgb(11, 12, 12); padding: 12px 16px; ${isEvenRow ? 'background-color: #ffffff;' : 'background-color: #f9fafb;'}`;
       });
+
+
+
+      console.log("THis is the edited table")
+      console.log(table.querySelectorAll)
     });
 
     // Style headings
@@ -2321,6 +2270,8 @@ function styleMarkdownContent(content: string): string {
   formatted = formatted.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
   formatted = formatted.replace(/\b(CS|CR|AS|AR)\b(?=\W|$)/g, '');
 
+
+  console.log("This is getting called",formatted)
   return formatted;
 }
 

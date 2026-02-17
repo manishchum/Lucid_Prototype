@@ -54,8 +54,15 @@ function TrainingPlanContent() {
   const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
   const [processedModuleIds, setProcessedModuleIds] = useState<string[]>([]);
   let userId:any = null;
-  // Fetch completed modules from Supabase (same logic as employee/welcome)
   useEffect(() => {
+          if (!authLoading) {
+            if (!user) router.push("/login");
+            else fetchCompletedModules();
+            
+          }
+        }, [user, authLoading, router]);
+  // Fetch completed modules from Supabase (same logic as employee/welcome)
+ 
     // console.log("[training-plan] Fetching completed modules for user:", user?.email);
     async function fetchCompletedModules() {
       if (!user?.email) return;
@@ -86,14 +93,7 @@ function TrainingPlanContent() {
     }
 
 
-   fetchCompletedModules();
-    console.log(user)
-    console.log(userId)
-
-    if(!user||!actualUserId)return;
-    console.log(actualUserId)
-    // setActualUserId(employeeData.id);
-  }, [user]);
+   
 
   // Helper to render reasoning in a readable format
   function renderReasoning(reasoning: any) {

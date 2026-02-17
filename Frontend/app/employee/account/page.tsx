@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, User, Mail, Calendar, Building, Save, Edit3 } from "lucide-react";
+import { ArrowLeft, User, Mail, Calendar, Building, Save, Edit3, Lock, Eye, EyeOff, X, CheckCircle } from "lucide-react";
 import EmployeeNavigation from "@/components/employee-navigation";
 
 interface Employee {
@@ -17,7 +17,6 @@ interface Employee {
   name: string | null;
   joined_at: string;
   company_id: string | null;
-  // department: string | null; // Commented out as requested
   position: string | null;
   phone: string | null;
 }
@@ -43,9 +42,18 @@ export default function AccountPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordStep, setPasswordStep] = useState<"current" | "new" | "success">("current");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
-    // department: "", // Commented out as requested
     position: "",
     phone: "",
   });
@@ -65,7 +73,6 @@ export default function AccountPage() {
     if (!user?.email) return;
 
     try {
-      // Fetch employee data
       const { data: employeeData, error: employeeError } = await supabase
         .from("users")
         .select("*")
@@ -81,12 +88,10 @@ export default function AccountPage() {
       setEmployee(employeeData);
       setFormData({
         name: employeeData.name || "",
-        // department: employeeData.department || "", // Commented out as requested
         position: employeeData.position || "",
         phone: employeeData.phone || "",
       });
 
-      // Fetch company data if available
       if (employeeData.company_id) {
         const { data: companyData, error: companyError } = await supabase
           .from("companies")
@@ -115,7 +120,6 @@ export default function AccountPage() {
         .from("users")
         .update({
           name: formData.name || null,
-          // department: formData.department || null, // Commented out as requested
           position: formData.position || null,
           phone: formData.phone || null,
         })
@@ -125,11 +129,9 @@ export default function AccountPage() {
         console.error("Failed to update employee:", error);
         alert("Failed to save changes. Please try again.");
       } else {
-        // Update local state
         setEmployee({
           ...employee,
           name: formData.name || null,
-          // department: formData.department || null, // Commented out as requested
           position: formData.position || null,
           phone: formData.phone || null,
         });
@@ -147,11 +149,100 @@ export default function AccountPage() {
   const handleCancel = () => {
     setFormData({
       name: employee?.name || "",
-      // department: employee?.department || "", // Commented out as requested
       position: employee?.position || "",
       phone: employee?.phone || "",
     });
     setEditing(false);
+  };
+
+  const openPasswordModal = () => {
+    setShowPasswordModal(true);
+    setPasswordStep("current");
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordError("");
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
+  };
+
+  const closePasswordModal = () => {
+    setShowPasswordModal(false);
+    setPasswordStep("current");
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordError("");
+  };
+
+  const handleValidateCurrentPassword = async () => {
+    if (!currentPassword.trim()) {
+      setPasswordError("Please enter your current password");
+      return;
+    }
+    setPasswordLoading(true);
+    setPasswordError("");
+    try {
+      const res = await fetch("/api/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: employee?.user_id,
+          current_password: currentPassword,
+          new_password: "__validate_only__",
+        }),
+      });
+      const data = await res.json();
+      if (res.status === 401) {
+        setPasswordError("Current password is incorrect");
+      } else {
+        setPasswordStep("new");
+        setPasswordError("");
+      }
+    } catch {
+      setPasswordError("Something went wrong. Please try again.");
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!newPassword.trim()) {
+      setPasswordError("Please enter a new password");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordError("Password must be at least 6 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError("Passwords do not match");
+      return;
+    }
+    setPasswordLoading(true);
+    setPasswordError("");
+    try {
+      const res = await fetch("/api/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: employee?.user_id,
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPasswordStep("success");
+      } else {
+        setPasswordError(data.error || "Failed to change password");
+      }
+    } catch {
+      setPasswordError("Something went wrong. Please try again.");
+    } finally {
+      setPasswordLoading(false);
+    }
   };
 
   if (authLoading || loading) {
@@ -169,25 +260,15 @@ export default function AccountPage() {
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
       <EmployeeNavigation showBack={true} showForward={false} />
       
-      {/* Main content area that adapts to sidebar */}
       <div 
         className="transition-all duration-300 ease-in-out"
         style={{ 
           marginLeft: 'var(--sidebar-width, 0px)',
         }}
       >
-        {/* Header */}
         <div className="bg-white shadow-sm border-b">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center py-4">
-              {/* <Button
-                variant="ghost"
-                onClick={() => router.push("/employee/welcome")}
-                className="mr-4"
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Dashboard
-              </Button> */}
               <div className="flex items-center">
                 <User className="w-8 h-8 text-green-600 mr-3" />
                 <div>
@@ -199,11 +280,9 @@ export default function AccountPage() {
           </div>
         </div>
 
-        {/* Page content */}
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
         <div className="grid gap-8">
-          {/* Profile Card */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
@@ -234,7 +313,6 @@ export default function AccountPage() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid md:grid-cols-2 gap-6">
-                {/* Name */}
                 <div className="space-y-2">
                   <Label htmlFor="name">Full Name</Label>
                   {editing ? (
@@ -251,7 +329,6 @@ export default function AccountPage() {
                   )}
                 </div>
 
-                {/* Email (Read-only) */}
                 <div className="space-y-2">
                   <Label htmlFor="email">Email Address</Label>
                   <div className="p-3 bg-gray-100 rounded-md text-gray-600 flex items-center gap-2">
@@ -261,24 +338,6 @@ export default function AccountPage() {
                   <p className="text-xs text-gray-500">Email cannot be changed</p>
                 </div>
 
-                {/* Department */}
-                {/* <div className="space-y-2">
-                  <Label htmlFor="department">Department</Label>
-                  {editing ? (
-                    <Input
-                      id="department"
-                      value={formData.department}
-                      onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                      placeholder="Enter your department"
-                    />
-                  ) : (
-                    <div className="p-3 bg-gray-50 rounded-md">
-                      {employee?.department || "Not set"}
-                    </div>
-                  )}
-                </div> */}
-
-                {/* Position */}
                 <div className="space-y-2">
                   <Label htmlFor="position">Position/Title</Label>
                   {editing ? (
@@ -295,7 +354,6 @@ export default function AccountPage() {
                   )}
                 </div>
 
-                {/* Phone */}
                 <div className="space-y-2">
                   <Label htmlFor="phone">Phone Number</Label>
                   {editing ? (
@@ -312,7 +370,6 @@ export default function AccountPage() {
                   )}
                 </div>
 
-                {/* Company (Read-only) */}
                 <div className="space-y-2">
                   <Label>Company</Label>
                   <div className="p-3 bg-gray-100 rounded-md text-gray-600 flex items-center gap-2">
@@ -322,7 +379,6 @@ export default function AccountPage() {
                 </div>
               </div>
 
-              {/* Member Since */}
               <div className="pt-4 border-t">
                 <div className="flex items-center gap-2 text-sm text-gray-600">
                   <Calendar className="w-4 h-4" />
@@ -332,7 +388,6 @@ export default function AccountPage() {
             </CardContent>
           </Card>
 
-          {/* Additional Settings Card */}
           <Card>
             <CardHeader>
               <CardTitle>Account Information</CardTitle>
@@ -351,6 +406,19 @@ export default function AccountPage() {
                     Active
                   </div>
                 </div>
+
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                  <div>
+                    <h3 className="font-medium flex items-center gap-2">
+                      <Lock className="w-4 h-4" />
+                      Password
+                    </h3>
+                    <p className="text-sm text-gray-600">Change your account password</p>
+                  </div>
+                  <Button onClick={openPasswordModal} variant="outline">
+                    Change Password
+                  </Button>
+                </div>
                 
                 <div className="p-4 bg-yellow-50 rounded-lg">
                   <h3 className="font-medium text-yellow-800">Need Help?</h3>
@@ -364,6 +432,114 @@ export default function AccountPage() {
         </div>
         </div>
       </div>
+
+      {showPasswordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Lock className="w-5 h-5" />
+                Change Password
+              </h2>
+              <button onClick={closePasswordModal} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-6 py-6">
+              {passwordStep === "current" && (
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-600">Enter your current password to continue.</p>
+                  <div className="space-y-2">
+                    <Label htmlFor="current-password">Current Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="current-password"
+                        type={showCurrentPassword ? "text" : "password"}
+                        value={currentPassword}
+                        onChange={(e) => { setCurrentPassword(e.target.value); setPasswordError(""); }}
+                        placeholder="Enter current password"
+                        onKeyDown={(e) => e.key === "Enter" && handleValidateCurrentPassword()}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  {passwordError && <p className="text-sm text-red-600">{passwordError}</p>}
+                  <Button onClick={handleValidateCurrentPassword} disabled={passwordLoading} className="w-full">
+                    {passwordLoading ? "Verifying..." : "Continue"}
+                  </Button>
+                </div>
+              )}
+
+              {passwordStep === "new" && (
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-600">Enter your new password.</p>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-password">New Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="new-password"
+                        type={showNewPassword ? "text" : "password"}
+                        value={newPassword}
+                        onChange={(e) => { setNewPassword(e.target.value); setPasswordError(""); }}
+                        placeholder="Enter new password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirm-password">Confirm New Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="confirm-password"
+                        type={showConfirmPassword ? "text" : "password"}
+                        value={confirmPassword}
+                        onChange={(e) => { setConfirmPassword(e.target.value); setPasswordError(""); }}
+                        placeholder="Re-enter new password"
+                        onKeyDown={(e) => e.key === "Enter" && handleChangePassword()}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  {passwordError && <p className="text-sm text-red-600">{passwordError}</p>}
+                  <Button onClick={handleChangePassword} disabled={passwordLoading} className="w-full">
+                    {passwordLoading ? "Changing Password..." : "Change Password"}
+                  </Button>
+                </div>
+              )}
+
+              {passwordStep === "success" && (
+                <div className="text-center space-y-4 py-4">
+                  <CheckCircle className="w-16 h-16 text-green-500 mx-auto" />
+                  <h3 className="text-lg font-semibold text-gray-900">Password Changed!</h3>
+                  <p className="text-sm text-gray-600">Your password has been successfully updated.</p>
+                  <Button onClick={closePasswordModal} className="w-full">
+                    Done
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

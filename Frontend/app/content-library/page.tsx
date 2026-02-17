@@ -6,6 +6,7 @@ import EmployeeNavigation from '@/components/employee-navigation';
 import EmployeeLayout from '@/components/employee-layout';
 import { useAuth } from '@/contexts/auth-context';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 export const dynamic = "force-dynamic";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -26,11 +27,19 @@ const fetchUserByEmail = async (email: string | undefined | null) => {
 };
 
 export default function ContentLibraryPage() {
-  const { user, loading } = useAuth();
+  const { user, loading:authLoading } = useAuth();
   const [roles, setRoles] = useState<string[] | null>(null);
+  const router = useRouter();
   const [checking, setChecking] = useState(true);
 
-  useEffect(() => {
+useEffect(() => {
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else fetchRoles();
+          
+        }
+      }, [user, authLoading, router]);
+
     const fetchRoles = async () => {
       if (!user?.email) {
         setRoles([]);
@@ -65,9 +74,9 @@ export default function ContentLibraryPage() {
     };
 
     fetchRoles();
-  }, [user]);
+ 
 
-    if (loading || checking) return <div className="p-8">Loading...</div>;
+    if (authLoading || checking) return <div className="p-8">Loading...</div>;
 
     const isAdmin = (roles || []).some(r => r === 'ADMIN' || r === 'SUPER_ADMIN');
 

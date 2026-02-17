@@ -16,6 +16,38 @@ import {
 } from 'lucide-react';
 import EmployeeNavigation from '@/components/employee-navigation';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/auth-context';
+import { useRouter } from 'next/navigation';
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+
+// helper: fetch users by filter via backend (do not query users table from frontend)
+const fetchUsersByFilter = async (filters: {
+  functionId?: string;
+  subFunctionId?: string;
+  titleId?: string;
+}) => {
+  try {
+    // Build query params
+    const params = new URLSearchParams();
+    if (filters.functionId) params.append('function_id', filters.functionId);
+    if (filters.subFunctionId) params.append('sub_function_id', filters.subFunctionId);
+    if (filters.titleId) params.append('title_id', filters.titleId);
+    params.append('is_active', 'true');
+    params.append('employment_status', 'ACTIVE');
+
+    // Note: This assumes you have a backend endpoint that supports these filters
+    // If not available, you'll need to create one or fetch all and filter client-side
+    const res = await fetch(`${API_BASE}/api/users?${params.toString()}`);
+    if (!res.ok) return [];
+    const payload = await res.json();
+    const users = payload?.users ?? payload;
+    return Array.isArray(users) ? users : users ? [users] : [];
+  } catch (e) {
+    console.error('[fetchUsersByFilter] error', e);
+    return [];
+  }
+};
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -67,6 +99,9 @@ interface KPIMapping {
 }
 
 export default function WorkforceOverview() {
+  const {user, loading: authLoading} = useAuth();
+
+  const router = useRouter();
   const [functions, setFunctions] = useState<Array<{ function_id: string; function_name: string }>>([]);
   const [subFunctions, setSubFunctions] = useState<Array<{ sub_function_id: string; sub_function_name: string }>>([]);
   const [titles, setTitles] = useState<Array<{ title_id: string; title_name: string }>>([]);
@@ -81,8 +116,12 @@ export default function WorkforceOverview() {
   const [kpiMappings, setKpiMappings] = useState<KPIMapping[]>([]);
 
   useEffect(() => {
-    loadFilters();
-  }, []);
+          if (!authLoading) {
+            if (!user) router.push("/login");
+            else loadFilters();
+            
+          }
+        }, [user, authLoading, router]);
 
   useEffect(() => {
     if (selectedFunctionId) {
