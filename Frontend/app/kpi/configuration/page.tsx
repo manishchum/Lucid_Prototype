@@ -237,7 +237,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
 
 export default function KPIConfigurationPage() {
 const router = useRouter()
-const { user } = useAuth()
+const { user,loading:authLoading } = useAuth()
 const [kpis, setKpis] = useState<KPI[]>([])
 const [filteredKpis, setFilteredKpis] = useState<KPI[]>([])
 const [loading, setLoading] = useState(true)
@@ -258,16 +258,12 @@ const [companyId, setCompanyId] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
   const [admin, setAdmin] = useState<Admin | null>(null);
   useEffect(() => {
-    setTimeout(() => {
-    if (!user) {
-      router.push("/login")
-      return
-    }
-}, 200);
-    fetchCompanyAndKPIs()
-    fetchFilterData()
-    fetchAdminId();
-  }, [user, router])
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else fetchAdminId();
+          
+        }
+      }, [user, authLoading, router]);
 
   const fetchAdminId = async () => {
     try {
@@ -276,6 +272,11 @@ const [companyId, setCompanyId] = useState<string>("")
       if (!employeeData){
         throw new Error("Admin user not found.")
       }
+
+    fetchCompanyAndKPIs()
+    fetchFilterData()
+    fetchAdminId();
+
     } catch (error) {
       console.error("Error fetching admin data:", error)
     }

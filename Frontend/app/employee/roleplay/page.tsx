@@ -93,8 +93,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   }, [isAdmin]); // Depend on both userId and isAdmin
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.push('/login');
+    if (!authLoading) {
+      if (!user) router.push("/login");
     }
   }, [user, authLoading, router]);
 
