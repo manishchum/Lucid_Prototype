@@ -570,12 +570,12 @@ function ContentCards({ content }: { content: string }) {
 
   // Cycling colors for generic "section" types
   const sectionCycleColors = [
-    { bg: 'bg-gradient-to-br from-rose-50 via-pink-100 to-fuchsia-100', border: 'border-rose-400', titleColor: 'text-rose-800', icon: '🔷' },
-    { bg: 'bg-gradient-to-br from-teal-50 via-emerald-100 to-green-100', border: 'border-teal-400', titleColor: 'text-teal-800', icon: '🔶' },
-    { bg: 'bg-gradient-to-br from-sky-50 via-blue-100 to-indigo-100', border: 'border-sky-400', titleColor: 'text-sky-800', icon: '🟣' },
-    { bg: 'bg-gradient-to-br from-orange-50 via-amber-100 to-yellow-100', border: 'border-orange-400', titleColor: 'text-orange-800', icon: '🟢' },
-    { bg: 'bg-gradient-to-br from-fuchsia-50 via-purple-100 to-violet-100', border: 'border-fuchsia-400', titleColor: 'text-fuchsia-800', icon: '🔴' },
-    { bg: 'bg-gradient-to-br from-emerald-50 via-teal-100 to-cyan-100', border: 'border-emerald-400', titleColor: 'text-emerald-800', icon: '🟡' },
+    { bg: 'bg-[#E5CCFF]/40', border: 'border-[#C89EFF]', titleColor: 'text-[#5B21B6]', icon: '🔷' },
+    { bg: 'bg-[#E5CCFF]/30', border: 'border-[#D4B5FF]', titleColor: 'text-[#6D28D9]', icon: '🔶' },
+    { bg: 'bg-[#E5CCFF]/50', border: 'border-[#B983FF]', titleColor: 'text-[#4C1D95]', icon: '🟣' },
+    { bg: 'bg-[#E5CCFF]/35', border: 'border-[#C89EFF]', titleColor: 'text-[#5B21B6]', icon: '🟢' },
+    { bg: 'bg-[#E5CCFF]/45', border: 'border-[#D4B5FF]', titleColor: 'text-[#6D28D9]', icon: '🔴' },
+    { bg: 'bg-[#E5CCFF]/25', border: 'border-[#B983FF]', titleColor: 'text-[#4C1D95]', icon: '🟡' },
   ];
 
   let sectionColorIdx = 0;
@@ -619,7 +619,7 @@ function ContentCards({ content }: { content: string }) {
           >
             {section.title && (
               <div className="flex items-center gap-3 mb-6">
-                <span className="text-2xl">{style.icon}</span>
+                {/* <span className="text-2xl">{style.icon}</span> */}
                 <h2 className={clsx("font-bold text-xl", style.titleColor)}>
                   {section.title}
                 </h2>
