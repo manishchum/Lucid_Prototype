@@ -267,14 +267,16 @@ function TrainingPlanContent() {
         setBaselineExists(false);
         setBaselineCompleted(false);
         if (employeeData?.company_id && employeeData?.user_id) {
-          const { data: baselineDefs } = await supabase
-            .from("assessments")
-            .select("assessment_id, processed_modules!inner(user_id)")
-            .eq("type", "baseline")
-            .eq("company_id", employeeData.company_id)
-            .eq("processed_modules.user_id", employeeData.user_id)
-            ;
-
+          const q = new URLSearchParams({
+            type: "baseline",
+            company_id: employeeData.company_id,
+            user_id_filter: employeeData.user_id
+          });
+          const defsRes = await fetch(`${API_BASE}/api/assessments/filter/search?${q.toString()}`,{
+            headers: { "X-User-Id": employeeData.user_id }
+          });
+          const defsPayload = await defsRes.json().catch(() => ({}));
+          const baselineDefs = defsPayload.assessments ?? defsPayload.data ?? defsPayload ?? [];
 
           const {data: userBaselines, error: userBaselinesError } = await supabase
             .from("learning_plan")
