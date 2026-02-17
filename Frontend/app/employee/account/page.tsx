@@ -190,9 +190,10 @@ export default function AccountPage() {
         body: JSON.stringify({
           user_id: employee?.user_id,
           current_password: currentPassword,
-          new_password: "__validate_only__",
+          new_password: newPassword,
         }),
       });
+      console.log(res);
       const data = await res.json();
       if (res.status === 401) {
         setPasswordError("Current password is incorrect");

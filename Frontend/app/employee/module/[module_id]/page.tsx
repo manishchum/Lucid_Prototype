@@ -21,6 +21,7 @@ const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const fetchUserByEmail = async (email: string) => {
   try{
     const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    console.log(res);
     if(!res.ok) return null;
     const payload = await res.json();
     let u = payload?.user ?? payload;

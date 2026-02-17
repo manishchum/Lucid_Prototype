@@ -101,6 +101,7 @@ const AssessmentContent = () => {
           companyId = empData?.company_id || null;
           employeeId = empData?.user_id || null;
         }
+        console.log("the gpt mcq quiz is called");
         if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
         
         // Fetch user's learning style
@@ -111,26 +112,45 @@ const AssessmentContent = () => {
           .eq('user_id', employeeId)
           .maybeSingle();
         learningStyle = learningStyleData?.learning_style || 'default';
-        
         // If a moduleId query param is present, request a per-module quiz.
         const urlModuleId = searchParams.get('moduleId');
+        console.log("URL Module ID:", urlModuleId);
+        console.log(urlModuleId);
+
         let isBaselineRequest = false;
-        // console.log("Error in getting learning_plan");
         let res;
         if (urlModuleId) {
           // Check if this is a baseline assessment request by looking at learning plan
-          const { data: learningPlan } = await supabase
-            .from('learning_plan')
-            .select('baseline_assessment')
-            .eq('user_id', employeeId)
-            .eq('module_id', urlModuleId)
-            .single()
+          try {
+            const { data: learningPlan, error: lpError } = await supabase
+              .from('learning_plan')
+              .select('baseline_assessment')
+              .eq('user_id', employeeId)
+              .eq('module_id', urlModuleId)
+              .maybeSingle();
 
-          isBaselineRequest = Boolean(learningPlan && learningPlan.baseline_assessment === true);
+            console.log("Learning Plan Query - User ID:", employeeId, "Module ID:", urlModuleId);
+            console.log("Learning Plan Data:", learningPlan);
+            console.log("Learning Plan Error:", lpError);
+            
+            if (lpError) {
+              console.error("Error fetching learning plan:", lpError);
+            }
+            
+            // baseline_assessment is stored as smallint (0 or 1) in database, not boolean
+            if (learningPlan) {
+              console.log("baseline_assessment value:", learningPlan.baseline_assessment, "type:", typeof learningPlan.baseline_assessment);
+              isBaselineRequest = learningPlan.baseline_assessment === 1;
+            }
+            console.log("Is Baseline Request:", isBaselineRequest);
+          } catch (err) {
+            console.error("Exception while checking learning plan:", err);
+            isBaselineRequest = false;
+          }
           // console.log(isBaselineRequest)
           // console.log")
-            // console.log("Inside the if statement for per-module quiz request.");
-          // console.log(urlModuleId)
+            console.log("Inside the if statement for per-module quiz request.");
+          console.log(urlModuleId)
           res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -145,7 +165,7 @@ const AssessmentContent = () => {
           });
         } else {
           // Request a baseline quiz for all assigned modules (multi-module baseline)
-          // console.log("Inside the else statement for per-module quiz request.");
+          console.log("Inside the else statement for per-module quiz request.");
           res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -294,34 +314,47 @@ const AssessmentContent = () => {
           throw new Error('moduleId query param required to resolve baseline assessment');
         }
 
-        // Look up (or create) the baseline assessment for this company
-        // console.log("Inside in this else 1")
-        const { data: assessmentDef } = await supabase
-          .from('assessments')
-          .select('assessment_id')
-          .eq('type', 'baseline')
-          .eq('company_id', companyId)
-          .eq('original_module_id', urlModuleId)
-          .limit(1)
-          .maybeSingle();
-
-        // console.log("New Query to get the result")
-        // console.log(assessmentDef)
-        if (assessmentDef?.assessment_id) {
-          // console.log("Inside in this if 2")
-          assessmentId = assessmentDef.assessment_id;
-        } else {
-          // console.log("Inside in this else 2")
-          // console.log(mcqQuestionsByModule)
-          const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === 'baseline')?.questions || [];
-          const { data: newDef } = await supabase
-            .from('assessments')
-            .insert({ type: 'baseline', company_id: companyId, original_module_id: urlModuleId, learning_style: null, questions: JSON.stringify(questionsForModule) })
-            .select()
-            .single();
-            assessmentId = newDef?.assessment_id || null;
+        // Look up baseline assessment via backend API
+        const q = new URLSearchParams({
+          type: 'baseline',
+          company_id: companyId || '',
+          original_module_id: urlModuleId
+        });
+        const assessRes = await fetch(`${API_BASE}/api/assessments/filter/search?${q.toString()}`, {
+          headers: { 'X-User-ID': employeeId || '' }
+        });
+        if (assessRes.ok) {
+          const payload = await assessRes.json().catch(() => ({}));
+          const found = payload.assessments ?? payload.data ?? payload ?? [];
+          if (found && found.length > 0) {
+            assessmentId = found[0]?.assessment_id ?? null;
           }
-          // console.log(assessmentId)
+        }
+
+        // If no baseline exists, create it via backend route
+        if (!assessmentId) {
+          const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === 'baseline')?.questions || [];
+          const createRes = await fetch(`${API_BASE}/api/assessments/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId || '' },
+            body: JSON.stringify({
+              type: 'baseline',
+              company_id: companyId,
+              original_module_id: urlModuleId,
+              learning_style: null,
+              questions: questionsForModule
+            })
+          });
+          if (createRes.ok) {
+            const created = await createRes.json().catch(() => ({}));
+            const createdAssessment = created.assessment ?? created;
+            assessmentId = createdAssessment?.assessment_id ?? createdAssessment?.data?.assessment_id ?? null;
+          } else {
+            // creation failed — continue without assessmentId (fallback behavior)
+            console.warn('Failed to create baseline assessment via backend', await createRes.text().catch(()=>''));
+          }
+        }
+        // console.log(assessmentId)
       }
 
       // Log score in terminal
