@@ -80,8 +80,12 @@ const CreateRoleplayComponent = () => {
   const [errors, setErrors] = useState<string[]>([]);
 
   useEffect(() => {
-    if(user?.email)fetchUserData();
-  },[user, searchParams])
+    if (!authLoading) {
+      if (!user) router.push("/login");
+      else fetchUserData();
+      
+    }
+  }, [user, authLoading, router]);
   
   // Check for saved draft or edit scenario on component mount
   useEffect(() => {

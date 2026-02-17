@@ -184,6 +184,8 @@ async def POST(request: Request):
             print("[gpt-mcq-quiz] Error fetching learning style:", e)
 
     # Determine if baseline request
+
+    print("baseline check - body:", body)
     isBaselineRequest = body.get("isBaseline") is True or body.get("assessmentType") == "baseline"
 
     # Per-module quiz branch: supports BOTH keys exactly like TS

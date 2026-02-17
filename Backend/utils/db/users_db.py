@@ -18,8 +18,9 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str) -> Di
             has_permission = await check_user_permission(requesting_user_id, 'user')
             if not has_permission:
                 return {"data": None, "error": "Permission denied"}
-        # strip sensitive fields before returning
-        user.pop('password', None)
+            # strip sensitive fields before returning (only when not used for auth)
+            user.pop('password', None)
+        # For authentication (requesting_user_id is None), keep password for validation
         return {"data": user, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
