@@ -570,12 +570,12 @@ function ContentCards({ content }: { content: string }) {
 
   // Cycling colors for generic "section" types
   const sectionCycleColors = [
-    { bg: 'bg-[#E5CCFF]/40', border: 'border-[#C89EFF]', titleColor: 'text-[#5B21B6]', icon: '🔷' },
-    { bg: 'bg-[#E5CCFF]/30', border: 'border-[#D4B5FF]', titleColor: 'text-[#6D28D9]', icon: '🔶' },
-    { bg: 'bg-[#E5CCFF]/50', border: 'border-[#B983FF]', titleColor: 'text-[#4C1D95]', icon: '🟣' },
-    { bg: 'bg-[#E5CCFF]/35', border: 'border-[#C89EFF]', titleColor: 'text-[#5B21B6]', icon: '🟢' },
-    { bg: 'bg-[#E5CCFF]/45', border: 'border-[#D4B5FF]', titleColor: 'text-[#6D28D9]', icon: '🔴' },
-    { bg: 'bg-[#E5CCFF]/25', border: 'border-[#B983FF]', titleColor: 'text-[#4C1D95]', icon: '🟡' },
+    { bg: 'bg-[#FFFFFF]/40', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🔷' },
+    { bg: 'bg-[#FFFFFF]/30', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🔶' },
+    { bg: 'bg-[#FFFFFF]/50', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🟣' },
+    { bg: 'bg-[#FFFFFF]/35', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🟢' },
+    { bg: 'bg-[#FFFFFF]/45', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🔴' },
+    { bg: 'bg-[#FFFFFF]/25', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🟡' },
   ];
 
   let sectionColorIdx = 0;
