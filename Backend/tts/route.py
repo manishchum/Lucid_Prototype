@@ -247,7 +247,7 @@ IMPORTANT - Make it sound like a real conversation:
 {language_reminder}
 
 STRUCTURE:
-- Line 1: Single brief greeting (e.g., "Aaj hum discuss karenge [topic]")
+- Line 1: Single brief greeting (e.g., "Aaj hum discuss karenge [topic]" for Hindi, or "Today we're discussing [topic]" for English)
 - Lines 2 to {dialogueCount}-3: Deep dive into main content
 - Last 3 lines: Wrap-up with key takeaways and sign-off
 
