@@ -441,23 +441,6 @@ export default function EmployeesPage() {
         throw new Error(errorData.detail || 'Failed to delete user');
       }
 
-      // Revoke all role assignments via backend API
-      const roleAssignmentsRes = await fetch(`${API_URL}/api/roles/users/${userToDelete.user_id}`, {
-        headers: { 'X-User-ID': currentUserId }
-      });
-
-      if (roleAssignmentsRes.ok) {
-        const { assignments } = await roleAssignmentsRes.json();
-        
-        // Revoke each assignment
-        for (const assignment of assignments) {
-          await fetch(`${API_URL}/api/roles/assignments/${assignment.user_role_assignment_id}`, {
-            method: 'DELETE',
-            headers: { 'X-User-ID': currentUserId }
-          });
-        }
-      }
-
       setSuccess(`User ${userToDelete.name} has been deactivated successfully`);
       setShowDeleteConfirm(false);
       setUserToDelete(null);
@@ -1388,7 +1371,20 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       // Load existing roles and departments for mapping
       const { data: rolesData } = await supabase.from('roles').select('role_id, name');
       const { data: departmentsData } = await supabase.from('sub_department').select('department_id, department_name, sub_department_name');
-      const { data: companiesData } = await supabase.from('companies').select('company_id, name');
+      let companiesData: any[] = [];
+      try{
+        const compRes = await fetch(`${API_URL}/api/companies`, {
+          headers: { 'X-User-ID': adminId }
+        });
+        if (compRes.ok) {
+          const compPayload = await compRes.json().catch(() => null);
+          companiesData = compPayload?.companies ?? compPayload.data ?? compPayload ?? [];
+      }else{
+        console.warn('Failed to fetch companies for bulk upload mapping');
+      }
+    } catch (err) {
+      console.warn('Error during file upload processing:', err);
+    }
       
       const rolesMap = new Map(rolesData?.map((r: any) => [r.name.toLowerCase(), r.role_id]) || []);
       const departmentsMap = new Map(departmentsData?.map((d: any) => [`${d.department_name.toLowerCase()}-${d.sub_department_name.toLowerCase()}`, d.department_id]) || []);
@@ -1772,15 +1768,22 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
 
   const loadDropdownData = async () => {
     try {
-      // Load companies
-      const { data: companiesData, error: companiesError } = await supabase
-        .from('companies')
-        .select('company_id, name')
-        .order('name');
-      
-      if (companiesError) throw companiesError;
-      setCompanies(companiesData || []);
-
+      try{
+        const compRes = await fetch(`${API_URL}/api/companies`, {
+          headers: { 'X-User-ID': adminId }
+        });
+          if (!compRes.ok) {
+            console.warn("Failed to load companies");
+            setCompanies([]);
+          } else {
+            const compPayload = await compRes.json().catch(()=> null);
+            const companiesData = compPayload?.companies ?? compPayload.data ?? compPayload ?? [];
+            setCompanies(companiesData || []);
+          }
+      } catch (e) {
+        console.error('Error loading companies:', e);
+        setCompanies([]);
+    }
     } catch (error) {
       console.error('Failed to load dropdown data:', error);
       setError('Failed to load form data');
@@ -1868,17 +1871,19 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
     }
     try {
       // Fetch company's learning style setting
-      const { data: companyData, error: e } = await supabase
-        .from('companies')
-        .select('learning_style')
-        .eq('company_id', companyId)
-        .single();
-        if (e) {
-          console.error('Failed to fetch company data:', e);
+      let learningStyleEnabled: boolean | null = null;
+      try {
+        const companyRes = await fetch(`${API_URL}/api/companies/${encodeURIComponent(companyId)}`);
+        if (companyRes.ok) {
+          const compPayload = await companyRes.json().catch(() => null);
+          const companyData = compPayload?.company ?? compPayload;
+          learningStyleEnabled = companyData?.learning_style ?? null;
+        } else {
+          console.error('Failed to fetch company data:', companyRes.status);
         }
-      
-      const learningStyleEnabled = companyData?.learning_style;
-      temp = learningStyleEnabled;
+      } catch (compErr) {
+        console.error('Failed to fetch company data:', compErr);
+      }
       // Create user via API
       const createRes = await fetch(`${API_URL}/api/users`, {
         method: 'POST',
@@ -2963,15 +2968,22 @@ function UpdateEmployeeModal({
       if (rolesError) throw rolesError;
       setRoles(rolesData || []);
 
-      // Load companies
-      const { data: companiesData, error: companiesError } = await supabase
-        .from('companies')
-        .select('company_id, name')
-        .order('name');
-      
-      if (companiesError) throw companiesError;
-      setCompanies(companiesData || []);
-
+      try{
+        const compRes = await fetch(`${API_URL}/api/companies`, {
+          headers: { 'X-User-ID': adminId }
+        });
+        if (!compRes.ok) {
+          console.warn("Failed to load companies from backend");
+          setCompanies([]);
+        } else {
+          const compPayload = await compRes.json().catch(() => null);
+          const companiesData = compPayload?.companies ?? compPayload?.data ?? compPayload ?? [];
+          setCompanies(companiesData || []);
+        }
+      } catch (e) {
+        console.error('Error loading companies:', e);
+        setCompanies([]);
+      }
     } catch (error) {
       console.error('Failed to load dropdown data:', error);
       setError('Failed to load form data');
@@ -3106,9 +3118,14 @@ function UpdateEmployeeModal({
       if (currentRolesRes.ok) {
         const currentRolesPayload = await currentRolesRes.json();
         const currentAssignments = currentRolesPayload.assignments || currentRolesPayload.data || [];
-        
-        // Revoke all existing assignments via DELETE endpoint
-        for (const assignment of currentAssignments) {
+
+        // Diff: only revoke roles that were removed, only add roles that are new
+        const currentRoleIds = new Set(currentAssignments.map((a: any) => a.role_id));
+        const newRoleIds = new Set(formData.selected_roles);
+        const rolesToRevoke = currentAssignments.filter((a: any) => !newRoleIds.has(a.role_id));
+        const rolesToAdd = formData.selected_roles.filter((roleId: string) => !currentRoleIds.has(roleId));
+
+        for (const assignment of rolesToRevoke) {
           try {
             await fetch(`${API_URL}/api/roles/assignments/${assignment.user_role_assignment_id}`, {
               method: 'DELETE',
@@ -3118,10 +3135,29 @@ function UpdateEmployeeModal({
             console.error('Failed to revoke role assignment:', assignment.user_role_assignment_id, err);
           }
         }
-      }
 
-      // Then create new role assignments for selected roles
-      if (formData.selected_roles.length > 0) {
+        for (const roleId of rolesToAdd) {
+          try {
+            await fetch(`${API_URL}/api/roles/assignments`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': adminId
+              },
+              body: JSON.stringify({
+                user_id: employee.user_id,
+                role_id: roleId,
+                scope_type: 'COMPANY',
+                scope_id: employee.company_id,
+                notes: 'Updated role assignment'
+              })
+            });
+          } catch (err) {
+            console.error('Role assignment failed for role', roleId, err);
+          }
+        }
+      } else if (formData.selected_roles.length > 0) {
+        // Fallback: couldn't load current roles, assign all selected
         for (const roleId of formData.selected_roles) {
           try {
             await fetch(`${API_URL}/api/roles/assignments`, {
