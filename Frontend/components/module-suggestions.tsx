@@ -136,7 +136,7 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
                       <div className="flex-1" >
                         <div className="flex items-center justify-between" onClick={() => toggleLeadKpi(kpi)}>
                           <h4 className="font-medium text-gray-900 mb-3">{kpi}</h4>
-                          <button onClick={() => toggleLeadKpi(kpi)}>
+                          <button >
                             {expandedLeadKpis[kpi] ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
                           </button>
                         </div>
@@ -247,7 +247,7 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
                       <div className="flex-1" >
                         <div className="flex items-center justify-between" onClick={() => toggleLagKpi(kpi)}>
                           <h4 className="font-medium text-gray-900 mb-3" >{kpi}</h4>
-                          <button onClick={() => toggleLagKpi(kpi)}>
+                          <button >
                             {expandedLagKpis[kpi] ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
                           </button>
                         </div>
