@@ -275,7 +275,6 @@ const [companyId, setCompanyId] = useState<string>("")
 
     fetchCompanyAndKPIs()
     fetchFilterData()
-    fetchAdminId();
 
     } catch (error) {
       console.error("Error fetching admin data:", error)
