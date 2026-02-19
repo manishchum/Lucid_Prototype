@@ -98,7 +98,10 @@ Provide a response in the following JSON format:
   ]
 }
 
-Focus on practical, actionable training that directly addresses each specific KPI. Suggest real-world, commonly used business systems, tools and datatypes. Ensure each KPI has at least one module suggestion with relevant datasets.`;
+Focus on practical, actionable training that directly addresses each specific KPI. Suggest real-world, commonly used business systems, tools and datatypes. Ensure each KPI has at least one module suggestion with relevant datasets.
+NOTE : INSTEAD OF THE WORD "module" use the word "sprint" whereever possible
+
+`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
