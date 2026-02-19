@@ -18,6 +18,7 @@ interface EmployeeNavigationProps {
   className?: string;
   user?: any;
   onLogout?: () => void;
+  forceCollapsed?: boolean;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -37,7 +38,8 @@ const fetchUserByEmail = async (email: string | undefined | null) => {
 
 const EmployeeNavigation = ({ 
   user: providedUser,
-  onLogout: providedOnLogout
+  onLogout: providedOnLogout,
+  forceCollapsed = false
 }: EmployeeNavigationProps) => {
   const router = useRouter();
   const pathname = usePathname();
@@ -45,7 +47,7 @@ const EmployeeNavigation = ({
   
   // Existing Logic States
   const [employee, setEmployee] = useState<any>(null);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(forceCollapsed);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [coursesOpen, setCoursesOpen] = useState(false);
   const [adminDropdownOpen, setAdminDropdownOpen] = useState(false);
@@ -56,6 +58,13 @@ const EmployeeNavigation = ({
   const [showReportToast, setShowReportToast] = useState(false);
 
   const displayUser = providedUser || employee;
+
+  // Update isCollapsed when forceCollapsed prop changes
+  useEffect(() => {
+    if (forceCollapsed !== undefined) {
+      setIsCollapsed(forceCollapsed);
+    }
+  }, [forceCollapsed]);
 
   // Existing Logout Logic
   const handleLogout = providedOnLogout || (async () => {
