@@ -15,7 +15,7 @@ interface Employee {
   user_id: string;
   email: string;
   name: string | null;
-  joined_at: string;
+  created_at: string;
   company_id: string | null;
   position: string | null;
   phone: string | null;
@@ -73,33 +73,33 @@ export default function AccountPage() {
     if (!user?.email) return;
 
     try {
-      const { data: employeeData, error: employeeError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("email", user.email)
-        .single();
-
-      if (employeeError || !employeeData) {
-        console.error("Employee fetch error:", employeeError);
+      const userRes = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
+      if (!userRes.ok) {
+        console.error("Employee fetch error:", userRes.status, await userRes.text().catch(() => ""));
         router.push("/login");
         return;
       }
+      const userPayload = await userRes.json().catch(() => null);
+      const employeeData = userPayload?.user || userPayload;
+      const resolvedEmployee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
+      if(!resolvedEmployee || !resolvedEmployee.user_id) {
+        console.error("Employee data is invalid:", resolvedEmployee);
+        router.push("/login");
+        return;
+      }
+      setEmployee(resolvedEmployee);
 
-      setEmployee(employeeData);
       setFormData({
-        name: employeeData.name || "",
-        position: employeeData.position || "",
-        phone: employeeData.phone || "",
+        name: resolvedEmployee.name || "",
+        position: resolvedEmployee.position || "",
+        phone: resolvedEmployee.phone || "",
       });
 
-      if (employeeData.company_id) {
-        const { data: companyData, error: companyError } = await supabase
-          .from("companies")
-          .select("company_id, name")
-          .eq("company_id", employeeData.company_id)
-          .single();
-
-        if (!companyError && companyData) {
+      if (resolvedEmployee.company_id) {
+        const companyRes = await fetch(`${API_URL}/api/companies/${encodeURIComponent(resolvedEmployee.company_id)}`);
+        if (companyRes.ok) {
+          const compPayload = await companyRes.json().catch(() => null);
+          const companyData = compPayload?.company ?? compPayload;
           setCompany(companyData);
         }
       }
@@ -116,28 +116,31 @@ export default function AccountPage() {
 
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from("users")
-        .update({
-          name: formData.name || null,
-          position: formData.position || null,
-          phone: formData.phone || null,
-        })
-        .eq("user_id", employee.user_id);
-
-      if (error) {
-        console.error("Failed to update employee:", error);
+      const updRes = await fetch(`${API_URL}/api/users/${encodeURIComponent(employee.user_id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json",
+          "X-User-ID": employee.user_id,
+         },
+         body: JSON.stringify({
+          name: formData.name,
+          position: formData.position,
+          phone: formData.phone,
+         }),
+      });
+      if (!updRes.ok) {
+        const err = await updRes.text().catch(() => ({detail: updRes.text().catch(()=> "")}));
+        console.error("Update failed:", updRes.status, err);
         alert("Failed to save changes. Please try again.");
       } else {
         setEmployee({
           ...employee,
-          name: formData.name || null,
-          position: formData.position || null,
-          phone: formData.phone || null,
+          name: formData.name,
+          position: formData.position,
+          phone: formData.phone,
         });
         setEditing(false);
-        alert("Profile updated successfully!");
-      }
+        alert("Changes saved successfully!");
+      }     
     } catch (error) {
       console.error("Update error:", error);
       alert("Failed to save changes. Please try again.");
@@ -383,7 +386,7 @@ export default function AccountPage() {
               <div className="pt-4 border-t">
                 <div className="flex items-center gap-2 text-sm text-gray-600">
                   <Calendar className="w-4 h-4" />
-                  <span>Member since {new Date(employee?.joined_at || "").toLocaleDateString()}</span>
+                  <span>Member since {new Date(employee?.created_at || "").toLocaleDateString()}</span>
                 </div>
               </div>
             </CardContent>
