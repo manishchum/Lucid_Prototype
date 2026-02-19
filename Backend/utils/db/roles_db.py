@@ -96,7 +96,17 @@ async def assign_user_role(
             "is_active": role_data.get('is_active', True)
         }
         
-        resp = supabase.table('user_role_assignments').insert(assignment).execute()
+        # Check for existing inactive assignment with same user+role+scope (to reactivate instead of duplicating)
+        existing = supabase.table('user_role_assignments').select('user_role_assignment_id').eq(
+            'user_id', target_user_id
+        ).eq('role_id', role_id).eq('scope_id', scope_id).eq('is_active', False).execute()
+        if existing.data:
+            # Reactivate the existing inactive assignment instead of inserting a duplicate
+            resp = supabase.table('user_role_assignments').update({'is_active': True, 'assigned_by': requesting_user_id}).eq(
+                'user_role_assignment_id', existing.data[0]['user_role_assignment_id']
+            ).execute()
+        else:
+            resp = supabase.table('user_role_assignments').insert(assignment).execute()
         return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -201,15 +211,18 @@ async def update_role_assignment(
     Permission: company_admin+ in the same company as the assigned user.
     """
     try:
-        # Get the assignment with user info
+        # Get the assignment to find the target user_id
         assignment_resp = supabase.table('user_role_assignments').select(
-            '*, user:users!user_id(company_id)'
+            '*'
         ).eq('user_role_assignment_id', assignment_id).single().execute()
         
         if not assignment_resp.data:
             return {"data": None, "error": "Role assignment not found"}
         
-        user_company = assignment_resp.data.get('user', {}).get('company_id')
+        # Look up the user's company directly (avoids fragile join format)
+        target_user_id = assignment_resp.data.get('user_id')
+        user_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).single().execute()
+        user_company = user_resp.data.get('company_id') if user_resp.data else None
         
         # Permission check
         has_perm = await check_user_permission(requesting_user_id, 'company_admin')
@@ -250,15 +263,18 @@ async def revoke_role_assignment(
     Permission: company_admin+ in the same company as the assigned user.
     """
     try:
-        # Get the assignment with user info
+        # Get the assignment to find the target user_id
         assignment_resp = supabase.table('user_role_assignments').select(
-            '*, user:users!user_id(company_id)'
+            '*'
         ).eq('user_role_assignment_id', assignment_id).single().execute()
         
         if not assignment_resp.data:
             return {"data": None, "error": "Role assignment not found"}
         
-        user_company = assignment_resp.data.get('user', {}).get('company_id')
+        # Look up the user's company directly (avoids fragile join format)
+        target_user_id = assignment_resp.data.get('user_id')
+        user_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).single().execute()
+        user_company = user_resp.data.get('company_id') if user_resp.data else None
         
         # Permission check
         has_perm = await check_user_permission(requesting_user_id, 'company_admin')

@@ -747,10 +747,10 @@ function TrainingPlanContent() {
                 </div>
                 <div>
                   <CardTitle className="text-xl font-bold text-gray-900">
-                    Profile and Educational Background of Monalika Goel
+                    Your Roadmap to Mastery
                   </CardTitle>
                   <CardDescription className="text-sm text-gray-600">
-                    Your Roadmap to Mastery
+                    Performance Sprint which works for you.
                   </CardDescription>
                 </div>
               </div>
@@ -827,30 +827,28 @@ function TrainingPlanContent() {
               {normalizedModules.map((mod: any, idx: number) => (
                 <Card key={mod._tabValue} className="border-0 shadow-sm hover:shadow-md transition-shadow">
                   <CardHeader className="pb-4">
-                    <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold text-gray-600 mb-1">
-                        MODULE {idx + 1} OF {totalModulesCount}
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="text-sm font-semibold text-gray-600 mb-1">
+                          MODULE {idx + 1} OF {totalModulesCount}
+                        </div>
+                        <CardTitle className="text-base font-bold text-gray-900">
+                          {mod.title}
+                        </CardTitle>
                       </div>
-                      <CardTitle className="text-base font-bold text-gray-900">
-                        {mod.title}
-                      </CardTitle>
-                    </div>
-                    {mod._isCompleted && (
-                      <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 text-xs font-semibold rounded-full border border-green-200">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Completed
-                      </div>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex gap-3">
+                      <div className="flex items-center gap-3">
+                        {mod._isCompleted && (
+                          <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 text-xs font-semibold rounded-full border border-green-200">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Completed
+                          </div>
+                        )}
                     <Button
                       variant="outline"
-                      className="flex-1"
+                      className="shrink-0"
                       onClick={async () => {
-                        setContentLoadingModuleId(mod.processed_module_id);
+                        const moduleIdentifier = mod.processed_module_id || mod._tabValue;
+                        setContentLoadingModuleId(moduleIdentifier);
                         const navId = await resolveModuleId(mod);
                         if (navId) {
                           router.push(`/employee/module/${navId}`);
@@ -862,11 +860,11 @@ function TrainingPlanContent() {
                       disabled={
                         mod._isCompleted ||
                         moduleRequiresBaseline(mod) ||
-                        contentLoadingModuleId === mod.processed_module_id ||
-                        quizLoadingModuleId === mod.processed_module_id
+                        contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ||
+                        quizLoadingModuleId === (mod.processed_module_id || mod._tabValue)
                       }
                     >
-                      {contentLoadingModuleId === mod.processed_module_id ? (
+                      {contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ? (
                         <span className="flex items-center gap-2">
                           <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-500 border-t-transparent"></div>
                           Loading...
@@ -876,13 +874,14 @@ function TrainingPlanContent() {
                       )}
                     </Button>
                     <Button
-                      className={`flex-1 ${
+                      className={`shrink-0 ${
                         mod._isCompleted || moduleRequiresBaseline(mod)
                           ? "bg-gray-200 text-gray-500 hover:bg-gray-200"
                           : "bg-blue-600 hover:bg-blue-700"
                       }`}
                       onClick={async () => {
-                        setQuizLoadingModuleId(mod.processed_module_id);
+                        const moduleIdentifier = mod.processed_module_id || mod._tabValue;
+                        setQuizLoadingModuleId(moduleIdentifier);
                         const navId = await resolveModuleId(mod);
                         if (navId) {
                           router.push(`/employee/quiz/${navId}`);
@@ -894,11 +893,11 @@ function TrainingPlanContent() {
                       disabled={
                         mod._isCompleted ||
                         moduleRequiresBaseline(mod) ||
-                        contentLoadingModuleId === mod.processed_module_id ||
-                        quizLoadingModuleId === mod.processed_module_id
+                        contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ||
+                        quizLoadingModuleId === (mod.processed_module_id || mod._tabValue)
                       }
                     >
-                      {quizLoadingModuleId === mod.processed_module_id ? (
+                      {quizLoadingModuleId === (mod.processed_module_id || mod._tabValue) ? (
                         <span className="flex items-center gap-2">
                           <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
                           Loading...
@@ -907,9 +906,10 @@ function TrainingPlanContent() {
                         "Module Quiz"
                       )}
                     </Button>
-                  </div>
-                </CardContent>
-              </Card>
+                      </div>
+                    </div>
+                  </CardHeader>
+                </Card>
             ))}
             </div>
           </div>

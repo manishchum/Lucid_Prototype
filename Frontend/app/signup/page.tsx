@@ -116,25 +116,43 @@ export default function SignupPage() {
       setLoading(false)
       return
     }
-
+    
+    // First, check if the company exists in the companies table (ensure companyRes is defined in this scope)
+    let companyRes: Response | null = null;
     try {
-      // First, check if the company exists in the companies table
-      const { data: companyData, error: companyError } = await supabase
-        .from("companies")
-        .select("company_id")
-        .eq("name", formData.companyName)
-        .maybeSingle()
+      companyRes = await fetch(`${API_BASE}/api/companies/by-name/${encodeURIComponent(formData.companyName)}`)
+    } catch (err) {
+      setError("Failed to check company. Please try again.");
+      setLoading(false);
+      return;
+    }
 
-      if (companyError) {
-        throw new Error("Error checking company: " + companyError.message)
+    if (!companyRes) {
+      setError("Failed to check company. Please try again.");
+      setLoading(false);
+      return;
+    }
+
+    if (!companyRes.ok) {
+      // treat not-found as user-facing message, other statuses as errors
+      if (companyRes.status === 404) {
+        setError("Company not found. Please check the company name or contact support.");
+        setLoading(false);
+        return;
+      } else {
+        const txt = await companyRes.text().catch(() => "");
+        throw new Error(`Error checking company: ${companyRes.status} ${txt}`);
       }
+    }
 
-      if (!companyData) {
-        setError("Company not found. Please contact your administrator to register your company first.")
-        setLoading(false)
-        return
-      }
-
+    const companyPayload = await companyRes.json().catch(() => null);
+    const companyData = companyPayload?.company ?? companyPayload;
+    if (!companyData || !companyData.company_id) {
+      setError("Company not found. Please check the company name or contact support.")
+      setLoading(false)
+      return;
+    }
+    
       // Check if user already exists
       const cheskRes = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(formData.email)}`)
       if (cheskRes.ok) {
@@ -227,7 +245,7 @@ export default function SignupPage() {
     } finally {
       setLoading(false)
     }
-  }
+  
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">

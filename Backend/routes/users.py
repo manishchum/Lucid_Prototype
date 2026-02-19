@@ -96,7 +96,12 @@ async def create_user_endpoint(
     result = await create_user(user_id, user_data)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
-    return {"user": result["data"], "message": "User created successfully"}
+    reactivated = result.get("reactivated", False)
+    return {
+        "user": result["data"],
+        "message": "User reactivated successfully" if reactivated else "User created successfully",
+        "reactivated": reactivated
+    }
 
 
 @router.put("/{target_user_id}")
