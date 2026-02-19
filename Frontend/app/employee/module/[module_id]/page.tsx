@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
+import ModuleSideNav from "@/components/ModuleSideNav";
 import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download } from "lucide-react";
 import FlashcardCards from '@/components/FlashcardCards'
 import MindmapViewer from '@/components/MindmapViewer'
@@ -294,9 +295,21 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
 
   return (
     <div className="min-h-screen">
-      <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} />
+      <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} forceCollapsed={true} />
+      
+      {/* Module Side Navigation */}
+      {employee?.user_id && (
+        <ModuleSideNav 
+          userId={employee.user_id} 
+          currentModuleId={moduleId}
+          sprintModuleId={module?.original_module_id}
+        />
+      )}
 
-      <div className="transition-all duration-300 ease-in-out px-12 py-8" style={{ marginLeft: 'var(--sidebar-width, 0px)' }}>
+      <div 
+        className="transition-all duration-300 ease-in-out px-12 py-8" 
+        style={{ marginLeft: 'calc(var(--sidebar-width, 5rem) + 16rem)' }}
+      >
         <div className="w-full mx-auto">
           <div>
             <main className="w-full">
@@ -570,12 +583,12 @@ function ContentCards({ content }: { content: string }) {
 
   // Cycling colors for generic "section" types
   const sectionCycleColors = [
-    { bg: 'bg-gradient-to-br from-rose-50 via-pink-100 to-fuchsia-100', border: 'border-rose-400', titleColor: 'text-rose-800', icon: '🔷' },
-    { bg: 'bg-gradient-to-br from-teal-50 via-emerald-100 to-green-100', border: 'border-teal-400', titleColor: 'text-teal-800', icon: '🔶' },
-    { bg: 'bg-gradient-to-br from-sky-50 via-blue-100 to-indigo-100', border: 'border-sky-400', titleColor: 'text-sky-800', icon: '🟣' },
-    { bg: 'bg-gradient-to-br from-orange-50 via-amber-100 to-yellow-100', border: 'border-orange-400', titleColor: 'text-orange-800', icon: '🟢' },
-    { bg: 'bg-gradient-to-br from-fuchsia-50 via-purple-100 to-violet-100', border: 'border-fuchsia-400', titleColor: 'text-fuchsia-800', icon: '🔴' },
-    { bg: 'bg-gradient-to-br from-emerald-50 via-teal-100 to-cyan-100', border: 'border-emerald-400', titleColor: 'text-emerald-800', icon: '🟡' },
+    { bg: 'bg-[#FFFFFF]/40', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🔷' },
+    { bg: 'bg-[#FFFFFF]/30', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🔶' },
+    { bg: 'bg-[#FFFFFF]/50', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🟣' },
+    { bg: 'bg-[#FFFFFF]/35', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🟢' },
+    { bg: 'bg-[#FFFFFF]/45', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🔴' },
+    { bg: 'bg-[#FFFFFF]/25', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🟡' },
   ];
 
   let sectionColorIdx = 0;
@@ -619,7 +632,7 @@ function ContentCards({ content }: { content: string }) {
           >
             {section.title && (
               <div className="flex items-center gap-3 mb-6">
-                <span className="text-2xl">{style.icon}</span>
+                {/* <span className="text-2xl">{style.icon}</span> */}
                 <h2 className={clsx("font-bold text-xl", style.titleColor)}>
                   {section.title}
                 </h2>
@@ -648,7 +661,7 @@ function parseContentIntoSections(content: string) {
 
   if (isHTML) {
     console.log("This is returning html content");
-    // Split HTML content into sections based on h2/h3 headings
+    // Split HTML content into sections based on <section> tags
     return splitHTMLIntoSections(content);
   } else {
     // Parse markdown-style content (legacy fallback)
@@ -659,22 +672,66 @@ function parseContentIntoSections(content: string) {
 function splitHTMLIntoSections(content: string): Array<{ type: string; title: string; content: string }> {
   const sections: Array<{ type: string; title: string; content: string }> = [];
 
-  // Use regex to split by <h2> or <h3> tags
-  // We capture the heading tag and its content, then everything until the next heading
+  // Check if content uses <section> tags
+  const hasSectionTags = /<section[\s>]/i.test(content);
+
+  if (hasSectionTags) {
+    // Parse based on <section> tags
+    const sectionRegex = /<section[^>]*class="([^"]*)"[^>]*>([\s\S]*?)<\/section>/gi;
+    let match;
+
+    while ((match = sectionRegex.exec(content)) !== null) {
+      const className = match[1].trim();
+      const sectionHTML = match[2].trim();
+
+      // Extract title from the first <h2> or <h3> inside the section
+      const titleMatch = sectionHTML.match(/<h[2-3][^>]*>(.*?)<\/h[2-3]>/i);
+      const title = titleMatch ? titleMatch[1].replace(/<[^>]*>/g, '').trim() : '';
+
+      // Remove the first heading from content since we display it as the card title
+      const contentWithoutTitle = titleMatch
+        ? sectionHTML.replace(titleMatch[0], '').trim()
+        : sectionHTML;
+
+      // Determine section type from class name
+      let type = 'section';
+      if (className.includes('learning-objectives')) {
+        type = 'objectives';
+      } else if (className.includes('module-section')) {
+        // Extract section number if present (e.g., "Section 1: ...")
+        const sectionNumMatch = title.match(/Section\s+(\d+)/i);
+        type = sectionNumMatch ? `module-section-${sectionNumMatch[1]}` : 'module-section';
+      } else if (className.includes('activity')) {
+        type = 'activity';
+      } else if (className.includes('module-summary')) {
+        type = 'summary';
+      } else if (className.includes('discussion')) {
+        type = 'discussion';
+      }
+
+      const styledContent = styleHTMLContent(contentWithoutTitle);
+      sections.push({ type, title, content: styledContent });
+    }
+
+    if (sections.length > 0) {
+      return sections;
+    }
+  }
+
+  // Fallback: split by <h2>/<h3> headings if no <section> tags found
   const headingRegex = /<(h[1-3])[^>]*>(.*?)<\/\1>/gi;
   const matches: Array<{ index: number; tag: string; title: string }> = [];
 
-  let match;
-  while ((match = headingRegex.exec(content)) !== null) {
+  let headingMatch;
+  while ((headingMatch = headingRegex.exec(content)) !== null) {
     matches.push({
-      index: match.index,
-      tag: match[1],
-      title: match[2].replace(/<[^>]*>/g, '').trim(), // strip inner HTML tags from title
+      index: headingMatch.index,
+      tag: headingMatch[1],
+      title: headingMatch[2].replace(/<[^>]*>/g, '').trim(),
     });
   }
 
   if (matches.length === 0) {
-    // No headings found — return as single styled section
     const styledContent = styleHTMLContent(content);
     return [{ type: 'intro', title: '', content: styledContent }];
   }
@@ -683,52 +740,40 @@ function splitHTMLIntoSections(content: string): Array<{ type: string; title: st
   const beforeFirst = content.substring(0, matches[0].index).trim();
   if (beforeFirst) {
     const styledIntro = styleHTMLContent(beforeFirst);
-    // Only add if there's meaningful content
     const stripped = styledIntro.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
     if (stripped.length > 0) {
       sections.push({ type: 'intro', title: '', content: styledIntro });
     }
   }
 
-  // Determine section types based on title keywords
-  const getSectionType = (title: string, idx: number): string => {
+  const getSectionType = (title: string): string => {
     const lower = title.toLowerCase();
-    if (lower.includes('objective') || lower.includes('goal') || lower.includes('outcome')) return 'objectives';
-    if (lower.includes('activity') || lower.includes('exercise') || lower.includes('practice')) return 'activity';
-    if (lower.includes('summary') || lower.includes('conclusion') || lower.includes('recap') || lower.includes('key takeaway')) return 'summary';
-    if (lower.includes('discussion') || lower.includes('question') || lower.includes('reflect')) return 'discussion';
-    if (lower.includes('example') || lower.includes('case study') || lower.includes('scenario')) return 'example';
-    if (lower.includes('definition') || lower.includes('concept') || lower.includes('overview')) return 'definition';
-    if (lower.includes('tip') || lower.includes('best practice') || lower.includes('recommendation')) return 'tip';
-    if (lower.includes('warning') || lower.includes('caution') || lower.includes('important') || lower.includes('critical')) return 'warning';
+    if (lower.includes('learning objective')) return 'objectives';
+    if (lower.match(/section\s+\d+/)) {
+      const num = lower.match(/section\s+(\d+)/);
+      return num ? `module-section-${num[1]}` : 'module-section';
+    }
+    if (lower.includes('activity') || lower.includes('exercise')) return 'activity';
+    if (lower.includes('summary') || lower.includes('conclusion')) return 'summary';
+    if (lower.includes('discussion')) return 'discussion';
     return 'section';
   };
 
-  // Build sections from each heading
   for (let i = 0; i < matches.length; i++) {
     const heading = matches[i];
-    const startIdx = heading.index;
     const endIdx = i + 1 < matches.length ? matches[i + 1].index : content.length;
-
-    // Get the content after the heading tag up to next heading
-    const headingTagEnd = content.indexOf('>', startIdx) + 1;
     const closingTag = `</${heading.tag}>`;
-    const closingIdx = content.indexOf(closingTag, headingTagEnd);
-    const sectionStart = closingIdx >= 0 ? closingIdx + closingTag.length : headingTagEnd;
+    const closingIdx = content.indexOf(closingTag, heading.index);
+    const sectionStart = closingIdx >= 0 ? closingIdx + closingTag.length : content.indexOf('>', heading.index) + 1;
     const sectionContent = content.substring(sectionStart, endIdx).trim();
 
     if (sectionContent || heading.title) {
       const styledContent = styleHTMLContent(sectionContent);
-      const sectionType = getSectionType(heading.title, i);
-      sections.push({
-        type: sectionType,
-        title: heading.title,
-        content: styledContent,
-      });
+      const sectionType = getSectionType(heading.title);
+      sections.push({ type: sectionType, title: heading.title, content: styledContent });
     }
   }
 
-  // If no meaningful sections were extracted, return as single section
   if (sections.length === 0) {
     const styledContent = styleHTMLContent(content);
     return [{ type: 'intro', title: '', content: styledContent }];
@@ -864,48 +909,46 @@ function groupSectionsForTabs(sections: SectionBlock[]): TabGroup[] {
     return group;
   };
 
-  let sectionCounter = 0;
-  let hasPlacedOverview = false;
-  let currentKey = 'overview';
-  ensureGroup(currentKey, 'Overview');
-
-  const hasMeaningfulContent = (section: SectionBlock) => {
-    const stripped = (section.content || '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    return stripped.length > 0;
-  };
+  let lastSectionKey = 'overview';
 
   sections.forEach((section) => {
+    // Module sections get their own tab: "Section 1", "Section 2", etc.
+    const moduleSectionMatch = section.type.match(/^module-section-(\d+)$/);
+    if (moduleSectionMatch) {
+      const num = moduleSectionMatch[1];
+      const key = `section-${num}`;
+      const label = `Section ${num}`;
+      ensureGroup(key, label).items.push(section);
+      lastSectionKey = key;
+      return;
+    }
+
+    // Generic module-section without a number
+    if (section.type === 'module-section') {
+      const key = 'section-misc';
+      ensureGroup(key, 'Section').items.push(section);
+      lastSectionKey = key;
+      return;
+    }
+
+    // Summary / conclusion goes to its own tab
     if (section.type === 'summary') {
-      ensureGroup('conclusion', 'Conclusion').items.push(section);
+      ensureGroup('conclusion', 'Module Summary').items.push(section);
       return;
     }
 
-    if (!hasPlacedOverview && hasMeaningfulContent(section)) {
-      ensureGroup('overview', 'Overview').items.push(section);
-      currentKey = 'overview';
-      hasPlacedOverview = true;
+    // Activity gets appended to the last numbered section tab (or overview if none)
+    if (section.type === 'activity') {
+      ensureGroup(lastSectionKey, lastSectionKey === 'overview' ? 'Overview' : '').items.push(section);
       return;
     }
 
-    if (section.type === 'section') {
-      sectionCounter += 1;
-      currentKey = `section-${sectionCounter}`;
-      const label = `Section ${sectionCounter}`;
-      ensureGroup(currentKey, label).items.push(section);
-      return;
-    }
-
-    const key = sectionCounter > 0 ? `section-${sectionCounter}` : 'overview';
-    const label = sectionCounter > 0 ? `Section ${sectionCounter}` : 'Overview';
-    ensureGroup(key, label).items.push(section);
+    // Everything else (objectives, intro, discussion, etc.) goes to Overview
+    ensureGroup('overview', 'Overview').items.push(section);
   });
 
-  console.log("These are the groups", groups);
-  return groups;
+  // Remove any empty groups
+  return groups.filter((g) => g.items.length > 0);
 }
 
 function extractPlainText(content: string) {
@@ -1150,7 +1193,7 @@ function ContentTransformer({
             ✨
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-slate-900">Content Transformer</h2>
+            <h2 className="text-2xl font-bold text-slate-900">Lucid Studio</h2>
             <p className="text-slate-600 text-sm mt-1">Convert this Sprint into your preferred format.</p>
           </div>
         </div>
