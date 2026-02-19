@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
+import ModuleSideNav from "@/components/ModuleSideNav";
 import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download } from "lucide-react";
 import FlashcardCards from '@/components/FlashcardCards'
 import MindmapViewer from '@/components/MindmapViewer'
@@ -294,9 +295,21 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
 
   return (
     <div className="min-h-screen">
-      <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} />
+      <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} forceCollapsed={true} />
+      
+      {/* Module Side Navigation */}
+      {employee?.user_id && (
+        <ModuleSideNav 
+          userId={employee.user_id} 
+          currentModuleId={moduleId}
+          sprintModuleId={module?.original_module_id}
+        />
+      )}
 
-      <div className="transition-all duration-300 ease-in-out px-12 py-8" style={{ marginLeft: 'var(--sidebar-width, 0px)' }}>
+      <div 
+        className="transition-all duration-300 ease-in-out px-12 py-8" 
+        style={{ marginLeft: 'calc(var(--sidebar-width, 5rem) + 16rem)' }}
+      >
         <div className="w-full mx-auto">
           <div>
             <main className="w-full">
@@ -1180,7 +1193,7 @@ function ContentTransformer({
             ✨
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-slate-900">Content Transformer</h2>
+            <h2 className="text-2xl font-bold text-slate-900">Lucid Studio</h2>
             <p className="text-slate-600 text-sm mt-1">Convert this Sprint into your preferred format.</p>
           </div>
         </div>
