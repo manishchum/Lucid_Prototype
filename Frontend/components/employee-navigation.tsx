@@ -184,9 +184,8 @@ const EmployeeNavigation = ({
 
   // UI Component: Tooltip for collapsed state
   const NavTooltip = ({ label }: { label: string }) => (
-    <div className="absolute left-full ml-3 px-3 py-2 bg-[#1E293B] text-white text-xs font-bold rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 translate-x-[-10px] group-hover:translate-x-0 z-[100] whitespace-nowrap shadow-xl">
+    <div className="absolute left-full ml-2 px-2.5 py-1.5 bg-slate-900 text-white text-xs font-medium rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible pointer-events-none transition-all duration-200 z-[9999] whitespace-nowrap shadow-lg top-1/2 -translate-y-1/2">
       {label}
-      <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-2 bg-[#1E293B] rotate-45" />
     </div>
   );
 
@@ -214,7 +213,7 @@ const EmployeeNavigation = ({
         </Button>
       </div>
 
-      <aside className={`fixed top-0 left-0 h-screen bg-white border-r border-slate-100 z-50 transition-all duration-300 ease-in-out flex flex-col
+      <aside className={`fixed top-0 left-0 h-screen bg-white border-r border-slate-100 z-50 transition-all duration-300 ease-in-out flex flex-col overflow-visible
         ${isMobileOpen ? 'translate-x-0 w-[280px]' : '-translate-x-full lg:translate-x-0'} 
         ${isCollapsed ? 'lg:w-20' : 'lg:w-[280px]'}`}>
         
@@ -250,7 +249,7 @@ const EmployeeNavigation = ({
           </div>
         )}
 
-        <nav className="flex-1 px-3 overflow-y-auto space-y-1 custom-scrollbar pt-2">
+        <nav className="flex-1 px-3 overflow-y-visible overflow-x-visible space-y-1 custom-scrollbar pt-2">
           {/* Home */}
           <div className="relative group">
             <button 
@@ -426,9 +425,8 @@ const EmployeeNavigation = ({
             <LogOut size={20} className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
             {!isCollapsed && <span>Log Out</span>}
             {isCollapsed && (
-              <div className="absolute left-full ml-3 px-3 py-2 bg-[#EF4444] text-white text-xs font-bold rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-[100] whitespace-nowrap shadow-xl">
+              <div className="absolute left-full ml-2 px-2.5 py-1.5 bg-red-600 text-white text-xs font-medium rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible pointer-events-none transition-all duration-200 z-[9999] whitespace-nowrap shadow-lg top-1/2 -translate-y-1/2">
                 Log Out
-                <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-2 bg-[#EF4444] rotate-45" />
               </div>
             )}
           </button>
