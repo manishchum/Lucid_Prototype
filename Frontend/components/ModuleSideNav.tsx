@@ -110,8 +110,11 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
   if (loading) {
     return (
       <div
-        className="fixed top-0 left-[5rem] h-screen w-64 bg-white border-r shadow-lg z-40 overflow-y-auto"
-        style={{ paddingTop: "4rem" }}
+        className="fixed top-0 h-screen w-64 bg-white border-r shadow-sm z-30 overflow-y-auto transition-all duration-300 ease-in-out"
+        style={{ 
+          paddingTop: "4rem",
+          left: "var(--sidebar-width, 5rem)"
+        }}
       >
         <div className="p-4">
           <div className="animate-pulse space-y-3">
@@ -130,8 +133,11 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
 
   return (
     <div
-      className="fixed top-0 left-[5rem] h-screen w-64 bg-white border-r shadow-sm z-40 overflow-y-auto"
-      style={{ paddingTop: "4rem" }}
+      className="fixed top-0 h-screen w-64 bg-white border-r shadow-sm z-30 overflow-y-auto transition-all duration-300 ease-in-out"
+      style={{ 
+        paddingTop: "4rem",
+        left: "var(--sidebar-width, 5rem)"
+      }}
     >
       <div className="p-6">
         <h2 className="text-xl font-bold mb-6 text-gray-900">Modules</h2>

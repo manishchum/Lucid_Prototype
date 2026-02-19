@@ -820,12 +820,14 @@ function TrainingPlanContent() {
             </Card>
           )}
 
-          {/* Module Cards */}
-          <div className="space-y-4">
-            {normalizedModules.map((mod: any, idx: number) => (
-              <Card key={mod._tabValue} className="border-0 shadow-sm hover:shadow-md transition-shadow">
-                <CardHeader className="pb-4">
-                  <div className="flex items-start justify-between">
+          {/* Module Cards - Scrollable Section */}
+          <div className="mb-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Your Modules</h2>
+            <div className="max-h-[600px] overflow-y-auto pr-2 space-y-4 scroll-smooth">
+              {normalizedModules.map((mod: any, idx: number) => (
+                <Card key={mod._tabValue} className="border-0 shadow-sm hover:shadow-md transition-shadow">
+                  <CardHeader className="pb-4">
+                    <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="text-sm font-semibold text-gray-600 mb-1">
                         MODULE {idx + 1} OF {totalModulesCount}
@@ -909,6 +911,7 @@ function TrainingPlanContent() {
                 </CardContent>
               </Card>
             ))}
+            </div>
           </div>
 
           {/* Understand How Your Module Is Crafted Section */}
@@ -946,7 +949,7 @@ function TrainingPlanContent() {
                   </div>
 
                   <div className="p-4 bg-white rounded-lg">
-                    <h3 className="font-semibold text-gray-900 mb-2">Learning Approach</h3>
+                    <h3 className="font-semibold text-gray-900 mb-2">Learning Blueprint</h3>
                     <p className="text-sm text-gray-700 leading-relaxed">
                       {reasoning?.overall_strategy || 
                        "The learning plan is designed using a 'Macro-to-Micro' and 'Theory-to-Practice' architecture, structured around the Kolb Learning Cycle. We begin with 'Professional Identity' (Profile modules) to establish the learner's baseline. We then move to 'Contextual Application' (Internship modules) to build real-world understanding."}
