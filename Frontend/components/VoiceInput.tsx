@@ -8,9 +8,10 @@ interface VoiceInputProps {
   onTranscription: (text: string) => void;
   disabled?: boolean;
   autoStart?: boolean; // New prop for auto-starting
+  onManualStop?: () => void; // Callback when user manually stops recording
 }
 
-export default function VoiceInput({ onTranscription, disabled, autoStart = false }: VoiceInputProps) {
+export default function VoiceInput({ onTranscription, disabled, autoStart = false, onManualStop }: VoiceInputProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -103,7 +104,7 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     let lastSoundTime = Date.now();
     const SILENCE_THRESHOLD = 25; // Volume level threshold (0-255) - require actual silence, not just quiet speech
-  const SILENCE_DURATION = 2000; // 2 seconds - stop after 2 seconds of silence
+    const SILENCE_DURATION = 3000; // 3 seconds - stop after 3 seconds of silence (allows for natural pauses)
     let hasDetectedSpeech = false; // Track if we've detected any speech at all
     let lastLoggedSecond = 0; // Track last logged second to avoid duplicate logs
     
@@ -120,8 +121,8 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
       analyser.getByteFrequencyData(dataArray);
       const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
       
-      // Consider speech detected if volume is above a reasonable threshold
-      if (average > 30) {
+      // Consider speech detected if volume is above a reasonable threshold (lowered from 30 to 25)
+      if (average > 25) {
         if (!hasDetectedSpeech) {
           console.log('[VoiceInput] 🎤 Speech detected, starting silence detection');
           hasDetectedSpeech = true;
@@ -250,16 +251,16 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
 
       // Start recording with 1-second timeslices for asynchronous chunk collection
       // This ensures data is available progressively, not all at once at the end
-      mediaRecorder.start(1000); // 1000ms timeslice = 1 second chunks (bash async style)
+      mediaRecorder.start(5000); // 1000ms timeslice = 1 second chunks (bash async style)
       setIsRecording(true);
       isRecordingRef.current = true; // Set ref for silence detection
       console.log('🎤 Recording started with 1s async timeslices for long-duration support');
       
       // Set maximum recording duration timeout
-      recordingTimerRef.current = setTimeout(() => {
-        console.log('⏱️ Maximum recording duration reached, stopping...');
-        stopRecording();
-      }, MAX_RECORDING_DURATION);
+      // recordingTimerRef.current = setTimeout(() => {
+      //   console.log('⏱️ Maximum recording duration reached, stopping...');
+      //   stopRecording();
+      // }, MAX_RECORDING_DURATION);
       
       // Start silence detection
       detectSilence(stream);
@@ -456,6 +457,11 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
 
   const handleClick = () => {
     if (isRecording) {
+      console.log('[VoiceInput] 🛑 User manually stopped recording');
+      // Notify parent that user manually stopped
+      if (onManualStop) {
+        onManualStop();
+      }
       stopRecording();
     } else {
       startRecording();
@@ -499,3 +505,266 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
     </div>
   );
 }
+
+
+// 'use client';
+
+// import { useState, useRef, useEffect } from 'react';
+// import { Mic, Square } from 'lucide-react';
+// import { splitAudioIntoChunks } from '@/lib/audio-chunker';
+
+// interface VoiceInputProps {
+//   onTranscription: (text: string) => void;
+//   disabled?: boolean;
+//   autoStart?: boolean;
+//   onManualStop?: () => void;
+// }
+
+// export default function VoiceInput({
+//   onTranscription,
+//   disabled,
+//   autoStart = false,
+//   onManualStop
+// }: VoiceInputProps) {
+//   const [isRecording, setIsRecording] = useState(false);
+//   const [isProcessing, setIsProcessing] = useState(false);
+//   const [recordingDuration, setRecordingDuration] = useState(0);
+
+//   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+//   const audioChunksRef = useRef<Blob[]>([]);
+//   const audioContextRef = useRef<AudioContext | null>(null);
+//   const analyserRef = useRef<AnalyserNode | null>(null);
+//   const streamRef = useRef<MediaStream | null>(null);
+
+//   const recordingStartTimeRef = useRef<number>(0);
+//   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+//   const animationFrameRef = useRef<number | null>(null);
+//   const isRecordingRef = useRef<boolean>(false);
+//   const hasAutoStartedRef = useRef<boolean>(false);
+
+//   const MAX_RECORDING_DURATION = 300000; // 5 minutes
+
+//   /* ---------------- AUTO START ---------------- */
+
+//   useEffect(() => {
+//     if (autoStart && !isRecording && !isProcessing && !disabled && !hasAutoStartedRef.current) {
+//       hasAutoStartedRef.current = true;
+//       startRecording();
+//     }
+//   }, [autoStart]);
+
+//   /* ---------------- TIMER DISPLAY ---------------- */
+
+//   useEffect(() => {
+//     let id: NodeJS.Timeout | null = null;
+
+//     if (isRecording) {
+//       id = setInterval(() => {
+//         setRecordingDuration(Date.now() - recordingStartTimeRef.current);
+//       }, 100);
+//     }
+
+//     return () => {
+//       if (id) clearInterval(id);
+//     };
+//   }, [isRecording]);
+
+//   /* ---------------- CLEANUP ---------------- */
+
+//   useEffect(() => {
+//     return () => {
+//       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+//       if (recordingTimerRef.current) clearTimeout(recordingTimerRef.current);
+//       if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
+//       if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+//     };
+//   }, []);
+
+//   /* =====================================================
+//      🚀 FIXED SILENCE DETECTION (PRODUCTION GRADE)
+//      ===================================================== */
+
+//   const detectSilence = (stream: MediaStream) => {
+//     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+//       audioContextRef.current.close().catch(() => {});
+//     }
+
+//     const audioContext = new AudioContext();
+//     const analyser = audioContext.createAnalyser();
+//     const microphone = audioContext.createMediaStreamSource(stream);
+
+//     analyser.fftSize = 2048;
+//     microphone.connect(analyser);
+
+//     audioContextRef.current = audioContext;
+//     analyserRef.current = analyser;
+
+//     const dataArray = new Uint8Array(analyser.fftSize);
+
+//     let lastSoundTime = Date.now();
+//     let hasDetectedSpeech = false;
+
+//     const SILENCE_DURATION = 10000; // ⭐ 10 seconds
+//     const MIN_RECORDING_TIME = 3000;
+
+//     const checkAudioLevel = () => {
+//       if (!isRecordingRef.current) return;
+
+//       analyser.getByteTimeDomainData(dataArray);
+
+//       let sumSquares = 0;
+//       for (let i = 0; i < dataArray.length; i++) {
+//         const normalized = (dataArray[i] - 128) / 128;
+//         sumSquares += normalized * normalized;
+//       }
+
+//       const rms = Math.sqrt(sumSquares / dataArray.length);
+//       const isSpeaking = rms > 0.02;
+
+//       if (isSpeaking) {
+//         if (!hasDetectedSpeech) {
+//           console.log('🎤 Speech detected');
+//           hasDetectedSpeech = true;
+//         }
+//         lastSoundTime = Date.now();
+//       } else {
+//         const silenceTime = Date.now() - lastSoundTime;
+//         const totalTime = Date.now() - recordingStartTimeRef.current;
+
+//         if (hasDetectedSpeech && silenceTime > SILENCE_DURATION && totalTime > MIN_RECORDING_TIME) {
+//           console.log('🔇 Silence detected — stopping recording');
+//           stopRecording();
+//           return;
+//         }
+//       }
+
+//       animationFrameRef.current = requestAnimationFrame(checkAudioLevel);
+//     };
+
+//     checkAudioLevel();
+//   };
+
+//   /* ===================================================== */
+
+//   const startRecording = async () => {
+//     if (isRecording || mediaRecorderRef.current) return;
+
+//     try {
+//       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+//       streamRef.current = stream;
+
+//       const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+//       mediaRecorderRef.current = recorder;
+//       audioChunksRef.current = [];
+//       recordingStartTimeRef.current = Date.now();
+//       setRecordingDuration(0);
+
+//       recorder.ondataavailable = e => {
+//         if (e.data.size > 0) {
+//           audioChunksRef.current.push(e.data);
+//         }
+//       };
+
+//       recorder.onstop = async () => {
+//         const duration = Date.now() - recordingStartTimeRef.current;
+//         const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+
+//         if (blob.size > 5000) {
+//           await transcribeAudio(blob, duration);
+//         }
+
+//         cleanup();
+//         setRecordingDuration(0);
+//       };
+
+//       const cleanup = () => {
+//         if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+//         if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
+//         mediaRecorderRef.current = null;
+//       };
+
+//       recorder.start(2000); // ⭐ 2 sec chunks (stable)
+//       setIsRecording(true);
+//       isRecordingRef.current = true;
+
+//       recordingTimerRef.current = setTimeout(stopRecording, MAX_RECORDING_DURATION);
+
+//       detectSilence(stream);
+//     } catch {
+//       alert('Microphone permission required');
+//     }
+//   };
+
+//   const stopRecording = () => {
+//     setIsRecording(false);
+//     isRecordingRef.current = false;
+
+//     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+//     if (recordingTimerRef.current) clearTimeout(recordingTimerRef.current);
+
+//     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+//       mediaRecorderRef.current.stop();
+//     }
+//   };
+
+//   /* ---------------- TRANSCRIPTION ---------------- */
+
+//   const transcribeAudio = async (blob: Blob, duration: number) => {
+//     setIsProcessing(true);
+
+//     try {
+//       const sizeKB = blob.size / 1024;
+//       const useAsync = duration > 55000 || sizeKB > 800;
+
+//       if (!useAsync) {
+//         const fd = new FormData();
+//         fd.append('audio', blob);
+
+//         const res = await fetch('/api/speech-to-text', { method: 'POST', body: fd });
+//         const data = await res.json();
+
+//         if (data.text) onTranscription(data.text);
+//         return;
+//       }
+
+//       const chunks = await splitAudioIntoChunks(blob);
+//       const fd = new FormData();
+//       fd.append('chunkCount', chunks.length.toString());
+
+//       chunks.forEach((c, i) => fd.append(`chunk_${i}`, c.blob));
+
+//       const res = await fetch('/api/speech-to-text-async', { method: 'POST', body: fd });
+//       const data = await res.json();
+
+//       if (data.text) onTranscription(data.text);
+//     } finally {
+//       setIsProcessing(false);
+//     }
+//   };
+
+//   /* ---------------- UI ---------------- */
+
+//   const formatDuration = (ms: number) => {
+//     const s = Math.floor(ms / 1000);
+//     return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+//   };
+
+//   return (
+//     <div className="flex items-center gap-2">
+//       <button
+//         onClick={() => (isRecording ? stopRecording() : startRecording())}
+//         disabled={disabled || isProcessing}
+//         className={`p-2 rounded-full ${
+//           isRecording
+//             ? 'bg-red-500 animate-pulse text-white'
+//             : 'bg-gray-200 hover:bg-gray-300'
+//         }`}
+//       >
+//         {isRecording ? <Square /> : <Mic />}
+//       </button>
+
+//       {isRecording && <span className="text-red-600 font-mono">{formatDuration(recordingDuration)}</span>}
+//     </div>
+//   );
+// }
