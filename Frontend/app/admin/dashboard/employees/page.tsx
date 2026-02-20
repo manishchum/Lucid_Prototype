@@ -1769,7 +1769,8 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
   const loadDropdownData = async () => {
     try {
       try{
-        const compRes = await fetch(`${API_URL}/api/companies`, {
+        const companiesUrl = `${(API_URL || '').replace(/\/$/, '')}/api/companies/`;
+        const compRes = await fetch(companiesUrl, {
           headers: { 'X-User-ID': adminId }
         });
           if (!compRes.ok) {
@@ -2300,16 +2301,23 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
     setError('');
     
     try {
-      // First get all completed content jobs
-      const { data: completedJobs, error: jobsError } = await supabase
-        .from('content_jobs')
-        .select('module_id')
-        .eq('status', 'completed');
-    
-      if (jobsError) throw jobsError;
-    
-      // Extract module IDs from completed jobs
-      const completedModuleIds = completedJobs?.map(job => job.module_id) || [];
+      let completedModuleIds: string[] = [];
+      try {
+        const jobsRes = await fetch(`${API_URL}/api/content-jobs?status=completed&limit=1000`, {
+          headers: { 'X-User-ID': adminId }
+        });
+        if (!jobsRes.ok) {
+          console.warn('Failed to fetch content jobs from backend', jobsRes.status, await jobsRes.text().catch(()=>''));
+          completedModuleIds = [];
+        } else {
+          const jobsPayload = await jobsRes.json().catch(() => null);
+          const completeJobs = jobsPayload?.content_jobs ?? jobsPayload?.data ?? [];
+          completedModuleIds = (completeJobs || []).map((job: any) => job.module_id).filter(Boolean);
+        }
+      } catch (e) {
+        console.warn("Error fetching content jobs:", e);
+        completedModuleIds = [];
+      }
       
       if (completedModuleIds.length === 0) {
         setModules([]);
