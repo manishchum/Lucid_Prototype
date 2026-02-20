@@ -281,9 +281,9 @@ const EmployeeNavigation = ({
             {coursesOpen && !isCollapsed && (
               <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
                 {[
-                  { href: '/employee/welcome', label: 'Active Modules', icon: Play },
+                  { href: '/employee/welcome', label: 'In Progress', icon: Play },
                   { href: '/employee/welcome', label: 'Completed', icon: Check },
-                  { href: '/content-library', label: 'All Modules', icon: List }
+                  { href: '/content-library', label: 'All Sprints', icon: List }
                 ].map((item) => (
                   <button
                     key={item.label}
