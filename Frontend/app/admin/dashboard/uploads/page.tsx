@@ -552,46 +552,64 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
       if (error) throw error;
 
-      // For each module, check content_jobs status
-      const modulesWithStatus = await Promise.all(
-        (data || []).map(async (module) => {
-          // Check if module exists in content_jobs
-          let finalStatus = module.processing_status;
-          try{
-            const jobsRes = await fetch(`${API_URL}/api/content-jobs?module_id=${encodeURIComponent(module.module_id)}`);
-            if(!jobsRes.ok){
-              if(finalStatus?.toLowerCase() !== 'processing') finalStatus = 'processing'; 
-            } else {
-              const jobsPayload = await jobsRes.json().catch(() => null);
-              const jobs = jobsPayload?.jobs ?? jobsPayload.data ?? jobsPayload ?? [];
-              const job = Array.isArray(jobs) ? jobs[0] : jobs;
-              if(!jobs){
-                if(finalStatus?.toLowerCase() !== 'processing') finalStatus = 'processing';
-              } else {
-                if(job.status === 'completed') finalStatus = 'completed';
-                else if(job.status === 'failed') finalStatus = 'failed';
-                else finalStatus = 'pending';
-              }
+      // Fetch ALL content jobs in ONE batch call (much faster than per-module)
+      let jobsMap = new Map<string, any>();
+      try {
+        const jobsRes = await fetch(`${API_URL}/api/content-jobs/?limit=1000`, {
+          headers: { 'X-User-ID': adminId }
+        });
+        
+        if (jobsRes.ok) {
+          const jobsPayload = await jobsRes.json().catch(() => null);
+          const jobs = jobsPayload?.jobs ?? jobsPayload?.data ?? jobsPayload ?? [];
+          
+          // Create a map of module_id -> job for fast lookup
+          (jobs || []).forEach((job: any) => {
+            if (job.module_id) {
+              jobsMap.set(job.module_id, job);
             }
-          } catch (e) {
-            console.warn('[uploads] failed to fetch content job for module', module.module_id, e);
-            if(finalStatus?.toLowerCase() !== 'processing') finalStatus = 'processing';
-          }
+          });
+          console.log(`[uploads] Loaded ${jobsMap.size} content jobs in batch`);
+        } else {
+          const errorText = await jobsRes.text().catch(() => '');
+          console.error('[uploads] Failed to fetch content jobs batch:', jobsRes.status, errorText);
+          console.error('[uploads] Using adminId:', adminId);
+        }
+      } catch (e) {
+        console.error('[uploads] Error fetching content jobs batch:', e);
+      }
 
-          // Update module status in database if it changed
-          if (finalStatus !== module.processing_status) {
-            await supabase
-              .from('training_modules')
-              .update({ processing_status: finalStatus })
-              .eq('module_id', module.module_id);
-          }
+      // Map modules with their job status (no async operations, just lookups)
+      const modulesWithStatus = (data || []).map((module) => {
+        let finalStatus = module.processing_status;
+        
+        const job = jobsMap.get(module.module_id);
+        if (job) {
+          // Map backend job status to frontend status
+          if (job.status === 'completed') finalStatus = 'completed';
+          else if (job.status === 'failed') finalStatus = 'failed';
+          else if (job.status === 'in_progress' || job.status === 'in-progress') finalStatus = 'processing';
+          else finalStatus = 'pending';
+        } else {
+          // No job found, keep existing status or default
+          finalStatus = finalStatus || 'processing';
+        }
 
-          return {
-            ...module,
-            processing_status: finalStatus
-          };
-        })
-      );
+        // Update module status in database if it changed (fire and forget)
+        if (finalStatus !== module.processing_status) {
+          supabase
+            .from('training_modules')
+            .update({ processing_status: finalStatus })
+            .eq('module_id', module.module_id)
+            .then(() => {})
+            .catch((err) => console.warn('[uploads] Failed to update module status:', err));
+        }
+
+        return {
+          ...module,
+          processing_status: finalStatus
+        };
+      });
 
       setTrainingModules(modulesWithStatus);
     } catch (error: any) {
