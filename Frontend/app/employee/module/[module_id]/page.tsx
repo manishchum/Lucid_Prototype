@@ -47,7 +47,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const [liveTranscript, setLiveTranscript] = useState("");
   const [plainTranscript, setPlainTranscript] = useState("");
   const [hasVideo, setHasVideo] = useState(false);
-  const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string; isVoice?: boolean }>>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const router = useRouter();
@@ -216,15 +216,16 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   setChatInput('');
 
   // If overrideInput is present, it means voice input was used
-  setLastUserInputWasVoice(!!overrideInput);
-    if (!!overrideInput) {
-      setVoiceLoopActive(true);
-      }   
-    else {
-      setVoiceLoopActive(false);
-          }
+  const isVoiceInput = !!overrideInput;
+  setLastUserInputWasVoice(isVoiceInput);
+  
+  if (isVoiceInput) {
+    setVoiceLoopActive(true);
+  } else {
+    setVoiceLoopActive(false);
+  }
 
-  const newUserMessage = { role: 'user' as const, content: userMessage };
+  const newUserMessage = { role: 'user' as const, content: userMessage, isVoice: isVoiceInput };
   setUserChatHistory((prev) => [...prev, newUserMessage]);
   setChatLoading(true);
 
@@ -269,6 +270,18 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const handleVoiceTranscription = (text: string) => {
   setChatInput(text);
   setLastUserInputWasVoice(true);
+  
+  // Check if user said "bye" or similar exit phrases
+  const exitPhrases = ['bye', 'goodbye', 'stop', 'exit', 'quit'];
+  const lowerText = text.toLowerCase().trim();
+  const shouldExit = exitPhrases.some(phrase => lowerText === phrase || lowerText.endsWith(phrase));
+  
+  if (shouldExit) {
+    setVoiceLoopActive(false);
+    console.log('[ModuleChat] Voice loop stopped - exit phrase detected:', text);
+    return; // Don't auto-send, let user decide
+  }
+  
   setVoiceLoopActive(true);
     console.log('[ModuleChat] handleVoiceTranscription called. text:', text, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
     // Auto-send after transcription
@@ -386,14 +399,19 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       <div className="space-y-4">
                         {userChatHistory.map((msg, idx) => {
                           // Determine if TTS should be enabled for this bot reply
+                          // TTS is enabled if this is the most recent assistant message 
+                          // AND it follows a voice user message
                           let ttsEnabled = false;
-                          if (msg.role === 'assistant') {
-                            // TTS only for the most recent bot reply after a voice input
-                            // Find the previous user message
-                            const prevUserIdx = userChatHistory.slice(0, idx).reverse().findIndex(m => m.role === 'user');
-                            const prevUserWasVoice = prevUserIdx === 0 ? lastUserInputWasVoice : false;
-                            ttsEnabled = idx === userChatHistory.length - 1 && lastUserInputWasVoice;
+                          if (msg.role === 'assistant' && idx === userChatHistory.length - 1) {
+                            // Find the most recent user message before this assistant message
+                            for (let i = idx - 1; i >= 0; i--) {
+                              if (userChatHistory[i].role === 'user') {
+                                ttsEnabled = userChatHistory[i].isVoice === true;
+                                break;
+                              }
+                            }
                           }
+                          
                           return (
                             <div
                               key={idx}
@@ -459,6 +477,10 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                         onTranscription={handleVoiceTranscription}
                         disabled={chatLoading}
                         autoStart={autoStartMic}
+                        onManualStop={() => {
+                          console.log('[ModuleChat] Voice loop stopped - manual stop by user');
+                          setVoiceLoopActive(false);
+                        }}
                       />
                       <input
                         type="text"
