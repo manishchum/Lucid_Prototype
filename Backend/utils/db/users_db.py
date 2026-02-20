@@ -66,7 +66,7 @@ async def get_users_by_company(
     try:
         response = supabase.table('users').select(
             '*'
-        ).eq('company_id', company_id).order('name').execute()
+        ).eq('company_id', company_id).eq('is_active', True).order('name').execute()
         
         return {"data": response.data, "error": None}
     except Exception as e:
@@ -95,6 +95,28 @@ async def create_user(
         }
     
     try:
+        email = user_data.get('email', '').lower().strip()
+
+        # Check for an existing inactive user with the same email in this company
+        if email:
+            existing_resp = supabase.table('users').select('*').ilike('email', email).eq(
+                'company_id', company_id
+            ).eq('is_active', False).execute()
+            existing_data = existing_resp.data[0] if existing_resp.data else None
+
+            if existing_data:
+                # Reactivate the existing user and apply any new fields from user_data
+                reactivation_fields = {
+                    **{k: v for k, v in user_data.items()
+                       if k not in ('user_id', 'company_id', 'email', 'created_at')},
+                    'is_active': True,
+                    'employment_status': user_data.get('employment_status', 'ACTIVE'),
+                }
+                resp = supabase.table('users').update(reactivation_fields).eq(
+                    'user_id', existing_data['user_id']
+                ).execute()
+                return {"data": resp.data, "error": None, "reactivated": True}
+
         response = supabase.table('users').insert(user_data).execute()
         return {"data": response.data, "error": None}
     except Exception as e:
@@ -180,8 +202,16 @@ async def delete_user(
         }
     
     try:
-        # Soft delete
-        response = supabase.table('users').delete().eq('user_id', target_user_id).execute()
+        # Deactivate all role assignments for the user first
+        supabase.table('user_role_assignments').update({'is_active': False}).eq(
+            'user_id', target_user_id
+        ).execute()
+        
+        # Soft delete: mark user inactive instead of removing the row
+        response = supabase.table('users').update({
+            'is_active': False,
+            'employment_status': 'INACTIVE'
+        }).eq('user_id', target_user_id).execute()
         
         return {"data": response.data, "error": None}
     except Exception as e:

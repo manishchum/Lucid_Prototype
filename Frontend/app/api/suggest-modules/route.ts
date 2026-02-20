@@ -44,7 +44,6 @@ ${leadIndicators.map((ind, i) => `${i + 1}. ${ind}`).join('\n')}
 
 Lag Indicators (Outcome-based):
 ${lagIndicators.map((ind, i) => `${i + 1}. ${ind}`).join('\n')}
-${dbModulesText}
 
 For each KPI indicator (both lead and lag), suggest 1-2 relevant training modules.
 
@@ -57,7 +56,7 @@ For each suggested module, you must provide:
 6. **content_type**: e.g., "video", "interactive course", "workshop", "assessment"
 7. **relevance_score**: 0-100 based on how well it addresses the specific KPI
 8. **database_title_match**: exact title from database if source is database, otherwise null
-9. **suggested_datasets**: An array of 2-4 specific company data sources/systems that should be integrated or monitored to track this KPI and support the training module. Be specific about:
+9. **suggested_datasets**: An array of 2-4 specific company data sources/systems and dataset that should be referred to build the training modules. Be specific about:
    - What system/tool (e.g., "Salesforce CRM", "Google Analytics", "HubSpot", "JIRA", "Employee Survey Platform")
    - What specific data points to track (e.g., "Deal progression stages", "Customer engagement metrics", "Ticket resolution times")
    - How this data relates to the module and KPI
@@ -99,7 +98,10 @@ Provide a response in the following JSON format:
   ]
 }
 
-Focus on practical, actionable training that directly addresses each specific KPI. Suggest real-world, commonly used business systems and tools. Ensure each KPI has at least one module suggestion with relevant datasets.`;
+Focus on practical, actionable training that directly addresses each specific KPI. Suggest real-world, commonly used business systems, tools and datatypes. Ensure each KPI has at least one module suggestion with relevant datasets.
+NOTE : INSTEAD OF THE WORD "module" use the word "sprint" whereever possible
+
+`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;

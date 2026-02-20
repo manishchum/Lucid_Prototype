@@ -111,14 +111,20 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
   const loadAnalyticsData = async () => {
     setLoading(true);
     try {
-      // Fetch company learning style setting
-      const { data: companyData } = await supabase
-        .from('companies')
-        .select('learning_style')
-        .eq('company_id', companyId)
-        .single();
-      
-      setCompanyLearningStyleEnabled(companyData?.learning_style);
+      try{
+        const compRes = await fetch(`${API_URL}/api/companies/${encodeURIComponent(companyId)}`);
+        if (compRes.ok) {
+          const compPayload = await compRes.json().catch(() => null);
+          const companyData = compPayload?.company ?? compPayload;
+          setCompanyLearningStyleEnabled(companyData?.learning_style_enabled ?? true);
+        } else {
+          console.warn('Failed to fetch company data for learning style setting');
+          setCompanyLearningStyleEnabled(false);
+        }
+      } catch (e) {
+        console.error('Error fetching company data:', e);
+        setCompanyLearningStyleEnabled(false);
+      }
 
       await Promise.all([
         loadModules(),
