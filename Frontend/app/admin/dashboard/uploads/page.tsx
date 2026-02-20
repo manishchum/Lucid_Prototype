@@ -556,29 +556,26 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       const modulesWithStatus = await Promise.all(
         (data || []).map(async (module) => {
           // Check if module exists in content_jobs
-          const { data: jobData, error: jobError } = await supabase
-            .from('content_jobs')
-            .select('status')
-            .eq('module_id', module.module_id)
-            .single();
-
           let finalStatus = module.processing_status;
-
-          if (jobError || !jobData) {
-            // Module not in content_jobs yet - keep as "processing"
-            if (finalStatus?.toLowerCase() !== 'processing') {
-              finalStatus = 'processing';
-            }
-          } else {
-            // Module exists in content_jobs
-            if (jobData.status === 'completed') {
-              finalStatus = 'completed';
-            } else if (jobData.status === 'failed') {
-              finalStatus = 'failed';
+          try{
+            const jobsRes = await fetch(`${API_URL}/api/content-jobs?module_id=${encodeURIComponent(module.module_id)}`);
+            if(!jobsRes.ok){
+              if(finalStatus?.toLowerCase() !== 'processing') finalStatus = 'processing'; 
             } else {
-              // Job exists but not completed - set to "pending"
-              finalStatus = 'pending';
+              const jobsPayload = await jobsRes.json().catch(() => null);
+              const jobs = jobsPayload?.jobs ?? jobsPayload.data ?? jobsPayload ?? [];
+              const job = Array.isArray(jobs) ? jobs[0] : jobs;
+              if(!jobs){
+                if(finalStatus?.toLowerCase() !== 'processing') finalStatus = 'processing';
+              } else {
+                if(job.status === 'completed') finalStatus = 'completed';
+                else if(job.status === 'failed') finalStatus = 'failed';
+                else finalStatus = 'pending';
+              }
             }
+          } catch (e) {
+            console.warn('[uploads] failed to fetch content job for module', module.module_id, e);
+            if(finalStatus?.toLowerCase() !== 'processing') finalStatus = 'processing';
           }
 
           // Update module status in database if it changed
