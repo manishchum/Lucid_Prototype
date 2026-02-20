@@ -348,7 +348,7 @@ export default function EmployeeWelcome() {
               title: resolvedTitle,
               moduleName: adminName,
               // Preserve whether admin/learning_plan has baseline enabled for this module
-              hasBaseline: (p.baseline_assessment === 1 || p.baseline_assessment === 1),
+              hasBaseline: (p.baseline_assessment === 1 || p.baseline_assessment === true),
             };
         });
 

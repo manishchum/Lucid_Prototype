@@ -2303,16 +2303,19 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
     try {
       let completedModuleIds: string[] = [];
       try {
-        const jobsRes = await fetch(`${API_URL}/api/content-jobs?status=completed&limit=1000`, {
+        const jobsRes = await fetch(`${API_URL}/api/content-jobs/?status=completed&limit=1000`, {
           headers: { 'X-User-ID': adminId }
         });
         if (!jobsRes.ok) {
-          console.warn('Failed to fetch content jobs from backend', jobsRes.status, await jobsRes.text().catch(()=>''));
+          const errorText = await jobsRes.text().catch(() => '');
+          // console.error('[bulk-assign] Failed to fetch content jobs:', jobsRes.status, errorText);
+          // console.error('[bulk-assign] Using adminId:', adminId);
           completedModuleIds = [];
         } else {
           const jobsPayload = await jobsRes.json().catch(() => null);
-          const completeJobs = jobsPayload?.content_jobs ?? jobsPayload?.data ?? [];
+          const completeJobs = jobsPayload?.jobs ?? jobsPayload?.data ?? [];
           completedModuleIds = (completeJobs || []).map((job: any) => job.module_id).filter(Boolean);
+          // console.log(`[bulk-assign] Found ${completedModuleIds.length} completed modules`);
         }
       } catch (e) {
         console.warn("Error fetching content jobs:", e);
