@@ -123,7 +123,7 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
             <div className="space-y-4">
               <div className="flex items-center gap-2 pb-2 border-b-2 border-green-200">
                 <TrendingUp className="w-5 h-5 text-green-600" />
-                <h3 className="font-semibold text-lg text-gray-900">Lead Indicator Modules</h3>
+                <h3 className="font-semibold text-lg text-gray-900">Lead Indicator Sprints</h3>
               </div>
               {leadIndicators.map((kpi) => {
                 const modules = groupedModules[kpi];
@@ -136,7 +136,7 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
                       <div className="flex-1" >
                         <div className="flex items-center justify-between" onClick={() => toggleLeadKpi(kpi)}>
                           <h4 className="font-medium text-gray-900 mb-3">{kpi}</h4>
-                          <button onClick={() => toggleLeadKpi(kpi)}>
+                          <button >
                             {expandedLeadKpis[kpi] ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
                           </button>
                         </div>
@@ -234,7 +234,7 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
             <div className="space-y-4">
               <div className="flex items-center gap-2 pb-2 border-b-2 border-blue-200">
                 <TrendingDown className="w-5 h-5 text-blue-600" />
-                <h3 className="font-semibold text-lg text-gray-900">Lag Indicator Modules</h3>
+                <h3 className="font-semibold text-lg text-gray-900">Lag Indicator Sprints</h3>
               </div>
               {lagIndicators.map((kpi) => {
                 const modules = groupedModules[kpi];
@@ -247,7 +247,7 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
                       <div className="flex-1" >
                         <div className="flex items-center justify-between" onClick={() => toggleLagKpi(kpi)}>
                           <h4 className="font-medium text-gray-900 mb-3" >{kpi}</h4>
-                          <button onClick={() => toggleLagKpi(kpi)}>
+                          <button >
                             {expandedLagKpis[kpi] ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
                           </button>
                         </div>

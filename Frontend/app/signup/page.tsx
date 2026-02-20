@@ -127,7 +127,8 @@ export default function SignupPage() {
       return;
     }
 
-    if (!companyRes) {
+    try {
+      if (!companyRes) {
       setError("Failed to check company. Please try again.");
       setLoading(false);
       return;
@@ -245,7 +246,7 @@ export default function SignupPage() {
     } finally {
       setLoading(false)
     }
-  
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
