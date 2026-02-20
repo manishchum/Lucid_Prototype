@@ -295,16 +295,17 @@ export default function ScoreHistoryPage() {
 
       // Fetch company's learning_style setting
       if (employeeData.company_id) {
-        const { data: companyData } = await supabase
-          .from("companies")
-          .select("learning_style")
-          .eq("company_id", employeeData.company_id)
-          .single();
-        
-        if (companyData) {
-          setCompanyUsesLearningStyle(companyData.learning_style === true);
+        try{
+          const compRes = await fetch(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`);
+          if (compRes.ok) {
+            const compPayload = await compRes.json().catch(() => null);
+            const companyData = compPayload?.company ?? compPayload;
+            setCompanyUsesLearningStyle(Boolean(companyData?.learning_style));
         }
+      } catch (e) {
+        console.warn("Error fetching company data:", e);
       }
+    }
 
       // Fetch assessment history
       const { data: assessments } = await supabase
