@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { ArrowLeft, User, Mail, Calendar, Building, Save, Edit3, Lock, Eye, EyeOff, X, CheckCircle } from "lucide-react";
+import LoadingProgress from "@/components/shared/LoadingProgress";
+import { useLoadingProgress } from "@/hooks/useLoadingProgress";
 
 
 interface Employee {
@@ -232,15 +234,10 @@ export default function AccountPage() {
     }
   };
 
-  if (authLoading || (loading && !internalUser)) {
-    return (
-      <div className="flex h-[70vh] items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading your profile...</p>
-        </div>
-      </div>
-    );
+  const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || (loading && !internalUser));
+
+  if (showLoadingProgress) {
+    return <LoadingProgress label="Loading your profile" progress={loadingProgress} />;
   }
 
   return (

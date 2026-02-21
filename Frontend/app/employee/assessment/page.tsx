@@ -8,6 +8,8 @@ import MCQQuiz from "./mcq-quiz";
 import { useAuth } from "@/contexts/auth-context";
 
 import { ChevronLeft, CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
+import LoadingProgress from "@/components/shared/LoadingProgress";
+import { useLoadingProgress } from "@/hooks/useLoadingProgress";
 
 interface TrainingModule {
   module_id: string;
@@ -430,14 +432,11 @@ const AssessmentContent = () => {
             Every learner is different. This short assessment helps us tailor the program to your strengths and needs, so you can learn smarter, apply faster and move closer to your career ambitions.
           </p>
           {error && <div className="mb-4 text-red-600">{error}</div>}
-          {loading && (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="mt-4 text-gray-600">Loading assessment...</p>
-              </div>
-            </div>
-          )}
+          {(() => {
+            const { progress, show } = useLoadingProgress(loading);
+            if (show) return <LoadingProgress label="Loading assessment" progress={progress} />;
+            return null;
+          })()}
           {!loading && score === null && mcqQuestionsByModule.length > 0 && (
             <MCQQuiz
               questions={mcqQuestionsByModule[0]?.questions || []}
@@ -619,16 +618,14 @@ const AssessmentContent = () => {
   );
 };
 
+const AssessmentPageSuspense = () => {
+  const { progress } = useLoadingProgress(true);
+  return <LoadingProgress label="Preparing your assessment" progress={progress} />;
+};
+
 const AssessmentPage = () => {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading assessment...</p>
-        </div>
-      </div>
-    }>
+    <Suspense fallback={<AssessmentPageSuspense />}>
       <AssessmentContent />
     </Suspense>
   );

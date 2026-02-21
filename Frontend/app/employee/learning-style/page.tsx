@@ -10,6 +10,8 @@ import { Progress } from "@/components/ui/progress"
 
 import { BookOpen, Smile, Meh, Frown, ChevronLeft, ChevronRight, CheckCircle, Star, Target, Lightbulb, Trophy, ChevronDown } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import LoadingProgress from "@/components/shared/LoadingProgress";
+import { useLoadingProgress } from "@/hooks/useLoadingProgress";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
@@ -474,7 +476,14 @@ export default function LearningStyleSurvey() {
   }
 
   if (authLoading || loadingId) {
-    return <div className="max-w-3xl mx-auto py-10 px-4 text-center">Loading...</div>
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center">
+        {(() => {
+          const { progress } = useLoadingProgress(true);
+          return <LoadingProgress label="Loading Performance Sprint" progress={progress} />;
+        })()}
+      </div>
+    );
   }
 
   // Intro page

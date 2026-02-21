@@ -3,6 +3,8 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Save, Play, AlertCircle } from 'lucide-react';
+import LoadingProgress from "@/components/shared/LoadingProgress";
+import { useLoadingProgress } from "@/hooks/useLoadingProgress";
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -1171,7 +1173,14 @@ In this exercise, you will interact with a virtual character to practice and imp
 
 export default function CreateRoleplayPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading...</div>}>
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        {(() => {
+          const { progress } = useLoadingProgress(true);
+          return <LoadingProgress label="Loading Roleplay Creator" progress={progress} />;
+        })()}
+      </div>
+    }>
       <CreateRoleplayComponent />
     </Suspense>
   )

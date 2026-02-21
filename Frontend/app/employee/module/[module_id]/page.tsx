@@ -12,6 +12,8 @@ import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download } from "lucide-re
 import FlashcardCards from '@/components/FlashcardCards'
 import MindmapViewer from '@/components/MindmapViewer'
 import clsx from "clsx";
+import LoadingProgress from "@/components/shared/LoadingProgress";
+import { useLoadingProgress } from "@/hooks/useLoadingProgress";
 import { useAuth } from "@/contexts/auth-context";
 import jsPDF from 'jspdf';
 import VoiceInput from '@/components/VoiceInput';
@@ -51,7 +53,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const router = useRouter();
-  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading || generatingContent);
+  const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || loading || generatingContent);
   const [voiceLoopActive, setVoiceLoopActive] = useState(false);
   const [autoStartMic, setAutoStartMic] = useState(false);
 
@@ -507,54 +509,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   );
 }
 
-function useIllusionProgress(active: boolean) {
-  const [progress, setProgress] = useState(14);
-  const [show, setShow] = useState(active);
-
-  useEffect(() => {
-    if (!active) {
-      setProgress(100);
-      const timeout = setTimeout(() => setShow(false), 180);
-      return () => clearTimeout(timeout);
-    }
-
-    setShow(true);
-    setProgress(Math.min(28, 12 + Math.round(Math.random() * 10)));
-
-    const id = setInterval(() => {
-      setProgress((prev) => {
-        const hold = prev > 72 ? Math.random() < 0.5 : Math.random() < 0.3;
-        if (hold) return prev; // occasionally pause to feel more organic
-        const increment = Math.max(1, Math.round(Math.random() * 8));
-        return Math.min(prev + increment, 95);
-      });
-    }, 420 + Math.round(Math.random() * 260));
-
-    return () => clearInterval(id);
-  }, [active]);
-
-  return { progress: Math.min(progress, 100), show };
-}
-
-function LoadingProgress({ label, progress }: { label: string; progress: number }) {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
-        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
-          <span>{label}</span>
-          <span className="text-slate-900 text-base font-black">{progress}%</span>
-        </div>
-        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
-          <div
-            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <p className="text-xs text-slate-500 font-medium">Loading learning assets. If it feels slow, we are just getting things right.</p>
-      </div>
-    </div>
-  );
-}
 
 function ContentCards({ content }: { content: string }) {
   const sections = parseContentIntoSections(content);
@@ -1722,9 +1676,11 @@ function ContentTransformer({
               {selectedOption === 'flashcard' && (
                 <div>
                   {flashcardLoading && (
-                    <div className="flex flex-col items-center">
-                      <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
-                      <div>Generating flashcards...</div>
+                    <div className="py-12">
+                      {(() => {
+                        const { progress } = useLoadingProgress(true);
+                        return <LoadingProgress label="Generating flashcards" progress={progress} />;
+                      })()}
                     </div>
                   )}
 
@@ -1741,9 +1697,11 @@ function ContentTransformer({
               {selectedOption === 'mindmap' && (
                 <div>
                   {mindmapLoading && (
-                    <div className="flex flex-col items-center">
-                      <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
-                      <div>Generating mindmap...</div>
+                    <div className="py-12">
+                      {(() => {
+                        const { progress } = useLoadingProgress(true);
+                        return <LoadingProgress label="Generating mindmap" progress={progress} />;
+                      })()}
                     </div>
                   )}
 
@@ -1764,9 +1722,11 @@ function ContentTransformer({
               {selectedOption === 'infographic' && (
                 <div>
                   {infographicLoading && (
-                    <div className="flex flex-col items-center">
-                      <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
-                      <div>Generating visual guide...</div>
+                    <div className="py-12">
+                      {(() => {
+                        const { progress } = useLoadingProgress(true);
+                        return <LoadingProgress label="Generating visual guide" progress={progress} />;
+                      })()}
                     </div>
                   )}
 

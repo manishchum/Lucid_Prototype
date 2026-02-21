@@ -12,6 +12,8 @@ import {
   Trophy, Target, TrendingUp, Zap, LayoutGrid,
   ShieldCheck, ArrowRight, CheckCircle2, LogOut
 } from "lucide-react";
+import LoadingProgress from "@/components/shared/LoadingProgress";
+import { useLoadingProgress } from "@/hooks/useLoadingProgress";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -58,7 +60,7 @@ export default function EmployeeWelcome() {
   const [showLoginToast, setShowLoginToast] = useState<boolean>(false);
   const [showAllModules, setShowAllModules] = useState<boolean>(false);
   const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(true);
-  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
+  const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || loading);
 
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
@@ -140,7 +142,7 @@ export default function EmployeeWelcome() {
 
           // Check if all sub-modules have passed
           const allPassed = plan.processed_module_ids.every((moduleId: string) => {
-            const progress = moduleProgressData?.find(p => p.processed_module_id === moduleId);
+            const progress = moduleProgressData?.find((p: any) => p.processed_module_id === moduleId);
             return progress && progress.pass_status === true;
           });
 
@@ -205,7 +207,7 @@ export default function EmployeeWelcome() {
       }
 
       // Check if ALL learning plan entries have overall_status = true
-      const allPlansCompleted = learningPlans.every(plan => plan.overall_status === true);
+      const allPlansCompleted = learningPlans.every((plan: any) => plan.overall_status === true);
 
       console.log('[updateUserReadyStatus] Total learning plans:', learningPlans.length);
       console.log('[updateUserReadyStatus] All plans completed:', allPlansCompleted);
@@ -663,6 +665,7 @@ export default function EmployeeWelcome() {
   );
 }
 
+
 function LearningStyleBlurb({ styleCode }: { styleCode: string }) {
   const meta: Record<string, { label: string; blurb: string }> = {
     CS: { label: "Concrete Sequential", blurb: "You prefer structure and clear steps. Your plan emphasizes checklists and measurable milestones." },
@@ -675,55 +678,6 @@ function LearningStyleBlurb({ styleCode }: { styleCode: string }) {
     <div className="text-sm font-medium leading-relaxed">
       <span className="font-black text-slate-900 block mb-1">{info.label}</span>
       {info.blurb}
-    </div>
-  );
-}
-
-function useIllusionProgress(active: boolean) {
-  const [progress, setProgress] = useState(12);
-  const [show, setShow] = useState(active);
-
-  useEffect(() => {
-    if (!active) {
-      setProgress(100);
-      const timeout = setTimeout(() => setShow(false), 180);
-      return () => clearTimeout(timeout);
-    }
-
-    setShow(true);
-    setProgress(Math.min(25, 10 + Math.round(Math.random() * 12)));
-
-    const id = setInterval(() => {
-      setProgress((prev) => {
-        const shouldHold = prev > 70 ? Math.random() < 0.45 : Math.random() < 0.25;
-        if (shouldHold) return prev; // create a brief stall so progress looks more natural
-        const increment = Math.max(1, Math.round(Math.random() * 7));
-        return Math.min(prev + increment, 93);
-      });
-    }, 420 + Math.round(Math.random() * 240));
-
-    return () => clearInterval(id);
-  }, [active]);
-
-  return { progress: Math.min(progress, 100), show };
-}
-
-function LoadingProgress({ label, progress }: { label: string; progress: number }) {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
-        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
-          <span>{label}</span>
-          <span className="text-slate-900 text-base font-black">{progress}%</span>
-        </div>
-        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
-          <div
-            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <p className="text-xs text-slate-500 font-medium">We are personalizing your experience. This will only take a moment.</p>
-      </div>
     </div>
   );
 }

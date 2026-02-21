@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
 
 import { useAuth } from '@/contexts/auth-context';
+import LoadingProgress from "@/components/shared/LoadingProgress";
+import { useLoadingProgress } from "@/hooks/useLoadingProgress";
 import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
 import { fetchScenariosForUser, deleteCustomScenario, assignScenario, getScenarioAssignments } from '@/lib/roleplayDatabase';
 import { Card } from '@/components/ui/card';
@@ -402,15 +404,10 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     setCurrentScreen('rolePlay');
   };
 
-  if (authLoading || (!internalUser && loadingScenarios)) {
-    return (
-      <div className="flex h-[70vh] items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-slate-600">Loading...</p>
-        </div>
-      </div>
-    );
+  const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || (!internalUser && loadingScenarios));
+
+  if (showLoadingProgress) {
+    return <LoadingProgress label="Loading Roleplay Hub" progress={loadingProgress} />;
   }
 
   return (
@@ -572,9 +569,10 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
             {currentScreen === 'assessmentReport' && (
               isGeneratingAssessment ? (
                 <div className="bg-white rounded-xl shadow-sm p-12 text-center border border-slate-200">
-                  <Loader2 className="w-16 h-16 animate-spin text-blue-600 mx-auto mb-4" />
-                  <h3 className="text-xl font-semibold text-slate-800 mb-2">Analyzing Your Performance...</h3>
-                  <p className="text-slate-600">Please wait while we generate your assessment report</p>
+                  {(() => {
+                    const { progress } = useLoadingProgress(true);
+                    return <LoadingProgress label="Analyzing Your Performance" progress={progress} />;
+                  })()}
                 </div>
               ) : assessmentReport && selectedScenario ? (
                 <AssessmentReportComponent

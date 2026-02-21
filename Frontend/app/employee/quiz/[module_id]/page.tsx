@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
+import LoadingProgress from "@/components/shared/LoadingProgress";
+import { useLoadingProgress } from "@/hooks/useLoadingProgress";
 
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -458,15 +460,10 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
 
 
 
-  if (authLoading || loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading quiz...</p>
-        </div>
-      </div>
-    );
+  const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || loading);
+
+  if (showLoadingProgress) {
+    return <LoadingProgress label="Loading quiz" progress={loadingProgress} />;
   }
 
   if (error) {
@@ -663,9 +660,11 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                     {score !== null && maxScore !== null ? (
                       `${Math.round((score / maxScore) * 100)}%`
                     ) : (
-                      <div className="flex items-center justify-center gap-2">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                        <span className="text-2xl">Grading...</span>
+                      <div className="py-8">
+                        {(() => {
+                          const { progress } = useLoadingProgress(true);
+                          return <LoadingProgress label="Grading Assessment" progress={progress} />;
+                        })()}
                       </div>
                     )}
                   </div>

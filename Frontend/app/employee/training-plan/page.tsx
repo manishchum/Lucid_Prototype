@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
+import LoadingProgress from "@/components/shared/LoadingProgress";
+import { useLoadingProgress } from "@/hooks/useLoadingProgress";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Card,
@@ -39,7 +41,7 @@ function TrainingPlanContent() {
   const [actualUserId, setActualUserId] = useState<string | null>(null);
   const [additionalReadings, setAdditionalReadings] = useState<any[] | null>(null);
 
-  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
+  const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || loading);
 
 
   const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -877,34 +879,6 @@ function TrainingPlanContent() {
   );
 }
 
-function useIllusionProgress(active: boolean) {
-  const [progress, setProgress] = useState(15);
-  const [show, setShow] = useState(active);
-
-  useEffect(() => {
-    if (!active) {
-      setProgress(100);
-      const timeout = setTimeout(() => setShow(false), 180);
-      return () => clearTimeout(timeout);
-    }
-
-    setShow(true);
-    setProgress(Math.min(30, 12 + Math.round(Math.random() * 10)));
-
-    const id = setInterval(() => {
-      setProgress((prev) => {
-        const hold = prev > 70 ? Math.random() < 0.5 : Math.random() < 0.3;
-        if (hold) return prev; // pause occasionally to mimic real loading
-        const increment = Math.max(1, Math.round(Math.random() * 7));
-        return Math.min(prev + increment, 94);
-      });
-    }, 420 + Math.round(Math.random() * 240));
-
-    return () => clearInterval(id);
-  }, [active]);
-
-  return { progress: Math.min(progress, 100), show };
-}
 
 function renderTipsContent(tipsText: string) {
   const escapeHtml = (text: string) =>
@@ -948,25 +922,6 @@ function renderTipsContent(tipsText: string) {
   );
 }
 
-function LoadingProgress({ label, progress }: { label: string; progress: number }) {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
-        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
-          <span>{label}</span>
-          <span className="text-slate-900 text-base font-black">{progress}%</span>
-        </div>
-        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
-          <div
-            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <p className="text-xs text-slate-500 font-medium">Crafting your personalized roadmap. Hang tight.</p>
-      </div>
-    </div>
-  );
-}
 
 export default function TrainingPlanPage() {
   return (
