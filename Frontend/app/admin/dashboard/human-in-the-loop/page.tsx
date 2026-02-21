@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
-import EmployeeNavigation from '@/components/employee-navigation';
+
 import { Search, Filter, FileText, Clock, AlertCircle, Upload, UserCheck } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -27,23 +27,10 @@ interface TrainingModule {
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-const fetchUserByEmail = async (email: string | null) => {
-  if (!email) return null;
-  try {
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
-    if (!res.ok) return null;
-    const payload = await res.json();
-    let u = payload?.user ?? payload;
-    if (Array.isArray(u)) u = u[0];
-    return u || null;
-  } catch(e){
-    console.error("Error fetching user by email:", e);
-    return null;
-  }
-};
+
 
 export default function HumanInTheLoopPage() {
-  const { user, loading:authLoading } = useAuth();
+  const { user, internalUser, isAdmin, loading: authLoading } = useAuth();
   const router = useRouter();
   const [modules, setModules] = useState<TrainingModule[]>([]);
   const [filteredModules, setFilteredModules] = useState<TrainingModule[]>([]);
@@ -62,10 +49,17 @@ export default function HumanInTheLoopPage() {
   });
 
   useEffect(() => {
-    if (user?.email) {
-      getCurrentUser();
+    if (!authLoading) {
+      if (!user) {
+        router.push("/login");
+      } else if (!isAdmin) {
+        // Redirect non-admins away
+        router.push("/employee/welcome");
+      } else if (internalUser) {
+        setCurrentUserId(internalUser.user_id);
+      }
     }
-  }, [user]);
+  }, [user, authLoading, internalUser, isAdmin, router]);
 
   useEffect(() => {
     if (currentUserId) {
@@ -76,31 +70,6 @@ export default function HumanInTheLoopPage() {
   useEffect(() => {
     filterModules();
   }, [searchQuery, reviewFilter, roleFilter, modules]);
-  
-  
-  useEffect(() => {
-      if (!authLoading) {
-        if (!user) router.push("/login");
-        else getCurrentUser();
-        
-      }
-    }, [user, authLoading, router]);
-
-
-  const getCurrentUser = async () => {
-    try {
-      if (!user?.email) return;
-
-      const emp = await fetchUserByEmail(user.email);
-      if (emp &&  emp.user_id) {
-        setCurrentUserId(emp.user_id);
-      } else {
-        console.warn("Current user not found in database:", user.email);
-      }
-    } catch (error) {
-      console.error('Error fetching current user:', error);
-    }
-  };
 
   const fetchModules = async () => {
     try {
@@ -134,8 +103,8 @@ export default function HumanInTheLoopPage() {
       if (reviewError) throw reviewError;
 
       // Build sets for quick lookup
-      const uploadedIds = new Set((uploadedModules || []).map(m => m.module_id));
-      const reviewIds = new Set((reviewModules || []).map(m => m.module_id));
+      const uploadedIds = new Set((uploadedModules || []).map((m: any) => m.module_id));
+      const reviewIds = new Set((reviewModules || []).map((m: any) => m.module_id));
 
       // Merge both lists, deduplicate by module_id, and tag with user_role
       const allModules = [...(uploadedModules || []), ...(reviewModules || [])];
@@ -154,8 +123,8 @@ export default function HumanInTheLoopPage() {
         else if (isReviewer) role = 'reviewer';
         else if (isUploader) role = 'uploader';
 
-        uniqueModules.push({ 
-          ...mod, 
+        uniqueModules.push({
+          ...mod,
           user_role: role,
           reviewer_name: (mod as any).reviewer?.name || 'Not Assigned',
           uploader_name: (mod as any).uploader?.name || 'Unknown'
@@ -193,7 +162,7 @@ export default function HumanInTheLoopPage() {
     let filtered = [...modules];
 
     if (searchQuery) {
-      filtered = filtered.filter(m => 
+      filtered = filtered.filter(m =>
         m.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         m.description?.toLowerCase().includes(searchQuery.toLowerCase())
       );
@@ -281,8 +250,7 @@ export default function HumanInTheLoopPage() {
   if (!currentUserId) {
     return (
       <div className="flex min-h-screen bg-[#FAFBFC]">
-        <EmployeeNavigation />
-        <main className="flex-1 lg:ml-[280px] p-8">
+        <main className="flex-1 p-8">
           <div className="flex items-center justify-center h-screen">
             <div className="w-10 h-10 border-4 border-[#3B66F5]/20 border-t-[#3B66F5] rounded-full animate-spin"></div>
           </div>
@@ -293,8 +261,8 @@ export default function HumanInTheLoopPage() {
 
   return (
     <div className="flex min-h-screen bg-[#FAFBFC]">
-      <EmployeeNavigation />
-      
+
+
       <main className="flex-1 p-8">
         <div className="max-w-[2000px] mx-auto">
           {/* Header */}
@@ -309,17 +277,17 @@ export default function HumanInTheLoopPage() {
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Pending Review</p>
               <p className="text-4xl font-bold text-[#1E293B]">{stats.pending}</p>
             </Card>
-            
+
             <Card className="p-6 bg-white border-slate-100 shadow-sm">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">In Review</p>
               <p className="text-4xl font-bold text-blue-600">{stats.inReview}</p>
             </Card>
-            
+
             <Card className="p-6 bg-white border-slate-100 shadow-sm">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Approved</p>
               <p className="text-4xl font-bold text-green-600">{stats.approved}</p>
             </Card>
-            
+
             <Card className="p-6 bg-white border-slate-100 shadow-sm">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Rejected</p>
               <p className="text-4xl font-bold text-red-600">{stats.rejected}</p>
@@ -348,7 +316,7 @@ export default function HumanInTheLoopPage() {
                 className="pl-10 h-11 border-slate-200 focus:border-[#3B66F5] focus:ring-[#3B66F5]"
               />
             </div>
-            
+
             <div className="relative">
               <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <select

@@ -3,11 +3,11 @@
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { 
-  TrendingUp, 
-  Target, 
-  Users, 
-  ChevronDown, 
+import {
+  TrendingUp,
+  Target,
+  Users,
+  ChevronDown,
   Activity,
   Zap,
   ThumbsUp,
@@ -16,7 +16,7 @@ import {
   Sparkles,
   Filter
 } from 'lucide-react';
-import EmployeeNavigation from '@/components/employee-navigation';
+
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
@@ -78,7 +78,7 @@ const fetchUserByFilter = async (filters: {
   subFunctionId?: string;
   titleId?: string;
 }) => {
-  try{
+  try {
     const params = new URLSearchParams();
     if (filters.functionId) params.append('function_id', filters.functionId);
     if (filters.subFunctionId) params.append('sub_function_id', filters.subFunctionId);
@@ -91,7 +91,7 @@ const fetchUserByFilter = async (filters: {
     const payload = await res.json();
     const users = payload?.users ?? payload;
     return Array.isArray(users) ? users : users ? [users] : [];
-  } catch(e) {
+  } catch (e) {
     console.error('Error fetching users:', e);
     return [];
   }
@@ -101,13 +101,13 @@ export default function KPITurbocharge() {
   const [subFunctions, setSubFunctions] = useState<Array<{ sub_function_id: string; sub_function_name: string }>>([]);
   const [titles, setTitles] = useState<Array<{ title_id: string; title_name: string }>>([]);
   const [modules, setModules] = useState<Array<{ module_id: string; title: string }>>([]);
-  
+
   const [selectedFunctionId, setSelectedFunctionId] = useState<string>('');
   const [selectedSubFunctionId, setSelectedSubFunctionId] = useState<string>('');
   const [selectedTitleId, setSelectedTitleId] = useState<string>('');
   const [selectedModuleId, setSelectedModuleId] = useState<string>('');
   const [selectedKpiId, setSelectedKpiId] = useState<string>('');
-  const {user, loading:authLoading} = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
@@ -123,12 +123,12 @@ export default function KPITurbocharge() {
   const [workforceReadiness, setWorkforceReadiness] = useState({ score: 0, change: 0, status: 'Calculating...' });
 
   useEffect(() => {
-          if (!authLoading) {
-            if (!user) router.push("/login");
-            // else checkAdminAccess();
-            
-          }
-        }, [user, authLoading, router]);
+    if (!authLoading) {
+      if (!user) router.push("/login");
+      // else checkAdminAccess();
+
+    }
+  }, [user, authLoading, router]);
   useEffect(() => {
     loadFilters();
 
@@ -153,21 +153,21 @@ export default function KPITurbocharge() {
   }, [selectedSubFunctionId]);
 
   useEffect(() => {
-    
+
     console.log("Changes in the selectedSubFunctionId, selectedTitleId")
     fetchAllData();
   }, [selectedSubFunctionId, selectedTitleId]);
   useEffect(() => {
     console.log("Changes in the selectedKPiId, selectedModuleId")
     fetchAllData();
-  }, [selectedKpiId,selectedModuleId]);
-  
-  
+  }, [selectedKpiId, selectedModuleId]);
+
+
   useEffect(() => {
 
     console.log("Calling beacause of the changes in function Id")
     fetchAllData();
-  },[selectedFunctionId]);
+  }, [selectedFunctionId]);
 
   const loadFilters = async () => {
     try {
@@ -269,7 +269,7 @@ export default function KPITurbocharge() {
   const fetchKPIData = async () => {
     try {
       console.log('Fetching KPIs with filters:', { selectedFunctionId, selectedSubFunctionId, selectedTitleId });
-      
+
       let kpiQuery = supabase
         .from('kpis')
         .select('kpi_id, name, description, target, datatype, function_id, sub_function_id, title_id');
@@ -311,7 +311,7 @@ export default function KPITurbocharge() {
             .limit(2);
 
           const current = kpi.target ? parseFloat(kpi.target.toString()) : 0;
-          
+
           return {
             id: kpi.kpi_id,
             name: kpi.name,
@@ -396,8 +396,8 @@ export default function KPITurbocharge() {
             module_name: module.title,
             completion_rate: passRate,
             impact_score: impactScore,
-            module_type: module.content_type === 'pdf' ? 'SOP' : 
-                        module.content_type === 'video' ? 'Video' : 'Simulation'
+            module_type: module.content_type === 'pdf' ? 'SOP' :
+              module.content_type === 'video' ? 'Video' : 'Simulation'
           };
         })
       );
@@ -467,12 +467,12 @@ export default function KPITurbocharge() {
       const actions: RecommendedAction[] = users.slice(0, 4).map((user, idx) => {
         const userPlans = learningPlans?.filter(lp => lp.user_id === user.user_id) || [];
         const latestPlan = userPlans[0];
-        
+
         const module = modules?.find(m => m.module_id === latestPlan?.module_id);
         const kpi = kpis?.[idx % kpis.length];
 
         const nameParts = user.name.split(' ');
-        const initials = nameParts.length >= 2 
+        const initials = nameParts.length >= 2
           ? `${nameParts[0][0]}${nameParts[1][0]}`
           : nameParts[0]?.substring(0, 2) || 'XX';
 
@@ -560,7 +560,7 @@ export default function KPITurbocharge() {
       for (const user of users) {
         // Get KPI scores for this user
         const userKpiScores = kpiScores?.filter(k => k.user_id === user.user_id) || [];
-        
+
         if (userKpiScores.length === 0) continue;
 
         // Calculate average KPI score
@@ -575,7 +575,7 @@ export default function KPITurbocharge() {
 
         // Get assessment scores for this user
         const userAssessments = assessmentScores?.filter(a => a.user_id === user.user_id) || [];
-        
+
         if (userAssessments.length === 0) continue;
 
         // Calculate average module performance (percentage)
@@ -643,11 +643,11 @@ export default function KPITurbocharge() {
         .not('quiz_score', 'is', null);
 
 
-        // Get max_score for each sub-module (processed_module_id)
+      // Get max_score for each sub-module (processed_module_id)
       console.log(userIds);
       const { maxScoreData, error } = await supabase
-      .from('employee_assessments')
-      .select(`
+        .from('employee_assessments')
+        .select(`
         user_id,
         score,
         max_score,
@@ -656,10 +656,10 @@ export default function KPITurbocharge() {
           original_module_id
         )
       `)
-      .in('user_id', userIds)
-      .not('max_score', 'is', null);
+        .in('user_id', userIds)
+        .not('max_score', 'is', null);
 
-        console.log(maxScoreData);
+      console.log(maxScoreData);
       // Get processed modules mapping
       const { data: processedModules } = await supabase
         .from('processed_modules')
@@ -684,9 +684,9 @@ export default function KPITurbocharge() {
           }
 
           // Check if module has been started
-          const hasStarted = plan.processed_module_ids && 
-                           plan.processed_module_ids !== '' && 
-                           plan.processed_module_ids !== '[]';
+          const hasStarted = plan.processed_module_ids &&
+            plan.processed_module_ids !== '' &&
+            plan.processed_module_ids !== '[]';
 
           if (!hasStarted) {
             return {
@@ -704,8 +704,8 @@ export default function KPITurbocharge() {
 
           // Get quiz scores for this user's sub-modules
           const userQuizzes = moduleProgress?.filter(
-            mp => mp.user_id === user.user_id && 
-                  processedModuleIds.includes(mp.processed_module_id)
+            mp => mp.user_id === user.user_id &&
+              processedModuleIds.includes(mp.processed_module_id)
           ) || [];
 
           if (userQuizzes.length === 0) {
@@ -756,21 +756,21 @@ export default function KPITurbocharge() {
     // Generate sample correlation data based on time period
     const data = [];
     const today = new Date();
-    
+
     for (let i = 12; i >= 0; i--) {
       const date = new Date(today);
       date.setDate(date.getDate() - (i * 2));
-      
+
       const baseEco = 52 + (12 - i) * 2.5;
       const baseCompetency = 55 + (12 - i) * 2.4;
-      
+
       data.push({
         date: date.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }),
         eco: Math.round(Math.min(baseEco, 85)),
         competency: Math.round(Math.min(baseCompetency, 88))
       });
     }
-    
+
     setCorrelationData(data);
   };
 
@@ -778,7 +778,7 @@ export default function KPITurbocharge() {
     try {
       // Get modules based on filter
       let modulesToProcess;
-      
+
       if (selectedModuleId) {
         // Single module selected - get only that module
         modulesToProcess = [{ module_id: selectedModuleId }];
@@ -787,7 +787,7 @@ export default function KPITurbocharge() {
         const { data: allModules } = await supabase
           .from('training_modules')
           .select('module_id');
-        
+
         modulesToProcess = allModules || [];
       }
 
@@ -802,8 +802,8 @@ export default function KPITurbocharge() {
         subFunctionId: selectedSubFunctionId,
         titleId: selectedTitleId
       });
-      
-      const userIds = users.map((u:any) => u.user_id);
+
+      const userIds = users.map((u: any) => u.user_id);
 
       if (userIds.length === 0) {
         setWorkforceReadiness({ score: 0, change: 0, status: 'No Users Found' });
@@ -850,7 +850,7 @@ export default function KPITurbocharge() {
       }
 
       const totalUsers = totalReadyCount + totalNotReadyCount;
-      
+
       if (totalUsers === 0) {
         setWorkforceReadiness({ score: 0, change: 0, status: 'No Training Data' });
         return;
@@ -858,7 +858,7 @@ export default function KPITurbocharge() {
 
       const score = Math.round((totalReadyCount / totalUsers) * 100);
       const change = Math.round((Math.random() * 5) + 1); // Simulated improvement - can be calculated from historical data
-      
+
       let status = 'Developing';
       if (score >= 80) status = 'High Performance Zone';
       else if (score >= 60) status = 'On Track';
@@ -932,7 +932,7 @@ export default function KPITurbocharge() {
       // Calculate readiness score
       const score = Math.round((readyCount / totalUsers) * 100);
       const change = Math.round((Math.random() * 5) + 1); // Simulated improvement - can be calculated from historical data
-      
+
       let status = 'Developing';
       if (score >= 80) status = 'High Performance Zone';
       else if (score >= 60) status = 'On Track';
@@ -947,7 +947,7 @@ export default function KPITurbocharge() {
 
   const generateLucidAnalysis = async () => {
     const hasData = kpiData.length > 0 && correlationData.length > 0;
-    
+
     if (!hasData) {
       setLucidAnalysis('LUCID here. Awaiting sufficient data for analysis. Please ensure KPIs and training modules are properly configured for your selected role.');
       return;
@@ -957,7 +957,7 @@ export default function KPITurbocharge() {
     const topModule = topModules[0]?.module_name || 'training module';
     const trend = workforceReadiness.change > 0 ? 'upward' : 'steady';
     const recentDate = correlationData[correlationData.length - 1]?.date || 'recent period';
-    
+
     setLucidAnalysis(
       `LUCID here. I have analyzed your ${kpiName} performance data, which shows a consistent ${trend} trend. This improvement correlates directly with the deployment of the "${topModule}" module. The data suggests that the team is successfully applying new strategies, resulting in gains in overall efficiency. With a workforce readiness score of ${workforceReadiness.score}%, the team is ${workforceReadiness.status.toLowerCase()}. I recommend reinforcing the specific techniques covered in high-impact training during your next team huddle.`
     );
@@ -980,9 +980,7 @@ export default function KPITurbocharge() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      <EmployeeNavigation />
-      
-      <main className="flex-1 lg:ml-[280px] p-6 space-y-6">
+      <main className="flex-1 p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -994,7 +992,7 @@ export default function KPITurbocharge() {
             </div>
             <p className="text-gray-600 text-sm">Outcome-based learning engine. Mapping capability to production.</p>
           </div>
-          
+
           {/* Workforce Readiness Index */}
           <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200 px-6 py-4">
             <div className="flex items-center gap-6">
@@ -1019,12 +1017,12 @@ export default function KPITurbocharge() {
               <div className="relative w-24 h-24">
                 <svg className="transform -rotate-90 w-24 h-24">
                   <circle cx="48" cy="48" r="40" stroke="#E0E7FF" strokeWidth="8" fill="none" />
-                  <circle 
-                    cx="48" 
-                    cy="48" 
-                    r="40" 
-                    stroke="url(#gradient)" 
-                    strokeWidth="8" 
+                  <circle
+                    cx="48"
+                    cy="48"
+                    r="40"
+                    stroke="url(#gradient)"
+                    strokeWidth="8"
                     fill="none"
                     strokeDasharray={`${2 * Math.PI * 40 * (workforceReadiness.score / 100)} ${2 * Math.PI * 40}`}
                     strokeLinecap="round"
@@ -1051,11 +1049,11 @@ export default function KPITurbocharge() {
               <Filter size={18} />
               <span className="text-sm font-medium">Select Role:</span>
             </div>
-            
+
             <div className="flex items-center gap-3 flex-1">
               <div className="flex-1">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Function</div>
-                <select 
+                <select
                   value={selectedFunctionId}
                   onChange={(e) => setSelectedFunctionId(e.target.value)}
                   className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1069,7 +1067,7 @@ export default function KPITurbocharge() {
 
               <div className="flex-1">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Sub-Function</div>
-                <select 
+                <select
                   value={selectedSubFunctionId}
                   onChange={(e) => setSelectedSubFunctionId(e.target.value)}
                   className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1084,7 +1082,7 @@ export default function KPITurbocharge() {
 
               <div className="flex-1">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Role</div>
-                <select 
+                <select
                   value={selectedTitleId}
                   onChange={(e) => setSelectedTitleId(e.target.value)}
                   className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1099,7 +1097,7 @@ export default function KPITurbocharge() {
 
               <div className="flex-1">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Module</div>
-                <select 
+                <select
                   value={selectedModuleId}
                   onChange={(e) => setSelectedModuleId(e.target.value)}
                   className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1123,11 +1121,10 @@ export default function KPITurbocharge() {
             {/* KPI Cards */}
             <div className="grid grid-cols-3 gap-6">
               {kpiData.length > 0 ? kpiData.map((kpi) => (
-                <Card 
-                  key={kpi.id} 
-                  className={`bg-white border-blue-200 shadow-sm p-6 hover:border-blue-300 transition-all cursor-pointer ${
-                    selectedKpiId === kpi.id ? 'border-blue-500' : ''
-                  }`}
+                <Card
+                  key={kpi.id}
+                  className={`bg-white border-blue-200 shadow-sm p-6 hover:border-blue-300 transition-all cursor-pointer ${selectedKpiId === kpi.id ? 'border-blue-500' : ''
+                    }`}
                   onClick={() => setSelectedKpiId(kpi.id)}
                 >
                   <div className="flex items-start justify-between mb-4">
@@ -1149,7 +1146,7 @@ export default function KPITurbocharge() {
                     <div className="text-xs text-gray-500 uppercase font-semibold tracking-wide">Mapped Modules</div>
                     <div className="flex flex-wrap gap-2">
                       {kpi.mapped_modules.length > 0 ? kpi.mapped_modules.map((module, idx) => (
-                        <span 
+                        <span
                           key={idx}
                           className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium border border-blue-200"
                         >
@@ -1175,7 +1172,7 @@ export default function KPITurbocharge() {
                   <div className="text-sm text-gray-600 mb-1">Actual vs Target</div>
                   <div className="flex items-baseline gap-3">
                     <span className="text-3xl font-bold text-gray-900">
-                      Actual: {scatterData.length > 0 
+                      Actual: {scatterData.length > 0
                         ? `${Math.round(scatterData.reduce((sum, d) => sum + d.module_performance, 0) / scatterData.length)}%`
                         : '0%'}
                     </span>
@@ -1211,20 +1208,20 @@ export default function KPITurbocharge() {
                     {/* Y-axis grid lines and labels */}
                     {[0, 20, 40, 60, 80, 100].map((val, idx) => (
                       <g key={`y-${idx}`}>
-                        <line 
-                          x1="60" 
-                          y1={280 - (val * 2.6)} 
-                          x2="680" 
-                          y2={280 - (val * 2.6)} 
-                          stroke="#E5E7EB" 
+                        <line
+                          x1="60"
+                          y1={280 - (val * 2.6)}
+                          x2="680"
+                          y2={280 - (val * 2.6)}
+                          stroke="#E5E7EB"
                           strokeWidth="1"
                           strokeDasharray="2,2"
                         />
-                        <text 
-                          x="45" 
-                          y={280 - (val * 2.6)} 
-                          dy="4" 
-                          fill="#6B7280" 
+                        <text
+                          x="45"
+                          y={280 - (val * 2.6)}
+                          dy="4"
+                          fill="#6B7280"
                           fontSize="11"
                           textAnchor="end"
                         >
@@ -1236,19 +1233,19 @@ export default function KPITurbocharge() {
                     {/* X-axis grid lines and labels */}
                     {[0, 20, 40, 60, 80, 100].map((val, idx) => (
                       <g key={`x-${idx}`}>
-                        <line 
-                          x1={60 + (val * 6.2)} 
-                          y1="20" 
-                          x2={60 + (val * 6.2)} 
-                          y2="280" 
-                          stroke="#E5E7EB" 
+                        <line
+                          x1={60 + (val * 6.2)}
+                          y1="20"
+                          x2={60 + (val * 6.2)}
+                          y2="280"
+                          stroke="#E5E7EB"
                           strokeWidth="1"
                           strokeDasharray="2,2"
                         />
-                        <text 
-                          x={60 + (val * 6.2)} 
-                          y="295" 
-                          fill="#6B7280" 
+                        <text
+                          x={60 + (val * 6.2)}
+                          y="295"
+                          fill="#6B7280"
                           fontSize="11"
                           textAnchor="middle"
                         >
@@ -1260,20 +1257,20 @@ export default function KPITurbocharge() {
                     {/* Target line - only show if KPI is selected */}
                     {selectedKpiInfo && selectedKpiInfo.target > 0 && (
                       <g>
-                        <line 
-                          x1="60" 
-                          y1={280 - (selectedKpiInfo.target * 2.6)} 
-                          x2="680" 
-                          y2={280 - (selectedKpiInfo.target * 2.6)} 
-                          stroke="#EF4444" 
+                        <line
+                          x1="60"
+                          y1={280 - (selectedKpiInfo.target * 2.6)}
+                          x2="680"
+                          y2={280 - (selectedKpiInfo.target * 2.6)}
+                          stroke="#EF4444"
                           strokeWidth="2"
                           strokeDasharray="8,4"
                         />
-                        <text 
-                          x="685" 
-                          y={280 - (selectedKpiInfo.target * 2.6)} 
-                          dy="4" 
-                          fill="#EF4444" 
+                        <text
+                          x="685"
+                          y={280 - (selectedKpiInfo.target * 2.6)}
+                          dy="4"
+                          fill="#EF4444"
                           fontSize="12"
                           fontWeight="600"
                         >
@@ -1283,21 +1280,21 @@ export default function KPITurbocharge() {
                     )}
 
                     {/* Axis labels */}
-                    <text 
-                      x="370" 
-                      y="295" 
-                      fill="#374151" 
-                      fontSize="13" 
+                    <text
+                      x="370"
+                      y="295"
+                      fill="#374151"
+                      fontSize="13"
                       fontWeight="600"
                       textAnchor="middle"
                     >
                       KPI Score {selectedKpiInfo ? `(${selectedKpiInfo.name})` : '(Average)'} →
                     </text>
-                    <text 
-                      x="25" 
-                      y="150" 
-                      fill="#374151" 
-                      fontSize="13" 
+                    <text
+                      x="25"
+                      y="150"
+                      fill="#374151"
+                      fontSize="13"
                       fontWeight="600"
                       textAnchor="middle"
                       transform="rotate(-90, 25, 150)"
@@ -1309,11 +1306,11 @@ export default function KPITurbocharge() {
                     {scatterData.map((d, i) => {
                       const x = 60 + ((d.kpi_score / 100) * 620);
                       const y = 280 - ((d.module_performance / 100) * 260);
-                      
+
                       return (
                         <g key={i}>
                           {/* Outer glow */}
-                          <circle 
+                          <circle
                             cx={x}
                             cy={y}
                             r="10"
@@ -1321,7 +1318,7 @@ export default function KPITurbocharge() {
                             opacity="0.2"
                           />
                           {/* Main circle */}
-                          <circle 
+                          <circle
                             cx={x}
                             cy={y}
                             r="7"
@@ -1332,7 +1329,7 @@ export default function KPITurbocharge() {
                             className="hover:r-9 transition-all cursor-pointer"
                           />
                           {/* User name label */}
-                          <text 
+                          <text
                             x={x}
                             y={y - 18}
                             fill="#1F2937"
@@ -1344,7 +1341,7 @@ export default function KPITurbocharge() {
                             {d.user_name.split(' ')[0]}
                           </text>
                           {/* Score tooltip */}
-                          <text 
+                          <text
                             x={x}
                             y={y + 25}
                             fill="#6B7280"
@@ -1373,7 +1370,7 @@ export default function KPITurbocharge() {
                 )}
               </div>
             </Card>
-              {/* Lucid Engine Analysis */}
+            {/* Lucid Engine Analysis */}
             <Card className="bg-gradient-to-br from-blue-50 to-purple-50 border-blue-200 shadow-sm p-6">
               <div className="flex items-start gap-4">
                 <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shrink-0">
@@ -1473,15 +1470,13 @@ export default function KPITurbocharge() {
                   {recommendedActions.length > 0 ? recommendedActions.map((action, idx) => (
                     <div key={idx} className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all">
                       <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full ${
-                          action.status === 'Completed' ? 'bg-green-50 text-green-700' : 
-                          action.status === 'In Progress' ? 'bg-orange-50 text-orange-700' : 
-                          'bg-yellow-50 text-yellow-700'
-                        } flex items-center justify-center font-bold text-sm shrink-0 border ${
-                          action.status === 'Completed' ? 'border-green-200' : 
-                          action.status === 'In Progress' ? 'border-orange-200' : 
-                          'border-yellow-200'
-                        }`}>
+                        <div className={`w-10 h-10 rounded-full ${action.status === 'Completed' ? 'bg-green-50 text-green-700' :
+                            action.status === 'In Progress' ? 'bg-orange-50 text-orange-700' :
+                              'bg-yellow-50 text-yellow-700'
+                          } flex items-center justify-center font-bold text-sm shrink-0 border ${action.status === 'Completed' ? 'border-green-200' :
+                            action.status === 'In Progress' ? 'border-orange-200' :
+                              'border-yellow-200'
+                          }`}>
                           {action.employee_initials}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -1516,7 +1511,7 @@ export default function KPITurbocharge() {
               </Card>
             </div>
 
-            
+
 
             {/* Employee Performance Heatmap */}
             {/* <Card className="bg-white border-gray-200 shadow-sm p-6">
@@ -1554,8 +1549,8 @@ export default function KPITurbocharge() {
               {heatmapData.length > 0 ? (
                 <div className="overflow-x-auto">
                   <div className="inline-block min-w-full"> */}
-                    {/* Header row with module names */}
-                    {/* <div className="flex items-stretch border-b-2 border-gray-300">
+            {/* Header row with module names */}
+            {/* <div className="flex items-stretch border-b-2 border-gray-300">
                       <div className="w-36 shrink-0 p-2 bg-gray-50 font-semibold text-xs text-gray-700 border-r-2 border-gray-300 flex items-center">
                         Employee
                       </div>
@@ -1571,10 +1566,10 @@ export default function KPITurbocharge() {
                           </div>
                         </div>
                       ))} */}
-                    {/* </div> */}
+            {/* </div> */}
 
-                    {/* Employee rows */}
-                    {/* {heatmapData.map((employee, empIdx) => (
+            {/* Employee rows */}
+            {/* {heatmapData.map((employee, empIdx) => (
                       <div key={empIdx} className="flex items-stretch border-b border-gray-200 hover:bg-blue-50 transition-colors">
                         <div className="w-36 shrink-0 p-2 bg-gray-50 font-medium text-xs text-gray-900 border-r-2 border-gray-300 flex items-center">
                           <div className="flex items-center gap-1.5">
@@ -1611,9 +1606,9 @@ export default function KPITurbocharge() {
                               title={`${employee.employee_name} - ${module.module_name}: ${module.score !== null ? module.score + '%' : 'Not Started'} (${module.status})`}
                             >
                               {module.score !== null ? `${module.score}%` : '-'} */}
-                              
-                              {/* Tooltip on hover */}
-                              {/* <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1.5 bg-gray-900 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-lg">
+
+            {/* Tooltip on hover */}
+            {/* <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1.5 bg-gray-900 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-lg">
                                 <div className="font-semibold mb-0.5">{module.module_name}</div>
                                 <div>Score: {module.score !== null ? module.score + '%' : 'Not Started'}</div>
                                 <div className="capitalize">Status: {module.status.replace('_', ' ')}</div>
@@ -1625,8 +1620,8 @@ export default function KPITurbocharge() {
                       </div>
                     ))} */}
 
-                    {/* Summary row - Module averages */}
-                    {/* <div className="flex items-stretch border-t-2 border-gray-300 bg-blue-50">
+            {/* Summary row - Module averages */}
+            {/* <div className="flex items-stretch border-t-2 border-gray-300 bg-blue-50">
                       <div className="w-36 shrink-0 p-2 bg-blue-100 font-bold text-xs text-blue-900 border-r-2 border-gray-300 flex items-center">
                         Module Avg
                       </div>

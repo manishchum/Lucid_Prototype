@@ -24,42 +24,28 @@ interface EmployeeNavigationProps {
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-const fetchUserByEmail = async (email: string | undefined | null) => {
-  if (!email) return null;
-  const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
-  if (!res.ok) {
-    console.error('[employee-navigation] Failed to fetch user by email:', res.status, await res.text().catch(()=>''));
-    return null;
-  }
-  const payload = await res.json();
-  let u = payload?.user ?? payload;
-  if (Array.isArray(u)) u = u[0];
-  return u || null;
-};
 
-const EmployeeNavigation = ({ 
+
+const EmployeeNavigation = ({
   user: providedUser,
   onLogout: providedOnLogout,
   forceCollapsed = false
 }: EmployeeNavigationProps) => {
   const router = useRouter();
   const pathname = usePathname();
-  const { user: authUser, logout } = useAuth();
-  
+  const { user: authUser, logout, internalUser, isAdmin } = useAuth();
+
   // Existing Logic States
-  const [employee, setEmployee] = useState<any>(null);
   const [isCollapsed, setIsCollapsed] = useState(forceCollapsed);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [coursesOpen, setCoursesOpen] = useState(false);
   const [adminDropdownOpen, setAdminDropdownOpen] = useState(false);
   const [kpiDropdownOpen, setKpiDropdownOpen] = useState(false);
-  const [userRoles, setUserRoles] = useState<string[]>([]);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [isNavigating, setIsNavigating] = useState(false);
+
   const [showReportToast, setShowReportToast] = useState(false);
   const [showDispatchCenter, setShowDispatchCenter] = useState(false);
 
-  const displayUser = providedUser || employee;
+  const displayUser = providedUser || internalUser;
 
   // Update isCollapsed when forceCollapsed prop changes
   useEffect(() => {
@@ -75,79 +61,21 @@ const EmployeeNavigation = ({
   });
 
   // Existing Data Fetching Logic
+  // Dropdown Auto-open logic
   useEffect(() => {
     if (pathname && pathname.startsWith('/employee/courses')) {
-        setCoursesOpen(true);
+      setCoursesOpen(true);
     }
     if (pathname && pathname.startsWith("/admin/dashboard")) {
-        setAdminDropdownOpen(true);
+      setAdminDropdownOpen(true);
     }
 
     if (pathname && pathname.startsWith("/kpi")) {
       setKpiDropdownOpen(true);
     }
-
-    if (!providedUser && authUser?.email) {
-      const fetchEmployee = async () => {
-        try {
-          const employeeData = await fetchUserByEmail(authUser.email);
-          if (employeeData) {
-            // always set employee so name/email render even if role fetch fails
-            setEmployee(employeeData);
-
-            // fetch role assignments via backend API instead of direct Supabase access
-            try {
-              const rolesRes = await fetch(`${API_BASE}/api/roles/users/${employeeData.user_id}`, {
-                headers: { 'X-User-ID': employeeData.user_id }
-              });
-
-              if (!rolesRes.ok) {
-                console.error('[employee-navigation] Failed to fetch user roles from backend:', rolesRes.status, await rolesRes.text().catch(()=>''));
-                // keep user visible but not admin
-                setIsAdmin(false);
-                setUserRoles([]);
-                return;
-              }
-
-              const payload = await rolesRes.json().catch(() => null);
-              const assignments = payload?.assignments ?? payload?.data ?? payload ?? [];
-
-              // normalize and extract role objects
-              const normalizedRoles = (assignments || []).map((ra: any) => {
-                const r = ra.role ?? ra.roles ?? ra;
-                return {
-                  name: (r?.name ?? '').toString(),
-                  level: Number(r?.level ?? -1),
-                  id: r?.role_id ?? r?.id ?? null
-                };
-              }).filter((r: any) => r.name || r.level >= 0);
-
-              setUserRoles(normalizedRoles.map((r: any) => r.name));
-
-              // admin detection: role.level >= 3 OR known admin names
-              const hasAdminRole = normalizedRoles.some((r: any) => {
-                const name = (r.name || '').toLowerCase().replace(/[-_\s]/g, '');
-                return r.level >= 3 || ['admin','superadmin','super_admin','ceo'].includes(name);
-              });
-
-              setIsAdmin(hasAdminRole);
-            } catch (e) {
-              console.error('[employee-navigation] Error fetching user roles:', e);
-              setIsAdmin(false);
-              setUserRoles([]);
-            }
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      };
-      fetchEmployee();
-    }
-  }, [providedUser, authUser?.email, pathname]);
-    
-  useEffect(() => {
-    setIsNavigating(false);
   }, [pathname]);
+
+
 
   // Read one-shot toast flag set when an assessment/quiz result is shown
   useEffect(() => {
@@ -170,16 +98,15 @@ const EmployeeNavigation = ({
   useEffect(() => {
     try {
       document.documentElement.style.setProperty('--sidebar-width', isCollapsed ? '5rem' : '17.5rem');
-    } catch (e) {}
+    } catch (e) { }
     return () => {
-      try { document.documentElement.style.removeProperty('--sidebar-width'); } catch (e) {}
+      try { document.documentElement.style.removeProperty('--sidebar-width'); } catch (e) { }
     };
   }, [isCollapsed]);
 
   const isActive = (path: string) => pathname === path;
 
   const handleNavigate = (href: string) => {
-    if (href !== pathname) setIsNavigating(true);
     setIsMobileOpen(false);
     router.push(href);
   };
@@ -193,15 +120,7 @@ const EmployeeNavigation = ({
 
   return (
     <>
-      {/* Loading Overlay */}
-      {isNavigating && (
-        <div className="fixed inset-0 bg-white/60 backdrop-blur-sm z-[100] flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-10 h-10 border-4 border-[#3B66F5]/20 border-t-[#3B66F5] rounded-full animate-spin"></div>
-            <p className="text-sm font-bold text-[#1E293B]">Loading...</p>
-          </div>
-        </div>
-      )}
+
 
       {/* Mobile Backdrop */}
       {isMobileOpen && (
@@ -218,7 +137,7 @@ const EmployeeNavigation = ({
       <aside className={`fixed top-0 left-0 h-screen bg-white border-r border-slate-100 z-50 transition-all duration-300 ease-in-out flex flex-col overflow-visible
         ${isMobileOpen ? 'translate-x-0 w-[280px]' : '-translate-x-full lg:translate-x-0'} 
         ${isCollapsed ? 'lg:w-20' : 'lg:w-[280px]'}`}>
-        
+
         {/* Header */}
         <div className="p-6 pb-4 flex items-center justify-between">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleNavigate('/employee/welcome')}>
@@ -240,7 +159,7 @@ const EmployeeNavigation = ({
           <div className="px-4 mb-4">
             <div className="flex items-center gap-3 p-3.5 rounded-[18px] border border-slate-50 bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
               <div className="w-10 h-10 rounded-full bg-[#E0E9FF] flex items-center justify-center text-[#3B66F5] font-bold text-sm relative shrink-0">
-                {displayUser?.name ? displayUser.name.split(' ').map((n:any)=>n[0]).join('').toUpperCase() : 'U'}
+                {displayUser?.name ? displayUser.name.split(' ').map((n: any) => n[0]).join('').toUpperCase() : 'U'}
                 <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#4ADE80] border-2 border-white rounded-full"></div>
               </div>
               <div className="overflow-hidden">
@@ -254,7 +173,7 @@ const EmployeeNavigation = ({
         <nav className="flex-1 px-3 overflow-y-visible overflow-x-visible space-y-1 custom-scrollbar pt-2">
           {/* Home */}
           <div className="relative group">
-            <button 
+            <button
               onClick={() => handleNavigate('/employee/welcome')}
               className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/welcome') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
             >
@@ -266,8 +185,8 @@ const EmployeeNavigation = ({
 
           {/* Training Plan (Dropdown) */}
           <div className="relative group">
-            <button 
-              onClick={() => isCollapsed ? handleNavigate('/employee/welcome') : setCoursesOpen(!coursesOpen)} 
+            <button
+              onClick={() => isCollapsed ? handleNavigate('/employee/welcome') : setCoursesOpen(!coursesOpen)}
               className={`w-full flex items-center justify-between px-4 py-2.5 rounded-[12px] transition-all duration-200 text-[#1E293B] hover:bg-slate-50`}
             >
               <div className="flex items-center gap-3.5">
@@ -277,7 +196,7 @@ const EmployeeNavigation = ({
               {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${coursesOpen ? '' : '-rotate-90'}`} />}
             </button>
             {isCollapsed && <NavTooltip label="Performance Sprint" />}
-            
+
             {coursesOpen && !isCollapsed && (
               <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
                 {[
@@ -300,7 +219,7 @@ const EmployeeNavigation = ({
 
           {/* Reports */}
           <div className="relative group">
-            <button 
+            <button
               onClick={() => handleNavigate('/employee/score-history')}
               className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/score-history') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
             >
@@ -325,7 +244,7 @@ const EmployeeNavigation = ({
           </div>
 
           <div className="relative group">
-            <button 
+            <button
               onClick={() => handleNavigate('/employee/roleplay')}
               className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/roleplay') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
             >
@@ -337,10 +256,10 @@ const EmployeeNavigation = ({
           {/* Console */}
           {isAdmin && (
             <>
-              
+
               <div className="relative group">
-                <button 
-                  onClick={() => isCollapsed ? handleNavigate('/admin/dashboard/analytics') : setAdminDropdownOpen(!adminDropdownOpen)} 
+                <button
+                  onClick={() => isCollapsed ? handleNavigate('/admin/dashboard/analytics') : setAdminDropdownOpen(!adminDropdownOpen)}
                   className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
                 >
                   <div className="flex items-center gap-3.5">
@@ -353,39 +272,40 @@ const EmployeeNavigation = ({
                 {adminDropdownOpen && !isCollapsed && (
                   <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
                     {[
-                        { href: "/admin/dashboard/analytics", label: "Analytics", icon: BarChart3 },
-                        { href: "/admin/dashboard/employees", label: "Employees", icon: Users },
-                        { href: "/admin/dashboard/uploads", label: "Uploads", icon: Upload },
-                        { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
+                      { href: "/admin/dashboard/analytics", label: "Analytics", icon: BarChart3 },
+                      { href: "/admin/dashboard/employees", label: "Employees", icon: Users },
+                      { href: "/admin/dashboard/uploads", label: "Uploads", icon: Upload },
+                      { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
                     ].map((item) => (
-                        <button
-                            key={item.label}
-                            onClick={() => handleNavigate(item.href)}
-                            className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
-                        >
-                            <item.icon size={18} className="shrink-0" />
-                            <span className="truncate">{item.label}</span>
-                        </button>
+                      <Link
+                        key={item.label}
+                        href={item.href}
+                        className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                        onClick={() => setIsMobileOpen(false)}
+                      >
+                        <item.icon size={18} className="shrink-0" />
+                        <span className="truncate">{item.label}</span>
+                      </Link>
                     ))}
                     {/* Notify Button */}
                     <button
-                        onClick={() => setShowDispatchCenter(true)}
-                        className="w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50 relative"
+                      onClick={() => setShowDispatchCenter(true)}
+                      className="w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50 relative"
                     >
-                        <Bell size={18} className="shrink-0" />
-                        <span className="truncate">Notify</span>
-                        {/* Notification badge */}
-                        <div className="absolute top-2 left-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"></div>
+                      <Bell size={18} className="shrink-0" />
+                      <span className="truncate">Notify</span>
+                      {/* Notification badge */}
+                      <div className="absolute top-2 left-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"></div>
                     </button>
                   </div>
                 )}
-                
+
               </div>
 
               {/* KPI Panel */}
               <div className="relative group">
-                <button 
-                  onClick={() => isCollapsed ? handleNavigate('/kpi/intelligence') : setKpiDropdownOpen(!kpiDropdownOpen)} 
+                <button
+                  onClick={() => isCollapsed ? handleNavigate('/kpi/intelligence') : setKpiDropdownOpen(!kpiDropdownOpen)}
                   className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
                 >
                   <div className="flex items-center gap-3.5">
@@ -398,19 +318,20 @@ const EmployeeNavigation = ({
                 {kpiDropdownOpen && !isCollapsed && (
                   <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
                     {[
-                        { href: "/kpi/intelligence", label: "KPI Intelligence", icon: TrendingUp },
-                        { href: "/kpi/configuration", label: "KPI Configuration", icon: SettingsIcon },
-                        { href: "/kpi/turbocharge", label: "KPI TurboCharge", icon: Zap },
-                        { href: "/kpi/workforce-overview", label: "Workforce Overview", icon: UsersRound },
+                      { href: "/kpi/intelligence", label: "KPI Intelligence", icon: TrendingUp },
+                      { href: "/kpi/configuration", label: "KPI Configuration", icon: SettingsIcon },
+                      { href: "/kpi/turbocharge", label: "KPI TurboCharge", icon: Zap },
+                      { href: "/kpi/workforce-overview", label: "Workforce Overview", icon: UsersRound },
                     ].map((item) => (
-                        <button
-                            key={item.label}
-                            onClick={() => handleNavigate(item.href)}
-                            className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
-                        >
-                            <item.icon size={18} className="shrink-0" />
-                            <span className="truncate">{item.label}</span>
-                        </button>
+                      <Link
+                        key={item.label}
+                        href={item.href}
+                        className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                        onClick={() => setIsMobileOpen(false)}
+                      >
+                        <item.icon size={18} className="shrink-0" />
+                        <span className="truncate">{item.label}</span>
+                      </Link>
                     ))}
                   </div>
                 )}
@@ -418,10 +339,10 @@ const EmployeeNavigation = ({
             </>
           )}
 
-        <div className="relative group">
-            <button 
+          <div className="relative group">
+            <button
               onClick={() => handleNavigate('/employee/account')}
-              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/roleplay') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/account') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
             >
               <UsersRound size={20} className="shrink-0" />
               {!isCollapsed && <span className="text-[15px] font-bold">Profile</span>}
@@ -447,9 +368,9 @@ const EmployeeNavigation = ({
 
       {/* Admin Dispatch Center Modal */}
       {isAdmin && (
-        <AdminDispatchCenter 
-          isOpen={showDispatchCenter} 
-          onClose={() => setShowDispatchCenter(false)} 
+        <AdminDispatchCenter
+          isOpen={showDispatchCenter}
+          onClose={() => setShowDispatchCenter(false)}
         />
       )}
     </>

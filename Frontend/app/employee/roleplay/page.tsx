@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
-import EmployeeNavigation from '@/components/employee-navigation';
+
 import { useAuth } from '@/contexts/auth-context';
 import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
 import { fetchScenariosForUser, deleteCustomScenario, assignScenario, getScenarioAssignments } from '@/lib/roleplayDatabase';
@@ -29,13 +29,13 @@ interface AssessmentReport {
 }
 
 export default function RolePlayPage({ params }: { params: { module_id: string, moduleTitle: string, custom: string } }) {
-  const { user, loading: authLoading } = useAuth();
+  const { user, internalUser, isAdmin: globalIsAdmin, loading: authLoading } = useAuth();
   const router = useRouter();
   // const searchParams = useSearchParams();
   const moduleId = params.module_id;
   const moduleTitle = params.moduleTitle;
   const isCustom = (params.custom) === 'true';
-  
+
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('scenarioSelection');
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
   const [roleplayConfig, setRoleplayConfig] = useState<RoleplayConfig | null>(null);
@@ -57,7 +57,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   });
   const [allScenarios, setAllScenarios] = useState<Scenario[]>([]);
   const [loadingScenarios, setLoadingScenarios] = useState<boolean>(true);
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const isAdmin = !!globalIsAdmin;
   const [showAssignModal, setShowAssignModal] = useState<boolean>(false);
   const [assigningScenario, setAssigningScenario] = useState<Scenario | null>(null);
   const [assignmentType, setAssignmentType] = useState<'department' | 'sub_department' | 'user'>('user');
@@ -67,15 +67,15 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   const [users, setUsers] = useState<any[]>([]);
   const [companyId, setCompanyId] = useState<string>('');
   const [userId, setUserId] = useState<string>('');
-  
+
   // Fetch all scenarios from the database on mount
   useEffect(() => {
     const fetchScenarios = async () => {
       if (!userId) return;
-      
+
       setLoadingScenarios(true);
       console.log('Fetching Scenarios for user id:', userId, 'isAdmin:', isAdmin);
-      
+
       const { data, error } = await fetchScenariosForUser(userId, isAdmin);
 
       console.log('Fetched scenarios:', data);
@@ -90,13 +90,18 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     if (userId) {
       fetchScenarios();
     }
-  }, [isAdmin]); // Depend on both userId and isAdmin
+  }, [isAdmin, userId]); // Depend on isAdmin from context and userId
 
   useEffect(() => {
     if (!authLoading) {
-      if (!user) router.push("/login");
+      if (!user) {
+        router.push("/login");
+      } else if (internalUser) {
+        setUserId(internalUser.user_id);
+        setCompanyId(internalUser.company_id);
+      }
     }
-  }, [user, authLoading, router]);
+  }, [user, authLoading, internalUser, router]);
 
   // Load custom scenario from sessionStorage if custom=true
   useEffect(() => {
@@ -105,12 +110,12 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       if (customScenarioData) {
         try {
           const scenario = JSON.parse(customScenarioData);
-          
+
           // Ensure scenario has a scenario_id
           if (!scenario.scenario_id) {
             scenario.scenario_id = `custom-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
           }
-          
+
           console.log('Loaded custom scenario from sessionStorage:', scenario);
           setSelectedScenario(scenario);
           setCurrentScreen('config'); // Show config page first
@@ -124,91 +129,10 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     }
   }, [isCustom]);
 
-  // Fetch employee ID from Supabase
-  useEffect(() => {
-    const fetchEmployeeId = async () => {
-      if (user?.email) {
-        try {
-          const { data, error } = await supabase
-            .from('users')
-            .select('user_id, company_id')
-            .eq('email', user.email)
-            .single();
 
-          if (error) {
-            console.error('Error fetching employee ID:', error);
-          } else if (data) {
-            setEmployeeId(data.user_id);
-            setUserId(data.user_id);
-            setCompanyId(data.company_id);
-          }
-        } catch (error) {
-          console.error('Exception fetching employee ID:', error);
-        }
-      }
-    };
-    fetchEmployeeId();
-  }, [user]);
-
-  // Check if user has admin role
-  useEffect(() => {
-    const fetchUserDataAndCheckAdmin = async () => {
-      if (user?.email) {
-        try {
-          // Get user data
-          const { data: userData, error: userError } = await supabase
-            .from('users')
-            .select('user_id, company_id')
-            .eq('email', user.email)
-            .eq('is_active', true)
-            .single();
-
-          if (userError || !userData) {
-            console.error('Error fetching user data:', userError);
-            setIsAdmin(false);
-            return;
-          }
-
-          setEmployeeId(userData.user_id);
-          setUserId(userData.user_id);
-          setCompanyId(userData.company_id);
-
-          // Check user role assignments
-          const { data: roleData, error: roleError } = await supabase
-            .from('user_role_assignments')
-            .select(`
-              role_id,
-              roles!inner(name)
-            `)
-            .eq('user_id', userData.user_id)
-            .eq('is_active', true)
-            .eq('scope_type', 'COMPANY');
-
-          if (roleError || !roleData || roleData.length === 0) {
-            console.log('No admin role found');
-            setIsAdmin(false);
-            return;
-          }
-
-          // Check if user has Admin role
-          const hasAdminRole = roleData.some((assignment: any) => 
-            ['admin', 'super_admin', 'ceo'].includes(assignment.roles?.name?.toLowerCase())
-          );
-
-          console.log('User is admin:', hasAdminRole);
-          setIsAdmin(hasAdminRole);
-        } catch (error) {
-          console.error('Error in fetchUserDataAndCheckAdmin:', error);
-          setIsAdmin(false);
-        }
-      }
-    };
-
-    fetchUserDataAndCheckAdmin();
-  }, [user]);
 
   const handleScenarioSelect = (scenario: Scenario) => {
-          console.log('Loaded custom scenario from sessionStorage:', scenario);
+    console.log('Loaded custom scenario from sessionStorage:', scenario);
 
     setSelectedScenario(scenario);
     setCurrentScreen('config');
@@ -224,7 +148,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
   const handleDeleteScenario = async (scenario: Scenario, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click
-    
+
     // Confirm deletion
     if (!confirm(`Are you sure you want to delete "${scenario.title}"? This action cannot be undone.`)) {
       return;
@@ -232,7 +156,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
     try {
       const { error } = await deleteCustomScenario(scenario.scenario_id);
-      
+
       if (error) {
         console.error('Error deleting scenario:', error);
         setError('Failed to delete scenario');
@@ -241,7 +165,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
       // Refresh scenarios list
       const { data, error: fetchError } = await fetchScenariosForUser(userId, isAdmin);
-      console.log('scenarios for the admins',data);
+      console.log('scenarios for the admins', data);
       if (data) {
         setAllScenarios(data);
       }
@@ -266,15 +190,15 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     console.log('Assigning scenario:', scenario);
     setAssigningScenario(scenario);
     setShowAssignModal(true);
-    
+
     // Fetch departments (where sub_department_name IS NULL) and users for the dropdown
     try {
       // Fetch departments (entries with department_name and no sub_department_name)
       const { data: deptData } = await supabase
         .from('sub_department')
         .select('department_id, department_name')
-        // .is('sub_department_name', null);
-      
+      // .is('sub_department_name', null);
+
       // Remove duplicates based on department_name
       const uniqueDepts = deptData?.reduce((acc: any[], curr: any) => {
         if (!acc.find(d => d.department_name === curr.department_name)) {
@@ -312,7 +236,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     try {
       console.log("Inside the save assignment");
       console.log(selectedTargets);
-      
+
       const { error } = await assignScenario(
         assigningScenario.scenario_id,
         assignmentType,
@@ -347,7 +271,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         tone: config.tone as 'Neutral' | 'Friendly' | 'Aggressive',
         userRole: config.userRole || selectedScenario.userRole,
       };
-          console.log('Loaded custom scenario from sessionStorage:', updatedScenario);
+      console.log('Loaded custom scenario from sessionStorage:', updatedScenario);
 
       setSelectedScenario(updatedScenario);
     }
@@ -371,7 +295,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   const handleEndSession = async (messages: Message[], sessionId?: string) => {
     console.log('🏁 Ending session with messages:', messages.length);
     console.log('📝 Last 3 messages:', messages.slice(-3));
-    
+
     setConversationHistory(messages);
 
     // console.log()
@@ -416,7 +340,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
             employeeId,
             assessment
           });
-          
+
           await createRolePlayAssessment(sessionId, employeeId, assessment);
           console.log('✅ Assessment saved to database successfully');
         } catch (dbError) {
@@ -440,7 +364,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   };
 
   const handleStartNew = () => {
-          console.log('scenario set to null');
+    console.log('scenario set to null');
 
     setSelectedScenario(null);
     setConversationHistory([]);
@@ -451,8 +375,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
   const handleCreateCustomRoleplay = () => {
     // Validate inputs
-    if (!customScenario.title || !customScenario.description || !customScenario.aiRole || 
-        !customScenario.userRole || !customScenario.initialPrompt) {
+    if (!customScenario.title || !customScenario.description || !customScenario.aiRole ||
+      !customScenario.userRole || !customScenario.initialPrompt) {
       alert('Please fill in all fields');
       return;
     }
@@ -471,16 +395,16 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     };
 
     // Set it as selected and start the roleplay
-          console.log('Loaded custom scenario from new scenario sessionStorage:', newScenario);
+    console.log('Loaded custom scenario from new scenario sessionStorage:', newScenario);
 
     setSelectedScenario(newScenario);
     setShowCustomModal(false);
     setCurrentScreen('rolePlay');
   };
 
-  if (authLoading) {
+  if (authLoading || (!internalUser && loadingScenarios)) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="flex h-[70vh] items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-slate-600">Loading...</p>
@@ -491,98 +415,96 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {currentScreen !== 'rolePlay' && <EmployeeNavigation />}
-      
       {currentScreen === 'rolePlay' && selectedScenario ? (
-        <RolePlayConversation
-          scenario={selectedScenario}
-          onEndSession={handleEndSession}
-          moduleId={moduleId || undefined}
-          voiceGender={roleplayConfig?.voiceGender || 'female'}
-        />
+        <div>
+          <RolePlayConversation
+            scenario={selectedScenario}
+            onEndSession={handleEndSession}
+            moduleId={moduleId || undefined}
+            voiceGender={roleplayConfig?.voiceGender || 'female'}
+          />
+        </div>
       ) : (
-        <main 
+        <main
           className="transition-all duration-300 ease-in-out pt-2 pb-12"
-          style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
         >
           <div className="container mx-auto px-4 py-2 max-w-6xl">
 
-        {/* Error Display */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <p className="text-red-800"><strong>Error:</strong> {error}</p>
-            <Button onClick={handleStartNew} variant="outline" className="mt-3">
-              Start Over
-            </Button>
-          </div>
-        )}
+            {/* Error Display */}
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+                <p className="text-red-800"><strong>Error:</strong> {error}</p>
+                <Button onClick={handleStartNew} variant="outline" className="mt-3">
+                  Start Over
+                </Button>
+              </div>
+            )}
 
-        {/* Main Content */}
-        {currentScreen === 'config' && selectedScenario && (
-          <RoleplayConfigPage
-            scenario={selectedScenario}
-            onStart={handleConfigStart}
-            onBack={handleBackFromConfig}
-          />
-        )}
+            {/* Main Content */}
+            {currentScreen === 'config' && selectedScenario && (
+              <RoleplayConfigPage
+                scenario={selectedScenario}
+                onStart={handleConfigStart}
+                onBack={handleBackFromConfig}
+              />
+            )}
 
-        {currentScreen === 'scenarioSelection' && (
-          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200">
-            <h2 className="text-3xl font-bold text-gray-800 mb-2 text-center">
-              Choose Your <span className="text-purple-600">Role-Play</span> Scenario
-            </h2>
-            <p className="text-center text-slate-600 mb-8">
-              Select a scenario to start practicing your skills
-            </p>
+            {currentScreen === 'scenarioSelection' && (
+              <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200">
+                <h2 className="text-3xl font-bold text-gray-800 mb-2 text-center">
+                  Choose Your <span className="text-purple-600">Role-Play</span> Scenario
+                </h2>
+                <p className="text-center text-slate-600 mb-8">
+                  Select a scenario to start practicing your skills
+                </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              {loadingScenarios ? (
-                <div className="col-span-2 text-center text-slate-500">Loading scenarios...</div>
-              ) : allScenarios.length === 0 ? (
-                <div className="col-span-2 text-center text-slate-500">No scenarios found.</div>
-              ) : allScenarios.map((scenario) => (
-                <Card
-                  key={scenario.scenario_id}
-                  className={`cursor-pointer p-6 hover:border-blue-400 hover:shadow-lg transition-all relative ${
-                    selectedScenario?.scenario_id === scenario.scenario_id
-                      ? 'border-2 border-blue-500 shadow-lg'
-                      : 'border border-slate-200'
-                  }`}
-                  onClick={() => setSelectedScenario(scenario)}
-                >
-                  {/* Edit, Delete, and Assign buttons for custom scenarios - admin only */}
-                  {isAdmin && scenario.isCustom && (
-                    
-                    <div className="absolute top-3 right-3 flex gap-2">
-                      <button
-                        onClick={(e) => handleAssignScenario(scenario, e)}
-                        className="p-2 rounded-lg bg-slate-100 hover:bg-green-100 text-slate-600 hover:text-green-600 transition-colors"
-                        title="Assign scenario"
-                      >
-                        <UserPlus className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => handleEditScenario(scenario, e)}
-                        className="p-2 rounded-lg bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-600 transition-colors"
-                        title="Edit scenario"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => handleDeleteScenario(scenario, e)}
-                        className="p-2 rounded-lg bg-slate-100 hover:bg-red-100 text-slate-600 hover:text-red-600 transition-colors"
-                        title="Delete scenario"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
-                  
-                  <h3 className="text-xl font-semibold text-gray-800 mb-3 pr-10">{scenario.title}</h3>
-                  <p className="text-gray-600 mb-4 text-sm leading-relaxed">{scenario.description}</p>
-                  
-                  {/* Role Information - Hidden */}
-                  {/* <div className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                  {loadingScenarios ? (
+                    <div className="col-span-2 text-center text-slate-500">Loading scenarios...</div>
+                  ) : allScenarios.length === 0 ? (
+                    <div className="col-span-2 text-center text-slate-500">No scenarios found.</div>
+                  ) : allScenarios.map((scenario) => (
+                    <Card
+                      key={scenario.scenario_id}
+                      className={`cursor-pointer p-6 hover:border-blue-400 hover:shadow-lg transition-all relative ${selectedScenario?.scenario_id === scenario.scenario_id
+                        ? 'border-2 border-blue-500 shadow-lg'
+                        : 'border border-slate-200'
+                        }`}
+                      onClick={() => setSelectedScenario(scenario)}
+                    >
+                      {/* Edit, Delete, and Assign buttons for custom scenarios - admin only */}
+                      {isAdmin && scenario.isCustom && (
+
+                        <div className="absolute top-3 right-3 flex gap-2">
+                          <button
+                            onClick={(e) => handleAssignScenario(scenario, e)}
+                            className="p-2 rounded-lg bg-slate-100 hover:bg-green-100 text-slate-600 hover:text-green-600 transition-colors"
+                            title="Assign scenario"
+                          >
+                            <UserPlus className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={(e) => handleEditScenario(scenario, e)}
+                            className="p-2 rounded-lg bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-600 transition-colors"
+                            title="Edit scenario"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={(e) => handleDeleteScenario(scenario, e)}
+                            className="p-2 rounded-lg bg-slate-100 hover:bg-red-100 text-slate-600 hover:text-red-600 transition-colors"
+                            title="Delete scenario"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+
+                      <h3 className="text-xl font-semibold text-gray-800 mb-3 pr-10">{scenario.title}</h3>
+                      <p className="text-gray-600 mb-4 text-sm leading-relaxed">{scenario.description}</p>
+
+                      {/* Role Information - Hidden */}
+                      {/* <div className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div>
                         <span className="text-slate-500 font-medium block mb-1">You play as:</span>
@@ -598,79 +520,78 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                       </div>
                     </div>
                   </div> */}
-                  
-                  <div className="flex justify-between items-center text-sm font-medium">
-                    <span className={`px-3 py-1 rounded-full ${
-                      scenario.difficulty?.toLowerCase() === 'easy' ? 'bg-green-100 text-green-700' :
-                      scenario.difficulty?.toLowerCase() === 'medium' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-red-100 text-red-700'
-                    }`}>
-                      {scenario.difficulty}
-                    </span>
-                  </div>
-                </Card>
-              ))}
-              
-              {/* Create Your Own Roleplay Card - Only show for admins */}
-              {isAdmin === true && (
-                <Card
-                  className="cursor-pointer p-6 hover:border-purple-400 hover:shadow-lg transition-all border-2 border-dashed border-purple-300 bg-purple-50/30"
-                  onClick={() => router.push('/employee/roleplay/create')}
-                >
-                  <h3 className="text-xl font-semibold text-purple-700 mb-3 flex items-center gap-2">
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    Create Your Own Roleplay
-                  </h3>
-                  <p className="text-gray-600 mb-4 text-sm leading-relaxed">
-                    Design a custom scenario tailored to your specific needs and practice objectives.
-                  </p>
-                  <div className="flex justify-between items-center text-sm font-medium">
-                    <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full">Custom Scenario</span>
-                    <span className="px-3 py-1 rounded-full bg-purple-100 text-purple-700">
-                      Flexible
-                    </span>
-                  </div>
-                </Card>
-              )}
-            </div>
 
-            <div className="flex justify-center">
-              <Button
-                onClick={() => selectedScenario && handleScenarioSelect(selectedScenario)}
-                disabled={!selectedScenario}
-                className="px-8 py-3 text-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Start Role-Play
-              </Button>
-            </div>
+                      <div className="flex justify-between items-center text-sm font-medium">
+                        <span className={`px-3 py-1 rounded-full ${scenario.difficulty?.toLowerCase() === 'easy' ? 'bg-green-100 text-green-700' :
+                          scenario.difficulty?.toLowerCase() === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>
+                          {scenario.difficulty}
+                        </span>
+                      </div>
+                    </Card>
+                  ))}
+
+                  {/* Create Your Own Roleplay Card - Only show for admins */}
+                  {isAdmin === true && (
+                    <Card
+                      className="cursor-pointer p-6 hover:border-purple-400 hover:shadow-lg transition-all border-2 border-dashed border-purple-300 bg-purple-50/30"
+                      onClick={() => router.push('/employee/roleplay/create')}
+                    >
+                      <h3 className="text-xl font-semibold text-purple-700 mb-3 flex items-center gap-2">
+                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Create Your Own Roleplay
+                      </h3>
+                      <p className="text-gray-600 mb-4 text-sm leading-relaxed">
+                        Design a custom scenario tailored to your specific needs and practice objectives.
+                      </p>
+                      <div className="flex justify-between items-center text-sm font-medium">
+                        <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full">Custom Scenario</span>
+                        <span className="px-3 py-1 rounded-full bg-purple-100 text-purple-700">
+                          Flexible
+                        </span>
+                      </div>
+                    </Card>
+                  )}
+                </div>
+
+                <div className="flex justify-center">
+                  <Button
+                    onClick={() => selectedScenario && handleScenarioSelect(selectedScenario)}
+                    disabled={!selectedScenario}
+                    className="px-8 py-3 text-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Start Role-Play
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {currentScreen === 'assessmentReport' && (
+              isGeneratingAssessment ? (
+                <div className="bg-white rounded-xl shadow-sm p-12 text-center border border-slate-200">
+                  <Loader2 className="w-16 h-16 animate-spin text-blue-600 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-slate-800 mb-2">Analyzing Your Performance...</h3>
+                  <p className="text-slate-600">Please wait while we generate your assessment report</p>
+                </div>
+              ) : assessmentReport && selectedScenario ? (
+                <AssessmentReportComponent
+                  report={assessmentReport}
+                  scenarioTitle={selectedScenario.title}
+                  onStartNew={handleStartNew}
+                />
+              ) : (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+                  <p className="text-yellow-800">No assessment data available.</p>
+                  <Button onClick={handleStartNew} className="mt-4">
+                    Start New Role-Play
+                  </Button>
+                </div>
+              )
+            )}
           </div>
-        )}
-
-        {currentScreen === 'assessmentReport' && (
-          isGeneratingAssessment ? (
-            <div className="bg-white rounded-xl shadow-sm p-12 text-center border border-slate-200">
-              <Loader2 className="w-16 h-16 animate-spin text-blue-600 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-slate-800 mb-2">Analyzing Your Performance...</h3>
-              <p className="text-slate-600">Please wait while we generate your assessment report</p>
-            </div>
-          ) : assessmentReport && selectedScenario ? (
-            <AssessmentReportComponent
-              report={assessmentReport}
-              scenarioTitle={selectedScenario.title}
-              onStartNew={handleStartNew}
-            />
-          ) : (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
-              <p className="text-yellow-800">No assessment data available.</p>
-              <Button onClick={handleStartNew} className="mt-4">
-                Start New Role-Play
-              </Button>
-            </div>
-          )
-        )}
-        </div>
         </main>
       )}
 
@@ -692,7 +613,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                 <input
                   type="text"
                   value={customScenario.title}
-                  onChange={(e) => setCustomScenario({...customScenario, title: e.target.value})}
+                  onChange={(e) => setCustomScenario({ ...customScenario, title: e.target.value })}
                   placeholder="e.g., Client Objection Handling"
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />
@@ -705,7 +626,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                 </label>
                 <textarea
                   value={customScenario.description}
-                  onChange={(e) => setCustomScenario({...customScenario, description: e.target.value})}
+                  onChange={(e) => setCustomScenario({ ...customScenario, description: e.target.value })}
                   placeholder="Describe the situation and context..."
                   rows={3}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
@@ -720,7 +641,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                 <input
                   type="text"
                   value={customScenario.aiRole}
-                  onChange={(e) => setCustomScenario({...customScenario, aiRole: e.target.value})}
+                  onChange={(e) => setCustomScenario({ ...customScenario, aiRole: e.target.value })}
                   placeholder="e.g., Skeptical Client, Concerned Manager"
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />
@@ -734,7 +655,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                 <input
                   type="text"
                   value={customScenario.userRole}
-                  onChange={(e) => setCustomScenario({...customScenario, userRole: e.target.value})}
+                  onChange={(e) => setCustomScenario({ ...customScenario, userRole: e.target.value })}
                   placeholder="e.g., Sales Representative, Team Lead"
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />
@@ -747,7 +668,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                 </label>
                 <textarea
                   value={customScenario.initialPrompt}
-                  onChange={(e) => setCustomScenario({...customScenario, initialPrompt: e.target.value})}
+                  onChange={(e) => setCustomScenario({ ...customScenario, initialPrompt: e.target.value })}
                   placeholder="What should the AI character say first?"
                   rows={2}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
@@ -762,7 +683,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                   </label>
                   <select
                     value={customScenario.difficulty}
-                    onChange={(e) => setCustomScenario({...customScenario, difficulty: e.target.value as any})}
+                    onChange={(e) => setCustomScenario({ ...customScenario, difficulty: e.target.value as any })}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   >
                     <option value="Easy">Easy</option>
@@ -777,7 +698,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                   </label>
                   <select
                     value={customScenario.tone}
-                    onChange={(e) => setCustomScenario({...customScenario, tone: e.target.value as any})}
+                    onChange={(e) => setCustomScenario({ ...customScenario, tone: e.target.value as any })}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   >
                     <option value="Friendly">Friendly</option>
@@ -852,7 +773,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
                 <label className="block text-sm font-medium text-slate-700 mb-2">
                   Select Targets *
                 </label>
-                
+
                 {assignmentType === 'department' && (
                   <div className="space-y-2 max-h-64 overflow-y-auto border border-slate-300 rounded-lg p-2">
                     {departments.map((dept) => (

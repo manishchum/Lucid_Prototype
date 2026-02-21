@@ -6,7 +6,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from "@/lib/supabase";
 import MCQQuiz from "./mcq-quiz";
 import { useAuth } from "@/contexts/auth-context";
-import EmployeeNavigation from "@/components/employee-navigation";
+
 import { ChevronLeft, CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 
 interface TrainingModule {
@@ -31,7 +31,7 @@ const AssessmentContent = () => {
   const [correctAnswers, setCorrectAnswers] = useState<any[]>([]);
   const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
-  const [expandedSections, setExpandedSections] = useState<{[key: string]: boolean}>({
+  const [expandedSections, setExpandedSections] = useState<{ [key: string]: boolean }>({
     learningStyle: false,
     howYouThrive: false,
     tips: false,
@@ -44,7 +44,7 @@ const AssessmentContent = () => {
   const fetchUserByEmail = async (email: string | undefined | null) => {
     if (!email) return null;
     const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
-    if (!res.ok){
+    if (!res.ok) {
       const txt = await res.text().catch(() => "No response body");
       throw new Error(`Failed to fetch user by email: ${res.status} ${txt}`);
     }
@@ -77,9 +77,9 @@ const AssessmentContent = () => {
         setModules(data || []);
         setCompanyId(companyId);
       } catch (err: any) {
-  setError("Failed to load modules: " + err.message);
-  // Add delay before clearing error
-  setTimeout(() => setError(""), 1200);
+        setError("Failed to load modules: " + err.message);
+        // Add delay before clearing error
+        setTimeout(() => setError(""), 1200);
       } finally {
         setLoading(false);
       }
@@ -103,7 +103,7 @@ const AssessmentContent = () => {
         }
         console.log("the gpt mcq quiz is called");
         if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
-        
+
         // Fetch user's learning style
         let learningStyle: string | null = null;
         const { data: learningStyleData } = await supabase
@@ -132,11 +132,11 @@ const AssessmentContent = () => {
             console.log("Learning Plan Query - User ID:", employeeId, "Module ID:", urlModuleId);
             console.log("Learning Plan Data:", learningPlan);
             console.log("Learning Plan Error:", lpError);
-            
+
             if (lpError) {
               console.error("Error fetching learning plan:", lpError);
             }
-            
+
             // baseline_assessment is stored as smallint (0 or 1) in database, not boolean
             if (learningPlan) {
               console.log("baseline_assessment value:", learningPlan.baseline_assessment, "type:", typeof learningPlan.baseline_assessment);
@@ -149,14 +149,14 @@ const AssessmentContent = () => {
           }
           // console.log(isBaselineRequest)
           // console.log")
-            console.log("Inside the if statement for per-module quiz request.");
+          console.log("Inside the if statement for per-module quiz request.");
           console.log(urlModuleId)
           res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
+            body: JSON.stringify({
               moduleIds: [urlModuleId],
-              companyId:companyId, 
+              companyId: companyId,
               user_id: employeeId,
               learningStyle: learningStyle,
               isBaseline: isBaselineRequest,
@@ -169,8 +169,8 @@ const AssessmentContent = () => {
           res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              moduleIds: modules.map(m => m.module_id), 
+            body: JSON.stringify({
+              moduleIds: modules.map(m => m.module_id),
               companyId,
               user_id: employeeId,
               learningStyle: learningStyle,
@@ -186,7 +186,7 @@ const AssessmentContent = () => {
         }
         const d = await res.json();
         // console.log('[Assessment] Baseline quiz result:', d);
-        
+
         // Prefer quizMapping (new backend behavior). Fall back to legacy d.quiz.
         let quizzes = [] as Array<{ moduleId: string; title?: string; questions: any[]; assessmentId?: string }>;
         const mapping = (d && Array.isArray(d.quizMapping)) ? d.quizMapping : null;
@@ -246,22 +246,22 @@ const AssessmentContent = () => {
     // Extract main title/header from the feedback
     const headerMatch = feedback.match(/^##\s*(.+?)(?:\n|$)/m);
     const mainTitle = headerMatch ? headerMatch[1].trim() : "Assessment Results";
-    
+
     // Parse sections from the feedback
-    const sections: {[key: string]: string} = {};
+    const sections: { [key: string]: string } = {};
     const sectionRegex = /###?\s*(.+?)(?:\n([\s\S]*?))?(?=###?|$)/g;
     let match;
-    
+
     while ((match = sectionRegex.exec(feedback)) !== null) {
       const title = match[1].trim();
       const content = match[2]?.trim() || '';
-      
+
       // Skip empty sections and the main header
       if (content && title !== mainTitle) {
         sections[title] = content;
       }
     }
-    
+
     return { mainTitle, sections };
   };
 
@@ -351,7 +351,7 @@ const AssessmentContent = () => {
             assessmentId = createdAssessment?.assessment_id ?? createdAssessment?.data?.assessment_id ?? null;
           } else {
             // creation failed — continue without assessmentId (fallback behavior)
-            console.warn('Failed to create baseline assessment via backend', await createRes.text().catch(()=>''));
+            console.warn('Failed to create baseline assessment via backend', await createRes.text().catch(() => ''));
           }
         }
         // console.log(assessmentId)
@@ -382,9 +382,9 @@ const AssessmentContent = () => {
       // console.log("Response from the /api/gpt-feedback endpoint:");
       // console.log(res)
       setFeedback(data.feedback || "");
-      
+
       setQuizQuestions(mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []);
-      
+
       const questions = mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || [];
       const answersData = questions.map((q: any, idx: number) => ({
         question: q.question,
@@ -402,7 +402,7 @@ const AssessmentContent = () => {
       } catch (e) {
         // ignore in server or privacy-restricted contexts
       }
-      
+
     } catch (err: any) {
       setFeedback("Could not generate feedback.");
     } finally {
@@ -412,13 +412,10 @@ const AssessmentContent = () => {
 
   return (
     <div className="min-h-screen w-full">
-      <EmployeeNavigation showBack={true} showForward={false} />
-      
-      <div 
+
+
+      <div
         className="transition-all duration-300 ease-in-out py-10"
-        style={{ 
-          marginLeft: 'var(--sidebar-width, 0px)',
-        }}
       >
         <div className="max-w-8xl mx-auto px-4">
           <button
@@ -455,7 +452,7 @@ const AssessmentContent = () => {
                   const { mainTitle, sections } = parseFeedbackSections(feedback);
                   // console.log(feedback)
                   const sectionKeys = Object.keys(sections);
-                  
+
                   return (
                     <>
                       <div className="text-center mb-8">
@@ -487,7 +484,7 @@ const AssessmentContent = () => {
                           </div>
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-3">
-                          <div 
+                          <div
                             className="bg-gradient-to-r from-blue-500 to-green-500 h-3 rounded-full transition-all duration-500"
                             style={{ width: `${Math.round((score / (mcqQuestionsByModule[0]?.questions || []).length) * 100)}%` }}
                           />
@@ -501,7 +498,7 @@ const AssessmentContent = () => {
                           {sectionKeys.map((sectionTitle, idx) => {
                             const sectionKey = `section_${idx}`;
                             const isExpanded = expandedSections[sectionKey];
-                            
+
                             // Determine background color based on section
                             let bgColor = 'bg-blue-50';
                             let borderColor = 'border-blue-200';
@@ -515,8 +512,8 @@ const AssessmentContent = () => {
                               bgColor = 'bg-purple-50';
                               borderColor = 'border-purple-200';
                             }
-                            
-                            
+
+
                             return (
                               <div key={sectionKey}>
                               </div>
@@ -545,13 +542,12 @@ const AssessmentContent = () => {
                 {expandedSections.questions && (
                   <div className="p-8 space-y-6">
                     {correctAnswers.map((answer, idx) => (
-                      <div 
-                        key={idx} 
-                        className={`p-6 rounded-lg border-2 ${
-                          answer.isCorrect 
-                            ? 'bg-green-50 border-green-300' 
-                            : 'bg-red-50 border-red-300'
-                        }`}
+                      <div
+                        key={idx}
+                        className={`p-6 rounded-lg border-2 ${answer.isCorrect
+                          ? 'bg-green-50 border-green-300'
+                          : 'bg-red-50 border-red-300'
+                          }`}
                       >
                         <div className="flex items-start gap-3 mb-4">
                           {answer.isCorrect ? (
@@ -567,7 +563,7 @@ const AssessmentContent = () => {
                               </span>
                             </div>
                             <p className="text-gray-800 font-medium mb-4">{answer.question}</p>
-                            
+
                             <div className="space-y-2 mb-4">
                               <div className="flex items-center gap-2">
                                 <span className="font-semibold text-gray-700">Your answer:</span>
@@ -582,7 +578,7 @@ const AssessmentContent = () => {
                                 </div>
                               )}
                             </div>
-                            
+
                             {answer.explanation && (
                               <div className="flex items-start gap-2 mt-3 p-3 bg-white rounded border border-gray-200">
                                 <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />

@@ -6,8 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import EmployeeNavigation from "@/components/employee-navigation";
-import ModuleSideNav from "@/components/ModuleSideNav";
+
+
 import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download } from "lucide-react";
 import FlashcardCards from '@/components/FlashcardCards'
 import MindmapViewer from '@/components/MindmapViewer'
@@ -20,10 +20,10 @@ import VoiceOutput from '@/components/VoiceOutput';
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 const fetchUserByEmail = async (email: string) => {
-  try{
+  try {
     const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
     console.log(res);
-    if(!res.ok) return null;
+    if (!res.ok) return null;
     const payload = await res.json();
     let u = payload?.user ?? payload;
     if (Array.isArray(u)) u = u[0];
@@ -56,12 +56,12 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const [autoStartMic, setAutoStartMic] = useState(false);
 
   useEffect(() => {
-          if (!authLoading) {
-            if (!user) router.push("/login");
-            // else checkAdminAccess();
-            
-          }
-        }, [user, authLoading, router]);
+    if (!authLoading) {
+      if (!user) router.push("/login");
+      // else checkAdminAccess();
+
+    }
+  }, [user, authLoading, router]);
   useEffect(() => {
     const fetchModule = async () => {
       setLoading(true);
@@ -74,22 +74,22 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       let empObj = null;
       let style = null;
       try {
-        if(user?.email) {
+        if (user?.email) {
           const emp = await fetchUserByEmail(user.email);
-          if (emp?.user_id){
+          if (emp?.user_id) {
             empObj = emp;
             setEmployee(emp);
             const { data: styleData } = await supabase
-            .from("employee_learning_style")
-            .select("learning_style")
-            .eq("user_id", emp.user_id)
-            .maybeSingle();
-          if (styleData?.learning_style) {
-            style = styleData.learning_style;
-            setLearningStyle(style);
+              .from("employee_learning_style")
+              .select("learning_style")
+              .eq("user_id", emp.user_id)
+              .maybeSingle();
+            if (styleData?.learning_style) {
+              style = styleData.learning_style;
+              setLearningStyle(style);
+            }
           }
         }
-      }
       } catch (e) {
         console.error('[module] employee fetch error', e);
       }
@@ -143,14 +143,14 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             //   }),
             // });
             // if (genResponse.ok) {
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              const { data: refreshedData } = await supabase
-                .from('processed_modules')
-                .select(selectCols)
-                .eq('processed_module_id', moduleId)
-                .maybeSingle();
-              if (refreshedData && refreshedData.content) {
-                data = refreshedData;
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            const { data: refreshedData } = await supabase
+              .from('processed_modules')
+              .select(selectCols)
+              .eq('processed_module_id', moduleId)
+              .maybeSingle();
+            if (refreshedData && refreshedData.content) {
+              data = refreshedData;
               // }
             }
 
@@ -161,7 +161,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             setGeneratingContent(false);
           }
         }
-        if(data.video_url){
+        if (data.video_url) {
           setHasVideo(true);
         }
         setModule(data as any);
@@ -193,15 +193,15 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       }
       setLoading(false);
     };
-         if (!authLoading) {
-           if (!user) router.push("/login");
-           else fetchModule();
-           
-         }
+    if (!authLoading) {
+      if (!user) router.push("/login");
+      else fetchModule();
 
-    
-  // fetchModule();
-  }, [moduleId,user,authLoading]);
+    }
+
+
+    // fetchModule();
+  }, [moduleId, user, authLoading]);
 
   const handleSendChat = async (e: FormEvent<HTMLFormElement>, overrideInput?: string) => {
     e.preventDefault();
@@ -212,22 +212,22 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       return;
     }
 
-  const userMessage = inputToSend.trim();
-  setChatInput('');
+    const userMessage = inputToSend.trim();
+    setChatInput('');
 
-  // If overrideInput is present, it means voice input was used
-  const isVoiceInput = !!overrideInput;
-  setLastUserInputWasVoice(isVoiceInput);
-  
-  if (isVoiceInput) {
-    setVoiceLoopActive(true);
-  } else {
-    setVoiceLoopActive(false);
-  }
+    // If overrideInput is present, it means voice input was used
+    const isVoiceInput = !!overrideInput;
+    setLastUserInputWasVoice(isVoiceInput);
 
-  const newUserMessage = { role: 'user' as const, content: userMessage, isVoice: isVoiceInput };
-  setUserChatHistory((prev) => [...prev, newUserMessage]);
-  setChatLoading(true);
+    if (isVoiceInput) {
+      setVoiceLoopActive(true);
+    } else {
+      setVoiceLoopActive(false);
+    }
+
+    const newUserMessage = { role: 'user' as const, content: userMessage, isVoice: isVoiceInput };
+    setUserChatHistory((prev) => [...prev, newUserMessage]);
+    setChatLoading(true);
 
     try {
       const response = await fetch('/api/module-chat', {
@@ -268,38 +268,45 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   };
 
   const handleVoiceTranscription = (text: string) => {
-  setChatInput(text);
-  setLastUserInputWasVoice(true);
-  
-  // Check if user said "bye" or similar exit phrases
-  const exitPhrases = ['bye', 'goodbye', 'stop', 'exit', 'quit'];
-  const lowerText = text.toLowerCase().trim();
-  const shouldExit = exitPhrases.some(phrase => lowerText === phrase || lowerText.endsWith(phrase));
-  
-  if (shouldExit) {
-    setVoiceLoopActive(false);
-    console.log('[ModuleChat] Voice loop stopped - exit phrase detected:', text);
-    return; // Don't auto-send, let user decide
-  }
-  
-  setVoiceLoopActive(true);
+    setChatInput(text);
+    setLastUserInputWasVoice(true);
+
+    // Check if user said "bye" or similar exit phrases
+    const exitPhrases = ['bye', 'goodbye', 'stop', 'exit', 'quit'];
+    const lowerText = text.toLowerCase().trim();
+    const shouldExit = exitPhrases.some(phrase => lowerText === phrase || lowerText.endsWith(phrase));
+
+    if (shouldExit) {
+      setVoiceLoopActive(false);
+      console.log('[ModuleChat] Voice loop stopped - exit phrase detected:', text);
+      return; // Don't auto-send, let user decide
+    }
+
+    setVoiceLoopActive(true);
     console.log('[ModuleChat] handleVoiceTranscription called. text:', text, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
     // Auto-send after transcription
     setTimeout(() => {
       if (text && text.trim() && !chatLoading && module?.processed_module_id) {
         console.log('[ModuleChat] Auto-sending after transcription:', text);
         // Create a synthetic event for form submission
-        const fakeEvent = { preventDefault: () => {} } as FormEvent<HTMLFormElement>;
+        const fakeEvent = { preventDefault: () => { } } as FormEvent<HTMLFormElement>;
         handleSendChat(fakeEvent, text);
       } else {
-        console.log('[ModuleChat] Auto-send conditions not met:', {text, chatLoading, module: module?.processed_module_id});
+        console.log('[ModuleChat] Auto-send conditions not met:', { text, chatLoading, module: module?.processed_module_id });
       }
     }, 100);
   };
 
   if (showLoadingProgress) {
     const label = generatingContent ? "Generating personalized content" : "Loading module content";
-    return <LoadingProgress label={label} progress={loadingProgress} />;
+    return (
+      <div
+        className="transition-all duration-300 ease-in-out px-12 py-8"
+        style={{ marginLeft: '16rem' }}
+      >
+        <LoadingProgress label={label} progress={loadingProgress} />
+      </div>
+    );
   }
 
   if (!module) {
@@ -308,20 +315,11 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
 
   return (
     <div className="min-h-screen">
-      <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} forceCollapsed={true} />
-      
-      {/* Module Side Navigation */}
-      {employee?.user_id && (
-        <ModuleSideNav 
-          userId={employee.user_id} 
-          currentModuleId={moduleId}
-          sprintModuleId={module?.original_module_id}
-        />
-      )}
 
-      <div 
-        className="transition-all duration-300 ease-in-out px-12 py-8" 
-        style={{ marginLeft: 'calc(var(--sidebar-width, 5rem) + 16rem)' }}
+
+      <div
+        className="transition-all duration-300 ease-in-out px-12 py-8"
+        style={{ marginLeft: '16rem' }}
       >
         <div className="w-full mx-auto">
           <div>
@@ -411,7 +409,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                               }
                             }
                           }
-                          
+
                           return (
                             <div
                               key={idx}
@@ -421,13 +419,13 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                               )}
                             >
                               {msg.role === 'assistant' && (
-                                <VoiceOutput text={msg.content} disabled={chatLoading || !ttsEnabled} 
-                                onTTSComplete={() => {
-                                if (voiceLoopActive && idx === userChatHistory.length - 1) {
-                                setTimeout(() => setAutoStartMic(true), 300);
-                                setTimeout(() => setAutoStartMic(false), 2000);
-                                }
-                                }}
+                                <VoiceOutput text={msg.content} disabled={chatLoading || !ttsEnabled}
+                                  onTTSComplete={() => {
+                                    if (voiceLoopActive && idx === userChatHistory.length - 1) {
+                                      setTimeout(() => setAutoStartMic(true), 300);
+                                      setTimeout(() => setAutoStartMic(false), 2000);
+                                    }
+                                  }}
                                 />
                               )}
                               <div
@@ -473,7 +471,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       >
                         📎
                       </button> */}
-                      <VoiceInput 
+                      <VoiceInput
                         onTranscription={handleVoiceTranscription}
                         disabled={chatLoading}
                         autoStart={autoStartMic}
@@ -821,8 +819,8 @@ function parseMarkdownContent(content: string) {
       if (tag === 'ul') {
         currentSection.content += `<ul>${listBuffer.items.map((item) => `<li><span style='font-size:1.1em;margin-right:0.5em;'>•</span>${item}</li>`).join('')}</ul>\n`;
       } else {
-        const numEmojis = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
-        currentSection.content += `<ol>${listBuffer.items.map((item, idx) => `<li><span style='font-size:1.1em;margin-right:0.5em;'>${numEmojis[idx] || (idx+1)+'.'}</span>${item}</li>`).join('')}</ol>\n`;
+        const numEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+        currentSection.content += `<ol>${listBuffer.items.map((item, idx) => `<li><span style='font-size:1.1em;margin-right:0.5em;'>${numEmojis[idx] || (idx + 1) + '.'}</span>${item}</li>`).join('')}</ol>\n`;
       }
       listBuffer = null;
     }
@@ -833,7 +831,7 @@ function parseMarkdownContent(content: string) {
     if (currentSection) sections.push(currentSection);
     currentSection = section;
   };
-  
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
 
@@ -849,20 +847,20 @@ function parseMarkdownContent(content: string) {
 
     const sectionMatch = line.match(/^Section\s+(\d+)\s*:\s*(.+)$/i);
     if (sectionMatch) {
-      startSection({ 
-        type: 'section', 
-        title: line, 
-        content: '' 
+      startSection({
+        type: 'section',
+        title: line,
+        content: ''
       });
       continue;
     }
 
     const activityMatch = line.match(/^Activity\s+(\d+)\s*:\s*(.+)$/i);
     if (activityMatch) {
-      startSection({ 
-        type: 'activity', 
-        title: line, 
-        content: '' 
+      startSection({
+        type: 'activity',
+        title: line,
+        content: ''
       });
       continue;
     }
@@ -876,7 +874,7 @@ function parseMarkdownContent(content: string) {
       startSection({ type: 'discussion', title: 'Discussion Prompts', content: '' });
       continue;
     }
-    
+
     const bulletMatch = line.match(/^[-\*•]\s+(.*)$/);
     const numberedMatch = line.match(/^(\d+)\.\s+(.*)$/);
 
@@ -903,7 +901,7 @@ function parseMarkdownContent(content: string) {
       currentSection = { type: 'intro', title: '', content: lines[i] + '\n' };
     }
   }
-  
+
   flushList();
   if (currentSection && currentSection.content.trim()) {
     sections.push(currentSection);
@@ -1026,7 +1024,7 @@ function ContentTransformer({
   const hasEnglishAudio = !!(module.audio_url && module.podcast_transcript && module.podcast_timeline);
   const hasHinglishAudio = !!(module.audio_url_hinglish && module.podcast_transcript_hinglish && module.podcast_timeline_hinglish);
   const hasAudio = hasEnglishAudio || hasHinglishAudio;
-  
+
   // Check if current language audio is available
   const hasCurrentLanguageAudio = (language: 'en' | 'hinglish') => {
     if (language === 'hinglish') {
@@ -1034,7 +1032,7 @@ function ContentTransformer({
     }
     return hasEnglishAudio;
   };
-  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
+  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]);
   const [language, setLanguage] = useState<'en' | 'hinglish'>('en');
   const [selectedOption, setSelectedOption] = useState<'audio' | 'video' | 'chat' | 'flashcard' | 'flashcards' | 'mindmap' | 'roleplay' | 'infographic'>('audio');
   const [transcriptOpen, setTranscriptOpen] = useState(false);
@@ -1074,7 +1072,7 @@ function ContentTransformer({
   useEffect(() => {
     const timelineField = language === 'hinglish' ? 'podcast_timeline_hinglish' : 'podcast_timeline';
     const timelineData = language === 'hinglish' ? module?.podcast_timeline_hinglish : module?.podcast_timeline;
-    
+
     if (!timelineData) {
       console.log(`[ContentTransformer] No ${timelineField} in module data`);
       return;
@@ -1220,7 +1218,7 @@ function ContentTransformer({
           </div>
         </div>
 
-  <div className="grid grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-5 gap-4 mb-6">
           <div
             onClick={() => {
               if (selectedOption === 'audio') {
@@ -1262,7 +1260,7 @@ function ContentTransformer({
             onClick={async () => {
               setSelectedOption('mindmap');
               setMindmapLoading(true);
-              
+
               try {
                 // Check if mindmap data already exists in the module
                 if (module.mindmap_data) {
@@ -1296,14 +1294,14 @@ function ContentTransformer({
 
                 if (res.ok && data && data.nodes && data.edges) {
                   setMindmapData(data);
-                  
+
                   // Save mindmap data to Supabase
                   try {
                     const { error: updateError } = await supabase
                       .from('processed_modules')
                       .update({ mindmap_data: data })
                       .eq('processed_module_id', module.processed_module_id);
-                    
+
                     if (updateError) {
                       console.error('[mindmap] Failed to save mindmap to database:', updateError);
                     } else {
@@ -1351,7 +1349,7 @@ function ContentTransformer({
               try {
                 setFlashcardLoading(true);
                 setSelectedOption('flashcard');
-                
+
                 // Check if flashcard data already exists in the module (cache)
                 if (module.flashcard_data) {
                   console.log('[flashcards] Using cached flashcard data');
@@ -1399,14 +1397,14 @@ function ContentTransformer({
                   // Expecting an array of { heading, points }
                   if (Array.isArray(data)) {
                     setFlashcardSections(data);
-                    
+
                     // Save flashcard data to Supabase
                     try {
                       const { error: updateError } = await supabase
                         .from('processed_modules')
                         .update({ flashcard_data: data })
                         .eq('processed_module_id', module.processed_module_id);
-                      
+
                       if (updateError) {
                         console.error('[flashcards] Failed to save flashcards to database:', updateError);
                       } else {
@@ -1459,12 +1457,12 @@ function ContentTransformer({
               try {
                 setInfographicLoading(true);
                 setSelectedOption('infographic');
-                
+
                 console.log('[infographic] Starting generation...');
                 console.log('[infographic] Module title:', module.title);
                 console.log('[infographic] Content length:', (module.content || '').length);
                 console.log('[infographic] Processed module ID:', module.processed_module_id);
-                
+
                 // Check if infographic data already exists in the module (cache)
                 if (module.infographic_data) {
                   console.log('[infographic] Using cached infographic data');
@@ -1478,29 +1476,29 @@ function ContentTransformer({
                     return;
                   }
                 }
-                
+
                 const contentText = module.content || '';
-                
+
                 if (!contentText) {
                   console.error('[infographic] No content available');
                   alert('No content available to generate visual guide');
                   setInfographicLoading(false);
                   return;
                 }
-                
+
                 console.log('[infographic] Calling API...');
                 const res = await fetch(`${API_BASE}/api/generate-infographic`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ 
-                    content: contentText, 
+                  body: JSON.stringify({
+                    content: contentText,
                     title: module.title,
-                    processed_module_id: module.processed_module_id 
+                    processed_module_id: module.processed_module_id
                   }),
                 });
 
                 console.log('[infographic] API response status:', res.status);
-                
+
                 const raw = await res.clone().text();
                 console.log('[infographic] Raw response preview:', raw.slice(0, 500));
 
@@ -1562,7 +1560,7 @@ function ContentTransformer({
 
         {selectedOption === 'audio' && audioOpen && (
           <div className="space-y-3 flex flex-col">
-             <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3">
               <select
                 value={language}
                 onChange={(e) => setLanguage(e.target.value as 'en' | 'hinglish')}
@@ -1721,24 +1719,24 @@ function ContentTransformer({
         {selectedOption !== 'audio' && selectedOption !== 'video' && (
           <div className="rounded-xl border border-slate-200 bg-white p-12 text-left">
             <div className="text-slate-600 text-sm text-left">
-                  {selectedOption === 'flashcard' && (
-                    <div>
-                      {flashcardLoading && (
-                        <div className="flex flex-col items-center">
-                          <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
-                          <div>Generating flashcards...</div>
-                        </div>
-                      )}
-
-                      {!flashcardLoading && (
-                        <div>
-                              <FlashcardCards sections={flashcardSections} />
-                        </div>
-                      )}
+              {selectedOption === 'flashcard' && (
+                <div>
+                  {flashcardLoading && (
+                    <div className="flex flex-col items-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
+                      <div>Generating flashcards...</div>
                     </div>
                   )}
 
-                  {/* 'flashcard' (singular) is used to show generated sections inline */}
+                  {!flashcardLoading && (
+                    <div>
+                      <FlashcardCards sections={flashcardSections} />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 'flashcard' (singular) is used to show generated sections inline */}
 
               {selectedOption === 'mindmap' && (
                 <div>
@@ -1807,7 +1805,7 @@ function ContentTransformer({
                               if (infographicData.sections) {
                                 infographicData.sections.forEach((section: any) => {
                                   checkPageBreak(40);
-                                  
+
                                   // Section title
                                   pdf.setFontSize(14);
                                   pdf.setFont('helvetica', 'bold');
@@ -1823,7 +1821,7 @@ function ContentTransformer({
                                       const pointTitle = pdf.splitTextToSize(`• ${point.title}`, pageWidth - 2 * margin - 10);
                                       pdf.text(pointTitle, margin + 5, yPosition);
                                       yPosition += pointTitle.length * 5 + 2;
-                                      
+
                                       pdf.setFont('helvetica', 'normal');
                                       const pointText = pdf.splitTextToSize(point.text, pageWidth - 2 * margin - 10);
                                       pdf.text(pointText, margin + 5, yPosition);
@@ -1835,7 +1833,7 @@ function ContentTransformer({
                                   if (section.subSections) {
                                     section.subSections.forEach((sub: any) => {
                                       checkPageBreak(30);
-                                      
+
                                       pdf.setFontSize(12);
                                       pdf.setFont('helvetica', 'bold');
                                       pdf.text(sub.title, margin + 10, yPosition);
@@ -1849,7 +1847,7 @@ function ContentTransformer({
                                           const subTitle = pdf.splitTextToSize(`  - ${subPoint.title}`, pageWidth - 2 * margin - 15);
                                           pdf.text(subTitle, margin + 15, yPosition);
                                           yPosition += subTitle.length * 4 + 2;
-                                          
+
                                           pdf.setFont('helvetica', 'normal');
                                           const subText = pdf.splitTextToSize(subPoint.text, pageWidth - 2 * margin - 15);
                                           pdf.text(subText, margin + 15, yPosition);
@@ -1866,7 +1864,7 @@ function ContentTransformer({
                               // Critical flags
                               if (infographicData.criticalFlags && infographicData.criticalFlags.flags) {
                                 checkPageBreak(40);
-                                
+
                                 pdf.setFontSize(14);
                                 pdf.setFont('helvetica', 'bold');
                                 pdf.setTextColor(220, 38, 38); // Red color
@@ -1877,7 +1875,7 @@ function ContentTransformer({
                                 pdf.setFontSize(10);
                                 infographicData.criticalFlags.flags.forEach((flag: any) => {
                                   checkPageBreak(25);
-                                  
+
                                   pdf.setFont('helvetica', 'bold');
                                   const flagTitle = pdf.splitTextToSize(`⚠ ${flag.title}`, pageWidth - 2 * margin - 5);
                                   pdf.text(flagTitle, margin + 5, yPosition);
@@ -1910,7 +1908,7 @@ function ContentTransformer({
                           <Download size={16} />
                         </button>
                       </div>
-                      
+
                       {/* Main sections */}
                       {infographicData.sections && infographicData.sections.map((section: any, sIdx: number) => (
                         <div key={sIdx} className="mb-8 pb-8">
@@ -1918,25 +1916,25 @@ function ContentTransformer({
                             <div className="text-3xl">{section.icon === 'umbrella' ? '☂️' : '📋'}</div>
                             <h4 className="text-xl font-bold text-gray-900">{section.title}</h4>
                           </div>
-                          
+
                           {section.points && section.points.map((point: any, pIdx: number) => (
                             <div key={pIdx} className="ml-12 mb-3">
                               <div className="font-semibold text-gray-800">{point.title}</div>
                               <div className="text-gray-600 text-sm">{point.text}</div>
                             </div>
                           ))}
-                          
+
                           {/* Sub-sections */}
                           {section.subSections && (
                             <div className="grid grid-cols-3 gap-4 mt-6 ml-12">
                               {section.subSections.map((sub: any, subIdx: number) => (
-                                <div 
-                                  key={subIdx} 
+                                <div
+                                  key={subIdx}
                                   className={clsx(
                                     'rounded-xl p-5',
                                     sub.color === 'blue' ? 'bg-blue-50' :
-                                    sub.color === 'green' ? 'bg-green-50' :
-                                    'bg-yellow-50'
+                                      sub.color === 'green' ? 'bg-green-50' :
+                                        'bg-yellow-50'
                                   )}
                                 >
                                   <div className="text-2xl mb-2">
@@ -1955,7 +1953,7 @@ function ContentTransformer({
                           )}
                         </div>
                       ))}
-                      
+
                       {/* Critical Flags */}
                       {infographicData.criticalFlags && (
                         <div className="mt-8 pt-8">
@@ -2160,7 +2158,7 @@ function styleHTMLContent(content: string): string {
     tables.forEach((table) => {
       table.className = 'w-full  border-2 border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
       table.setAttribute('style', 'border-collapse: collapse; border: 2px solid rgb(0, 0, 0);');
-      
+
       // Style table headers
       const headers = table.querySelectorAll('thead th, thead td');
       headers.forEach((header) => {
@@ -2253,7 +2251,7 @@ function styleHTMLContent(content: string): string {
         }
 
         div.className = `${bgColor} border-l-4 ${borderColor} p-4 rounded-r-lg mb-4`;
-        
+
         // Style strong tags inside callouts as titles
         const strong = div.querySelector('strong');
         if (strong) {
@@ -2337,7 +2335,7 @@ function styleMarkdownContent(content: string): string {
   formatted = formatted.replace(/\b(CS|CR|AS|AR)\b(?=\W|$)/g, '');
 
 
-  console.log("This is getting called",formatted)
+  console.log("This is getting called", formatted)
   return formatted;
 }
 
@@ -2438,7 +2436,7 @@ function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string,
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/api/gpt-video`, {
-      // const res = await fetch(`/api/gpt-video-generation`, {
+        // const res = await fetch(`/api/gpt-video-generation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ processed_module_id: moduleId }),

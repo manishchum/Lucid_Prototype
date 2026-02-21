@@ -3,10 +3,10 @@
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { 
-  TrendingUp, 
-  Users, 
-  ChevronDown, 
+import {
+  TrendingUp,
+  Users,
+  ChevronDown,
   Target,
   FileText,
   Smartphone,
@@ -14,7 +14,7 @@ import {
   BarChart3,
   Filter
 } from 'lucide-react';
-import EmployeeNavigation from '@/components/employee-navigation';
+
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
@@ -99,29 +99,29 @@ interface KPIMapping {
 }
 
 export default function WorkforceOverview() {
-  const {user, loading: authLoading} = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   const router = useRouter();
   const [functions, setFunctions] = useState<Array<{ function_id: string; function_name: string }>>([]);
   const [subFunctions, setSubFunctions] = useState<Array<{ sub_function_id: string; sub_function_name: string }>>([]);
   const [titles, setTitles] = useState<Array<{ title_id: string; title_name: string }>>([]);
-  
+
   const [selectedFunctionId, setSelectedFunctionId] = useState<string>('');
   const [selectedSubFunctionId, setSelectedSubFunctionId] = useState<string>('');
   const [selectedTitleId, setSelectedTitleId] = useState<string>('');
-  
+
   const [loading, setLoading] = useState(true);
   const [activeEmployees, setActiveEmployees] = useState({ count: 0, region: 'All Regions' });
   const [moduleAssignments, setModuleAssignments] = useState<ModuleAssignment[]>([]);
   const [kpiMappings, setKpiMappings] = useState<KPIMapping[]>([]);
 
   useEffect(() => {
-          if (!authLoading) {
-            if (!user) router.push("/login");
-            else loadFilters();
-            
-          }
-        }, [user, authLoading, router]);
+    if (!authLoading) {
+      if (!user) router.push("/login");
+      else loadFilters();
+
+    }
+  }, [user, authLoading, router]);
 
   useEffect(() => {
     if (selectedFunctionId) {
@@ -337,13 +337,13 @@ export default function WorkforceOverview() {
           .slice(0, 3)
           .map(module => ({
             name: module.title || 'Untitled Module',
-            type: (module.content_type === 'pdf' ? 'SOP' : 
-                   module.content_type === 'video' ? 'VIDEO' : 
-                   'SIMULATION') as 'SOP' | 'VIDEO' | 'SIMULATION',
+            type: (module.content_type === 'pdf' ? 'SOP' :
+              module.content_type === 'video' ? 'VIDEO' :
+                'SIMULATION') as 'SOP' | 'VIDEO' | 'SIMULATION',
             correlation: 'High' as 'High' | 'Medium' | 'Low',
             icon: module.content_type === 'pdf' ? FileText :
-                  module.content_type === 'video' ? PlayCircle :
-                  Smartphone
+              module.content_type === 'video' ? PlayCircle :
+                Smartphone
           }));
 
         const targetValue = kpi.target ? `Target: ${kpi.target}${kpi.datatype === 'percentage' ? '%' : ''}` : 'No target set';
@@ -391,16 +391,14 @@ export default function WorkforceOverview() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      <EmployeeNavigation />
-      
-      <main className="flex-1 lg:ml-[280px] p-6 space-y-6">
+      <main className="flex-1 p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Workforce Overview</h1>
             <p className="text-gray-600 text-sm">Monitor workforce capabilities and sprint allocation.</p>
           </div>
-          
+
           <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6">
             <Filter size={16} className="mr-2" />
             Export Report
@@ -423,11 +421,11 @@ export default function WorkforceOverview() {
               <Filter size={18} />
               <span className="text-sm font-medium">Select Role:</span>
             </div>
-            
+
             <div className="flex items-center gap-3 flex-1">
               <div className="flex-1">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Function</div>
-                <select 
+                <select
                   value={selectedFunctionId}
                   onChange={(e) => setSelectedFunctionId(e.target.value)}
                   className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -441,7 +439,7 @@ export default function WorkforceOverview() {
 
               <div className="flex-1">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Sub-Function</div>
-                <select 
+                <select
                   value={selectedSubFunctionId}
                   onChange={(e) => setSelectedSubFunctionId(e.target.value)}
                   className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -456,7 +454,7 @@ export default function WorkforceOverview() {
 
               <div className="flex-1">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Role</div>
-                <select 
+                <select
                   value={selectedTitleId}
                   onChange={(e) => setSelectedTitleId(e.target.value)}
                   className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -497,9 +495,9 @@ export default function WorkforceOverview() {
                           <span className="text-gray-900 font-bold">{module.count}</span>
                         </div>
                         <div className="relative h-8 bg-gray-200 rounded-lg overflow-hidden">
-                          <div 
+                          <div
                             className="absolute inset-y-0 left-0 rounded-lg transition-all duration-500"
-                            style={{ 
+                            style={{
                               width: `${(module.count / maxCount) * 100}%`,
                               background: `linear-gradient(90deg, ${module.color}80, ${module.color})`
                             }}
@@ -543,7 +541,7 @@ export default function WorkforceOverview() {
                   <Users size={40} className="text-blue-600" />
                   <div className="absolute inset-0 rounded-full border-4 border-blue-400/30 animate-pulse"></div>
                 </div>
-                
+
                 <div className="text-center">
                   <div className="text-6xl font-bold text-gray-900 mb-2">{activeEmployees.count}</div>
                   <div className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-1">Active Employees</div>

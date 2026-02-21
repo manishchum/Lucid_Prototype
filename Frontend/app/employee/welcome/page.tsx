@@ -7,12 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import { 
-  Users, BookOpen, Clock, User, ChevronDown, 
+import {
+  Users, BookOpen, Clock, User, ChevronDown,
   Trophy, Target, TrendingUp, Zap, LayoutGrid,
   ShieldCheck, ArrowRight, CheckCircle2, LogOut
 } from "lucide-react";
-import EmployeeNavigation from "@/components/employee-navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -34,7 +33,7 @@ interface ModuleAssessmentStatus {
 }
 
 export default function EmployeeWelcome() {
-  const { user, loading: authLoading, logout } = useAuth();
+  const { user, internalUser, loading: authLoading, logout } = useAuth();
   const router = useRouter();
 
   // --- Logic State (Preserved from your code) ---
@@ -57,22 +56,14 @@ export default function EmployeeWelcome() {
   const [nudgeMessage, setNudgeMessage] = useState<string>("");
   const [progressPercentage, setProgressPercentage] = useState<number>(0);
   const [showLoginToast, setShowLoginToast] = useState<boolean>(false);
-  const [isNavOverlay, setIsNavOverlay] = useState<boolean>(false);
   const [showAllModules, setShowAllModules] = useState<boolean>(false);
   const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(true);
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
-  
+
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
 
-  const fetchUserByEmail = async (email: string) => {
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
-    if (!res.ok) return null;
-    const payload = await res.json();
-    let u = payload?.user ?? payload;
-    if (Array.isArray(u)) u = u[0];
-    return u || null;
-  };
+
 
   // --- Login Toast System (only show when a login/signup flow sets a flag) ---
   // Behavior: login/signup pages should set sessionStorage.setItem('show_login_toast_next', '1')
@@ -107,7 +98,7 @@ export default function EmployeeWelcome() {
     if (!authLoading) {
       if (!user) router.push("/login");
       else checkEmployeeAccess();
-      
+
     }
   }, [user, authLoading, router]);
 
@@ -199,11 +190,11 @@ export default function EmployeeWelcome() {
       // If user has no learning plans, they are not ready
       if (!learningPlans || learningPlans.length === 0) {
         console.log('[updateUserReadyStatus] No learning plans found for user');
-        
-        try{
-          await fetch(`${API_BASE}/api/users/${userId}`,{
+
+        try {
+          await fetch(`${API_BASE}/api/users/${userId}`, {
             method: 'PUT',
-            headers: {'Content-Type': 'application/json', 'X-User-ID': userId},
+            headers: { 'Content-Type': 'application/json', 'X-User-ID': userId },
             body: JSON.stringify({ ready_status: false }),
           });
           console.log('[updateUserReadyStatus] User has no learning plans, ready_status set to false');
@@ -220,10 +211,10 @@ export default function EmployeeWelcome() {
       console.log('[updateUserReadyStatus] All plans completed:', allPlansCompleted);
 
       // Update the ready_status in users table
-      try{
-        await fetch(`${API_BASE}/api/users/${userId}`,{
+      try {
+        await fetch(`${API_BASE}/api/users/${userId}`, {
           method: 'PUT',
-          headers: {'Content-Type': 'application/json', 'X-User-ID': userId},
+          headers: { 'Content-Type': 'application/json', 'X-User-ID': userId },
           body: JSON.stringify({ ready_status: allPlansCompleted })
         });
         console.log('[updateUserReadyStatus] Updated user ready_status to:', allPlansCompleted);
@@ -236,13 +227,9 @@ export default function EmployeeWelcome() {
   };
 
   const checkEmployeeAccess = async () => {
-    if (!user?.email) return;
+    if (!user?.email || !internalUser) return;
     try {
-      const employeeData = await fetchUserByEmail(user.email);
-      if (!employeeData) {
-        router.push("/login");
-        return;
-      }
+      const employeeData = internalUser;
       setEmployee(employeeData);
       // Learning Style Fetch
       const { data: styleData } = await supabase
@@ -250,25 +237,25 @@ export default function EmployeeWelcome() {
       setLearningStyle(styleData?.learning_style || null);
 
       // Fetch company learning style setting
-      try{
+      try {
         const compRes = await fetch(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`);
         if (compRes.ok) {
           const compPayload = await compRes.json().catch(() => null);
           const compSettings = compPayload?.company ?? compPayload;
           setCompanyLearningStyleEnabled(Boolean(compSettings?.learning_style_enabled));
           console.log('[checkEmployeeAccess] Company learning style enabled:', Boolean(compSettings?.learning_style_enabled));
-      } else{
-        console.warn("[Welcome] failed to fetch company settings.", compRes.status, compRes.text().catch(()=>""));
-      } 
-    }catch (e) {
-      console.warn("[Welcome] error fetching company settings:", e);
-    }
+        } else {
+          console.warn("[Welcome] failed to fetch company settings.", compRes.status, compRes.text().catch(() => ""));
+        }
+      } catch (e) {
+        console.warn("[Welcome] error fetching company settings:", e);
+      }
       // Fetch Plans & Progress (Your specific logic)
       const { data: planRows } = await supabase.from('learning_plan').select('*').eq('user_id', employeeData.user_id);
       const requiresBaseline = planRows?.some((plan: any) => plan.baseline_assessment === 1) ?? true;
       setBaselineRequired(requiresBaseline);
 
-      const assignedPlans = planRows?.filter((p: any) => p.status === 'ASSIGNED'||p.status==="IN_PROGRESS") || [];
+      const assignedPlans = planRows?.filter((p: any) => p.status === 'ASSIGNED' || p.status === "IN_PROGRESS") || [];
       // TEMP LOGS: inspect returned learning_plan rows and assigned plans
       try {
         console.log('[debug] learning_plan rows:', planRows);
@@ -277,7 +264,7 @@ export default function EmployeeWelcome() {
         /* ignore console errors */
       }
       const mIds = assignedPlans.map((p: any) => p.module_id).filter(Boolean);
-      
+
       // Calculate Progress and resolve module titles
       if (mIds.length > 0) {
         // Fetch processed modules (we need title and mapping to original module id)
@@ -293,7 +280,7 @@ export default function EmployeeWelcome() {
         //   .select('processed_module_id, title, original_module_id')
         //   .in('processed_module_id', mIds);
 
-        const pMods = Array.from(new Map([...(pModsByOriginal || [])].map((r: any) => [r.module_id  || JSON.stringify(r), r])).values());
+        const pMods = Array.from(new Map([...(pModsByOriginal || [])].map((r: any) => [r.module_id || JSON.stringify(r), r])).values());
         console.log(pMods)
         // TEMP LOG: inspect processed_modules rows
         try {
@@ -344,16 +331,16 @@ export default function EmployeeWelcome() {
             `Module ${p.module_id}`;
 
           return {
-              id: p.module_id,
-              title: resolvedTitle,
-              moduleName: adminName,
-              // Preserve whether admin/learning_plan has baseline enabled for this module
-              hasBaseline: (p.baseline_assessment === 1 || p.baseline_assessment === true),
-            };
+            id: p.module_id,
+            title: resolvedTitle,
+            moduleName: adminName,
+            // Preserve whether admin/learning_plan has baseline enabled for this module
+            hasBaseline: (p.baseline_assessment === 1 || p.baseline_assessment === true),
+          };
         });
 
         // TEMP LOG: mapped assigned modules
-        try { console.log('[debug] mappedAssignedModules:', mappedAssigned); } catch (e) {}
+        try { console.log('[debug] mappedAssignedModules:', mappedAssigned); } catch (e) { }
 
         setAssignedModules(mappedAssigned);
       }
@@ -390,7 +377,7 @@ export default function EmployeeWelcome() {
 
   return (
     <div className="min-h-screen">
-      <EmployeeNavigation showBack={false} showForward={false} />
+
 
       {/* Login Success Toast */}
       {showLoginToast && (
@@ -408,12 +395,11 @@ export default function EmployeeWelcome() {
         </div>
       )}
 
-      <main 
+      <main
         className="transition-all duration-300 ease-in-out pt-8 pb-12"
-        style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
       >
         <div className="max-w-6xl mx-auto px-6 lg:px-8">
-          
+
           {/* Dashboard Header */}
           <div className="flex items-center gap-4 mb-10">
             <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100">
@@ -441,10 +427,10 @@ export default function EmployeeWelcome() {
                         <h3 className="text-2xl font-black text-slate-900">Your Progress</h3>
                         <p className="text-slate-500 mt-2 font-medium max-w-md leading-relaxed">{nudgeMessage}</p>
                         <div className="mt-4 flex gap-3">
-                           <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-none font-bold">
-                             {/* {companyStats.completedEmployees} COLLEAGUES COMPLETED */}
-                             63 COLLEAGUES COMPLETED
-                           </Badge>
+                          <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-none font-bold">
+                            {/* {companyStats.completedEmployees} COLLEAGUES COMPLETED */}
+                            63 COLLEAGUES COMPLETED
+                          </Badge>
                         </div>
                       </div>
                     </div>
@@ -492,7 +478,7 @@ export default function EmployeeWelcome() {
                         </h4>
                         <p className="text-slate-500 font-medium">Take our 5-minute cognitive survey to unlock your personalized training path.</p>
                       </div>
-                      
+
                       <div className="relative">
                         {/* Profile Dropdown - Commented Out */}
                         {/* 
@@ -615,7 +601,7 @@ export default function EmployeeWelcome() {
                         </div>
                       ))}
                     </div>
-                    
+
                     {/* Show More / Show Less button */}
                     {assignedModules.length > 3 && (
                       <div className="p-6 bg-slate-50/50 flex justify-end">

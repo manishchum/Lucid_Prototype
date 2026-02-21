@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { ArrowLeft, User, Mail, Calendar, Building, Save, Edit3, Lock, Eye, EyeOff, X, CheckCircle } from "lucide-react";
-import EmployeeNavigation from "@/components/employee-navigation";
+
 
 interface Employee {
   user_id: string;
@@ -36,7 +36,7 @@ interface Admin {
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 export default function AccountPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, internalUser, loading: authLoading } = useAuth();
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
   const [loading, setLoading] = useState(true);
@@ -63,53 +63,35 @@ export default function AccountPage() {
     if (!authLoading) {
       if (!user) {
         router.push("/login");
-      } else {
-        fetchEmployeeData();
+      } else if (internalUser) {
+        setEmployee(internalUser);
+        setFormData({
+          name: internalUser.name || "",
+          position: internalUser.position || "",
+          phone: internalUser.phone || "",
+        });
+        if (internalUser.company_id) {
+          fetchCompanyData(internalUser.company_id);
+        }
+        setLoading(false);
       }
     }
-  }, [user, authLoading, router]);
+  }, [user, authLoading, internalUser, router]);
 
-  const fetchEmployeeData = async () => {
-    if (!user?.email) return;
-
+  const fetchCompanyData = async (companyId: string) => {
     try {
-      const userRes = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
-      if (!userRes.ok) {
-        console.error("Employee fetch error:", userRes.status, await userRes.text().catch(() => ""));
-        router.push("/login");
-        return;
-      }
-      const userPayload = await userRes.json().catch(() => null);
-      const employeeData = userPayload?.user || userPayload;
-      const resolvedEmployee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
-      if(!resolvedEmployee || !resolvedEmployee.user_id) {
-        console.error("Employee data is invalid:", resolvedEmployee);
-        router.push("/login");
-        return;
-      }
-      setEmployee(resolvedEmployee);
-
-      setFormData({
-        name: resolvedEmployee.name || "",
-        position: resolvedEmployee.position || "",
-        phone: resolvedEmployee.phone || "",
-      });
-
-      if (resolvedEmployee.company_id) {
-        const companyRes = await fetch(`${API_URL}/api/companies/${encodeURIComponent(resolvedEmployee.company_id)}`);
-        if (companyRes.ok) {
-          const compPayload = await companyRes.json().catch(() => null);
-          const companyData = compPayload?.company ?? compPayload;
-          setCompany(companyData);
-        }
+      const companyRes = await fetch(`${API_URL}/api/companies/${encodeURIComponent(companyId)}`);
+      if (companyRes.ok) {
+        const compPayload = await companyRes.json().catch(() => null);
+        const companyData = compPayload?.company ?? compPayload;
+        setCompany(companyData);
       }
     } catch (error) {
-      console.error("Failed to fetch employee data:", error);
-      router.push("/login");
-    } finally {
-      setLoading(false);
+      console.error("Failed to fetch company data:", error);
     }
   };
+
+
 
   const handleSave = async () => {
     if (!employee) return;
@@ -118,17 +100,18 @@ export default function AccountPage() {
     try {
       const updRes = await fetch(`${API_URL}/api/users/${encodeURIComponent(employee.user_id)}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json",
+        headers: {
+          "Content-Type": "application/json",
           "X-User-ID": employee.user_id,
-         },
-         body: JSON.stringify({
+        },
+        body: JSON.stringify({
           name: formData.name,
           position: formData.position,
           phone: formData.phone,
-         }),
+        }),
       });
       if (!updRes.ok) {
-        const err = await updRes.text().catch(() => ({detail: updRes.text().catch(()=> "")}));
+        const err = await updRes.text().catch(() => ({ detail: updRes.text().catch(() => "") }));
         console.error("Update failed:", updRes.status, err);
         alert("Failed to save changes. Please try again.");
       } else {
@@ -140,7 +123,7 @@ export default function AccountPage() {
         });
         setEditing(false);
         alert("Changes saved successfully!");
-      }     
+      }
     } catch (error) {
       console.error("Update error:", error);
       alert("Failed to save changes. Please try again.");
@@ -249,9 +232,9 @@ export default function AccountPage() {
     }
   };
 
-  if (authLoading || loading) {
+  if (authLoading || (loading && !internalUser)) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="flex h-[70vh] items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading your profile...</p>
@@ -262,14 +245,9 @@ export default function AccountPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
-      <EmployeeNavigation showBack={true} showForward={false} />
-      
-      <div 
-        className="transition-all duration-300 ease-in-out"
-        style={{ 
-          marginLeft: 'var(--sidebar-width, 0px)',
-        }}
-      >
+
+
+      <div className="transition-all duration-300 ease-in-out">
         <div className="bg-white shadow-sm border-b">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center py-4">
@@ -286,154 +264,154 @@ export default function AccountPage() {
 
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-        <div className="grid gap-8">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <User className="w-5 h-5" />
-                  Personal Information
-                </CardTitle>
+          <div className="grid gap-8">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <User className="w-5 h-5" />
+                    Personal Information
+                  </CardTitle>
+                  <CardDescription>
+                    Update your personal details and contact information
+                  </CardDescription>
+                </div>
+                {!editing ? (
+                  <Button onClick={() => setEditing(true)} variant="outline">
+                    <Edit3 className="w-4 h-4 mr-2" />
+                    Edit Profile
+                  </Button>
+                ) : (
+                  <div className="flex gap-2">
+                    <Button onClick={handleCancel} variant="outline" disabled={saving}>
+                      Cancel
+                    </Button>
+                    <Button onClick={handleSave} disabled={saving}>
+                      <Save className="w-4 h-4 mr-2" />
+                      {saving ? "Saving..." : "Save Changes"}
+                    </Button>
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Full Name</Label>
+                    {editing ? (
+                      <Input
+                        id="name"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        placeholder="Enter your full name"
+                      />
+                    ) : (
+                      <div className="p-3 bg-gray-50 rounded-md">
+                        {employee?.name || "Not set"}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email Address</Label>
+                    <div className="p-3 bg-gray-100 rounded-md text-gray-600 flex items-center gap-2">
+                      <Mail className="w-4 h-4" />
+                      {employee?.email}
+                    </div>
+                    <p className="text-xs text-gray-500">Email cannot be changed</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="position">Position/Title</Label>
+                    {editing ? (
+                      <Input
+                        id="position"
+                        value={formData.position}
+                        onChange={(e) => setFormData({ ...formData, position: e.target.value })}
+                        placeholder="Enter your position"
+                      />
+                    ) : (
+                      <div className="p-3 bg-gray-50 rounded-md">
+                        {employee?.position || "Not set"}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Phone Number</Label>
+                    {editing ? (
+                      <Input
+                        id="phone"
+                        value={formData.phone}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        placeholder="Enter your phone number"
+                      />
+                    ) : (
+                      <div className="p-3 bg-gray-50 rounded-md">
+                        {employee?.phone || "Not set"}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Company</Label>
+                    <div className="p-3 bg-gray-100 rounded-md text-gray-600 flex items-center gap-2">
+                      <Building className="w-4 h-4" />
+                      {company?.name || "Not assigned"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t">
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <Calendar className="w-4 h-4" />
+                    <span>Member since {new Date(employee?.created_at || "").toLocaleDateString()}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Account Information</CardTitle>
                 <CardDescription>
-                  Update your personal details and contact information
+                  Additional account details and settings
                 </CardDescription>
-              </div>
-              {!editing ? (
-                <Button onClick={() => setEditing(true)} variant="outline">
-                  <Edit3 className="w-4 h-4 mr-2" />
-                  Edit Profile
-                </Button>
-              ) : (
-                <div className="flex gap-2">
-                  <Button onClick={handleCancel} variant="outline" disabled={saving}>
-                    Cancel
-                  </Button>
-                  <Button onClick={handleSave} disabled={saving}>
-                    <Save className="w-4 h-4 mr-2" />
-                    {saving ? "Saving..." : "Save Changes"}
-                  </Button>
-                </div>
-              )}
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  {editing ? (
-                    <Input
-                      id="name"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      placeholder="Enter your full name"
-                    />
-                  ) : (
-                    <div className="p-3 bg-gray-50 rounded-md">
-                      {employee?.name || "Not set"}
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
+                    <div>
+                      <h3 className="font-medium">Account Status</h3>
+                      <p className="text-sm text-gray-600">Your account is active and in good standing</p>
                     </div>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email Address</Label>
-                  <div className="p-3 bg-gray-100 rounded-md text-gray-600 flex items-center gap-2">
-                    <Mail className="w-4 h-4" />
-                    {employee?.email}
-                  </div>
-                  <p className="text-xs text-gray-500">Email cannot be changed</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="position">Position/Title</Label>
-                  {editing ? (
-                    <Input
-                      id="position"
-                      value={formData.position}
-                      onChange={(e) => setFormData({ ...formData, position: e.target.value })}
-                      placeholder="Enter your position"
-                    />
-                  ) : (
-                    <div className="p-3 bg-gray-50 rounded-md">
-                      {employee?.position || "Not set"}
+                    <div className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                      Active
                     </div>
-                  )}
-                </div>
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone Number</Label>
-                  {editing ? (
-                    <Input
-                      id="phone"
-                      value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      placeholder="Enter your phone number"
-                    />
-                  ) : (
-                    <div className="p-3 bg-gray-50 rounded-md">
-                      {employee?.phone || "Not set"}
+                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div>
+                      <h3 className="font-medium flex items-center gap-2">
+                        <Lock className="w-4 h-4" />
+                        Password
+                      </h3>
+                      <p className="text-sm text-gray-600">Change your account password</p>
                     </div>
-                  )}
-                </div>
+                    <Button onClick={openPasswordModal} variant="outline">
+                      Change Password
+                    </Button>
+                  </div>
 
-                <div className="space-y-2">
-                  <Label>Company</Label>
-                  <div className="p-3 bg-gray-100 rounded-md text-gray-600 flex items-center gap-2">
-                    <Building className="w-4 h-4" />
-                    {company?.name || "Not assigned"}
+                  <div className="p-4 bg-yellow-50 rounded-lg">
+                    <h3 className="font-medium text-yellow-800">Need Help?</h3>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      Contact your administrator if you need to update your email address or company information.
+                    </p>
                   </div>
                 </div>
-              </div>
-
-              <div className="pt-4 border-t">
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Calendar className="w-4 h-4" />
-                  <span>Member since {new Date(employee?.created_at || "").toLocaleDateString()}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Account Information</CardTitle>
-              <CardDescription>
-                Additional account details and settings
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
-                  <div>
-                    <h3 className="font-medium">Account Status</h3>
-                    <p className="text-sm text-gray-600">Your account is active and in good standing</p>
-                  </div>
-                  <div className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
-                    Active
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                  <div>
-                    <h3 className="font-medium flex items-center gap-2">
-                      <Lock className="w-4 h-4" />
-                      Password
-                    </h3>
-                    <p className="text-sm text-gray-600">Change your account password</p>
-                  </div>
-                  <Button onClick={openPasswordModal} variant="outline">
-                    Change Password
-                  </Button>
-                </div>
-                
-                <div className="p-4 bg-yellow-50 rounded-lg">
-                  <h3 className="font-medium text-yellow-800">Need Help?</h3>
-                  <p className="text-sm text-yellow-700 mt-1">
-                    Contact your administrator if you need to update your email address or company information.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
 
