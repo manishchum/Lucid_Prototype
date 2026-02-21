@@ -262,11 +262,26 @@ export default function WorkforceOverview() {
         return;
       }
 
-      const { data: learningPlans } = await supabase
-        .from('learning_plan')
-        .select('module_id, user_id, status')
-        .in('user_id', userIds)
-        .in('status', ['ASSIGNED', 'IN_PROGRESS']);
+      // Fetch learning plans via backend API (filter by IN_PROGRESS status on frontend)
+      const lpRes = await fetch(
+        `${API_BASE}/api/learning-plans/?limit=1000`,
+        { headers: { 'X-User-ID': currentUserId } }
+      );
+
+      if (!lpRes.ok) {
+        console.error('[workforce-overview] Error fetching learning plans');
+        setModuleAssignments([]);
+        return;
+      }
+
+      const lpData = await lpRes.json();
+      const allPlans = lpData?.plans || [];
+      
+      // Filter to only users in userIds and status ASSIGNED or IN_PROGRESS
+      const learningPlans = allPlans.filter((lp: any) =>
+        userIds.includes(lp.user_id) &&
+        ['ASSIGNED', 'IN_PROGRESS'].includes(lp.status)
+      );
 
       if (!learningPlans || learningPlans.length === 0) {
         setModuleAssignments([]);

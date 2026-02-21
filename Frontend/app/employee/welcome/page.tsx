@@ -117,14 +117,23 @@ export default function EmployeeWelcome() {
       if (!employee?.user_id) return;
 
       try {
-        // Fetch all learning plan entries for the current user
-        const { data: learningPlans, error: planError } = await supabase
-          .from('learning_plan')
-          .select('learning_plan_id, processed_module_ids, overall_status, user_id')
-          .eq('user_id', employee.user_id);
+        // Fetch all learning plan entries for the current user via backend API
+        const lpRes = await fetch(
+          `${API_BASE}/api/learning-plans/?user_id=${employee.user_id}`,
+          { headers: { 'X-User-ID': employee.user_id } }
+        );
 
-        if (planError || !learningPlans) {
-          console.error('[checkOverallStatus] Error fetching learning plans:', planError);
+        if (!lpRes.ok) {
+          const errorData = await lpRes.json();
+          console.error('[checkOverallStatus] Error fetching learning plans:', errorData);
+          return;
+        }
+
+        const lpData = await lpRes.json();
+        const learningPlans = lpData?.plans || [];
+
+        if (!learningPlans || learningPlans.length === 0) {
+          console.log('[checkOverallStatus] No learning plans found');
           return;
         }
 
@@ -149,21 +158,33 @@ export default function EmployeeWelcome() {
 
           // Check if all sub-modules have passed
           const allPassed = plan.processed_module_ids.every((moduleId: string) => {
-            const progress = moduleProgressData?.find(p => p.processed_module_id === moduleId);
+            const progress = moduleProgressData?.find((p: any) => p.processed_module_id === moduleId);
             return progress && progress.pass_status === true;
           });
 
           // Update overall_status if all passed and current status is not already true
           if (allPassed && plan.overall_status !== true) {
-            const { error: updateError } = await supabase
-              .from('learning_plan')
-              .update({ overall_status: true })
-              .eq('learning_plan_id', plan.learning_plan_id);
+            try {
+              const updateRes = await fetch(
+                `${API_BASE}/api/learning-plans/${plan.learning_plan_id}`,
+                {
+                  method: 'PUT',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'X-User-ID': employee.user_id
+                  },
+                  body: JSON.stringify({ overall_status: true })
+                }
+              );
 
-            if (updateError) {
-              console.error('[checkOverallStatus] Error updating overall_status:', updateError);
-            } else {
-              console.log(`[checkOverallStatus] Updated overall_status to true for learning_plan_id: ${plan.learning_plan_id}`);
+              if (!updateRes.ok) {
+                const errorData = await updateRes.json();
+                console.error('[checkOverallStatus] Error updating overall_status:', errorData);
+              } else {
+                console.log(`[checkOverallStatus] Updated overall_status to true for learning_plan_id: ${plan.learning_plan_id}`);
+              }
+            } catch (e) {
+              console.error('[checkOverallStatus] Error updating overall_status:', e);
             }
           }
         }
@@ -185,16 +206,20 @@ export default function EmployeeWelcome() {
     try {
       console.log('[updateUserReadyStatus] Calculating ready status for user:', userId);
 
-      // Fetch all learning plan entries for this user
-      const { data: learningPlans, error: planError } = await supabase
-        .from('learning_plan')
-        .select('learning_plan_id, overall_status')
-        .eq('user_id', userId);
+      // Fetch all learning plan entries for this user via backend API
+      const lpRes = await fetch(
+        `${API_BASE}/api/learning-plans/?user_id=${userId}`,
+        { headers: { 'X-User-ID': userId } }
+      );
 
-      if (planError) {
-        console.error('[updateUserReadyStatus] Error fetching learning plans:', planError);
+      if (!lpRes.ok) {
+        const errorData = await lpRes.json();
+        console.error('[updateUserReadyStatus] Error fetching learning plans:', errorData);
         return;
       }
+
+      const lpData = await lpRes.json();
+      const learningPlans = lpData?.plans || [];
 
       // If user has no learning plans, they are not ready
       if (!learningPlans || learningPlans.length === 0) {
@@ -214,7 +239,7 @@ export default function EmployeeWelcome() {
       }
 
       // Check if ALL learning plan entries have overall_status = true
-      const allPlansCompleted = learningPlans.every(plan => plan.overall_status === true);
+      const allPlansCompleted = learningPlans.every((plan: any) => plan.overall_status === true);
 
       console.log('[updateUserReadyStatus] Total learning plans:', learningPlans.length);
       console.log('[updateUserReadyStatus] All plans completed:', allPlansCompleted);
@@ -263,8 +288,13 @@ export default function EmployeeWelcome() {
     }catch (e) {
       console.warn("[Welcome] error fetching company settings:", e);
     }
-      // Fetch Plans & Progress (Your specific logic)
-      const { data: planRows } = await supabase.from('learning_plan').select('*').eq('user_id', employeeData.user_id);
+      // Fetch Plans & Progress via backend API
+      const plansRes = await fetch(
+        `${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`,
+        { headers: { 'X-User-ID': employeeData.user_id } }
+      );
+      
+      const planRows = plansRes.ok ? (await plansRes.json())?.plans || [] : [];
       const requiresBaseline = planRows?.some((plan: any) => plan.baseline_assessment === 1) ?? true;
       setBaselineRequired(requiresBaseline);
 

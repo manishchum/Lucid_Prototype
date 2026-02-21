@@ -21,6 +21,8 @@ import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+
 interface KPIData {
   id: string;
   name: string;
@@ -361,12 +363,15 @@ export default function KPITurbocharge() {
       // Calculate performance for each module
       const moduleStats = await Promise.all(
         allModules.map(async (module) => {
-          // Get learning plans for this module and filtered users
-          const { data: learningPlans } = await supabase
-            .from('learning_plan')
-            .select('user_id, overall_status, processed_module_ids')
-            .eq('module_id', module.module_id)
-            .in('user_id', userIds);
+          // Get learning plans for this module and filtered users via backend API
+          const lpRes = await fetch(
+            `${API_BASE}/api/learning-plans/?module_id=${module.module_id}&limit=1000`,
+            { headers: { 'X-User-ID': currentUser?.user_id || '' } }
+          );
+
+          const learningPlans = lpRes.ok
+            ? (await lpRes.json())?.plans?.filter((lp: any) => userIds.includes(lp.user_id)) || []
+            : [];
 
           if (!learningPlans || learningPlans.length === 0) {
             return null; // No data for this module
@@ -448,12 +453,16 @@ export default function KPITurbocharge() {
 
       const userIds = users.map(u => u.user_id);
 
-      const { data: learningPlans } = await supabase
-        .from('learning_plan')
-        .select('user_id, module_id, status')
-        .in('user_id', userIds)
-        .in('status', ['ASSIGNED', 'IN_PROGRESS', 'COMPLETED'])
-        .order('assigned_on', { ascending: false });
+      const lpRes = await fetch(
+        `${API_BASE}/api/learning-plans/?limit=1000`,
+        { headers: { 'X-User-ID': currentUser?.user_id || '' } }
+      );
+
+      const allPlans = lpRes.ok ? (await lpRes.json())?.plans || [] : [];
+      const learningPlans = allPlans.filter((lp: any) =>
+        userIds.includes(lp.user_id) &&
+        ['ASSIGNED', 'IN_PROGRESS', 'COMPLETED'].includes(lp.status)
+      ).sort((a: any, b: any) => new Date(b.assigned_on || 0).getTime() - new Date(a.assigned_on || 0).getTime());
 
       const { data: modules } = await supabase
         .from('training_modules')
@@ -628,12 +637,16 @@ export default function KPITurbocharge() {
       const userIds = users.map(u => u.user_id);
       const moduleIds = allModules.map(m => m.module_id);
 
-      // Get all learning plans for these users and modules
-      const { data: learningPlans } = await supabase
-        .from('learning_plan')
-        .select('user_id, module_id, overall_status, processed_module_ids, status')
-        .in('user_id', userIds)
-        .in('module_id', moduleIds);
+      // Get all learning plans for these users and modules via backend API
+      const lpRes = await fetch(
+        `${API_BASE}/api/learning-plans/?limit=1000`,
+        { headers: { 'X-User-ID': currentUser?.user_id || '' } }
+      );
+
+      const allPlans = lpRes.ok ? (await lpRes.json())?.plans || [] : [];
+      const learningPlans = allPlans.filter((lp: any) =>
+        userIds.includes(lp.user_id) && moduleIds.includes(lp.module_id)
+      );
 
       // Get all module progress with quiz scores
       const { data: moduleProgress } = await supabase
@@ -819,13 +832,14 @@ export default function KPITurbocharge() {
         let moduleNotReadyCount = 0;
 
         for (const userId of userIds) {
-          // Get learning plan for this user and module
-          const { data: learningPlan } = await supabase
-            .from('learning_plan')
-            .select('overall_status, processed_module_ids')
-            .eq('user_id', userId)
-            .eq('module_id', module.module_id)
-            .single();
+          // Get learning plan for this user and module via backend API
+          const lpRes = await fetch(
+            `${API_BASE}/api/learning-plans/?user_id=${userId}&module_id=${module.module_id}`,
+            { headers: { 'X-User-ID': currentUser?.user_id || '' } }
+          );
+
+          const lpData = lpRes.ok ? await lpRes.json() : null;
+          const learningPlan = lpData?.plans?.[0] || null;
 
           if (learningPlan) {
             // Check if user has passed the module (overall_status is true)
@@ -889,13 +903,16 @@ export default function KPITurbocharge() {
 
       // Check each user
       for (const user of users) {
-        // Get all learning plans for this user
-        const { data: learningPlans, error } = await supabase
-          .from('learning_plan')
-          .select('module_id, overall_status, processed_module_ids')
-          .eq('user_id', user.user_id);
+        // Get all learning plans for this user via backend API
+        const lpRes = await fetch(
+          `${API_BASE}/api/learning-plans/?user_id=${user.user_id}`,
+          { headers: { 'X-User-ID': currentUser?.user_id || '' } }
+        );
 
-        // Skip users who haven't generated any modules
+        const lpData = lpRes.ok ? await lpRes.json() : null;
+        const learningPlans = lpData?.plans || [];
+
+        if (!learningPlans || learningPlans.length === 0) {        // Skip users who haven't generated any modules
         if (!learningPlans || learningPlans.length === 0) {
           continue;
         }

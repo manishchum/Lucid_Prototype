@@ -275,16 +275,24 @@ function TrainingPlanContent() {
             ;
 
 
-          const {data: userBaselines, error: userBaselinesError } = await supabase
-            .from("learning_plan")
-            .select("user_id,module_id,baseline_assessment")
-            .eq("module_id",moduleId)
-            .eq("user_id", employeeData.user_id);
-            // console.log(userBaselines)
-            if(userBaselines && userBaselines.length>0 && userBaselines[0].baseline_assessment==0){
-            // console.log("Inside the baseline pre-check")
-            setBaselineExists(true);
-            setBaselineCompleted(true);
+          // Fetch learning plan from backend API
+          try {
+            const lpRes = await fetch(
+              `${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}&module_id=${moduleId}`,
+              { headers: { 'X-User-ID': employeeData.user_id } }
+            );
+            if (lpRes.ok) {
+              const lpData = await lpRes.json();
+              const userBaselines = lpData?.plans || [];
+              // console.log(userBaselines)
+              if (userBaselines && userBaselines.length > 0 && userBaselines[0].baseline_assessment == 0) {
+                // console.log("Inside the baseline pre-check")
+                setBaselineExists(true);
+                setBaselineCompleted(true);
+              }
+            }
+          } catch (e) {
+            console.error("[training-plan] Error fetching learning plan:", e);
           }
           if (baselineDefs && baselineDefs.length > 0) {
             setBaselineExists(true);
@@ -373,20 +381,70 @@ function TrainingPlanContent() {
         setLoading(false);
         return;
       }
+      // Check if baseline is enabled for this learning plan
+      let baselineEnabled = true; // Default to true (personalized)
+      try {
+        const lpCheckRes = await fetch(
+          `${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}&module_id=${moduleId}`,
+          { headers: { 'X-User-ID': employeeData.user_id } }
+        );
+        if (lpCheckRes.ok) {
+          const lpCheckData = await lpCheckRes.json();
+          const plans = lpCheckData?.plans || [];
+          if (plans.length > 0) {
+            baselineEnabled = plans[0].baseline_assessment === 1; // 1 = baseline ON, 0 = baseline OFF
+            console.log('[training-plan] Baseline enabled:', baselineEnabled);
+          }
+        }
+      } catch (e) {
+        console.error('[training-plan] Error checking baseline flag:', e);
+      }
+
       // Parse plan
+      let parsedPlanData: any = null;
       if (result.plan) {
         if (typeof result.plan === "string") {
           try {
-            setPlan(JSON.parse(result.plan));
+            parsedPlanData = JSON.parse(result.plan);
           } catch {
-            setPlan(result.plan);
+            parsedPlanData = result.plan;
           }
         } else {
-          setPlan(result.plan);
+          parsedPlanData = result.plan;
         }
-      } else {
-        setPlan(null);
       }
+
+      // If baseline is OFF, fetch ALL processed modules instead of using plan modules
+      if (!baselineEnabled && moduleId) {
+        console.log('[training-plan] Baseline OFF - fetching all processed modules');
+        try {
+          const { data: allProcessedModules } = await supabase
+            .from('processed_modules')
+            .select('*')
+            .eq('original_module_id', moduleId)
+            .order('order_index');
+
+          if (allProcessedModules && allProcessedModules.length > 0) {
+            // Replace plan modules with all processed modules
+            parsedPlanData = {
+              ...parsedPlanData,
+              modules: allProcessedModules.map((pm: any, idx: number) => ({
+                title: pm.title,
+                processed_module_id: pm.processed_module_id,
+                original_module_id: pm.original_module_id,
+                order: idx + 1,
+                recommended_time: 4, // Default time
+              }))
+            };
+            console.log('[training-plan] Replaced with all processed modules:', parsedPlanData.modules);
+          }
+        } catch (e) {
+          console.error('[training-plan] Error fetching all processed modules:', e);
+        }
+      }
+
+      setPlan(parsedPlanData);
+
       // Parse reasoning
       if (result.reasoning) {
         if (typeof result.reasoning === "string") {
@@ -403,9 +461,9 @@ function TrainingPlanContent() {
       }
 
       // Collect and save processed module IDs
-      if (result.plan?.modules) {
+      if (parsedPlanData?.modules) {
         console.log("Inside the fetch plan")
-        await collectAndSaveProcessedModuleIds(result.plan.modules);
+        await collectAndSaveProcessedModuleIds(parsedPlanData.modules);
       }
     } catch (err) {
       setPlan("Error fetching training plan.");
@@ -474,23 +532,53 @@ function TrainingPlanContent() {
       }
       setProcessedModuleIds(ids);
 
-      // Save to learning_plan table
+      // Save to learning_plan table via backend API
       if (ids.length > 0 && userId && moduleId) {
-        const { error } = await supabase
-          .from("learning_plan")
-          .update({
-            user_id: userId,
-            module_id: moduleId,
-            processed_module_ids: ids,
-            status: 'IN_PROGRESS'
-          })
-          .eq('user_id', userId)
-          .eq('module_id', moduleId);
-
-        if (error) {
-          console.error("[collectAndSaveProcessedModuleIds] Error saving to learning_plan:", error);
-        } else {
-          // console.log("[collectAndSaveProcessedModuleIds] Successfully saved processed_module_ids:", ids);
+        try {
+          // First, fetch the learning_plan_id
+          const fetchRes = await fetch(
+            `${API_BASE}/api/learning-plans/?user_id=${userId}&module_id=${moduleId}`,
+            { headers: { 'X-User-ID': userId } }
+          );
+          
+          if (fetchRes.ok) {
+            const fetchData = await fetchRes.json();
+            const plans = fetchData?.plans || [];
+            
+            if (plans.length > 0) {
+              const learningPlanId = plans[0].learning_plan_id;
+              
+              // Update the learning plan
+              const updateRes = await fetch(
+                `${API_BASE}/api/learning-plans/${learningPlanId}`,
+                {
+                  method: 'PUT',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'X-User-ID': userId
+                  },
+                  body: JSON.stringify({
+                    processed_module_ids: ids,
+                    status: 'IN_PROGRESS'
+                  })
+                }
+              );
+              
+              if (!updateRes.ok) {
+                const errorData = await updateRes.json();
+                console.error("[collectAndSaveProcessedModuleIds] Error saving to learning_plan:", errorData);
+              } else {
+                // console.log("[collectAndSaveProcessedModuleIds] Successfully saved processed_module_ids:", ids);
+              }
+            } else {
+              console.error("[collectAndSaveProcessedModuleIds] No learning plan found for user and module");
+            }
+          } else {
+            const errorData = await fetchRes.json();
+            console.error("[collectAndSaveProcessedModuleIds] Error fetching learning plan:", errorData);
+          }
+        } catch (error) {
+          console.error("[collectAndSaveProcessedModuleIds] Error updating learning plan:", error);
         }
 
         console.log(ids)

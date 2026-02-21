@@ -273,17 +273,26 @@ export default function EmployeesPage() {
 
   const loadLearningPlans = async (companyId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('learning_plan')
-        .select(`
-          *,
-          training_modules(title, description),
-          users(name, email)
-        `)
-        .eq('users.company_id', companyId);
+      // Fetch learning plans via backend API (will be filtered by company automatically)
+      const adminId = sessionStorage.getItem('lucid_admin_user_id');
+      if (!adminId) {
+        console.error('Admin user ID not found');
+        setLearningPlans([]);
+        return;
+      }
 
-      if (error) throw error;
-      setLearningPlans(data || []);
+      const lpRes = await fetch(
+        `${API_URL}/api/learning-plans/?limit=5000`,
+        { headers: { 'X-User-ID': adminId } }
+      );
+
+      if (!lpRes.ok) {
+        const errorData = await lpRes.json();
+        throw new Error(errorData.detail || 'Failed to fetch learning plans');
+      }
+
+      const lpData = await lpRes.json();
+      setLearningPlans(lpData?.plans || []);
     } catch (error: any) {
       console.error('Failed to load learning plans:', error.message);
     }
@@ -2407,19 +2416,32 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
     setError('');
 
     try {
-      // First, check for existing assignments to prevent duplicates
-      const { data: existingAssignments, error: checkError } = await supabase
-        .from('learning_plan')
-        .select('user_id, module_id, users!inner(name, email), training_modules!inner(title)')
-        .in('user_id', selectedUsers)
-        .in('module_id', selectedModules);
+      // First, check for existing assignments to prevent duplicates via backend API
+      if (!adminId) {
+        setError('Admin user ID not found');
+        setLoading(false);
+        return;
+      }
 
-      if (checkError) {
-        console.error('Error checking existing assignments:', checkError);
+      const lpRes = await fetch(
+        `${API_URL}/api/learning-plans/?limit=5000`,
+        { headers: { 'X-User-ID': adminId } }
+      );
+
+      if (!lpRes.ok) {
+        console.error('Error checking existing assignments');
         setError('Failed to check existing assignments. Please try again.');
         setLoading(false);
         return;
       }
+
+      const lpData = await lpRes.json();
+      const allPlans = lpData?.plans || [];
+      
+      // Filter to find existing assignments
+      const existingAssignments = allPlans.filter((lp: any) =>
+        selectedUsers.includes(lp.user_id) && selectedModules.includes(lp.module_id)
+      );
 
       // If there are existing assignments, show the duplicate modal
       if (existingAssignments && existingAssignments.length > 0) {
@@ -2445,18 +2467,48 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         }
       }
 
-      // Insert learning plans into database
-      const { error: insertError } = await supabase
-        .from('learning_plan')
-        .insert(learningPlans);
+      // Create learning plans via backend API
+      if (!adminId) {
+        setError('Admin user ID not found');
+        setLoading(false);
+        return;
+      }
 
-      if (insertError) {
-        // Handle potential race condition duplicates
-        if (insertError.code === '23505') {
-          setError('Some assignments were created by another console while you were selecting. Please refresh and try again.');
-        } else {
-          throw insertError;
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const plan of learningPlans) {
+        try {
+          const createRes = await fetch(`${API_URL}/api/learning-plans/`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-ID': adminId
+            },
+            body: JSON.stringify(plan)
+          });
+
+          if (createRes.ok) {
+            successCount++;
+          } else {
+            const errorData = await createRes.json();
+            if (errorData.detail?.includes('23505') || errorData.detail?.includes('duplicate')) {
+              // Handle duplicates silently or log
+              console.log('Duplicate assignment skipped:', plan);
+            } else {
+              failCount++;
+              console.error('Failed to create assignment:', errorData);
+            }
+          }
+        } catch (e) {
+          failCount++;
+          console.error('Error creating assignment:', e);
         }
+      }
+
+      if (failCount > 0) {
+        setError(`Created ${successCount} assignments, ${failCount} failed`);
+        setLoading(false);
         return;
       }
 

@@ -152,26 +152,28 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
         return;
       }
 
-      // Query learning_plan for users in this company
-      let query = supabase
-        .from('learning_plan')
-        .select(`
-          learning_plan_id,
-          status,
-          assigned_on,
-          started_at,
-          completed_at,
-          due_date,
-          baseline_assessment,
-          module_id,
-          user_id,
-          training_modules!inner(title, module_id, processing_status)
-        `)
-        .in('user_id', companyUserIds);
+      // Query learning_plan for users in this company via backend API
+      const lpRes = await fetch(
+        `${API_URL}/api/learning-plans/?limit=5000`,
+        { headers: { 'X-User-ID': userId || '' } }
+      );
+
+      if (!lpRes.ok) {
+        console.error('[analytics] Error fetching learning plans');
+        setProgressData([]);
+        setModules([]);
+        return;
+      }
+
+      const lpData = await lpRes.json();
+      let allPlans = lpData?.plans || [];
+      
+      // Filter by company users
+      let learningPlans = allPlans.filter((lp: any) => companyUserIds.includes(lp.user_id));
 
       // Apply module filter
       if (selectedModule !== 'all') {
-        query = query.eq('module_id', selectedModule);
+        learningPlans = learningPlans.filter((lp: any) => lp.module_id === selectedModule);
       }
 
       // Apply time range filter

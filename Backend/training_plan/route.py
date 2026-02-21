@@ -115,9 +115,9 @@ async def POST(request: Request):
         
         # Only use learning style if company has learning_style set to FALSE
         useLearningStyle = False
-        if companyData and companyData.get("learning_style") == False:
-            useLearningStyle = False
-            print(f"[Training Plan API] Company {company_id} has learning_style=FALSE, will use employee learning style")
+        if companyData and companyData.get("learning_style") == True:
+            useLearningStyle = True
+            print(f"[Training Plan API] Company {company_id} has learning_style=TRUE, will use employee learning style")
         else:
             print(f"[Training Plan API] Company {company_id} does not use learning styles, skipping learning style customization")
 
@@ -322,7 +322,7 @@ async def POST(request: Request):
                 }
             )
 
-        print("[Training Plan API] Baseline percent assessments:", baselinePercentAssessments)
+        # print("[Training Plan API] Baseline percent assessments:", baselinePercentAssessments)
 
         # Compute assessmentHash using SHA256
         assessmentHash = hashlib.sha256(
@@ -722,7 +722,31 @@ async def POST(request: Request):
             + '\n\nCRITICAL: Return ONLY ONE JSON object. Do not duplicate the response. Do not wrap in markdown code blocks. Return raw JSON only.'
         )
 
-        prompt = prompt1 if len(baselinePercentAssessments) > 0 else prompt2
+        # Check if baseline is enabled for this learning plan
+        # If baseline_assessment === 0 (OFF), use prompt2 (all modules, no score references)
+        # If baseline_assessment === 1 (ON), use prompt1 if assessments exist, else prompt2
+        baselineEnabledForPlan = True  # Default to ON
+        if (
+            checkForBaseline
+            and isinstance(checkForBaseline, list)
+            and len(checkForBaseline) > 0
+        ):
+            baselineEnabledForPlan = checkForBaseline[0].get("baseline_assessment") == 1
+            print(f"[Training Plan API] Baseline assessment enabled for plan: {baselineEnabledForPlan}")
+        
+        # Select prompt based on baseline setting and assessment availability
+        if not baselineEnabledForPlan:
+            # Baseline is OFF - always use prompt2 (all modules, no score analysis)
+            prompt = prompt2
+            print("[Training Plan API] Using prompt2 (baseline OFF - all modules)")
+        elif len(baselinePercentAssessments) > 0:
+            # Baseline is ON and assessments exist - use prompt1 (personalized)
+            prompt = prompt1
+            print("[Training Plan API] Using prompt1 (baseline ON - personalized)")
+        else:
+            # Baseline is ON but no assessments - use prompt2 (all modules)
+            prompt = prompt2
+            print("[Training Plan API] Using prompt2 (baseline ON but no assessments)")
 
         # Call Gemini
         planJsonRaw = ""
@@ -906,7 +930,7 @@ async def POST(request: Request):
                     insertRes = (
                         supabase
                         .table("module_progress")
-                        .insert({"user_id": user_id, "module_id": m, "status": "NOT_STARTED"})
+                        .upsert({"user_id": user_id, "processed_module_id": m, "status": "NOT_STARTED"})
                         .execute()
                     )
                     insertedData = getattr(insertRes, "data", None)

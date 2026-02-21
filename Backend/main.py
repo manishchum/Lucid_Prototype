@@ -22,7 +22,7 @@ from gpt_video_generation.route import router as gpt_video_generation_router
 from generate_infographic.route import router as generate_infographic_router
 from flashcard_generation.route import router as flashcard_generation_router
 from generate_mindmap.route import router as generate_mindmap_router
-from routes import users, roles, assessments, companies, content_jobs
+from routes import users, roles, assessments, companies, content_jobs, learning_plan
 
 # Import user routes
 # from routes.users import router as users_router
@@ -104,6 +104,7 @@ app.include_router(roles.router)  # roles router
 app.include_router(assessments.router)  # assessments router
 app.include_router(companies.router)  # companies router
 app.include_router(content_jobs.router)  # content jobs router
+app.include_router(learning_plan.router)  # learning plan router
 
 if __name__ == "__main__":
     import uvicorn
