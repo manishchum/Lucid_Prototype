@@ -86,6 +86,7 @@ async function generateModuleContent({ moduleId = null } = {}) {
       if (Array.isArray(mod.training_modules)) {
         for (const tm of mod.training_modules) {
           if (Array.isArray(tm.ai_modules)) {
+            // console.log(typeof tm.ai_modules);
             console.log(`[EXTRACT] Checking ${tm.ai_modules.length} AI modules for match`);
             // const matched = tm.ai_modules.find(m =>
             //   m.title?.trim().toLowerCase() === mod.title?.trim().toLowerCase()
@@ -547,7 +548,7 @@ Module is fully self-contained
       // Remove any learning style code references (CS, CR, AS, AR) from content
       console.log(`[CLEAN] Removing learning style references...`);
       aiContent = aiContent.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
-      // aiContent = aiContent.replace(/\s*\((CS|CR|AS|AR|cs|cr|as|ar)[,\s]*\)/gi, '');
+      
 
       aiContent = aiContent.replace(/\b(CS|CR|AS|AR)\b/g, '');
       

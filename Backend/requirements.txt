@@ -21,3 +21,4 @@ static_ffmpeg==3.0
 supabase==2.28.0
 unstructured==0.18.31
 uvicorn==0.40.0
+pymupdf 

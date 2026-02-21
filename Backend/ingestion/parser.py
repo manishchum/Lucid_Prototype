@@ -1,77 +1,132 @@
 from unstructured.partition.auto import partition
 from unstructured.cleaners.core import clean_extra_whitespace
 from unstructured.documents.elements import (
-    Title, NarrativeText, ListItem, Table, Image
+    Title, NarrativeText, ListItem, Table, Image as UnstructuredImage
 )
 import io
-from PIL import Image as PILImage
+from PIL import Image 
 import pytesseract
 import pandas as pd
+import fitz  # PyMuPDF
+import re
 
-def ocr_image(el):
-    if hasattr(el, "image") and el.image:
-        # el.image is usually a PIL.Image object
-        return pytesseract.image_to_string(el.image, lang="eng")
-    return ""
+def clean_text(text: str) -> str:
+    text = re.sub(r'^\s*[•▪\.\-]+\s*$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\.{3,}', '', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
 
 
-def parse_pdf_rich(pdf_path: str) -> str:
-    
+# ==============================
+# TEXT PARSING (Unstructured HI_RES)
+# 1 CHUNK PER PAGE
+# ==============================
+
+def parse_text_per_page_unstructured(pdf_path: str):
+
+    print("\n--- Parsing Text Per Page (Unstructured HI_RES) ---")
+
     elements = partition(
         filename=pdf_path,
-        extract_images_in_pdf=False,  # we will work on image RAG later and will directly extract images to supabase
+        strategy="hi_res",
         infer_table_structure=True,
-        strategy="fast",  # Changed from "hi_res" to avoid Tesseract dependency
-        # ocr_languages="eng",  # Removed - not needed for "fast" strategy
+        extract_images_in_pdf=False,
     )
 
-    parts = []
+    page_map = {}
 
     for el in elements:
-        if isinstance(el, Title):
-            parts.append(f"\n## {el.text}\n")
+        page_number = getattr(el.metadata, "page_number", None)
+        text = getattr(el, "text", None)
 
-        elif isinstance(el, NarrativeText):
-            parts.append(el.text)
+        if not page_number or not text:
+            continue
 
-        elif isinstance(el, ListItem):
-            parts.append(f"- {el.text}")
+        cleaned = clean_text(text)
 
-        elif isinstance(el, Table):
-            parts.append("\n[TABLE]\n")
-            html_str = el.metadata.text_as_html
+        # Skip garbage bullet-only chunks
+        if not cleaned or re.fullmatch(r'[•▪\-\s]+', cleaned):
+            continue
 
-            if html_str:
-                try:
-                    # Wrap the string in StringIO so pandas treats it as a file
-                    dfs = pd.read_html(io.StringIO(html_str))
-                    if dfs:
-                        # Convert the first found table to markdown
-                        parts.append(dfs[0].to_markdown(index=False))
-                except Exception as e:
-                    print(f"Error parsing table: {e}")
-                    parts.append(el.text) # Fallback to raw text
-            else:
-                parts.append(el.text)
+        page_map.setdefault(page_number, "")
+        page_map[page_number] += cleaned + "\n\n"
 
-            parts.append("\n[/TABLE]\n")
+    # Convert to structured list (1 chunk per page)
+    blocks = []
+
+    for page_number in sorted(page_map.keys()):
+        blocks.append({
+            "page_number": page_number,
+            "content": page_map[page_number].strip()
+        })
+
+        print(f"Page {page_number} text length:",
+              len(page_map[page_number]))
+
+    print("\nTotal pages parsed:", len(blocks))
+
+    return blocks
 
 
-        
-        elif isinstance(el, Image):
-            ocr_text = el.text or ocr_image(el)
-            if ocr_text.strip():
-                parts.append("\n[IMAGE OCR]\n")
-                parts.append(ocr_text)
-                parts.append("\n[/IMAGE OCR]\n")        
+# ==============================
+# IMAGE EXTRACTION (PyMuPDF)
+# ==============================
 
-        elif isinstance(el, Image) and el.text:
-            parts.append("\n[IMAGE OCR]\n")
-            parts.append(el.text)
-            parts.append("\n[/IMAGE OCR]\n")
+def extract_images_per_page(pdf_path: str):
 
-        elif hasattr(el, "text") and el.text:
-            parts.append(el.text)
+    print("\n--- Extracting Images (PyMuPDF) ---")
 
-    text = "\n".join(parts)
-    return clean_extra_whitespace(text)
+    doc = fitz.open(pdf_path)
+    images = []
+
+    for page_index in range(len(doc)):
+        page = doc[page_index]
+        image_list = page.get_images(full=True)
+
+        for img in image_list:
+            xref = img[0]
+            width = img[2]
+            height = img[3]
+
+            # Filter tiny images
+            if width < 50 or height < 50:
+                print(f"Skipping tiny image on page {page_index+1} with size {width}x{height}")
+                continue
+
+            base_image = doc.extract_image(xref)
+            image_bytes = base_image["image"]
+
+            if len(image_bytes) < 5000:
+                print(f"Skipping small image on page {page_index+1} with byte size {len(image_bytes)}")
+                continue
+
+            try:
+                print("try ke andar")
+                Image.open(io.BytesIO(image_bytes))
+            except Exception as e:
+                print(f"except ke andr hai: {e}")
+                continue
+
+            images.append({
+                
+                "page_number": page_index + 1,
+                "bytes": image_bytes,
+                "ext": base_image["ext"]
+            })
+            print(f"Extracted image from page {page_index+1} with size {width}x{height} and byte size {len(image_bytes)}")
+            print(f"Total images so far: {len(images)}")
+
+    print("Total filtered images:", len(images))
+
+    return images
+
+
+# ==============================
+# COMBINED PARSER ENTRY
+# ==============================
+
+def parse_pdf(pdf_path: str):
+    text_blocks = parse_text_per_page_unstructured(pdf_path)
+    images = extract_images_per_page(pdf_path)
+
+    return text_blocks, images
