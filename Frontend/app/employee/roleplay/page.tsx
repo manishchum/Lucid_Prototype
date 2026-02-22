@@ -7,6 +7,7 @@ import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import LoadingProgress from "@/components/shared/LoadingProgress";
 import { useLoadingProgress } from "@/hooks/useLoadingProgress";
+import { useDataCache } from "@/contexts/data-context";
 import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
 import { fetchScenariosForUser, deleteCustomScenario, assignScenario, getScenarioAssignments } from '@/lib/roleplayDatabase';
 import { Card } from '@/components/ui/card';
@@ -32,13 +33,33 @@ interface AssessmentReport {
 
 export default function RolePlayPage({ params }: { params: { module_id: string, moduleTitle: string, custom: string } }) {
   const { user, internalUser, isAdmin: globalIsAdmin, loading: authLoading } = useAuth();
+  const [allScenarios, setAllScenarios] = useState<Scenario[]>([]);
+  const [loadingScenarios, setLoadingScenarios] = useState<boolean>(true);
+
   const router = useRouter();
+  const { getCacheData, setCacheData } = useDataCache();
+
+  // Check cache on mount
+  useEffect(() => {
+    const cachedData = getCacheData("roleplay_data");
+    if (cachedData) {
+      setAllScenarios(cachedData.allScenarios);
+      setLoadingScenarios(false);
+    }
+  }, [getCacheData]);
+
+  const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || loadingScenarios);
   // const searchParams = useSearchParams();
   const moduleId = params.module_id;
   const moduleTitle = params.moduleTitle;
   const isCustom = (params.custom) === 'true';
 
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('scenarioSelection');
+  const isAdmin = !!globalIsAdmin;
+  const [showAssignModal, setShowAssignModal] = useState<boolean>(false);
+  const [assigningScenario, setAssigningScenario] = useState<Scenario | null>(null);
+  const [assignmentType, setAssignmentType] = useState<'department' | 'sub_department' | 'user'>('user');
+  const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
   const [roleplayConfig, setRoleplayConfig] = useState<RoleplayConfig | null>(null);
   const [conversationHistory, setConversationHistory] = useState<Message[]>([]);
@@ -57,13 +78,6 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     difficulty: 'Medium' as 'Easy' | 'Medium' | 'Hard',
     tone: 'Neutral' as 'Friendly' | 'Neutral' | 'Aggressive'
   });
-  const [allScenarios, setAllScenarios] = useState<Scenario[]>([]);
-  const [loadingScenarios, setLoadingScenarios] = useState<boolean>(true);
-  const isAdmin = !!globalIsAdmin;
-  const [showAssignModal, setShowAssignModal] = useState<boolean>(false);
-  const [assigningScenario, setAssigningScenario] = useState<Scenario | null>(null);
-  const [assignmentType, setAssignmentType] = useState<'department' | 'sub_department' | 'user'>('user');
-  const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
   const [subDepartments, setSubDepartments] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
@@ -75,7 +89,9 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     const fetchScenarios = async () => {
       if (!userId) return;
 
-      setLoadingScenarios(true);
+      if (!getCacheData("roleplay_data")) {
+        setLoadingScenarios(true);
+      }
       console.log('Fetching Scenarios for user id:', userId, 'isAdmin:', isAdmin);
 
       const { data, error } = await fetchScenariosForUser(userId, isAdmin);
@@ -83,6 +99,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       console.log('Fetched scenarios:', data);
       if (data) {
         setAllScenarios(data);
+        // Update cache
+        setCacheData("roleplay_data", { allScenarios: data });
       }
       if (error) setError('Failed to load scenarios');
       setLoadingScenarios(false);
@@ -403,8 +421,6 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     setShowCustomModal(false);
     setCurrentScreen('rolePlay');
   };
-
-  const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || (!internalUser && loadingScenarios));
 
   if (showLoadingProgress) {
     return <LoadingProgress label="Loading Roleplay Hub" progress={loadingProgress} />;

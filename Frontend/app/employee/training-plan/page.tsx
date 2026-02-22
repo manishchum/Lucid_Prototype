@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
+import { useDataCache } from "@/contexts/data-context";
 
 import { Users, ChevronLeft, CheckCircle2 } from "lucide-react";
 
@@ -40,6 +41,26 @@ function TrainingPlanContent() {
   const [completedModules, setCompletedModules] = useState<string[]>([]);
   const [actualUserId, setActualUserId] = useState<string | null>(null);
   const [additionalReadings, setAdditionalReadings] = useState<any[] | null>(null);
+
+  const moduleId = searchParams.get("module_id");
+  const { getCacheData, setCacheData } = useDataCache();
+
+  // Check cache on mount or when moduleId changes
+  useEffect(() => {
+    const key = `training_plan_data_${moduleId || "all"}`;
+    const cachedData = getCacheData(key);
+    if (cachedData) {
+      setPlan(cachedData.plan);
+      setReasoning(cachedData.reasoning);
+      setBaselineRequired(cachedData.baselineRequired);
+      setBaselineMessage(cachedData.baselineMessage);
+      setCompletedModules(cachedData.completedModules);
+      setAdditionalReadings(cachedData.additionalReadings);
+      setLoading(false); // Skip loader if we have cached data
+    } else {
+      setLoading(true); // Show loader if no cache for this specific moduleId
+    }
+  }, [getCacheData, moduleId]);
 
   const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || loading);
 
@@ -173,7 +194,6 @@ function TrainingPlanContent() {
     );
   }
 
-  const moduleId = searchParams.get('module_id');
   useEffect(() => {
     if (!authLoading) {
       if (!user) {
@@ -185,7 +205,10 @@ function TrainingPlanContent() {
   }, [user, authLoading, internalUser, router]);
 
   const fetchPlan = async (employeeData: any) => {
-    setLoading(true);
+    const key = `training_plan_data_${moduleId || "all"}`;
+    if (!getCacheData(key)) {
+      setLoading(true);
+    }
     try {
       setActualUserId(employeeData.user_id);
       const userIdVal = employeeData.user_id;
@@ -346,6 +369,19 @@ function TrainingPlanContent() {
       if (result.plan?.modules) {
         await collectAndSaveProcessedModuleIds(result.plan.modules, userIdVal);
       }
+
+      // Update cache
+      const finalBaselineStatus = result?.error === "BASELINE_REQUIRED";
+      const key = `training_plan_data_${moduleId || "all"}`;
+      setCacheData(key, {
+        plan: result.plan,
+        reasoning: result.reasoning,
+        baselineRequired: finalBaselineStatus,
+        baselineMessage: result.message,
+        completedModules: completedModules,
+        additionalReadings: additionalReadings,
+      });
+
     } catch (err) {
       setPlan("Error fetching training plan.");
     } finally {
@@ -380,11 +416,17 @@ function TrainingPlanContent() {
       console.log(userId)
       if (moduleName) {
         // console.log("[resolveModuleId] Searching by title:", moduleName);
-        const { data: pmByTitle } = await supabase
+        let query = supabase
           .from("processed_modules")
           .select("processed_module_id")
-          .eq('title', moduleName)
-          // .eq("user_id", actualUserId)
+          .eq('title', moduleName);
+
+        // Filter by the current sprint's original_module_id if available
+        if (moduleId) {
+          query = query.eq('original_module_id', moduleId);
+        }
+
+        const { data: pmByTitle } = await query
           .limit(1)
           .maybeSingle();
 

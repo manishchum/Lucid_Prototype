@@ -15,6 +15,7 @@ import clsx from "clsx";
 import LoadingProgress from "@/components/shared/LoadingProgress";
 import { useLoadingProgress } from "@/hooks/useLoadingProgress";
 import { useAuth } from "@/contexts/auth-context";
+import { useDataCache } from "@/contexts/data-context";
 import jsPDF from 'jspdf';
 import VoiceInput from '@/components/VoiceInput';
 import VoiceOutput from '@/components/VoiceOutput';
@@ -53,6 +54,24 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const router = useRouter();
+  const { getCacheData, setCacheData } = useDataCache();
+
+  // Check cache on mount
+  useEffect(() => {
+    const cachedData = getCacheData(`module_${moduleId}`);
+    if (cachedData) {
+      setModule(cachedData.module);
+      setEmployee(cachedData.employee);
+      setLearningStyle(cachedData.learningStyle);
+      setHasVideo(cachedData.hasVideo);
+      setPlainTranscript(cachedData.plainTranscript);
+      setLoading(false); // Skip loader if we have cached data
+    } else {
+      setModule(null);
+      setLoading(true);
+    }
+  }, [moduleId, getCacheData]);
+
   const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || loading || generatingContent);
   const [voiceLoopActive, setVoiceLoopActive] = useState(false);
   const [autoStartMic, setAutoStartMic] = useState(false);
@@ -66,7 +85,10 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   }, [user, authLoading, router]);
   useEffect(() => {
     const fetchModule = async () => {
-      setLoading(true);
+      // ONLY set loading true if we don't have cached data already
+      if (!getCacheData(`module_${moduleId}`)) {
+        setLoading(true);
+      }
       if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
         console.error('[module] Invalid module id:', moduleId);
         setModule(null);
@@ -189,10 +211,19 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         } catch (e) {
           console.error('[module] progress log error', e);
         }
-      } else {
-        console.error('[module] No module data found for id:', moduleId);
-        setModule(null);
       }
+
+      // Update cache
+      if (data) {
+        setCacheData(`module_${moduleId}`, {
+          module: data,
+          employee: empObj,
+          learningStyle: style,
+          hasVideo: data.video_url ? true : false,
+          plainTranscript: extractPlainText(data.content || ''),
+        });
+      }
+
       setLoading(false);
     };
     if (!authLoading) {
@@ -312,6 +343,16 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   }
 
   if (!module) {
+    if (loading || authLoading || generatingContent) {
+      return (
+        <div
+          className="transition-all duration-300 ease-in-out px-12 py-8"
+          style={{ marginLeft: '16rem' }}
+        >
+          {/* Keep container layout but show nothing while loading bar is delayed */}
+        </div>
+      );
+    }
     return <div className="min-h-screen flex items-center justify-center text-red-600">Module not found.</div>;
   }
 
@@ -332,7 +373,12 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                     variant="outline"
                     size="sm"
                     className="flex items-center gap-2 hover:bg-gray-100"
-                    onClick={() => router.back()}
+                    onClick={() => {
+                      const backUrl = module?.original_module_id
+                        ? `/employee/training-plan?module_id=${module.original_module_id}`
+                        : '/employee/training-plan';
+                      router.push(backUrl);
+                    }}
                   >
                     <ChevronLeft className="w-4 h-4" />
                     Back

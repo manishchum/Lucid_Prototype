@@ -17,15 +17,26 @@ interface MCQQuestion {
 interface MCQQuizProps {
   questions: MCQQuestion[];
   onSubmit: (result: { score: number; answers: number[]; feedback: string[] }) => void;
+  initialSelected?: (number | null)[];
+  initialSubmitted?: boolean;
+  readOnly?: boolean;
 }
 
-const MCQQuiz: React.FC<MCQQuizProps> = ({ questions, onSubmit }) => {
+const MCQQuiz: React.FC<MCQQuizProps> = ({
+  questions,
+  onSubmit,
+  initialSelected,
+  initialSubmitted = false,
+  readOnly = false
+}) => {
   const QUESTIONS_PER_PAGE = 10;
   const [currentPage, setCurrentPage] = useState(0); // page index (0-based)
-  const [selected, setSelected] = useState<(number | null)[]>(Array(questions.length).fill(null));
+  const [selected, setSelected] = useState<(number | null)[]>(
+    initialSelected || Array(questions.length).fill(null)
+  );
   const [feedback, setFeedback] = useState<string[]>(Array(questions.length).fill(""));
   const [score, setScore] = useState<number | null>(null);
-  const [submitted, setSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState(initialSubmitted);
   const [progressPercent, setProgressPercent] = useState(0);
 
   // Calculate progress based on answered questions
@@ -93,85 +104,7 @@ const MCQQuiz: React.FC<MCQQuizProps> = ({ questions, onSubmit }) => {
   const allAnswered = selected.every(answer => answer !== null);
 
   // Show summary after submission
-  if (submitted && score !== null) {
-    const correctAnswers = feedback.filter(f => f === "Correct").length;
-    const incorrectAnswers = questions.length - correctAnswers;
-    const { message, icon: ScoreIcon, color } = getScoreMessage(score, questions.length);
-
-    return (
-      <div className="w-full mx-auto p-4 space-y-8">
-        <Card className="shadow-xl border-2 border-blue-100">
-          <CardHeader className="text-center bg-gradient-to-r from-blue-50 to-green-50 rounded-t-lg">
-            <div className="flex justify-center mb-4">
-              <ScoreIcon className={`w-20 h-20 ${color} drop-shadow-lg`} />
-            </div>
-            <CardTitle className="text-3xl font-extrabold tracking-tight">Quiz Complete!</CardTitle>
-            <p className={`text-xl mt-2 ${color} font-semibold`}>{message}</p>
-          </CardHeader>
-          <CardContent className="space-y-8">
-            <div className="flex flex-col sm:flex-row justify-center gap-6">
-              <div className="flex-1 flex flex-col items-center bg-blue-50 rounded-lg p-6 shadow">
-                <span className="text-4xl font-bold text-blue-600">{score}</span>
-                <span className="text-base text-gray-600 mt-1">Total Score</span>
-              </div>
-              <div className="flex-1 flex flex-col items-center bg-green-50 rounded-lg p-6 shadow">
-                <span className="text-4xl font-bold text-green-600">{correctAnswers}</span>
-                <span className="text-base text-gray-600 mt-1">Correct</span>
-              </div>
-              <div className="flex-1 flex flex-col items-center bg-red-50 rounded-lg p-6 shadow">
-                <span className="text-4xl font-bold text-red-600">{incorrectAnswers}</span>
-                <span className="text-base text-gray-600 mt-1">Incorrect</span>
-              </div>
-            </div>
-
-            <div className="space-y-6 mt-8">
-              <h3 className="text-xl font-bold text-blue-700 mb-2 flex items-center gap-2">
-                <TrendingUp className="w-6 h-6 text-blue-400" />
-                Your Answers & Explanations
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {questions.map((q, idx) => (
-                  <div key={idx} className={`rounded-lg border-2 p-4 shadow-sm transition-all duration-200 ${
-                    feedback[idx] === "Correct"
-                      ? "border-green-300 bg-green-50"
-                      : "border-red-300 bg-red-50"
-                  }`}>
-                    <div className="flex items-center gap-2 mb-2">
-                      {feedback[idx] === "Correct" ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-green-200 text-green-800">
-                          <CheckCircle className="w-4 h-4 mr-1" /> Correct
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-200 text-red-800">
-                          <XCircle className="w-4 h-4 mr-1" /> Incorrect
-                        </span>
-                      )}
-                      <span className="text-xs text-gray-500">Q{idx + 1}</span>
-                    </div>
-                    <div className="font-medium text-gray-900 mb-1 text-sm sm:text-base">
-                      {q.question}
-                    </div>
-                    <div className="mt-2">
-                      <span className="font-semibold text-gray-700 text-xs">Your answer: </span>
-                      <span className="text-xs sm:text-sm">
-                        {typeof selected[idx] === 'number' ? q.options[selected[idx] as number] : <span className="italic text-gray-400">No answer</span>}
-                      </span>
-                    </div>
-                    {feedback[idx] !== "Correct" && q.explanation && (
-                      <div className="mt-2 p-2 rounded bg-yellow-50 border-l-4 border-yellow-400 text-yellow-800 text-xs sm:text-sm">
-                        <span className="font-semibold">Explanation: </span>{q.explanation}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
+  // if (submitted && score !== null) { ... removed redundant summary view ... }
   return (
     <div className="w-full mx-auto p-4 space-y-6">
       {/* Progress Bar */}
@@ -207,31 +140,61 @@ const MCQQuiz: React.FC<MCQQuizProps> = ({ questions, onSubmit }) => {
                 {startIdx + idx + 1}. {q.question}
               </div>
               <div className="space-y-2">
-                {q.options.map((opt, oidx) => (
-                  <button
-                    key={oidx}
-                    onClick={() => handleSelect(startIdx + idx, oidx)}
-                    disabled={submitted}
-                    className={`w-full p-4 text-left border-2 rounded-lg transition-all duration-200 hover:shadow-md ${
-                      selected[startIdx + idx] === oidx
-                        ? "border-blue-500 bg-blue-50 shadow-sm"
-                        : "border-gray-200 hover:border-gray-300"
-                    } ${submitted ? "cursor-not-allowed" : "cursor-pointer"}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                        selected[startIdx + idx] === oidx
-                          ? "border-blue-500 bg-blue-500"
-                          : "border-gray-300"
-                      }`}>
-                        {selected[startIdx + idx] === oidx && (
-                          <div className="w-2 h-2 rounded-full bg-white"></div>
-                        )}
-                      </div>
-                      <span className="text-sm sm:text-base">{opt}</span>
+                {q.options.map((opt, oidx) => {
+                  let buttonClass = "border-gray-200 hover:border-gray-300";
+                  let circleClass = "border-gray-300";
+
+                  if (submitted || readOnly) {
+                    if (oidx === q.correctIndex) {
+                      // Correct option
+                      buttonClass = "border-green-500 bg-green-50 shadow-sm";
+                      circleClass = "border-green-500 bg-green-500";
+                    } else if (selected[startIdx + idx] === oidx) {
+                      // User selected wrong option
+                      buttonClass = "border-red-500 bg-red-50 shadow-sm";
+                      circleClass = "border-red-500 bg-red-500";
+                    } else {
+                      // Other unselected wrong options
+                      buttonClass = "border-gray-200 opacity-60";
+                    }
+                  } else if (selected[startIdx + idx] === oidx) {
+                    // Selected state before submission
+                    buttonClass = "border-blue-500 bg-blue-50 shadow-sm";
+                    circleClass = "border-blue-500 bg-blue-500";
+                  }
+
+                  return (
+                    <div key={oidx}>
+                      <button
+                        onClick={() => handleSelect(startIdx + idx, oidx)}
+                        disabled={submitted || readOnly}
+                        className={`w-full p-4 text-left border-2 rounded-lg transition-all duration-200 ${buttonClass} ${submitted || readOnly ? "cursor-not-allowed" : "cursor-pointer"}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${circleClass}`}>
+                              {(selected[startIdx + idx] === oidx || (submitted || readOnly) && oidx === q.correctIndex) && (
+                                <div className="w-2 h-2 rounded-full bg-white"></div>
+                              )}
+                            </div>
+                            <span className="text-sm sm:text-base">{opt}</span>
+                          </div>
+                          {(submitted || readOnly) && oidx === q.correctIndex && (
+                            <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
+                          )}
+                          {(submitted || readOnly) && selected[startIdx + idx] === oidx && oidx !== q.correctIndex && (
+                            <XCircle className="w-5 h-5 text-red-600 shrink-0" />
+                          )}
+                        </div>
+                      </button>
+                      {(submitted || readOnly) && selected[startIdx + idx] === oidx && q.explanation && (
+                        <div className="mt-2 p-3 rounded-lg bg-blue-50/50 border border-blue-100 text-sm text-gray-700">
+                          <span className="font-semibold text-blue-900">Explanation:</span> {q.explanation}
+                        </div>
+                      )}
                     </div>
-                  </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -239,33 +202,36 @@ const MCQQuiz: React.FC<MCQQuizProps> = ({ questions, onSubmit }) => {
           <div className="flex flex-col sm:flex-row gap-4 justify-between mt-6">
             {/* Left: Previous */}
             <div className="flex">
-              <Button
-                onClick={handlePrevPage}
-                disabled={currentPage === 0}
-                variant="outline"
-                size="sm"
-                className="flex items-center gap-2"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Previous
-              </Button>
+              {totalPages > 1 && (
+                <Button
+                  onClick={handlePrevPage}
+                  disabled={currentPage === 0 || readOnly}
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Previous
+                </Button>
+              )}
             </div>
             {/* Right: Next or Submit */}
             <div className="flex justify-end">
               {currentPage < totalPages - 1 ? (
                 <Button
                   onClick={handleNextPage}
-                  disabled={!allCurrentPageAnswered}
                   size="sm"
+                  disabled={readOnly}
                   className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 disabled:opacity-60"
                 >
                   Next
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               ) : (
-                allCurrentPageAnswered && (
+                !readOnly && !submitted && (
                   <Button
                     onClick={handleSubmit}
+                    disabled={!allAnswered}
                     className="bg-green-600 hover:bg-green-700 text-white px-6"
                     size="sm"
                   >

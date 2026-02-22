@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, User, Mail, Calendar, Building, Save, Edit3, Lock, Eye, EyeOff, X, CheckCircle } from "lucide-react";
 import LoadingProgress from "@/components/shared/LoadingProgress";
 import { useLoadingProgress } from "@/hooks/useLoadingProgress";
+import { useDataCache } from "@/contexts/data-context";
 
 
 interface Employee {
@@ -60,6 +61,24 @@ export default function AccountPage() {
     phone: "",
   });
   const router = useRouter();
+  const { getCacheData, setCacheData, clearCache } = useDataCache();
+
+  // Check cache on mount
+  useEffect(() => {
+    const cachedData = getCacheData("account_data");
+    if (cachedData) {
+      setEmployee(cachedData.employee);
+      setCompany(cachedData.company);
+      setFormData({
+        name: cachedData.employee?.name || "",
+        position: cachedData.employee?.position || "",
+        phone: cachedData.employee?.phone || "",
+      });
+      setLoading(false);
+    }
+  }, [getCacheData]);
+
+  const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || loading);
 
   useEffect(() => {
     if (!authLoading) {
@@ -87,6 +106,13 @@ export default function AccountPage() {
         const compPayload = await companyRes.json().catch(() => null);
         const companyData = compPayload?.company ?? compPayload;
         setCompany(companyData);
+        // Update cache after fetching company data
+        if (internalUser) {
+          setCacheData("account_data", {
+            employee: internalUser,
+            company: companyData,
+          });
+        }
       }
     } catch (error) {
       console.error("Failed to fetch company data:", error);
@@ -124,6 +150,9 @@ export default function AccountPage() {
           phone: formData.phone,
         });
         setEditing(false);
+        // Clear caches that might be affected by name change
+        clearCache("account_data");
+        clearCache("welcome_data");
         alert("Changes saved successfully!");
       }
     } catch (error) {
@@ -234,7 +263,6 @@ export default function AccountPage() {
     }
   };
 
-  const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || (loading && !internalUser));
 
   if (showLoadingProgress) {
     return <LoadingProgress label="Loading your profile" progress={loadingProgress} />;

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import LoadingProgress from "@/components/shared/LoadingProgress";
 import { useLoadingProgress } from "@/hooks/useLoadingProgress";
+import { useDataCache } from "@/contexts/data-context";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -60,6 +61,29 @@ export default function EmployeeWelcome() {
   const [showLoginToast, setShowLoginToast] = useState<boolean>(false);
   const [showAllModules, setShowAllModules] = useState<boolean>(false);
   const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(true);
+
+  const { getCacheData, setCacheData } = useDataCache();
+
+  // Check cache on mount
+  useEffect(() => {
+    const cachedData = getCacheData("welcome_data");
+    if (cachedData) {
+      setEmployee(cachedData.employee);
+      setLearningStyle(cachedData.learningStyle);
+      setCompanyLearningStyleEnabled(cachedData.companyLearningStyleEnabled);
+      setBaselineScore(cachedData.baselineScore);
+      setBaselineMaxScore(cachedData.baselineMaxScore);
+      setAssignedModules(cachedData.assignedModules);
+      setScoreHistory(cachedData.scoreHistory);
+      setModuleProgress(cachedData.moduleProgress);
+      setAllAssignedCompleted(cachedData.allAssignedCompleted);
+      setCompanyStats(cachedData.companyStats);
+      setProgressPercentage(cachedData.progressPercentage);
+      setNudgeMessage(cachedData.nudgeMessage);
+      setLoading(false); // Skip loader if we have cached data
+    }
+  }, [getCacheData]);
+
   const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || loading);
 
   const toastShownRef = useRef(false);
@@ -233,61 +257,46 @@ export default function EmployeeWelcome() {
     try {
       const employeeData = internalUser;
       setEmployee(employeeData);
-      // Learning Style Fetch
-      const { data: styleData } = await supabase
-        .from("employee_learning_style").select("learning_style").eq("user_id", employeeData.user_id).maybeSingle();
-      setLearningStyle(styleData?.learning_style || null);
 
-      // Fetch company learning style setting
+      // 1. Fetch Learning Style
+      const { data: styleData } = await supabase
+        .from("employee_learning_style")
+        .select("learning_style")
+        .eq("user_id", employeeData.user_id)
+        .maybeSingle();
+      const currentLearningStyle = styleData?.learning_style || null;
+      setLearningStyle(currentLearningStyle);
+
+      // 2. Fetch Company Settings
+      let currentCompanySettingsEnabled = true;
       try {
         const compRes = await fetch(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`);
         if (compRes.ok) {
           const compPayload = await compRes.json().catch(() => null);
           const compSettings = compPayload?.company ?? compPayload;
-          setCompanyLearningStyleEnabled(Boolean(compSettings?.learning_style_enabled));
-          console.log('[checkEmployeeAccess] Company learning style enabled:', Boolean(compSettings?.learning_style_enabled));
-        } else {
-          console.warn("[Welcome] failed to fetch company settings.", compRes.status, compRes.text().catch(() => ""));
+          currentCompanySettingsEnabled = Boolean(compSettings?.learning_style_enabled);
+          setCompanyLearningStyleEnabled(currentCompanySettingsEnabled);
         }
       } catch (e) {
         console.warn("[Welcome] error fetching company settings:", e);
       }
-      // Fetch Plans & Progress (Your specific logic)
+
+      // 3. Fetch Plans & Progress
       const { data: planRows } = await supabase.from('learning_plan').select('*').eq('user_id', employeeData.user_id);
-      const requiresBaseline = planRows?.some((plan: any) => plan.baseline_assessment === 1) ?? true;
-      setBaselineRequired(requiresBaseline);
+      const currentBaselineRequired = planRows?.some((plan: any) => plan.baseline_assessment === 1) ?? true;
+      setBaselineRequired(currentBaselineRequired);
 
       const assignedPlans = planRows?.filter((p: any) => p.status === 'ASSIGNED' || p.status === "IN_PROGRESS") || [];
-      // TEMP LOGS: inspect returned learning_plan rows and assigned plans
-      try {
-        console.log('[debug] learning_plan rows:', planRows);
-        console.log('[debug] assignedPlans:', assignedPlans);
-      } catch (e) {
-        /* ignore console errors */
-      }
       const mIds = assignedPlans.map((p: any) => p.module_id).filter(Boolean);
 
-      // Calculate Progress and resolve module titles
+      let currentMappedAssigned: any[] = [];
+      let currentProgressPercentage = 0;
+
       if (mIds.length > 0) {
-        // Fetch processed modules (we need title and mapping to original module id)
-        // Try to fetch processed_modules rows where either the original_module_id or the processed_module_id
-        // matches any of the module ids we have. Some rows store IDs under processed_module_id instead.
-        const { data: pModsByOriginal } = await supabase
+        const { data: pMods } = await supabase
           .from('training_modules')
           .select('module_id, title')
           .in('module_id', mIds);
-
-        // const { data: pModsByProcessed } = await supabase
-        //   .from('processed_modules')
-        //   .select('processed_module_id, title, original_module_id')
-        //   .in('processed_module_id', mIds);
-
-        const pMods = Array.from(new Map([...(pModsByOriginal || [])].map((r: any) => [r.module_id || JSON.stringify(r), r])).values());
-        console.log(pMods)
-        // TEMP LOG: inspect processed_modules rows
-        try {
-          console.log('[debug] processed_modules (pMods combined):', pMods);
-        } catch (e) { /* ignore */ }
 
         const pIds = pMods?.map((m: any) => m.module_id) || [];
         const { data: pProg } = await supabase
@@ -296,61 +305,56 @@ export default function EmployeeWelcome() {
           .eq('user_id', employeeData.user_id)
           .in('processed_module_id', pIds);
 
-        // TEMP LOG: inspect module_progress rows
-        try {
-          console.log('[debug] module_progress (pProg):', pProg);
-        } catch (e) { /* ignore */ }
-
         const completedCount = pProg?.filter((p: any) => p.completed_at).length || 0;
-        const prog = mIds.length > 0 ? Math.round((completedCount / mIds.length) * 100) : 0;
-        setProgressPercentage(prog);
-        if (employeeData.company_id) await fetchCompanyStats(employeeData.company_id, employeeData.user_id, prog);
+        currentProgressPercentage = mIds.length > 0 ? Math.round((completedCount / mIds.length) * 100) : 0;
+        setProgressPercentage(currentProgressPercentage);
 
-        // Build lookups so assigned modules show proper names.
-        // processed_modules may reference the original_module_id or have a processed_module_id that
-        // matches the learning_plan.module_id depending on how data was stored — build both maps.
+        if (employeeData.company_id) await fetchCompanyStats(employeeData.company_id, employeeData.user_id, currentProgressPercentage);
+
         const titleByOriginal: Record<string, string> = {};
-        const titleByProcessedId: Record<string, string> = {};
         (pMods || []).forEach((pm: any) => {
-          if (pm) {
-            if (pm.module_id) {
-              titleByOriginal[pm.module_id] = pm.title || `Module ${pm.original_module_id}`;
-            }
-            if (pm.processed_module_id) {
-              titleByProcessedId[pm.processed_module_id] = pm.title || `Module ${pm.processed_module_id}`;
-            }
+          if (pm?.module_id) {
+            titleByOriginal[pm.module_id] = pm.title || `Module ${pm.module_id}`;
           }
         });
 
-        const mappedAssigned = assignedPlans.map((p: any) => {
+        currentMappedAssigned = assignedPlans.map((p: any) => {
           const adminName = p.module_name || p.module_title || p.title || (p.module && (p.module.name || p.module.title)) || null;
-          const resolvedTitle =
-            titleByOriginal[p.module_id] ||
-            titleByProcessedId[p.module_id] ||
-            // also try matching by processed_module_id lookup using module_id as processed id
-            titleByProcessedId[p.module_id] ||
-            adminName ||
-            `Module ${p.module_id}`;
+          const resolvedTitle = titleByOriginal[p.module_id] || adminName || `Module ${p.module_id}`;
 
           return {
             id: p.module_id,
             title: resolvedTitle,
             moduleName: adminName,
-            // Preserve whether admin/learning_plan has baseline enabled for this module
             hasBaseline: (p.baseline_assessment === 1 || p.baseline_assessment === true),
           };
         });
 
-        // TEMP LOG: mapped assigned modules
-        try { console.log('[debug] mappedAssignedModules:', mappedAssigned); } catch (e) { }
-
-        setAssignedModules(mappedAssigned);
+        setAssignedModules(currentMappedAssigned);
       }
 
       const { data: progressData } = await supabase.from("module_progress").select("*, processed_modules(title)").eq("user_id", employeeData.user_id);
-      setModuleProgress(progressData || []);
+      const currentModuleProgress = progressData || [];
+      setModuleProgress(currentModuleProgress);
 
-    } catch (e) { console.error(e); } finally { setLoading(false); }
+      // Update cache
+      setCacheData("welcome_data", {
+        employee: employeeData,
+        learningStyle: currentLearningStyle,
+        companyLearningStyleEnabled: currentCompanySettingsEnabled,
+        baselineRequired: currentBaselineRequired,
+        assignedModules: currentMappedAssigned,
+        moduleProgress: currentModuleProgress,
+        progressPercentage: currentProgressPercentage,
+        companyStats: companyStats, // State from component
+        nudgeMessage: nudgeMessage, // State from component
+      });
+
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fetchCompanyStats = async (companyId: string, userId: string, userProgress: number) => {
@@ -430,8 +434,7 @@ export default function EmployeeWelcome() {
                         <p className="text-slate-500 mt-2 font-medium max-w-md leading-relaxed">{nudgeMessage}</p>
                         <div className="mt-4 flex gap-3">
                           <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-none font-bold">
-                            {/* {companyStats.completedEmployees} COLLEAGUES COMPLETED */}
-                            63 COLLEAGUES COMPLETED
+                            {companyStats.completedEmployees} COLLEAGUES COMPLETED
                           </Badge>
                         </div>
                       </div>
@@ -440,13 +443,11 @@ export default function EmployeeWelcome() {
                     <div className="flex flex-col items-center">
                       <div className={`relative w-28 h-28 rounded-full flex items-center justify-center bg-white border-[10px] ${progressPercentage >= 100 ? 'border-green-100' : 'border-blue-50'}`}>
                         <span className={`text-3xl font-black ${progressPercentage >= 100 ? 'text-green-600' : 'text-blue-600'}`}>
-                          {/* {progressPercentage}% */}
-                          27.6%
+                          {progressPercentage}%
                         </span>
                       </div>
                       <div className="mt-4 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-                        {/* Rank #{companyStats.userRank || '—'} of {companyStats.totalEmployees} */}
-                        96 of 348
+                        Rank #{companyStats.userRank || '—'} of {companyStats.totalEmployees}
                       </div>
                     </div>
                   </div>
