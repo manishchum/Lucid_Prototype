@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Mic, Square } from 'lucide-react';
-import { splitAudioIntoChunks, mergeTranscriptions } from '@/lib/audio-chunker';
+import { splitAudioIntoChunks, mergeTranscriptions, convertToWav } from '@/lib/audio-chunker';
 
 interface VoiceInputProps {
   onTranscription: (text: string) => void;
@@ -345,8 +345,13 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
       
       if (!useAsyncAPI) {
         console.log('[VoiceInput] Using standard transcription (< 55s)');
+        
+        // Convert webm to WAV for better transcription quality
+        console.log('[VoiceInput] 🔄 Converting webm to WAV...');
+        const wavBlob = await convertToWav(audioBlob);
+        
         const formData = new FormData();
-        formData.append('audio', audioBlob, 'recording.webm');
+        formData.append('audio', wavBlob, 'recording.wav');
 
         const response = await fetch('/api/speech-to-text', {
           method: 'POST',
