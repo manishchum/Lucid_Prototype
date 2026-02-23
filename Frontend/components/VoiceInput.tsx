@@ -26,7 +26,9 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
   const isRecordingRef = useRef<boolean>(false); // Ref for silence detection
   const animationFrameRef = useRef<number | null>(null); // Track animation frame for cleanup
   const hasAutoStartedRef = useRef<boolean>(false); // Prevent multiple auto-starts
-  
+  const isProcessingRef = useRef<boolean>(false);
+  const isStoppingRef = useRef<boolean>(false);
+
   // Increased to 5 minutes for longer roleplay sessions
   // Using bash-style asynchronous recording with chunked data accumulation
   const MAX_RECORDING_DURATION = 300000; // 5 minutes (300 seconds)
@@ -84,88 +86,113 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
   const detectSilence = (stream: MediaStream) => {
     // Close existing audio context if it exists
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close().catch(err => 
+      audioContextRef.current.close().catch(err =>
         console.warn('[VoiceInput] Closing previous AudioContext:', err)
       );
     }
-    
+
     const audioContext = new AudioContext();
     const analyser = audioContext.createAnalyser();
     const microphone = audioContext.createMediaStreamSource(stream);
-    
-    analyser.smoothingTimeConstant = 0.8;
-    analyser.fftSize = 1024;
-    
+
+    // Use time-domain data and a reasonably sized FFT for RMS
+    analyser.fftSize = 2048;
     microphone.connect(analyser);
-    
+
     audioContextRef.current = audioContext;
     analyserRef.current = analyser;
-    
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    let lastSoundTime = Date.now();
-    const SILENCE_THRESHOLD = 25; // Volume level threshold (0-255) - require actual silence, not just quiet speech
-    const SILENCE_DURATION = 3000; // 3 seconds - stop after 3 seconds of silence (allows for natural pauses)
-    let hasDetectedSpeech = false; // Track if we've detected any speech at all
-    let lastLoggedSecond = 0; // Track last logged second to avoid duplicate logs
-    
+
+    const dataArray = new Uint8Array(analyser.fftSize);
+    let hasDetectedSpeech = false;
+    let silenceTimer: number | null = null;
+
+    // Tunable parameters
+    const RMS_THRESHOLD = 0.02;      // Normalized RMS threshold (0..1). Adjust 0.01-0.03 to taste.
+    const SILENCE_DURATION = 3000;   // 3 seconds required continuous silence to stop
+    const MIN_SPEECH_MS = 300;       // require at least some speech before allowing stop
+
+    const scheduleStop = () => {
+      if (silenceTimer) return;
+      silenceTimer = window.setTimeout(() => {
+        silenceTimer = null;
+        // Only stop if we actually recorded speech before and recording still active
+        if (hasDetectedSpeech && isRecordingRef.current) {
+          console.log(`🔇 ${SILENCE_DURATION / 1000}s of silence detected after speech, stopping recording...`);
+          stopRecording();
+        }
+      }, SILENCE_DURATION);
+    };
+
+    const clearScheduledStop = () => {
+      if (silenceTimer) {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+      }
+    };
+
     const checkAudioLevel = () => {
       if (!isRecordingRef.current) {
-        console.log('[VoiceInput] 🛑 Not recording, stopping audio level check');
+        // stop loop and cleanup
+        clearScheduledStop();
         if (animationFrameRef.current) {
           cancelAnimationFrame(animationFrameRef.current);
           animationFrameRef.current = null;
         }
         return;
       }
-      
-      analyser.getByteFrequencyData(dataArray);
-      const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-      
-      // Consider speech detected if volume is above a reasonable threshold (lowered from 30 to 25)
-      if (average > 25) {
+
+      analyser.getByteTimeDomainData(dataArray);
+
+      // Compute normalized RMS (0..1)
+      let sumSquares = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const v = (dataArray[i] - 128) / 128;
+        sumSquares += v * v;
+      }
+      const rms = Math.sqrt(sumSquares / dataArray.length);
+
+      // Update speech detection
+      if (rms >= RMS_THRESHOLD) {
+        // Heard speech
         if (!hasDetectedSpeech) {
-          console.log('[VoiceInput] 🎤 Speech detected, starting silence detection');
-          hasDetectedSpeech = true;
-        }
-        lastLoggedSecond = 0; // Reset logging when speech is detected
-      }
-      
-      if (average > SILENCE_THRESHOLD) {
-        // Sound detected, reset silence timer
-        lastSoundTime = Date.now();
-        if (silenceTimeoutRef.current) {
-          clearTimeout(silenceTimeoutRef.current);
-          silenceTimeoutRef.current = null;
-        }
-      } else {
-        // Silence detected
-        const silenceDuration = Date.now() - lastSoundTime;
-        const currentSecond = Math.floor(silenceDuration / 1000);
-        
-        // Only stop if we've detected speech before (prevents stopping on initial silence)
-        // AND we've had enough silence duration (3 seconds)
-        if (hasDetectedSpeech && silenceDuration >= SILENCE_DURATION) {
-          console.log(`🔇 ${SILENCE_DURATION / 1000} seconds of silence detected after speech, stopping recording...`);
-          if (animationFrameRef.current) {
-            cancelAnimationFrame(animationFrameRef.current);
-            animationFrameRef.current = null;
+          // ensure we don't stop on initial brief noise
+          const totalSinceStart = Date.now() - recordingStartTimeRef.current;
+          if (totalSinceStart >= MIN_SPEECH_MS) {
+            hasDetectedSpeech = true;
+          } else {
+            hasDetectedSpeech = true; // allow short speech as "detected"
           }
-          stopRecording();
-          return; // Stop checking immediately
+          console.log('[VoiceInput] 🎤 Speech detected (RMS):', rms.toFixed(4));
         }
-        
-        // Log silence progress every second (but only once per second)
-        if (hasDetectedSpeech && currentSecond > 0 && currentSecond !== lastLoggedSecond) {
-          console.log(`[VoiceInput] 🤫 Silence duration: ${currentSecond}s / ${SILENCE_DURATION / 1000}s`);
-          lastLoggedSecond = currentSecond;
+        clearScheduledStop();
+      } else {
+        // Below threshold -> start/maintain silence timer only if we've seen speech
+        if (hasDetectedSpeech) {
+          // schedule a stop after SILENCE_DURATION of continuous silence
+          scheduleStop();
+          // optional logging: show progress in seconds
+          const silenceElapsed = silenceTimer ? Math.max(0, SILENCE_DURATION - (silenceTimer ? (silenceTimer as any) : 0)) : 0;
         }
       }
-      
+
       animationFrameRef.current = requestAnimationFrame(checkAudioLevel);
     };
-    
+
     checkAudioLevel();
   };
+
+  // add near other refs at top of component
+  // const isProcessingRef = useRef<boolean>(false);
+  // const isStoppingRef = useRef<boolean>(false);
+
+  // helper to wait until processing completes (simple poll)
+  async function waitForProcessingToFinish(timeoutMs = 10000) {
+    const start = Date.now();
+    while (isProcessingRef.current) {
+      if (Date.now() - start > timeoutMs) break;
+      await new Promise(r => setTimeout(r, 50));
+    }
+  }
 
   const startRecording = async () => {
     // Prevent multiple recordings at once
@@ -187,6 +214,39 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
       audioChunksRef.current = [];
       recordingStartTimeRef.current = Date.now();
       setRecordingDuration(0);
+
+      // mediaRecorder.ondataavailable — only collect, do NOT transcribe here
+      mediaRecorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+          // debug only: console.debug('[VoiceInput] audio chunk captured', event.data.size);
+        }
+      };
+
+      // mediaRecorder.onstop — assemble final blob, then transcribe and await completion
+      mediaRecorder.onstop = async () => {
+        // prevent duplicate onstop handling
+        if (isStoppingRef.current) return;
+        isStoppingRef.current = true;
+
+        try {
+          const finalBlob = new Blob(audioChunksRef.current, { type: audioMimeType || 'audio/webm' });
+          audioChunksRef.current = []; // reset for next recording
+
+          // mark processing state so we don't restart recording until done
+          isProcessingRef.current = true;
+          try {
+            // transcribeAudio should be the existing function that posts to your API
+            await transcribeAudio(finalBlob);
+          } catch (err) {
+            console.error('[VoiceInput] transcribe failed', err);
+          } finally {
+            isProcessingRef.current = false;
+          }
+        } finally {
+          isStoppingRef.current = false;
+        }
+      };
 
       // Asynchronous data collection - chunks are accumulated as they become available
       // This mimics bash asynchronous behavior where data is written continuously
@@ -270,58 +330,20 @@ export default function VoiceInput({ onTranscription, disabled, autoStart = fals
     }
   };
 
-  const stopRecording = () => {
-    console.log('[VoiceInput] 🛑 stopRecording called, isRecording:', isRecording);
-    
-    // Prevent multiple stop calls
-    if (!isRecordingRef.current && !isRecording) {
-      console.log('[VoiceInput] ⚠️ Already stopped or not recording');
-      return;
-    }
-    
-    // Set flags immediately to prevent re-entry
-    setIsRecording(false);
-    isRecordingRef.current = false;
-    
-    // Cancel animation frame first to stop silence detection loop
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-      console.log('[VoiceInput] 🛑 Animation frame cancelled');
-    }
-    
-    // Clear timers
-    if (silenceTimeoutRef.current) {
-      clearTimeout(silenceTimeoutRef.current);
-      silenceTimeoutRef.current = null;
-    }
-    
-    if (recordingTimerRef.current) {
-      clearTimeout(recordingTimerRef.current);
-      recordingTimerRef.current = null;
-    }
-    
-    // Close audio context (but don't stop the MediaRecorder yet - let it finish naturally)
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close().catch(err => 
-        console.warn('[VoiceInput] Error closing AudioContext:', err)
-      );
-      console.log('[VoiceInput] 🎧 AudioContext closed');
-    }
-    
-    // Stop MediaRecorder - this will trigger onstop handler
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      console.log('[VoiceInput] 🛑 Stopping MediaRecorder...');
-      try {
+  // stopRecording — ensure we only call it once per silence event
+  function stopRecording() {
+    if (!isRecordingRef.current) return;
+    // stop the recorder (this triggers onstop which will await transcription)
+    try {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop();
-      } catch (error) {
-        console.warn('[VoiceInput] Error stopping MediaRecorder:', error);
       }
-      console.log('[VoiceInput] ✅ Recording stop initiated');
-    } else {
-      console.log('[VoiceInput] ⚠️ No active MediaRecorder to stop');
+    } catch (e) {
+      console.warn('[VoiceInput] stopRecording error', e);
     }
-  };
+    isRecordingRef.current = false;
+    setIsRecording(false);
+  }
 
   const transcribeAudio = async (audioBlob: Blob, audioDurationMs: number) => {
     setIsProcessing(true);
