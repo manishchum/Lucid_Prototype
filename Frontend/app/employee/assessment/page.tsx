@@ -24,7 +24,7 @@ const AssessmentContent = () => {
   const { user } = useAuth();
   const [modules, setModules] = useState<TrainingModule[]>([]);
   const searchParams = useSearchParams();
-  const [mcqQuestionsByModule, setMcqQuestionsByModule] = useState<Array<{ moduleId: string; title?: string; questions: any[] }>>([]);
+  const [mcqQuestionsByModule, setMcqQuestionsByModule] = useState<Array<{ moduleId: string; title?: string; questions: any[]; assessmentId?: string }>>([]);
   const [currentModuleIndex, setCurrentModuleIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [score, setScore] = useState<number | null>(null);
@@ -41,6 +41,7 @@ const AssessmentContent = () => {
   });
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [hasCheckedHistory, setHasCheckedHistory] = useState(false);
+  const [initialAnswers, setInitialAnswers] = useState<(number | null)[]>([]);
 
   const router = useRouter();
   const { getCacheData, setCacheData } = useDataCache();
@@ -151,40 +152,9 @@ const AssessmentContent = () => {
         console.log("URL Module ID:", urlModuleId);
         console.log(urlModuleId);
 
-        let isBaselineRequest = false;
+        let isBaselineRequest = true;
         let res;
         if (urlModuleId) {
-          // Check if this is a baseline assessment request by looking at learning plan
-          try {
-            const { data: learningPlan, error: lpError } = await supabase
-              .from('learning_plan')
-              .select('baseline_assessment')
-              .eq('user_id', employeeId)
-              .eq('module_id', urlModuleId)
-              .maybeSingle();
-
-            console.log("Learning Plan Query - User ID:", employeeId, "Module ID:", urlModuleId);
-            console.log("Learning Plan Data:", learningPlan);
-            console.log("Learning Plan Error:", lpError);
-
-            if (lpError) {
-              console.error("Error fetching learning plan:", lpError);
-            }
-
-            // baseline_assessment is stored as smallint (0 or 1) in database, not boolean
-            if (learningPlan) {
-              console.log("baseline_assessment value:", learningPlan.baseline_assessment, "type:", typeof learningPlan.baseline_assessment);
-              isBaselineRequest = learningPlan.baseline_assessment === 1;
-            }
-            console.log("Is Baseline Request:", isBaselineRequest);
-          } catch (err) {
-            console.error("Exception while checking learning plan:", err);
-            isBaselineRequest = false;
-          }
-          // console.log(isBaselineRequest)
-          // console.log")
-          console.log("Inside the if statement for per-module quiz request.");
-          console.log(urlModuleId)
           res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -193,8 +163,8 @@ const AssessmentContent = () => {
               companyId: companyId,
               user_id: employeeId,
               learningStyle: learningStyle,
-              isBaseline: isBaselineRequest,
-              assessmentType: isBaselineRequest ? 'baseline' : 'module'
+              isBaseline: true,
+              assessmentType: 'baseline'
             }),
           });
         } else {
@@ -283,7 +253,7 @@ const AssessmentContent = () => {
       }
     };
 
-    const checkAssessmentHistory = async (empId: string, compId: string, modId: string | null) => {
+    const checkAssessmentHistory = async (empId: string, compId: string, modId: string | null): Promise<boolean> => {
       try {
         const q = new URLSearchParams({
           type: 'baseline',
@@ -297,57 +267,64 @@ const AssessmentContent = () => {
           const payload = await assessRes.json().catch(() => ({}));
           const found = payload.assessments ?? payload.data ?? payload ?? [];
           if (found && found.length > 0) {
-            const history = found[0];
+            const assessmentIds = found.map((f: any) => f.assessment_id).filter(Boolean);
 
-            // Extract score and answers
-            let parsedQuestions = history.questions;
-            if (typeof parsedQuestions === 'string') {
-              try { parsedQuestions = JSON.parse(parsedQuestions); } catch (e) { }
+            if (assessmentIds.length > 0) {
+              // Query employee_assessments to see if THIS user actually completed it
+              const { data: eaData, error: eaError } = await supabase
+                .from('employee_assessments')
+                .select('*')
+                .eq('user_id', empId)
+                .in('assessment_id', assessmentIds)
+                .order('completed_at', { ascending: false })
+                .limit(1);
+
+              if (eaData && eaData.length > 0) {
+                const history = eaData[0];
+                const relatedTemplate = found.find((f: any) => f.assessment_id === history.assessment_id);
+
+                let parsedQuestions = relatedTemplate?.questions;
+                if (typeof parsedQuestions === 'string') {
+                  try { parsedQuestions = JSON.parse(parsedQuestions); } catch (e) { }
+                }
+
+                if (Array.isArray(parsedQuestions)) {
+                  setMcqQuestionsByModule([{
+                    moduleId: modId || 'baseline',
+                    title: 'Baseline Assessment',
+                    questions: parsedQuestions,
+                    assessmentId: history.assessment_id
+                  }]);
+                  setQuizQuestions(parsedQuestions);
+                }
+
+                let parsedAnswers = history.answers;
+                if (typeof parsedAnswers === 'string') {
+                  try { parsedAnswers = JSON.parse(parsedAnswers); } catch (e) { }
+                }
+                if (!Array.isArray(parsedAnswers)) { parsedAnswers = []; }
+
+                setInitialAnswers(parsedAnswers);
+                setScore(history.score ?? null);
+                setIsReadOnly(true);
+                setFeedback("You have already completed this baseline assessment. Your detailed feedback is below.");
+                return true; // Found and applied history
+              }
             }
-
-            if (Array.isArray(parsedQuestions)) {
-              // Calculate score based on answers matching correctIndex
-              let calculatedScore = 0;
-              const extractedAnswers: number[] = [];
-              const extractedFeedback: string[] = [];
-
-              parsedQuestions.forEach((q: any) => {
-                // The backend might store user's selected answer index or the option string.
-                // We need to infer selected answers from the questions array if it's there,
-                // or just pass an empty array if not directly stored.
-                // Assuming gpt-feedback currently doesn't mutate the questions array to add user answers
-                // For now, we'll try to reconstruct the score. If answer is not saved directly with index,
-                // we cannot fully replay the read-only quiz unless `questions` includes user selection.
-              });
-
-              // Because we may not have the exact `selected` indices saved in the `assessments` row directly
-              // (it usually just saves the generated questions), we will assume if it exists, they completed it.
-              // We will need to rethink how to fetch previous answers if we want full read-only mode to work.
-              // For now, let's just mark it as submitted so they can't retake it, but without answers filled in
-              // unless we can fetch the gpt-feedback result.
-
-              // But wait! The `handleMCQSubmit` does not save the user answers into the `assessments` table.
-              // It sends them to `gpt-feedback` which builds the narrative text.
-              // So we can only say "You've already taken this" and show the feedback. We can't easily populate
-              // the exact bubbles they clicked unless we modify the backend to save the `answers` array.
-              // Let's at least mark it read-only so they don't retake.
-            }
-
-            setScore(history.score || Math.floor(Math.random() * 10) + 1); // Mock score if missing
-            setIsReadOnly(true);
-            setFeedback("You have already completed this baseline assessment. Your detailed feedback is below.");
           }
         }
+        return false; // No history found
       } catch (err) {
         console.warn("History check failed:", err);
+        return false;
       } finally {
         setHasCheckedHistory(true);
       }
     };
 
     if (modules.length > 0) {
-      checkAssessmentHistory(userId || '', companyId || '', searchParams.get('moduleId')).then(() => {
-        if (!isReadOnly && !hasCheckedHistory) {
+      checkAssessmentHistory(userId || '', companyId || '', searchParams.get('moduleId')).then((foundHistory) => {
+        if (!foundHistory) {
           getMCQQuiz();
         } else {
           setLoading(false);
@@ -490,13 +467,14 @@ const AssessmentContent = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           score: result.score,
-          maxScore: (mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []).length,
+          maxScore: (mcqQuestionsByModule.find(m => m.moduleId === 'baseline' || m.moduleId === urlModuleId)?.questions || []).length || result.answers.length,
           answers: result.answers,
           feedback: result.feedback,
           modules,
           user_id: employeeId,
           employee_name: user?.email,
           assessment_id: assessmentId,
+          type: "baseline",
         }),
       });
       const data = await res.json();
@@ -575,7 +553,7 @@ const AssessmentContent = () => {
                 onSubmit={() => { }}
                 readOnly={true}
                 initialSubmitted={true}
-              // initialSelected={...} // We don't have the exact selected indices from the old DB schema easily without backend changes, so it just shows questions disabled.
+                initialSelected={initialAnswers}
               />
             </div>
           )}

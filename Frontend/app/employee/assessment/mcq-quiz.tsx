@@ -32,7 +32,7 @@ const MCQQuiz: React.FC<MCQQuizProps> = ({
   const QUESTIONS_PER_PAGE = 10;
   const [currentPage, setCurrentPage] = useState(0); // page index (0-based)
   const [selected, setSelected] = useState<(number | null)[]>(
-    initialSelected || Array(questions.length).fill(null)
+    (initialSelected && initialSelected.length > 0) ? initialSelected : Array(questions.length).fill(null)
   );
   const [feedback, setFeedback] = useState<string[]>(Array(questions.length).fill(""));
   const [score, setScore] = useState<number | null>(null);
