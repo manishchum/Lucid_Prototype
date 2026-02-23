@@ -12,7 +12,7 @@
 //     // console.log("POST Body of the training plan api route");
 //     const body = await request.json();
 //     // console.log(body)
-//     const { user_id, module_id } = body;
+//     const { user_id, module_id,processedModuleIds } = body;
 
 //     if (!user_id) {
 //       return NextResponse.json({ error: 'user_id is required' }, { status: 400 });
@@ -205,7 +205,7 @@
 //     // console.log("[Training Plan API] Baseline assessments:", baselineAssessments);
 //     // console.log("[Training Plan API] Module assessments:", moduleAssessments);
 
-//     // Compute percentage-based baseline results for plan generation
+//     Compute percentage-based baseline results for plan generation
 //     const baselinePercentAssessments = (baselineAssessments || []).map((row: any) => {
 //       const score = Number(row?.score ?? 0);
 //       const max = Number(row?.max_score ?? 0);
@@ -349,7 +349,7 @@
 //       }
 
 //       console.log("Inside the if statement", company_id)
-//       console.log("The modules are", modules)
+//       // console.log("The modules are", modules)
 //     } else {
 //       console.log("Inside the else statement", company_id)
 //       // No specific module requested — fall back to previous behavior: fetch all company training modules
@@ -363,7 +363,7 @@
 //       }
 //       const tmIds = (trainingModuleRows || []).map((m: any) => m.module_id);
 //       // console.log("_______________________")
-//       // console.log(tmIds)
+//       console.log(tmIds)
 
 //       if (tmIds.length > 0) {
 //         const { data: pmRows, error: modError } = await supabase
@@ -399,12 +399,12 @@
 //             // console.log("[Training Plan API] Using raw training modules as fallback");
 //           }
 //         }
-//         console.log("The modules are", modules)
+//         // console.log("The modules are", modules)
 //       } else {
 //         // console.log("[Training Plan API] No training modules found for company; proceeding with empty module list");
 //       }
 //     }
-//     // console.log("[Training Plan API] Modules for company_id:", company_id, modules);
+//     console.log("[Training Plan API] Modules for company_id:", company_id, modules);
 
 //     const { data: lsData, error: lsError } = await supabase
 //       .from("employee_learning_style")
@@ -685,7 +685,7 @@
 
 //     // Step 2: Only update/insert if assessmentHash has changed (existingPlan already fetched above)
 
-//     // Step 3: If plan exists, update it. If not, insert new.
+//     Step 3: If plan exists, update it. If not, insert new.
 //     let dbResult;
 //     // console.log(existingPlan)
 //     if (existingPlan) {
@@ -701,11 +701,25 @@
 //         // Assign provided module_id if present, otherwise fall back to null
 //         .insert({ user_id, plan_json: plan, reasoning: reasoning, status: "ASSIGNED", module_id: module_id ?? null, assessment_hash: assessmentHash });
 //     }
+//     console.log("Inside the try catch")
 //     if (dbResult.error) {
 //       console.error("[Training Plan API] Error saving plan:", dbResult.error);
 //       return NextResponse.json({ error: dbResult.error.message }, { status: 500 });
 //     }
-//     // console.log("[Training Plan API] Plan saved successfully.");
+//     console.log("Outside the for loop")
+//     console.log(processedModuleIds)
+//     for(const m of processedModuleIds){
+//       console.log("Inside the try catch second")
+//     const{data:insertedData}=await supabase.from("module_progress")
+//     .insert({
+//       user_id,
+//       module_id:m,
+//       status:"NOT_STARTED"
+//     })
+//     console.log(insertedData);
+  
+//   }
+//     console.log("[Training Plan API] Plan saved successfully.");
 
 //     // Ensure processed_modules exist for modules in the newly saved plan
 //     // try {

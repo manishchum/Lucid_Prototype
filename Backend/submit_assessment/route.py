@@ -6,21 +6,22 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase
 import google.generativeai as genai
 
 
 router = APIRouter()
 
 # Supabase client (same role as '@/lib/supabase')
-supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
-supabaseKey = (
-    os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-    or os.getenv("SUPABASE_ANON_KEY")
-    or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    or ""
-)
-supabase: Client = create_client(supabaseUrl, supabaseKey)
+# supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
+# supabaseKey = (
+#     os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+#     or os.getenv("SUPABASE_ANON_KEY")
+#     or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+#     or ""
+# )
+# supabase: Client = create_client(supabaseUrl, supabaseKey)
 
 # Gemini init
 genAI = genai  # keep same naming intent
@@ -193,7 +194,7 @@ Keep the feedback constructive, specific, and encouraging. Format it as a struct
 
 IMPORTANT: Use this EXACT format with these headings. Do not add extra sections or change the structure."""
 
-                model = genai.GenerativeModel("gemini-2.5-flash-lite")
+                model = genai.GenerativeModel("gemini-3-pro-preview")
                 result = model.generate_content(feedbackPrompt)
                 rawFeedback = result.text if result else None
 

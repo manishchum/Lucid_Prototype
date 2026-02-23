@@ -5,7 +5,8 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase
 import google.generativeai as genai
 
 
@@ -17,9 +18,9 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
 API_BASE=os.getenv("NEXT_PUBLIC_BACKEND_URL")
 
 # Optional supabase init to match original imports (not used in this handler, but preserved)
-supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
-supabaseKey = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY") or os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") or ""
-supabase: Client = create_client(supabaseUrl, supabaseKey)
+# supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
+# supabaseKey = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY") or os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") or ""
+# supabase: Client = create_client(supabaseUrl, supabaseKey)
 
 
 @router.post("/gpt-feedback")
@@ -38,6 +39,14 @@ async def POST(request: Request):
         employeeId = body.get("employeeId")
         moduleId = body.get("moduleId")
         processedModuleId = body.get("processedModuleId")
+        
+        # Extract module_id from modules array if present
+        modules = body.get("modules")
+        moduleIdFromArray = None
+        if isinstance(modules, list) and len(modules) > 0:
+            first_module = modules[0]
+            if isinstance(first_module, dict):
+                moduleIdFromArray = first_module.get("module_id")
 
         print("Outside First IF. Succesfull")
         
@@ -45,6 +54,9 @@ async def POST(request: Request):
         normalizedUserId = user_id or userId or employeeId
         normalizedAssessmentId = assessment_id or assessmentId
         normalizedAnswers = answers or userAnswers
+        normalizedModuleId = moduleId or processedModuleId or moduleIdFromArray
+        
+        print(f"📋 Extracted module_id: {normalizedModuleId} (from moduleId={moduleId}, processedModuleId={processedModuleId}, modules array={moduleIdFromArray})")
 
         if (not normalizedUserId) or (not normalizedAssessmentId) or (not normalizedAnswers):
             return JSONResponse(
@@ -59,20 +71,22 @@ async def POST(request: Request):
             "user_id": normalizedUserId,
             "assessment_id": normalizedAssessmentId,
             "answers": normalizedAnswers,
-            "type": "module" if (moduleId or processedModuleId) else "baseline",
-            "module_id": moduleId or processedModuleId
+            "type": "module" if normalizedModuleId else "baseline",
+            "module_id": normalizedModuleId
         }
 
         print("Payload prepared:", payload)
         
-        # Call the new submit-assessment API internally
+        # Call the new submit-assessment API internally (with extended timeout for AI feedback generation)
+        print(f"📤 Calling submit-assessment API: {submit_url}")
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 submitAssessmentResponse = await client.post(
                     submit_url,
                     headers={"Content-Type": "application/json"},
                     content=json.dumps(payload)
                 )
+            print(f"✅ Received response from submit-assessment: {submitAssessmentResponse.status_code}")
         except Exception as http_err:
             print("❌ httpx request failed:", repr(http_err))
             return JSONResponse(

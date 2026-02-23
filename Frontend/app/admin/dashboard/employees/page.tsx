@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { toast as shadcnToast } from '@/hooks/use-toast';
 import { formatContentType } from '@/lib/contentType';
+import { useRouter } from 'next/navigation';
 
 // Types
 interface Admin {
@@ -91,8 +92,11 @@ interface TrainingModule {
   created_at: string;
 }
 
+
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL; 
 export default function EmployeesPage() {
-  const { user } = useAuth();
+  const router  = useRouter();
+  const { user,loading:authLoading } = useAuth();
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
@@ -123,12 +127,15 @@ export default function EmployeesPage() {
   const [selectedSubDepartments, setSelectedSubDepartments] = useState<string[]>([]);
   const [showDepartmentDropdown, setShowDepartmentDropdown] = useState(false);
   const [showSubDepartmentDropdown, setShowSubDepartmentDropdown] = useState(false);
-
-  useEffect(() => {
-    if (user?.email) {
-      checkAdminAccess();
-    }
-  }, [user]);
+  const currentUserId = admin?.user_id || null;
+  
+   useEffect(() => {
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else checkAdminAccess();
+          
+        }
+      }, [user, authLoading, router]);
 
   useEffect(() => {
     if (admin?.company_id) {
@@ -149,45 +156,46 @@ export default function EmployeesPage() {
     if (!user?.email) return;
 
     try {
-      // Get user data from users table
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("user_id, email, name, company_id")
-        .eq("email", user.email)
-        .eq("is_active", true)
-        .single();
+      // First get user by email via API (no auth needed for bootstrap)
+      const userRes = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
 
-      if (userError || !userData) {
+      if (!userRes.ok) {
         setError("User not found or inactive");
         return;
       }
 
-      // Check if user has admin role through user_role_assignments
-      const { data: roleData, error: roleError } = await supabase
-        .from("user_role_assignments")
-        .select(`
-          role_id,
-          roles!inner(name)
-        `)
-        .eq("user_id", userData.user_id)
-        .eq("is_active", true)
-        .eq("scope_type", "COMPANY");
+      const { user: userData } = await userRes.json();
 
-      if (roleError || !roleData || roleData.length === 0) {
+      // Get user roles via backend API instead of direct Supabase call
+      const rolesRes = await fetch(`${API_URL}/api/roles/users/${userData.user_id}`, {
+        headers: { 'X-User-ID': userData.user_id }
+      });
+
+      if (!rolesRes.ok) {
+        setError("No active roles found for user");
+        return;
+      }
+
+      const { assignments } = await rolesRes.json();
+
+      if (!assignments || assignments.length === 0) {
         setError("No active roles found for user");
         return;
       }
 
       // Check if user has Admin role
-      const hasAdminRole = roleData.some((assignment: any) => 
-        ['admin', 'super_admin', 'ceo'].includes(assignment.roles?.name?.toLowerCase())
+      const hasAdminRole = assignments.some((assignment: any) => 
+        assignment.role && (
+          assignment.role.level >= 3 ||
+          ['admin', 'super_admin', 'ceo'].includes(assignment.role.name?.toLowerCase())
+        )
       );
 
       if (!hasAdminRole) {
         setError("Console access required");
         return;
       }
-
+      
       // Set admin data using user data
       const adminData: Admin = {
         user_id: userData.user_id,
@@ -195,7 +203,7 @@ export default function EmployeesPage() {
         name: userData.name,
         company_id: userData.company_id
       };
-
+      
       setAdmin(adminData);
     } catch (error: any) {
       setError(`Authentication error: ${error.message}`);
@@ -203,41 +211,19 @@ export default function EmployeesPage() {
       setLoading(false);
     }
   };
-
+  
   const loadUsers = async (companyId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select(`
-          *,
-          department:sub_department(department_name, sub_department_name, department_id)
-        `)
-        .eq('company_id', companyId)
-        .eq('is_active', true);
+      
+      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+        headers: { 'X-User-ID': currentUserId }
+      });
+      if (!res.ok) throw await res.json();
+      const payload = await res.json();
+      const users = payload.users || [];
 
-      if (error) throw error;
-
-      // Load role assignments for each user
-      const usersWithRoles = await Promise.all(
-        (data || []).map(async (user:any) => {
-          const { data: roleAssignments } = await supabase
-            .from('user_role_assignments')
-            .select(`
-              *,
-              role:roles(name, display_name, level)
-            `)
-            .eq('user_id', user.user_id)
-            .eq('is_active', true)
-            .limit(1);
-
-          return {
-            ...user,
-            role: roleAssignments?.[0]?.role
-          };
-        })
-      );
-
-      setUsers(usersWithRoles);
+      setUsers(users);
+      console.log("payload:", payload)
     } catch (error: any) {
       setError(`Failed to load users: ${error.message}`);
     }
@@ -287,17 +273,26 @@ export default function EmployeesPage() {
 
   const loadLearningPlans = async (companyId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('learning_plan')
-        .select(`
-          *,
-          training_modules(title, description),
-          users(name, email)
-        `)
-        .eq('users.company_id', companyId);
+      // Fetch learning plans via backend API (will be filtered by company automatically)
+      const adminId = sessionStorage.getItem('lucid_admin_user_id');
+      if (!adminId) {
+        console.error('Admin user ID not found');
+        setLearningPlans([]);
+        return;
+      }
 
-      if (error) throw error;
-      setLearningPlans(data || []);
+      const lpRes = await fetch(
+        `${API_URL}/api/learning-plans/?limit=5000`,
+        { headers: { 'X-User-ID': adminId } }
+      );
+
+      if (!lpRes.ok) {
+        const errorData = await lpRes.json();
+        throw new Error(errorData.detail || 'Failed to fetch learning plans');
+      }
+
+      const lpData = await lpRes.json();
+      setLearningPlans(lpData?.plans || []);
     } catch (error: any) {
       console.error('Failed to load learning plans:', error.message);
     }
@@ -438,25 +433,22 @@ export default function EmployeesPage() {
   };
 
   const confirmDeleteUser = async () => {
-    if (!userToDelete) return;
+    if (!userToDelete || !currentUserId) return;
 
     try {
       setLoading(true);
       setError('');
       
-      // Soft delete - mark user as inactive instead of hard delete
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ is_active: false })
-        .eq('user_id', userToDelete.user_id);
-
-      if (updateError) throw updateError;
-
-      // Also deactivate user role assignments
-      await supabase
-        .from('user_role_assignments')
-        .update({ is_active: false })
-        .eq('user_id', userToDelete.user_id);
+      // Use API to delete user (soft delete)
+      const res = await fetch(`${API_URL}/api/users/${userToDelete.user_id}`, {
+        method: 'DELETE',
+        headers: { 'X-User-ID': currentUserId },
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || 'Failed to delete user');
+      }
 
       setSuccess(`User ${userToDelete.name} has been deactivated successfully`);
       setShowDeleteConfirm(false);
@@ -503,6 +495,38 @@ export default function EmployeesPage() {
     setSuccess('');
   }, [success]);
 
+  const createUser = async (data: any) => {
+    if (!currentUserId) throw new Error('User not authenticated');
+    const res = await fetch(`${API_URL}/api/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUserId },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw await res.json();
+    return await res.json();
+  };
+
+  const updateUser = async (id: string, updates: any) => {
+    if (!currentUserId) throw new Error('User not authenticated');
+    const res = await fetch(`${API_URL}/api/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUserId },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) throw await res.json();
+    return await res.json();
+  };
+
+  const deleteUser = async (id: string) => {
+    if (!currentUserId) throw new Error('User not authenticated');
+    const res = await fetch(`${API_URL}/api/users/${id}`, {
+      method: 'DELETE',
+      headers: { 'X-User-ID': currentUserId },
+    });
+    if (!res.ok) throw await res.json();
+    return await res.json();
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -523,7 +547,7 @@ export default function EmployeesPage() {
     <div className="space-y-6">
       <div className="border-b border-gray-200 pb-4">
         <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-        <p className="text-gray-600 mt-1">Manage users, assign modules, and organize by departments</p>
+        <p className="text-gray-600 mt-1">Manage users, assign sprints, and organize by departments</p>
       </div>
       
       {/* success banners are shown via unified Radix toasts now */}
@@ -635,7 +659,7 @@ export default function EmployeesPage() {
                     className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:pointer-events-none"
                   >
                     <BookOpen className="w-4 h-4 mr-2" />
-                    Assign Modules
+                    Assign Sprints
                   </Button>
                 </div>
               </div>
@@ -1087,6 +1111,7 @@ export default function EmployeesPage() {
           isOpen={showUpdateModal}
           onClose={() => setShowUpdateModal(false)}
           employee={selectedEmployee}
+          adminId={admin.user_id}
           currentRole={selectedEmployee.role ? [selectedEmployee.role.name] : []}
           onSuccess={() => {
             loadUsers(admin.company_id);
@@ -1163,6 +1188,26 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
 
+  // Add checkEmailExists function here
+  const checkEmailExists = async (email: string): Promise<boolean> => {
+    try {
+      if (!companyId || !adminId) return false;
+      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+        headers: { 'X-User-ID': adminId }
+      });
+      
+      if (!res.ok) return false;
+      
+      const { users } = await res.json();
+      return users?.some((u: any) => 
+        u.email?.toLowerCase() === email.toLowerCase()
+      ) || false;
+    } catch (error) {
+      console.error('Error checking email:', error);
+      return false;
+    }
+  };
+
   // Load departments and roles when component mounts
   useEffect(() => {
     loadDropdownData();
@@ -1207,22 +1252,39 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
 
       for (const email of emails) {
         try {
-          const { error } = await supabase
-            .from("users")
-            .insert({
+          // Check if email already exists via API
+          const checkRes = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+            headers: { 'X-User-ID': adminId }
+          });
+          let exists = false;
+          if (checkRes.ok) {
+            const checkData = await checkRes.json();
+            exists = checkData.users?.some((u: any) => u.email.toLowerCase() === email.toLowerCase());
+          }
+          if (exists) {
+            results.skipped++;
+            continue;
+          }
+          // Create user via backend API
+          const createRes = await fetch(`${API_URL}/api/users`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-ID': adminId
+            },
+            body: JSON.stringify({
               email: email.toLowerCase(),
               company_id: companyId,
-            });
-
-          if (error) {
-            if (error.code === '23505') { // Unique violation
-              results.skipped++;
-            } else {
-              results.errors.push(`${email}: ${error.message}`);
-            }
-          } else {
-            results.added++;
+              hire_date: new Date().toISOString().split('T')[0],
+              password: null
+            })
+          });
+          if (!createRes.ok) {
+            const errorData = await createRes.json();
+            results.errors.push(`${email}: ${errorData.detail || 'Failed to create user'}`);
+            continue;
           }
+          results.added++;
         } catch (err) {
           results.errors.push(`${email}: Failed to add`);
         }
@@ -1281,7 +1343,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       
       if (file.name.endsWith('.csv')) {
         const text = new TextDecoder().decode(arrayBuffer);
-        // console.log(text.split(/\r?\n/).map(line => line.split(',')));
+        // console.log(text.split(/\r?\n/).map(line => line.split(',')))
         rows = text.split(/\r?\n/).map(line => line.split(',').map(cell => cell.trim()));
       } else if (file.name.endsWith('.xlsx')) {
         // Dynamically import xlsx for processing
@@ -1318,12 +1380,25 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       // Load existing roles and departments for mapping
       const { data: rolesData } = await supabase.from('roles').select('role_id, name');
       const { data: departmentsData } = await supabase.from('sub_department').select('department_id, department_name, sub_department_name');
-      const { data: companiesData } = await supabase.from('companies').select('company_id, name');
+      let companiesData: any[] = [];
+      try{
+        const compRes = await fetch(`${API_URL}/api/companies`, {
+          headers: { 'X-User-ID': adminId }
+        });
+        if (compRes.ok) {
+          const compPayload = await compRes.json().catch(() => null);
+          companiesData = compPayload?.companies ?? compPayload.data ?? compPayload ?? [];
+      }else{
+        console.warn('Failed to fetch companies for bulk upload mapping');
+      }
+    } catch (err) {
+      console.warn('Error during file upload processing:', err);
+    }
       
       const rolesMap = new Map(rolesData?.map((r: any) => [r.name.toLowerCase(), r.role_id]) || []);
       const departmentsMap = new Map(departmentsData?.map((d: any) => [`${d.department_name.toLowerCase()}-${d.sub_department_name.toLowerCase()}`, d.department_id]) || []);
       const companiesMap = new Map(companiesData?.map((c: any) => [c.name.toLowerCase(), c.company_id]) || []);
-
+      let temp = false;
       for (const row of dataRows) {
         // Expected format from old admin: company_user_id, email, name, company_name, department, sub_department, employment_status, roles, position, phone
         if (row.length < 3 || !row[1]) continue; // Need at least company_user_id, email, name
@@ -1346,17 +1421,10 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             continue;
           }
 
-          // Check if email already exists
-          const { data: existingUser } = await supabase
-            .from('users')
-            .select('user_id')
-            .eq('email', email.toLowerCase())
-            .single();
-
-          if (existingUser) {
-            results.skipped++;
-            // console.log("Error because of existing user")
-            continue;
+          // Check if email already exists (but not for current user)
+          const emailExists = await checkEmailExists(email, '');
+          if (emailExists) {
+            results.errors.push('An employee with this email already exists');
           }
 
           // Find department ID
@@ -1366,7 +1434,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             departmentId = departmentsMap.get(deptKey) || null;
             
             if (!departmentId) {
-              // console.log("Error because of the department ID is missing");
+              // console.log("Error because of the department ID is missing")
               results.errors.push(`${email}: Department "${department}" - "${subDepartment}" not found`);
               continue;
             }
@@ -1381,78 +1449,83 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             }
           }
 
-          // Create user in users table
-          const { data: userData, error: userError } = await supabase
-            .from('users')
-            .insert({
-              name: name,
-              email: email.toLowerCase(),
-              company_id: userCompanyId,
-              department_id: departmentId,
-              position: position || null,
-              phone: phone || null,
-              hire_date: new Date().toISOString().split('T')[0],
-              employment_status: employmentStatus || 'ACTIVE'
-            })
-            .select()
-            .single();
+          // Create user via API
+          try {
+            const createRes = await fetch(`${API_URL}/api/users`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': adminId
+              },
+              body: JSON.stringify({
+                name: name,
+                email: email.toLowerCase(),
+                company_id: userCompanyId,
+                department_id: departmentId,
+                position: position || null,
+                phone: phone ? String(phone) : null,
+                hire_date: new Date().toISOString().split('T')[0],
+                password: null // Default password for bulk uploads
+              })
+            });
 
-          // console.log("User Data after creation");
-          // console.log(userData)
-          if (userError) {
-            if (userError.code === '23505') { // Unique violation
-              results.skipped++;
-            } else {
-              results.errors.push(`${email}: ${userError.message}`);
+            if (!createRes.ok) {
+              const errorData = await createRes.json();
+              results.errors.push(`${email}: ${errorData.detail || 'Failed to create user'}`);
+              continue;
             }
-            continue;
-          }
-          
-          // Process roles if provided (using old admin logic)
-          if (userData) {
-            let roleNames = [];
-            
-            if (roles && roles.trim()) {
-              // If roles are provided, use them
-              roleNames = roles.split(',').map(role => role.trim()).filter(role => role);
-            } else {
-              // If no roles provided, assign default "User" role
-              roleNames = ['USER'];
-            }
-            
-            const roleAssignments = [];
 
-            for (const roleName of roleNames) {
-              const roleId = rolesMap.get(roleName.toLowerCase());
-              if (roleId) {
-                roleAssignments.push({
+            const { user: userData } = await createRes.json();
+            
+            
+            // If learning style is disabled, create entry in employee_learning_style table
+            if (!temp) {
+              const { error: learningStyleError } = await supabase
+                .from('employee_learning_style')
+                .insert({
                   user_id: userData.user_id,
-                  role_id: roleId,
-                  scope_type: 'COMPANY',
-                  scope_id: userData.company_id,
-                  assigned_by: adminId,
-                  is_active: true
+                  learning_style: 'default',
+                  answers: {},
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
                 });
-              } else {
-                results.errors.push(`${email}: Role "${roleName}" not found`);
+
+              if (learningStyleError) {
+                console.error('Failed to set default learning style:', learningStyleError);
+                // Don't fail the entire operation if learning style insert fails
               }
             }
 
-            if (roleAssignments.length > 0) {
-              const { error: roleError } = await supabase
-                .from('user_role_assignments')
-                .insert(roleAssignments);
-
-              if (roleError) {
-                console.error(`Role assignment failed for ${email}:`, roleError);
-                // Don't fail the entire operation if role assignment fails
+            // If roles are selected, create multiple role assignments
+            if (formData.selected_roles.length > 0) {
+              for (const roleId of formData.selected_roles) {
+                try {
+                  await fetch(`${API_URL}/api/roles/assignments`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'X-User-ID': adminId
+                    },
+                    body: JSON.stringify({
+                      user_id: userData.user_id,
+                      role_id: roleId,
+                      scope_type: 'COMPANY',
+                      scope_id: companyId,
+                      notes: 'Assigned during user creation'
+                    })
+                  });
+                } catch (err) {
+                  console.error('Role assignment failed for role', roleId, err);
+                }
               }
             }
+
+            results.added++;
+          } catch (createError: any) {
+            results.errors.push(`${email}: ${createError.message || 'Failed to create user'}`);
           }
-
-          results.added++;
-        } catch (err) {
-          results.errors.push(`${email}: Failed to add user`);
+        } catch (e){
+          console.warn(e);
         }
       }
 
@@ -1539,7 +1612,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
           <div className="mt-4 sm:mt-0">
             <Button asChild variant="outline" size="sm">
               <a
-                href="https://hyxqwqshhlebaybjpzcz.supabase.co/storage/v1/object/public/KPIs/Sample_Emplyee_No_KPI%20(1).xlsx"
+                href="https://fmkikkebrxyzjsffqgex.supabase.co/storage/v1/object/public/KPIs/Sample_Emplyee_No_KPI%20(1).xlsx"
                 download
                 target="_blank"
                 rel="noopener noreferrer"
@@ -1626,7 +1699,7 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<{[key: string]: string}>({});
   const [companies, setCompanies] = useState<any[]>([]);
-
+  let temp = false;
   // Load dropdown data
   useEffect(() => {
     if (isOpen) {
@@ -1682,7 +1755,7 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
         }));
       } else {
         // Check if email already exists
-        const emailExists = await checkEmailExists(value);
+        const emailExists = await checkEmailExists(value, '');
         if (emailExists) {
           setFieldErrors(prev => ({
             ...prev,
@@ -1704,15 +1777,23 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
 
   const loadDropdownData = async () => {
     try {
-      // Load companies
-      const { data: companiesData, error: companiesError } = await supabase
-        .from('companies')
-        .select('company_id, name')
-        .order('name');
-      
-      if (companiesError) throw companiesError;
-      setCompanies(companiesData || []);
-
+      try{
+        const companiesUrl = `${(API_URL || '').replace(/\/$/, '')}/api/companies/`;
+        const compRes = await fetch(companiesUrl, {
+          headers: { 'X-User-ID': adminId }
+        });
+          if (!compRes.ok) {
+            console.warn("Failed to load companies");
+            setCompanies([]);
+          } else {
+            const compPayload = await compRes.json().catch(()=> null);
+            const companiesData = compPayload?.companies ?? compPayload.data ?? compPayload ?? [];
+            setCompanies(companiesData || []);
+          }
+      } catch (e) {
+        console.error('Error loading companies:', e);
+        setCompanies([]);
+    }
     } catch (error) {
       console.error('Failed to load dropdown data:', error);
       setError('Failed to load form data');
@@ -1728,27 +1809,29 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
   // Phone validation function  
   const validatePhone = (phone: string): boolean => {
     if (!phone) return true; // Phone is optional
-    // Allow various phone formats: +1234567890, (123) 456-7890, 123-456-7890, 123.456.7890, 1234567890
     const phoneRegex = /^[\+]?[\d\s\(\)\-\.]{10,15}$/;
     const digitsOnly = phone.replace(/\D/g, '');
     return phoneRegex.test(phone) && digitsOnly.length >= 10 && digitsOnly.length <= 15;
   };
 
-  // Check if email already exists in database
-  const checkEmailExists = async (email: string): Promise<boolean> => {
+  // Check if email already exists in database (excluding current user)
+  const checkEmailExists = async (email: string, currentUserId: string): Promise<boolean> => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('user_id')
-        .eq('email', email.toLowerCase())
-        .maybeSingle();
+      if (!companyId || !adminId) return false;
+      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+        headers: { 'X-User-ID': adminId }
+      });
       
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows returned"
-        console.error('Error checking email:', error);
+      if (!res.ok) {
+        console.error('Failed to check email');
         return false;
       }
       
-      return !!data; // Returns true if email exists
+      const { users } = await res.json();
+      return users?.some((u: any) => 
+        u.email?.toLowerCase() === email.toLowerCase() && 
+        u.user_id !== currentUserId
+      ) || false;
     } catch (error) {
       console.error('Error checking email:', error);
       return false;
@@ -1768,12 +1851,11 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
       errors.email = 'Email is required';
     } else if (!validateEmail(formData.email)) {
       errors.email = 'Please enter a valid email address';
-    } else {
-      // Check if email already exists
-      const emailExists = await checkEmailExists(formData.email);
+    } else{
+      const emailExists = await checkEmailExists(formData.email, '');
       if (emailExists) {
         errors.email = 'An employee with this email already exists';
-      }
+    }
     }
 
     // Phone validation (optional field)
@@ -1797,44 +1879,98 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
       setLoading(false);
       return;
     }
-
     try {
-      // Create user in users table
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .insert({
+      // Fetch company's learning style setting
+      let learningStyleEnabled: boolean | null = null;
+      try {
+        const companyRes = await fetch(`${API_URL}/api/companies/${encodeURIComponent(companyId)}`);
+        if (companyRes.ok) {
+          const compPayload = await companyRes.json().catch(() => null);
+          const companyData = compPayload?.company ?? compPayload;
+          learningStyleEnabled = companyData?.learning_style ?? null;
+        } else {
+          console.error('Failed to fetch company data:', companyRes.status);
+        }
+      } catch (compErr) {
+        console.error('Failed to fetch company data:', compErr);
+      }
+      // Create user via API
+      const createRes = await fetch(`${API_URL}/api/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': adminId
+        },
+        body: JSON.stringify({
           name: formData.name,
           email: formData.email.toLowerCase(),
           company_id: companyId,
           department_id: formData.department_id || null,
           position: formData.position || null,
           phone: formData.phone || null,
-          hire_date: new Date().toISOString().split('T')[0], // Today's date
-          employment_status: formData.employment_status || 'ACTIVE'
+          hire_date: new Date().toISOString().split('T')[0],
+          password: null // Default password
         })
-        .select()
-        .single();
+      });
 
-      if (userError) throw userError;
+      if (!createRes.ok) {
+        const errorData = await createRes.json();
+        throw new Error(errorData.detail || 'Failed to create user');
+      }
+
+      const responseData = await createRes.json();
+      console.log(responseData);
+      // Handle both array and object responses from backend
+      const userData = Array.isArray(responseData.user) 
+        ? responseData.user[0] 
+        : responseData.user;
+      
+      // Validate that we received a valid user with user_id
+      if (!userData || !userData.user_id) {
+        setError('Failed to create user: No user ID returned from server');
+        setLoading(false);
+        return;
+      }
+      
+      // If learning style is disabled, create entry in employee_learning_style table
+      if (!learningStyleEnabled) {
+        const { error: learningStyleError } = await supabase
+          .from('employee_learning_style')
+          .insert({
+            user_id: userData.user_id,
+            learning_style: 'default',
+            answers: {},
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+        if (learningStyleError) {
+          console.error('Failed to set default learning style:', learningStyleError);
+          // Don't fail the entire operation if learning style insert fails
+        }
+      }
 
       // If roles are selected, create multiple role assignments
       if (formData.selected_roles.length > 0) {
-        const roleAssignments = formData.selected_roles.map(roleId => ({
-          user_id: userData.user_id,
-          role_id: roleId,
-          scope_type: 'COMPANY',
-          scope_id: userData.company_id,
-          assigned_by: adminId,
-          is_active: true
-        }));
-
-        const { error: roleError } = await supabase
-          .from('user_role_assignments')
-          .insert(roleAssignments);
-
-        if (roleError) {
-          console.error('Role assignment failed:', roleError);
-          // Don't fail the entire operation if role assignment fails
+        for (const roleId of formData.selected_roles) {
+          try {
+            await fetch(`${API_URL}/api/roles/assignments`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': adminId
+              },
+              body: JSON.stringify({
+                user_id: userData.user_id,
+                role_id: roleId,
+                scope_type: 'COMPANY',
+                scope_id: companyId,
+                notes: 'Assigned during user creation'
+              })
+            });
+          } catch (err) {
+            console.error('Role assignment failed for role', roleId, err);
+          }
         }
       }
 
@@ -2067,6 +2203,9 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
                       ) : null;
                     })}
                   </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    B = Baseline Assessment Required
+                  </div>
                 </div>
               )}
             </div>
@@ -2171,20 +2310,48 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
     setError('');
     
     try {
+      let completedModuleIds: string[] = [];
+      try {
+        const jobsRes = await fetch(`${API_URL}/api/content-jobs/?status=completed&limit=1000`, {
+          headers: { 'X-User-ID': adminId }
+        });
+        if (!jobsRes.ok) {
+          const errorText = await jobsRes.text().catch(() => '');
+          // console.error('[bulk-assign] Failed to fetch content jobs:', jobsRes.status, errorText);
+          // console.error('[bulk-assign] Using adminId:', adminId);
+          completedModuleIds = [];
+        } else {
+          const jobsPayload = await jobsRes.json().catch(() => null);
+          const completeJobs = jobsPayload?.jobs ?? jobsPayload?.data ?? [];
+          completedModuleIds = (completeJobs || []).map((job: any) => job.module_id).filter(Boolean);
+          // console.log(`[bulk-assign] Found ${completedModuleIds.length} completed modules`);
+        }
+      } catch (e) {
+        console.warn("Error fetching content jobs:", e);
+        completedModuleIds = [];
+      }
+      
+      if (completedModuleIds.length === 0) {
+        setModules([]);
+        setModuleBaselineSettings({});
+        return;
+      }
+      
+      // Now fetch only modules that have completed jobs
       const { data, error: modulesError } = await supabase
         .from('training_modules')
         .select('*')
         .eq('company_id', companyId)
-        .eq('processing_status', 'completed')
+        .in('module_id', completedModuleIds)
         .order('title');
         
       if (modulesError) throw modulesError;
       setModules(data || []);
       
-      // Initialize baseline settings for all modules (default to true)
+      // Initialize baseline settings for all modules (default to false)
       const initialSettings: {[moduleId: string]: boolean} = {};
       (data || []).forEach(module => {
-        initialSettings[module.module_id] = true;
+        initialSettings[module.module_id] = false;
       });
       setModuleBaselineSettings(initialSettings);
     } catch (error: any) {
@@ -2249,19 +2416,32 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
     setError('');
 
     try {
-      // First, check for existing assignments to prevent duplicates
-      const { data: existingAssignments, error: checkError } = await supabase
-        .from('learning_plan')
-        .select('user_id, module_id, users!inner(name, email), training_modules!inner(title)')
-        .in('user_id', selectedUsers)
-        .in('module_id', selectedModules);
+      // First, check for existing assignments to prevent duplicates via backend API
+      if (!adminId) {
+        setError('Admin user ID not found');
+        setLoading(false);
+        return;
+      }
 
-      if (checkError) {
-        console.error('Error checking existing assignments:', checkError);
+      const lpRes = await fetch(
+        `${API_URL}/api/learning-plans/?limit=5000`,
+        { headers: { 'X-User-ID': adminId } }
+      );
+
+      if (!lpRes.ok) {
+        console.error('Error checking existing assignments');
         setError('Failed to check existing assignments. Please try again.');
         setLoading(false);
         return;
       }
+
+      const lpData = await lpRes.json();
+      const allPlans = lpData?.plans || [];
+      
+      // Filter to find existing assignments
+      const existingAssignments = allPlans.filter((lp: any) =>
+        selectedUsers.includes(lp.user_id) && selectedModules.includes(lp.module_id)
+      );
 
       // If there are existing assignments, show the duplicate modal
       if (existingAssignments && existingAssignments.length > 0) {
@@ -2287,18 +2467,48 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         }
       }
 
-      // Insert learning plans into database
-      const { error: insertError } = await supabase
-        .from('learning_plan')
-        .insert(learningPlans);
+      // Create learning plans via backend API
+      if (!adminId) {
+        setError('Admin user ID not found');
+        setLoading(false);
+        return;
+      }
 
-      if (insertError) {
-        // Handle potential race condition duplicates
-        if (insertError.code === '23505') {
-          setError('Some assignments were created by another console while you were selecting. Please refresh and try again.');
-        } else {
-          throw insertError;
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const plan of learningPlans) {
+        try {
+          const createRes = await fetch(`${API_URL}/api/learning-plans/`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-ID': adminId
+            },
+            body: JSON.stringify(plan)
+          });
+
+          if (createRes.ok) {
+            successCount++;
+          } else {
+            const errorData = await createRes.json();
+            if (errorData.detail?.includes('23505') || errorData.detail?.includes('duplicate')) {
+              // Handle duplicates silently or log
+              console.log('Duplicate assignment skipped:', plan);
+            } else {
+              failCount++;
+              console.error('Failed to create assignment:', errorData);
+            }
+          }
+        } catch (e) {
+          failCount++;
+          console.error('Error creating assignment:', e);
         }
+      }
+
+      if (failCount > 0) {
+        setError(`Created ${successCount} assignments, ${failCount} failed`);
+        setLoading(false);
         return;
       }
 
@@ -2316,8 +2526,8 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       onSuccess();
       
     } catch (error: any) {
-      console.error('Failed to assign modules:', error);
-      setError('Failed to assign modules. Please try again.');
+      console.error('Failed to assign sprints:', error);
+      setError('Failed to assign sprints. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -2336,7 +2546,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
           <div className="p-6">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold text-gray-900">Assign Modules</h2>
+              <h2 className="text-xl font-semibold text-gray-900">Assign Sprints</h2>
               <Button
                 type="button"
                 variant="outline"
@@ -2703,13 +2913,15 @@ function DuplicateAssignmentModal({
 function UpdateEmployeeModal({ 
   isOpen, 
   onClose, 
-  employee, 
+  employee,
+  adminId, 
   currentRole, 
   onSuccess 
 }: { 
   isOpen: boolean;
   onClose: () => void;
   employee: User;
+  adminId: string;
   currentRole: string[];
   onSuccess: () => void;
 }) {
@@ -2731,6 +2943,21 @@ function UpdateEmployeeModal({
   const [subDepartments, setSubDepartments] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
+  const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+  // Email validation function
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  // Phone validation function
+  const validatePhone = (phone: string): boolean => {
+    if (!phone) return true; // Phone is optional
+    const phoneRegex = /^[\+]?[\d\s\(\)\-\.]{10,15}$/;
+    const digitsOnly = phone.replace(/\D/g, '');
+    return phoneRegex.test(phone) && digitsOnly.length >= 10 && digitsOnly.length <= 15;
+  };
 
   // Initialize form data when employee prop changes
   useEffect(() => {
@@ -2760,18 +2987,20 @@ function UpdateEmployeeModal({
 
   const loadUserRoles = async () => {
     try {
-      const { data: roleAssignments, error } = await supabase
-        .from('user_role_assignments')
-        .select(`
-          role_id,
-          roles!inner(role_id, name)
-        `)
-        .eq('user_id', employee.user_id)
-        .eq('is_active', true);
+      // Get user roles via backend API instead of direct Supabase call
+      const rolesRes = await fetch(`${API_URL}/api/roles/users/${employee.user_id}`, {
+        headers: { 'X-User-ID': adminId }
+      });
 
-      if (error) throw error;
+      if (!rolesRes.ok) {
+        console.error('Failed to load user roles from backend');
+        return;
+      }
 
-      const currentRoleIds = roleAssignments?.map((assignment: any) => assignment.role_id) || [];
+      const rolesPayload = await rolesRes.json();
+      const assignments = rolesPayload.assignments || rolesPayload.data || rolesPayload || [];
+
+      const currentRoleIds = assignments.map((assignment: any) => assignment.role_id).filter(Boolean);
       setFormData(prev => ({
         ...prev,
         selected_roles: currentRoleIds
@@ -2802,15 +3031,22 @@ function UpdateEmployeeModal({
       if (rolesError) throw rolesError;
       setRoles(rolesData || []);
 
-      // Load companies
-      const { data: companiesData, error: companiesError } = await supabase
-        .from('companies')
-        .select('company_id, name')
-        .order('name');
-      
-      if (companiesError) throw companiesError;
-      setCompanies(companiesData || []);
-
+      try{
+        const compRes = await fetch(`${API_URL}/api/companies`, {
+          headers: { 'X-User-ID': adminId }
+        });
+        if (!compRes.ok) {
+          console.warn("Failed to load companies from backend");
+          setCompanies([]);
+        } else {
+          const compPayload = await compRes.json().catch(() => null);
+          const companiesData = compPayload?.companies ?? compPayload?.data ?? compPayload ?? [];
+          setCompanies(companiesData || []);
+        }
+      } catch (e) {
+        console.error('Error loading companies:', e);
+        setCompanies([]);
+      }
     } catch (error) {
       console.error('Failed to load dropdown data:', error);
       setError('Failed to load form data');
@@ -2841,83 +3077,31 @@ function UpdateEmployeeModal({
     }));
   };
 
-  const handleInputChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-
-    // Clear previous field error
-    if (fieldErrors[name]) {
-      setFieldErrors(prev => ({
-        ...prev,
-        [name]: ''
-      }));
-    }
-
-    // Real-time validation
-    if (name === 'email' && value && value !== employee.email) {
-      if (!validateEmail(value)) {
-        setFieldErrors(prev => ({
-          ...prev,
-          email: 'Please enter a valid email address'
-        }));
-      } else {
-        // Check if email already exists (but not for current user)
-        const emailExists = await checkEmailExists(value, employee.user_id);
-        if (emailExists) {
-          setFieldErrors(prev => ({
-            ...prev,
-            email: 'An employee with this email already exists'
-          }));
-        }
-      }
-    }
-
-    if (name === 'phone' && value) {
-      if (!validatePhone(value)) {
-        setFieldErrors(prev => ({
-          ...prev,
-          phone: 'Please enter a valid phone number (10-15 digits)'
-        }));
-      }
+    setFormData((prev: any) => ({ ...prev, [name]: value }));
+    // only run email check when email field changes
+    if (name === 'email') {
+      checkEmailExists(value).then((exists) => {
+        setFieldErrors((prev: any) => ({ ...prev, email: exists ? 'Email already exists' : '' }));
+      });
     }
   };
 
-  // Email validation function
-  const validateEmail = (email: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
-
-  // Phone validation function  
-  const validatePhone = (phone: string): boolean => {
-    if (!phone) return true; // Phone is optional
-    const phoneRegex = /^[\+]?[\d\s\(\)\-\.]{10,15}$/;
-    const digitsOnly = phone.replace(/\D/g, '');
-    return phoneRegex.test(phone) && digitsOnly.length >= 10 && digitsOnly.length <= 15;
-  };
-
-  // Check if email already exists in database (excluding current user)
-  const checkEmailExists = async (email: string, currentUserId: string): Promise<boolean> => {
+  const checkEmailExists = async (email: string, currentUserId?: string): Promise<boolean> => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('user_id')
-        .eq('email', email.toLowerCase())
-        .neq('user_id', currentUserId)
-        .maybeSingle();
-      
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error checking email:', error);
-        return false;
-      }
-      
-      return !!data;
-    } catch (error) {
-      console.error('Error checking email:', error);
+      if (!companyId || !adminId) return false;
+      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+        headers: { 'X-User-ID': adminId }
+      });
+      if (!res.ok) return false;
+      const { users } = await res.json();
+      return users?.some((u: any) =>
+        u.email?.toLowerCase() === email.toLowerCase() &&
+        (currentUserId ? u.user_id !== currentUserId : true)
+      ) || false;
+    } catch (err) {
+      console.error('Error checking email:', err);
       return false;
     }
   };
@@ -2966,10 +3150,14 @@ function UpdateEmployeeModal({
     }
 
     try {
-      // Update user in users table
-      const { error: userError } = await supabase
-        .from('users')
-        .update({
+      // Update user via API
+      const updateRes = await fetch(`${API_URL}/api/users/${employee.user_id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': adminId
+        },
+        body: JSON.stringify({
           name: formData.name,
           email: formData.email.toLowerCase(),
           department_id: formData.department_id || null,
@@ -2977,39 +3165,81 @@ function UpdateEmployeeModal({
           phone: formData.phone || null,
           employment_status: formData.employment_status || 'ACTIVE'
         })
-        .eq('user_id', employee.user_id);
+      });
 
-      if (userError) throw userError;
-
-      // Update role assignments
-      // First, deactivate all existing role assignments
-      const { error: deactivateError } = await supabase
-        .from('user_role_assignments')
-        .update({ is_active: false })
-        .eq('user_id', employee.user_id);
-
-      if (deactivateError) {
-        console.error('Failed to deactivate old roles:', deactivateError);
+      if (!updateRes.ok) {
+        const errorData = await updateRes.json();
+        throw new Error(errorData.detail || 'Failed to update user');
       }
 
-      // Then create new role assignments for selected roles
-      if (formData.selected_roles.length > 0) {
-        const roleAssignments = formData.selected_roles.map(roleId => ({
-          user_id: employee.user_id,
-          role_id: roleId,
-          scope_type: 'COMPANY',
-          scope_id: employee.company_id,
-          assigned_by: employee.user_id, // In a real app, this would be the admin's ID
-          is_active: true
-        }));
+      // Update role assignments via backend API
+      // First, get current role assignments
+      const currentRolesRes = await fetch(`${API_URL}/api/roles/users/${employee.user_id}`, {
+        headers: { 'X-User-ID': adminId }
+      });
 
-        const { error: roleError } = await supabase
-          .from('user_role_assignments')
-          .insert(roleAssignments);
+      if (currentRolesRes.ok) {
+        const currentRolesPayload = await currentRolesRes.json();
+        const currentAssignments = currentRolesPayload.assignments || currentRolesPayload.data || [];
 
-        if (roleError) {
-          console.error('Role assignment failed:', roleError);
-          // Don't fail the entire operation if role assignment fails
+        // Diff: only revoke roles that were removed, only add roles that are new
+        const currentRoleIds = new Set(currentAssignments.map((a: any) => a.role_id));
+        const newRoleIds = new Set(formData.selected_roles);
+        const rolesToRevoke = currentAssignments.filter((a: any) => !newRoleIds.has(a.role_id));
+        const rolesToAdd = formData.selected_roles.filter((roleId: string) => !currentRoleIds.has(roleId));
+
+        for (const assignment of rolesToRevoke) {
+          try {
+            await fetch(`${API_URL}/api/roles/assignments/${assignment.user_role_assignment_id}`, {
+              method: 'DELETE',
+              headers: { 'X-User-ID': adminId }
+            });
+          } catch (err) {
+            console.error('Failed to revoke role assignment:', assignment.user_role_assignment_id, err);
+          }
+        }
+
+        for (const roleId of rolesToAdd) {
+          try {
+            await fetch(`${API_URL}/api/roles/assignments`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': adminId
+              },
+              body: JSON.stringify({
+                user_id: employee.user_id,
+                role_id: roleId,
+                scope_type: 'COMPANY',
+                scope_id: employee.company_id,
+                notes: 'Updated role assignment'
+              })
+            });
+          } catch (err) {
+            console.error('Role assignment failed for role', roleId, err);
+          }
+        }
+      } else if (formData.selected_roles.length > 0) {
+        // Fallback: couldn't load current roles, assign all selected
+        for (const roleId of formData.selected_roles) {
+          try {
+            await fetch(`${API_URL}/api/roles/assignments`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': adminId
+              },
+              body: JSON.stringify({
+                user_id: employee.user_id,
+                role_id: roleId,
+                scope_type: 'COMPANY',
+                scope_id: employee.company_id,
+                notes: 'Updated role assignment'
+              })
+            });
+          } catch (err) {
+            console.error('Role assignment failed for role', roleId, err);
+          }
         }
       }
 
@@ -3201,6 +3431,9 @@ function UpdateEmployeeModal({
                         </span>
                       ) : null;
                     })}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    B = Baseline Assessment Required
                   </div>
                 </div>
               )}

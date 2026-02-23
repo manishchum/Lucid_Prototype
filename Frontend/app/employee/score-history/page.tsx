@@ -9,7 +9,19 @@ import { supabase } from "@/lib/supabase";
 import EmployeeNavigation from "@/components/employee-navigation";
 import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
+import RolePlayReports from "@/components/roleplay/RolePlayReports";
 
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByEmail = async (email: string) => {
+  const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+  if (!res.ok) return null;
+  const payload = await res.json();
+  let u = payload?.user ?? payload;
+  if (Array.isArray(u)) u = u[0]; 
+  return u || null;
+};
 // Helper component to format question-specific feedback
 // Robust parsing of: JSON array, comma-separated quoted tokens, or free-form sections
 const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { feedback: string; employeeName: string; totalQuestions?: number }) => {
@@ -248,28 +260,30 @@ export default function ScoreHistoryPage() {
   const [employeeName, setEmployeeName] = useState<string>("");
   const [scoreHistory, setScoreHistory] = useState<any[]>([]);
   const [learningStyleData, setLearningStyleData] = useState<any>(null);
+  const [companyUsesLearningStyle, setCompanyUsesLearningStyle] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'assessments' | 'roleplay'>('assessments');
   // State to track which items are expanded (must be declared at the top level)
   const [expanded, setExpanded] = useState<{ [key: number]: boolean }>({});
   const [learningStyleExpanded, setLearningStyleExpanded] = useState<boolean>(false);
   const [reportOpenSections, setReportOpenSections] = useState<string[]>([]);
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   const router = useRouter();
 
-  useEffect(() => {
-    if (!authLoading && user?.email) {
-      fetchEmployeeAndHistory(user.email);
-    }
-  }, [user, authLoading]);
+   useEffect(() => {
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else fetchEmployeeAndHistory();
+          
+        }
+      }, [user, authLoading, router]);
 
-  const fetchEmployeeAndHistory = async (email: string) => {
+  const fetchEmployeeAndHistory = async () => {
     setLoading(true);
     try {
-      // First, get employee data including name
-      const { data: employeeData } = await supabase
-        .from("users")
-        .select("user_id, name")
-        .eq("email", email)
-        .single();
+      const email: string = user?.email ?? '';
+      // First, get employee data including name and company_id
+      const employeeData = await fetchUserByEmail(email);
       
       if (!employeeData?.user_id) {
         setLoading(false);
@@ -278,6 +292,20 @@ export default function ScoreHistoryPage() {
       
       setEmployeeId(employeeData.user_id);
       setEmployeeName(employeeData.name || "");
+
+      // Fetch company's learning_style setting
+      if (employeeData.company_id) {
+        try{
+          const compRes = await fetch(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`);
+          if (compRes.ok) {
+            const compPayload = await compRes.json().catch(() => null);
+            const companyData = compPayload?.company ?? compPayload;
+            setCompanyUsesLearningStyle(Boolean(companyData?.learning_style));
+        }
+      } catch (e) {
+        console.warn("Error fetching company data:", e);
+      }
+    }
 
       // Fetch assessment history
       const { data: assessments } = await supabase
@@ -343,15 +371,8 @@ export default function ScoreHistoryPage() {
     setExpanded((prev) => ({ ...prev, [idx]: !prev[idx] }));
   };
 
-  if (authLoading || loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-slate-600">Loading score history...</p>
-        </div>
-      </div>
-    );
+  if (showLoadingProgress) {
+    return <LoadingProgress label="Loading score history" progress={loadingProgress} />;
   }
 
   return (
@@ -377,20 +398,46 @@ export default function ScoreHistoryPage() {
               <p className="text-slate-500 font-medium text-sm">Review your style & scores</p>
             </div>
           </div>
+
+          {/* Tabs Navigation */}
+          <div className="flex gap-2 mb-8">
+            <button
+              onClick={() => setActiveTab('assessments')}
+              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
+                activeTab === 'assessments'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              📚 Assessments
+            </button>
+            <button
+              onClick={() => setActiveTab('roleplay')}
+              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
+                activeTab === 'roleplay'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              🎭 Role-Play Sessions
+            </button>
+          </div>
         
+        {activeTab === 'assessments' && (
         <div className="grid gap-8">
-        {/* Learning Style Section */}
-        {learningStyleData ? (
+        {/* Learning Style Section - Only show if company uses learning styles */}
+        {companyUsesLearningStyle && learningStyleData ? (
           <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
             <CardContent className="p-8">
               <div className="border-b pb-6 mb-6">
                 <div className="flex items-center justify-between cursor-pointer" onClick={() => setLearningStyleExpanded(!learningStyleExpanded)}>
                   <div className="flex items-center gap-6">
-                    <div className="w-20 h-20 rounded-full bg-blue-600 text-white flex items-center justify-center text-2xl font-black shadow-xl shadow-blue-100">
-                      {learningStyleData.learning_style}
+                    <div className="w-20 h-20 rounded-full bg-blue-600 text-white flex items-center justify-center text-center leading-tight text-sm font-black shadow-xl shadow-blue-100">
+                      {/* {learningStyleData.learning_style} */}
+                      Primary Style
                     </div>
                     <div>
-                      <span className="text-xs font-bold tracking-wide text-blue-600 uppercase">Primary Style</span>
+                      {/* <span className="text-xs font-bold tracking-wide text-blue-600 uppercase">Primary Style</span> */}
                       <div className="text-lg font-bold text-slate-900 mt-1">
                         {getLearningStyleInfo(learningStyleData.learning_style).label}
                       </div>
@@ -437,6 +484,13 @@ export default function ScoreHistoryPage() {
                                   {para}
                                 </p>
                               ))}
+                              {section.bullets && section.bullets.length > 0 && (
+                                <ul className="list-disc list-inside space-y-1 text-gray-800 text-sm pl-1">
+                                  {section.bullets.map((item, bIdx) => (
+                                    <li key={bIdx}>{item}</li>
+                                  ))}
+                                </ul>
+                              )}
                               {section.subsections.length > 0 && (
                                 <div className="space-y-4">
                                   {section.subsections.map((sub, subIdx) => (
@@ -464,7 +518,7 @@ export default function ScoreHistoryPage() {
               </div>
             </CardContent>
           </Card>
-        ) : (
+        ) : companyUsesLearningStyle ? (
           <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
             <CardContent className="p-8">
               <div className="text-center py-8">
@@ -484,7 +538,7 @@ export default function ScoreHistoryPage() {
               </div>
             </CardContent>
           </Card>
-        )}
+        ) : null}
         
         {/* Assessment History Section */}
         <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
@@ -594,6 +648,13 @@ export default function ScoreHistoryPage() {
           </CardContent>
         </Card>
         </div>
+        )}
+
+        {/* Role-Play Sessions Tab */}
+        {activeTab === 'roleplay' && employeeId && (
+          <RolePlayReports employeeId={employeeId} />
+        )}
+
         </div>
       </main>
     </div>
@@ -659,19 +720,19 @@ const getCleanReportText = (gptAnalysis: string): string => {
 const getLearningStyleInfo = (styleCode: string) => {
   const styleMap: Record<string, { label: string; description: string }> = {
     CS: {
-      label: "Concrete Sequential: The Planner",
+      label: "The Planner",
       description: "Prefers structure, clear steps, and hands-on practice. Learning emphasizes checklists, examples, and measurable milestones."
     },
     AS: {
-      label: "Abstract Sequential: The Analyst", 
+      label: "The Analyst", 
       description: "Thinks analytically and values logic. Learning focuses on theory, frameworks, and evidence-based decision making."
     },
     AR: {
-      label: "Abstract Random: The Connector",
+      label: "The Connector",
       description: "Learns through connections and stories. Learning highlights collaboration, reflection, and real-world context."
     },
     CR: {
-      label: "Concrete Random: The Explorer",
+      label: "The Explorer",
       description: "Enjoys experimentation and rapid iteration. Learning leans into challenges, scenarios, and creative problem solving."
     }
   };
@@ -705,7 +766,7 @@ const extractReportFromJson = (analysis: string) => {
 
 // Parse report text into sections (compatible with learning-style page logic)
 const parseReportIntoTabs = (reportText: string) => {
-  const tabs: { id: string; title: string; content: string; subsections: { subtitle: string; items: string[] }[] }[] = []
+  const tabs: { id: string; title: string; content: string; bullets: string[]; subsections: { subtitle: string; items: string[] }[] }[] = []
   if (!reportText) return tabs
 
   reportText = reportText.replace(/^Title:\s*Your Personal Learning Style Insights\s*\n\n/i, '')
@@ -723,7 +784,7 @@ const parseReportIntoTabs = (reportText: string) => {
       let id = 'natural'
       if (title.toLowerCase().includes('thrive')) id = 'thrive'
       else if (title.toLowerCase().includes('tip')) id = 'tips'
-      currentTab = { id, title, content: '', subsections: [] }
+      currentTab = { id, title, content: '', bullets: [], subsections: [] }
       currentSub = null
       continue
     }
@@ -741,10 +802,11 @@ const parseReportIntoTabs = (reportText: string) => {
 
     const bullet = line.match(/^[•*\-·]\s*(.+)$/)
     if (bullet) {
-      const item = bullet[1].trim().replace(/^[*\-·•]+\s*/, '')
+      const rawItem = bullet[1].trim()
+      const item = rawItem.length ? rawItem : bullet[1]
       if (item && item.length > 0) {
         if (currentSub) currentSub.items.push(item)
-        else if (currentTab) currentTab.content += (currentTab.content ? '\n' : '') + item
+        else if (currentTab) currentTab.bullets.push(item)
       }
       continue
     }
@@ -755,6 +817,55 @@ const parseReportIntoTabs = (reportText: string) => {
   }
   if (currentTab) tabs.push(currentTab)
   return tabs
+}
+
+function useIllusionProgress(active: boolean) {
+  const [progress, setProgress] = useState(14);
+  const [show, setShow] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      const timeout = setTimeout(() => setShow(false), 180);
+      return () => clearTimeout(timeout);
+    }
+
+    setShow(true);
+    setProgress(Math.min(28, 12 + Math.round(Math.random() * 10)));
+
+    const id = setInterval(() => {
+      setProgress((prev) => {
+        const hold = prev > 72 ? Math.random() < 0.5 : Math.random() < 0.3;
+        if (hold) return prev; // occasionally pause to feel more organic
+        const increment = Math.max(1, Math.round(Math.random() * 8));
+        return Math.min(prev + increment, 95);
+      });
+    }, 420 + Math.round(Math.random() * 260));
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  return { progress: Math.min(progress, 100), show };
+}
+
+function LoadingProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+          <span>{label}</span>
+          <span className="text-slate-900 text-base font-black">{progress}%</span>
+        </div>
+        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500 font-medium">Pulling your history. This will only take a moment.</p>
+      </div>
+    </div>
+  );
 }
 
 type LSSection = {
@@ -769,7 +880,7 @@ type LSSection = {
 // Parse GPT report into four accordion sections with graceful fallbacks
 const buildLearningSections = (gptAnalysis: string, fallbackDescription: string): LSSection[] => {
   const sections: LSSection[] = [
-    { id: 'natural', title: 'Your Natural Performance Sprint', accent: 'from-blue-50 to-blue-100 border-blue-200', paragraphs: [], subsections: [] },
+    { id: 'natural', title: 'Your Natural Learning Style', accent: 'from-blue-50 to-blue-100 border-blue-200', paragraphs: [], subsections: [] },
     { id: 'thrive', title: 'How You Thrive', accent: 'from-purple-50 to-purple-100 border-purple-200', paragraphs: [], subsections: [] },
     { id: 'tips', title: 'Tips to Make Learning Easier', accent: 'from-green-50 to-emerald-100 border-emerald-200', paragraphs: [], subsections: [] },
     { id: 'checklist', title: 'Your Quick Reference Checklist', accent: 'from-amber-50 to-amber-100 border-amber-200', paragraphs: [], subsections: [] }
@@ -792,6 +903,9 @@ const buildLearningSections = (gptAnalysis: string, fallbackDescription: string)
         section.paragraphs = introLines.length > 0 ? introLines : [fallbackDescription]
       } else if (!tab.subsections?.length) {
         section.paragraphs = [fallbackDescription]
+      }
+      if (tab.bullets?.length) {
+        section.bullets = tab.bullets
       }
       if (tab.subsections?.length) {
         section.subsections = tab.subsections.map(sub => ({

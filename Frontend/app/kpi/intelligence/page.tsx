@@ -1,8 +1,10 @@
 'use client'
 
-import { useState } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import EmployeeNavigation from '@/components/employee-navigation';
 import ModuleSuggestions from '@/components/module-suggestions';
+import { SuggestedModule } from '@/components/module-suggestions';
+import { generateKPIReport } from '@/lib/kpi-pdf-generator';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,9 +23,12 @@ import {
   AlertCircle,
   Calculator,
   File,
-  X
+  X,
+  Download
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from '@/contexts/auth-context';
+import { useRouter } from 'next/navigation';
 
 interface KPIIndicator {
   name: string;
@@ -39,6 +44,8 @@ interface ParsedKPIData {
 }
 
 export default function KPIIntelligencePage() {
+  const {user, loading:authLoading} = useAuth();
+  const router = useRouter();
   const [roleName, setRoleName] = useState('');
   const [jobDescription, setJobDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -46,7 +53,29 @@ export default function KPIIntelligencePage() {
   const [error, setError] = useState('');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isParsingFile, setIsParsingFile] = useState(false);
+  const [suggestedModules, setSuggestedModules] = useState<SuggestedModule[]>([]);
 
+  // Memoize indicator name arrays so they keep stable references
+  const leadIndicatorNames = useMemo(
+    () => parsedData?.leadIndicators.map(ind => ind.name) ?? [],
+    [parsedData]
+  );
+  const lagIndicatorNames = useMemo(
+    () => parsedData?.lagIndicators.map(ind => ind.name) ?? [],
+    [parsedData]
+  );
+
+  const handleModulesLoaded = useCallback((modules: SuggestedModule[]) => {
+    setSuggestedModules(modules);
+  }, []);
+
+  useEffect(() => {
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          // else checkAdminAccess();
+          
+        }
+      }, [user, authLoading, router]);
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -138,11 +167,22 @@ export default function KPIIntelligencePage() {
     }
   };
 
+  const handleExportPDF = () => {
+    if (!parsedData) return;
+    generateKPIReport({
+      roleName,
+      leadIndicators: parsedData.leadIndicators,
+      lagIndicators: parsedData.lagIndicators,
+      suggestedModules,
+    });
+  };
+
   const handleReset = () => {
     setRoleName('');
     setJobDescription('');
     setParsedData(null);
     setError('');
+    setSuggestedModules([]);
   };
 
   return (
@@ -154,7 +194,7 @@ export default function KPIIntelligencePage() {
           {/* Header Section */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900">KPI Intelligence</h1>
-            <p className="text-gray-600 mt-1">Upload job descriptions to automatically extract KPIs, strategies, and indicators using AI</p>
+            <p className="text-gray-600 mt-1">Upload job descriptions extract KPIs, strategies, and indicators</p>
           </div>
 
           {/* Input Section - Full Width */}
@@ -168,8 +208,12 @@ export default function KPIIntelligencePage() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="roleName">Role Name</Label>
+                  <Label htmlFor="roleName">
+                    Role Name <span className="text-red-500">*</span>
+                    <span className="text-xs text-gray-500 ml-2">(Compulsory)</span>
+                  </Label>
                   <Input
+                    required={true}
                     id="roleName"
                     placeholder="e.g., Senior Sales Manager"
                     value={roleName}
@@ -318,7 +362,7 @@ export default function KPIIntelligencePage() {
                 <CardContent>
                   <Tabs defaultValue="indicators" className="w-full">
                     <TabsList className="grid w-full grid-cols-1">
-                      <TabsTrigger value="indicators">Indicators</TabsTrigger>
+                      <TabsTrigger value="indicators">Key Performance Indicators</TabsTrigger>
                       {/* <TabsTrigger value="strategies">Strategies</TabsTrigger> */}
                     </TabsList>
                     
@@ -429,9 +473,10 @@ export default function KPIIntelligencePage() {
 
               {/* Module Suggestions Section */}
               <ModuleSuggestions
-                leadIndicators={parsedData?.leadIndicators.map(ind => ind.name)}
-                lagIndicators={parsedData?.lagIndicators.map(ind => ind.name)}
+                leadIndicators={leadIndicatorNames}
+                lagIndicators={lagIndicatorNames}
                 roleName={roleName}
+                onModulesLoaded={handleModulesLoaded}
               />
 
               {/* Action Buttons */}
@@ -443,7 +488,8 @@ export default function KPIIntelligencePage() {
                       <p className="text-sm text-gray-600">Save these indicators and strategies for {roleName}</p>
                     </div>
                     <div className="flex gap-3">
-                      <Button variant="outline">
+                      <Button variant="outline" onClick={handleExportPDF}>
+                        <Download className="w-4 h-4 mr-2" />
                         Export as PDF
                       </Button>
                       <Button className="bg-green-600 hover:bg-green-700">

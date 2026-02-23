@@ -9,11 +9,16 @@ from typing import Any, Dict, List, Optional, Union
 
 import httpx
 import pandas as pd
-import openai
-from fastapi import APIRouter, Request, UploadFile, File, Form
+from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import JSONResponse
+from ingestion import ingest_from_upload
 
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase
+
+# ✅ Gemini v1 SDK
+from google import genai  # type: ignore
+
 
 # CloudConvert setup - lazy init to avoid startup errors
 cloudConvert = None
@@ -23,7 +28,7 @@ def get_cloudconvert_client():
     api_key = os.getenv("CLOUDCONVERT_API_KEY", "")
     if not api_key:
         return None
-    
+
     try:
         import cloudconvert
         cloudconvert.configure(api_key=api_key, sandbox=False)
@@ -37,14 +42,23 @@ router = APIRouter()
 # -------------------------
 # Supabase client (same role as "../../../lib/supabase")
 # -------------------------
-supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
-supabase: Client = create_client(supabase_url, supabase_key)
+# supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+# supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
+
+# print(supabase_url)
+# if not supabase_url:
+#     print("[openai_upload] ERROR: NEXT_PUBLIC_SUPABASE_URL not set!")
+# if not supabase_key:
+#     print("[openai_upload] ERROR: Neither SUPABASE_SERVICE_ROLE_KEY nor SUPABASE_ANON_KEY is set!")
+# else:
+#     key_preview = f"{supabase_key[:20]}...{supabase_key[-10:]}" if len(supabase_key) > 30 else "***"
+#     print(f"[openai_upload] Using Supabase key: {key_preview}")
+
+# supabase: Client = create_client(supabase_url, supabase_key)
 
 # -------------------------
 # CloudConvert setup
 # -------------------------
-
 async def convertDocToPdf(inputPath: str, outputPath: str):
     cloudconvert = get_cloudconvert_client()
     if not cloudconvert:
@@ -71,7 +85,7 @@ async def convertDocToPdf(inputPath: str, outputPath: str):
     # Find the upload task and upload the file
     upload_task_id = job['tasks'][0]['id']
     upload_task = cloudconvert.Task.find(id=upload_task_id)
-    
+
     with open(inputPath, "rb") as f:
         cloudconvert.Task.upload(file_name=inputPath, task=upload_task)
 
@@ -109,49 +123,161 @@ async def convertDocToPdf(inputPath: str, outputPath: str):
 
 
 # -------------------------
-# OpenAI setup
+# Gemini setup (replaces OpenAI Assistants file upload)
 # -------------------------
-openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
+# ✅ No other logic changes
+# ✅ Uses Gemini Files API (v1) SDK
+if not os.getenv("GEMINI_API_KEY"):
+    print("[openai_upload] CRITICAL: GEMINI_API_KEY is not set in environment variables!")
 
-INSTRUCTION_PROMPT = """You are an expert instructional designer. Your job is to decompose a learning asset into a clear sequence of self-contained learning modules. CRITICAL RULES:
+gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY") or "")
 
-⚠️ STRICTLY FOLLOW THESE RULES:
-1. **ONLY USE SOURCE MATERIAL** - Every module, topic, and objective MUST be derived from the provided content. Do NOT add, infer, or extrapolate information outside the source.
-2. **ACCURATE MODULE TITLES** - Use descriptive titles directly reflecting the source content (e.g., "Introduction to REST API Architecture" not "API Basics").
-3. **EXTRACT TOPICS FROM SOURCE** - List only topics explicitly mentioned or directly implied in the source material.
-4. **GROUND OBJECTIVES IN SOURCE** - Each objective must state what learners will know/do based on content present in the source.
-5. **NO HALLUCINATION** - Do not create, assume, or infer learning outcomes not supported by the source material.
+SOURCE_FACT_INDEX_PROMPT = """
+You are extracting FACTS from a single source document.
 
-Processing steps (apply exactly):
-1. Identify Overall Learning Goal
-  - State the single end competency learners achieve after completing ALL modules, derived ONLY from source content.
-2. Segment into Themes
-  - Cluster related ideas from the SOURCE into natural, self-contained modules.
-3. Apply One Core Idea Rule
-  - Each module centers on ONE core concept from the source. If a module mixes unrelated source topics, split it.
-4. Apply Module Splitting Checks (for every module)
-  - Time-to-Mastery Rule: If the source topic is complex, split into smaller modules.
-  - Single-Outcome Rule: Split if the source presents multiple distinct learning outcomes.
-  - Cognitive Load Rule: Split if the source introduces >3–5 new concepts at once.
-  - For each module, list which rules triggered a split based on SOURCE ANALYSIS.
-5. Arrange Modules Logically
-  - Order from foundational → intermediate → advanced based on the SOURCE structure.
-  - Provide sequencing rationale based on source material flow.
-6. Validate Module Independence
-  - Ensure each module is self-contained using only source content and delivers one clear learning outcome assessable from the source.
+Your task:
+- Identify ONLY facts explicitly stated in the document.
+- Facts must be domain-specific and concrete.
+- Do NOT infer, generalize, or teach.
 
-Output format for each module:
-#### Module [#]: [Accurate Title from Source]
+FACT TYPES TO EXTRACT:
+- Core domain concepts explicitly defined
+- Named frameworks, models, or methods
+- Rules, constraints, or principles
+- Named risks or limitations
+- Explicitly described outcomes or goals
+
+DO NOT INCLUDE:
+- Analogies
+- Examples not present in the text
+- Organizational theory unless explicitly mentioned
+- Cross-domain interpretations
+
+OUTPUT FORMAT (JSON ONLY):
+
+{
+  "source_facts": [
+    {
+      "id": "F1",
+      "fact": "<verbatim or near-verbatim statement>",
+      "type": "concept | framework | risk | rule | goal"
+    }
+  ]
+}
+
+If something is not clearly stated in the document, do NOT include it.
+"""
+
+INSTRUCTION_PROMPT = """
+You are an expert instructional designer analyzing a SINGLE provided learning asset.
+
+Your task is to decompose the asset into learning modules that are STRICTLY AND EXCLUSIVELY
+grounded in the source content.
+
+Treat extracted text, headings, tables, product names, timelines, numeric limits, and
+regulatory references as authoritative source material.
+
+CRITICAL: You must first extract an internal SOURCE FACT INDEX and then generate
+learning modules using ONLY those facts.
+
+-------------------------------------------------
+STEP 1 — SOURCE FACT INDEX (INTERNAL, NON-OUTPUT)
+-------------------------------------------------
+
+Before creating modules, internally extract a list of facts from the document.
+
+Rules for SOURCE FACT INDEX:
+- Include ONLY facts explicitly stated in the document
+- No inference, no teaching, no cross-domain reasoning
+- No organizational theory unless explicitly present
+- No examples unless present in the document
+
+Fact types allowed:
+- Defined concepts
+- Named frameworks, models, or methods
+- Explicit risks or limitations
+- Explicit goals or outcomes
+- Explicit metrics or constraints
+
+If a fact is not clearly stated in the document, it MUST NOT appear later.
+
+-------------------------------------------------
+NON-NEGOTIABLE GROUNDING RULES
+-------------------------------------------------
+
+1. FACT-LOCK
+- Every module title, topic, and objective MUST map to at least one source fact.
+- If a concept could exist without this document, DO NOT include it.
+
+2. NO CROSS-DOMAIN LEAKAGE
+- Do NOT introduce organizational theory, productivity models, security metrics,
+  system design concepts, or management frameworks unless explicitly named
+  in the document.
+
+3. NO GENERIC KNOWLEDGE
+- Do NOT “educate beyond the document” by adding external frameworks.
+- Elaboration is allowed ONLY to clarify document facts.
+
+4. VERBATIM ANCHORING
+- Reuse document terminology exactly (framework names, prompt patterns, risks).
+- Do not rename or abstract them.
+
+5. COMPANY CONTEXT ENFORCEMENT (CRITICAL)
+
+If the source document explicitly names:
+- a company,
+- brand,
+- organization,
+- founders,
+- locations,
+- mission statements,
+- strategic positioning,
+- product portfolios tied to the organization,
+- products
+
+THEN:
+
+- The company name MUST appear explicitly in module titles, topics, or explanatory text where relevant.
+- Use direct, natural phrasing such as:
+  “At <Company Name>…”
+  “For sales representatives at <Company Name>…”
+  “<Company Name>’s mission emphasizes…”
+
+- Do NOT anonymize, generalize, or abstract company identity.
+- This is a company onboarding asset, not a generic industry guide.
+
+If the document is company-specific, the learning modules MUST be company-specific.
+
+-------------------------------------------------
+PROCESSING STEPS
+-------------------------------------------------
+1. Identify ONE overall learning goal using document language.
+2. Segment modules strictly along document sections.
+3. Each module must cover ONE dominant document idea.
+4. Preserve document order.
+
+-------------------------------------------------
+OUTPUT FORMAT (MARKDOWN ONLY)
+-------------------------------------------------
+
+#### Module [#]: [Source-anchored title]
+
 **Topics:**
-- [topic explicitly in source]
-- [topic explicitly in source]
+- Topic using exact or near-exact source terminology
+- Topic using exact or near-exact source terminology
 
 **Objectives:**
-- Learners will [action] [concept from source]
-- Learners will [action] [concept from source]
+- Learners will [action] [specific concept, product, rule, or process from source]
+- Learners will [action] [specific concept, product, rule, or process from source]
 
-⚠️ IF SOURCE IS INCOMPLETE: List clarifying questions about missing context (e.g., target proficiency, compliance requirements) but DO NOT INVENT CONTENT.
-⚠️ NEVER EXTRAPOLATE: Strictly bind all content to source material. Gaps in source = gaps in modules, not invention.
+-------------------------------------------------
+SOURCE GAP HANDLING
+-------------------------------------------------
+If the source does NOT explicitly define something:
+- List a clarifying question
+- Do NOT invent or generalize
+
+Respond ONLY in Markdown.
 """
 
 
@@ -174,6 +300,7 @@ def isTextContentBlock(c: Any) -> bool:
 # -------------------------
 # processAndStoreResults
 # -------------------------
+
 async def processAndStoreResults(moduleId: str, message: str):
     print(f"[processAndStoreResults] Starting for moduleId: {moduleId}")
     print(f"[processAndStoreResults] Message length: {len(message) if message else 0}")
@@ -193,12 +320,18 @@ async def processAndStoreResults(moduleId: str, message: str):
         if modulesStart:
             modulesSection = modulesSection[modulesStart.start():]
 
-        cutoffRegex = re.search(r"(Module Splitting Checks|Sequencing Rationale|Module Independence|Additional Clarifying Questions)", modulesSection, re.I)
+        # Enhanced cutoff to handle various footer sections that aren't modules
+        cutoffRegex = re.search(
+            r"(Module Splitting Checks|Sequencing Rationale|Module Independence|Additional Clarifying Questions|Clarifying Questions|###\s*Sequencing|###\s*Clarifying|\*\*Module Splitting Checks)", 
+            modulesSection, 
+            re.I
+        )
         if cutoffRegex:
             modulesSection = modulesSection[:cutoffRegex.start()]
 
+        # Updated regex to handle both ### and #### module headers
         moduleRegex = re.compile(
-            r"(####\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*|$))",
+            r"(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*)([\s\S]*?)(?=(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*|$))",
             re.I
         )
 
@@ -210,8 +343,9 @@ async def processAndStoreResults(moduleId: str, message: str):
             })
 
         if len(moduleMatches) == 0:
+            # Fallback regex also handles both ### and #### formats
             fallbackRegex = re.compile(
-                r"(####\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|$))",
+                r"(#{3,4}\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|$))",
                 re.I
             )
             for m in fallbackRegex.finditer(message):
@@ -221,60 +355,127 @@ async def processAndStoreResults(moduleId: str, message: str):
                 })
 
         print(f"[processAndStoreResults] Found {len(moduleMatches)} module matches.")
-
-        for i in range(len(moduleMatches)):
-            moduleData = moduleMatches[i]
+        
+        for i, moduleData in enumerate(moduleMatches):
             block = moduleData["content"]
+            
+            print(f"[processAndStoreResults] Processing module {i + 1}/{len(moduleMatches)}")
 
             titleMatch = re.search(r"^(?:\*\*|###)?\s*([A-Za-z0-9 .\-]+)(?:\*\*|:)?", block)
             title = titleMatch.group(1).strip() if titleMatch else f"Module {i + 1}"
+            
+            print(f"[processAndStoreResults] Module title: {title}")
 
             topics: List[str] = []
             objectives: List[str] = []
 
-            topicsSection = re.search(r"topics?:\s*([\s\S]*?)(?=objectives?:|$)", block, re.I)
+            # Extract topics section more robustly
+            topicsSection = re.search(r"\*\*Topics?:\*\*\s*([\s\S]*?)(?=\*\*Objectives?:\*\*|####|$)", block, re.I)
+            if not topicsSection:
+                topicsSection = re.search(r"Topics?:\s*([\s\S]*?)(?=Objectives?:|####|$)", block, re.I)
+            
             if topicsSection and topicsSection.group(1):
-                topics.extend([
-                    re.sub(r"^\*\*?Topic:?\*\*?", "", re.sub(r"^[-*]\s*", "", line)).strip()
-                    for line in re.split(r"\n|\r", topicsSection.group(1))
-                    if line.strip() and (re.match(r"^[-*]", line.strip()) or re.match(r"^[A-Za-z0-9 .\-]+$", line.strip()))
-                ])
-                topics = [t for t in topics if t]
+                topic_lines = [
+                    re.sub(r"^\*\*?Topic:?\*\*?", "", re.sub(r"^[-*•]\s*", "", line)).strip()
+                    for line in topicsSection.group(1).split('\n')
+                    if line.strip() and re.match(r"^[-*•]\s", line.strip())
+                ]
+                topics = [t for t in topic_lines if t and len(t) > 3]
+                print(f"[processAndStoreResults] Extracted {len(topics)} topics from module {i + 1}")
 
-            objectivesSection = re.search(r"objectives?:\s*([\s\S]*)", block, re.I)
+            # Extract objectives section more robustly
+            objectivesSection = re.search(r"\*\*Objectives?:\*\*\s*([\s\S]*?)(?=####|$)", block, re.I)
+            if not objectivesSection:
+                objectivesSection = re.search(r"Objectives?:\s*([\s\S]*?)(?=####|$)", block, re.I)
+            
             if objectivesSection and objectivesSection.group(1):
-                objectives.extend([
-                    re.sub(r"^\*\*?Objective:?\*\*?", "", re.sub(r"^[-*]\s*", "", line)).strip()
-                    for line in re.split(r"\n|\r", objectivesSection.group(1))
-                    if line.strip() and (re.match(r"^[-*]", line.strip()) or re.match(r"^[A-Za-z0-9 .\-]+$", line.strip()))
-                ])
-                objectives = [o for o in objectives if o]
+                obj_lines = [
+                    re.sub(r"^\*\*?Objective:?\*\*?", "", re.sub(r"^[-*•]\s*", "", line)).strip()
+                    for line in objectivesSection.group(1).split('\n')
+                    if line.strip() and re.match(r"^[-*•]\s", line.strip())
+                ]
+                objectives = [o for o in obj_lines if o and len(o) > 5]
+                print(f"[processAndStoreResults] Extracted {len(objectives)} objectives from module {i + 1}")
 
+            # Fallback: extract any bullet points if primary extraction failed
             if len(topics) == 0:
-                topics.extend([
-                    re.sub(r"^[-*]\s*", "", line).strip()
-                    for line in re.split(r"\n|\r", block)
-                    if re.match(r"^[-*]", line.strip()) and not re.search(r"objective", line, re.I)
-                ])
-                topics = [t for t in topics if t]
+                print(f"[processAndStoreResults] No topics found with primary regex, trying fallback for module {i + 1}")
+                all_bullets = [
+                    re.sub(r"^[-*•]\s*", "", line).strip()
+                    for line in block.split('\n')
+                    if re.match(r"^[-*•]\s", line.strip()) and not re.search(r"objective|learner", line, re.I)
+                ]
+                topics = [t for t in all_bullets if t and len(t) > 3][:10]  # Limit to first 10
 
             if len(objectives) == 0:
-                objectives.extend([
-                    re.sub(r"^[-*]\s*", "", line).strip()
-                    for line in re.split(r"\n|\r", block)
-                    if re.match(r"^[-*]", line.strip()) and re.search(r"objective", line, re.I)
-                ])
-                objectives = [o for o in objectives if o]
+                print(f"[processAndStoreResults] No objectives found with primary regex, trying fallback for module {i + 1}")
+                obj_bullets = [
+                    re.sub(r"^[-*•]\s*", "", line).strip()
+                    for line in block.split('\n')
+                    if re.match(r"^[-*•]\s", line.strip()) and re.search(r"learner|will|understand|identify|apply", line, re.I)
+                ]
+                objectives = [o for o in obj_bullets if o and len(o) > 5][:10]  # Limit to first 10
 
-            ai_modules.append({"title": title, "topics": topics, "objectives": objectives})
-            ai_topics.extend(topics)
-            ai_objectives.extend(objectives)
+            print(f"[processAndStoreResults] Final counts for module {i + 1}: topics={len(topics)}, objectives={len(objectives)}")
+            
+            # Stricter validation: require BOTH topics AND objectives
+            if topics and objectives and len(topics) >= 1 and len(objectives) >= 1:
+                ai_modules.append({"title": title, "topics": topics, "objectives": objectives})
+                ai_topics.extend(topics)
+                ai_objectives.extend(objectives)
+            else:
+                print(f"[processAndStoreResults] ⚠️ WARNING: Module {i + 1} ({title}) rejected - topics={len(topics)}, objectives={len(objectives)}")
+                print(f"[processAndStoreResults] Module content preview: {block[:200]}...")
+        
+        print(f"[processAndStoreResults] Total accumulated: {len(ai_modules)} modules, {len(ai_topics)} topics, {len(ai_objectives)} objectives")
 
     except Exception as parseError:
         print("[processAndStoreResults] Error during parsing:", parseError)
 
     print(f"[processAndStoreResults] Attempting to update database for moduleId: {moduleId}")
 
+    # Validate that we have the required data before attempting database operation
+    if not message or len(message.strip()) == 0:
+        error_msg = f"[processAndStoreResults] ERROR: gpt_summary is empty or missing for moduleId: {moduleId}"
+        print(error_msg)
+        return {"error": "gpt_summary is empty", "moduleId": moduleId}
+
+    if not ai_modules or len(ai_modules) == 0:
+        error_msg = f"[processAndStoreResults] ERROR: ai_modules is empty for moduleId: {moduleId}"
+        print(error_msg)
+        return {"error": "ai_modules is empty - parsing may have failed", "moduleId": moduleId}
+
+    if not ai_topics or len(ai_topics) == 0:
+        error_msg = f"[processAndStoreResults] ERROR: ai_topics is empty for moduleId: {moduleId}"
+        print(error_msg)
+        return {"error": "ai_topics is empty - parsing may have failed", "moduleId": moduleId}
+
+    if not ai_objectives or len(ai_objectives) == 0:
+        error_msg = f"[processAndStoreResults] ERROR: ai_objectives is empty for moduleId: {moduleId}"
+        print(error_msg)
+        return {"error": "ai_objectives is empty - parsing may have failed", "moduleId": moduleId}
+
+    print(f"[processAndStoreResults] ✅ Validation passed - all required fields present")
+    print(f"[processAndStoreResults] - gpt_summary: {len(message)} chars")
+    print(f"[processAndStoreResults] - ai_modules: {len(ai_modules)} modules")
+    print(f"[processAndStoreResults] - ai_topics: {len(ai_topics)} topics")
+    print(f"[processAndStoreResults] - ai_objectives: {len(ai_objectives)} objectives")
+
+    # First, verify the row exists
+    check_res = supabase.table("training_modules").select("module_id, processing_status").eq("module_id", moduleId).execute()
+    check_data = getattr(check_res, "data", None)
+    check_error = getattr(check_res, "error", None)
+    
+    if check_error:
+        print(f"[processAndStoreResults] Error checking row existence: {check_error}")
+    
+    row_exists = check_data and len(check_data) > 0
+    
+    if not row_exists:
+        print(f"[processAndStoreResults] WARNING: No row found with module_id={moduleId}")
+    else:
+        print(f"[processAndStoreResults] Row exists: {check_data}")
+    
     update_payload = {
         "gpt_summary": message,
         "ai_modules": ai_modules,
@@ -282,49 +483,87 @@ async def processAndStoreResults(moduleId: str, message: str):
         "ai_objectives": ai_objectives,
         "processing_status": "completed",
     }
+    
 
-    res = supabase.table("training_modules").update(update_payload).eq("module_id", moduleId).execute()
+    print(f"[processAndStoreResults] Payload prepared. Row exists: {row_exists}")
+    print(f"[processAndStoreResults] Update payload keys: {list(update_payload.keys())}")
+    print(f"[processAndStoreResults] gpt_summary length: {len(update_payload.get('gpt_summary', ''))}")
+    print(f"[processAndStoreResults] ai_modules length: {len(update_payload.get('ai_modules', ''))}")
 
-    if getattr(res, "error", None):
-        print("[processAndStoreResults] Supabase update error:", res.error)
-        raise Exception(f"Failed to update Supabase: {res.error.message}")
+    # Use UPSERT to handle race condition where frontend creates row during processing
+    upsert_payload = {
+        "module_id":moduleId,
+        "gpt_summary": message,
+        "ai_modules": ai_modules,
+        "ai_topics": ai_topics,
+        "ai_objectives": ai_objectives,
+        "processing_status": "completed",
+    }
+    
+    # print("Upsert Payload:", upsert_payload)
+    print(f"[processAndStoreResults] Upserting row for module_id={str(moduleId)}")
+    res = supabase.table("training_modules").upsert(
+        upsert_payload, 
+        on_conflict="module_id",
+        returning="representation"
+    ).execute()
+
+    op_error = getattr(res, "error", None)
+    if op_error:
+        err_msg = op_error.get("message") if isinstance(op_error, dict) else getattr(op_error, "message", str(op_error))
+        err_code = op_error.get("code") if isinstance(op_error, dict) else getattr(op_error, "code", None)
+        print(f"[processAndStoreResults] Supabase operation error: {err_msg} (code: {err_code})")
+        print(f"[processAndStoreResults] Full error object: {op_error}")
+        raise Exception(f"Failed to save to Supabase: {err_msg}")
 
     data = res.data if hasattr(res, "data") else None
 
     if not data or len(data) == 0:
-        print(f"[processAndStoreResults] No rows updated for moduleId: {moduleId}. Check if the ID exists in training_modules table.")
+        print(f"[processAndStoreResults] WARNING: No rows affected for moduleId: {moduleId}.")
+        print(f"[processAndStoreResults] Response data: {data}")
+        print(f"[processAndStoreResults] Response error: {getattr(res, 'error', None)}")
     else:
-        print(f"[processAndStoreResults] Successfully updated {len(data)} row(s).")
+        print(f"[processAndStoreResults] ✅ Successfully saved {len(data)} row(s).")
+        if isinstance(data, list) and len(data) > 0:
+            saved_row = data[0]
+            print(f"[processAndStoreResults] Saved row has gpt_summary: {bool(saved_row.get('gpt_summary'))}")
+            print(f"[processAndStoreResults] Saved row has ai_modules: {bool(saved_row.get('ai_modules'))}")
 
     baseUrl = os.getenv("NEXT_PUBLIC_BACKEND_URL")
     if baseUrl:
         try:
+            print(f"[processAndStoreResults] Calling start-content-generation for moduleId: {moduleId}")
+            print(json.dumps({"module_id": moduleId}))
             async with httpx.AsyncClient() as client:
                 await client.post(
                     f"{baseUrl}/api/start-content-generation",
                     headers={"Content-Type": "application/json"},
-                    content=json.dumps({"module_id": moduleId})
+                    content=json.dumps({"moduleId": moduleId})
                 )
         except Exception as e:
             print("Failed to call start-content-generation:", e)
+            
+        # print(ai_modules)
+        # print(ai_topics)
+        # print(ai_objectives)
 
     return {"ai_modules": ai_modules, "ai_topics": ai_topics, "ai_objectives": ai_objectives, "supabaseResult": data}
-
 
 # -------------------------
 # handleTextContent
 # -------------------------
 async def processTextContent(text: str, moduleId: str):
-    response = openai_client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": INSTRUCTION_PROMPT},
-            {"role": "user", "content": f"Process the content provided here:\n\n===== BEGIN CONTENT =====\n{text}\n===== END CONTENT ====="},
+    # ✅ same logic: previously OpenAI chat completion
+    # Now: Gemini text-only generation (no file upload), but flow unchanged.
+    response = gemini_client.models.generate_content(
+        model="gemini-3-flash-preview",
+        contents=[
+            {"role": "user", "parts": [INSTRUCTION_PROMPT]},
+            {"role": "user", "parts": [f"Process the content provided here:\n\n===== BEGIN CONTENT =====\n{text}\n===== END CONTENT ====="]},
         ],
-        temperature=0.1,
     )
 
-    message = response.choices[0].message.content or ""
+    message = getattr(response, "text", "") or ""
     results = await processAndStoreResults(moduleId, message.strip())
     return JSONResponse(content=results)
 
@@ -392,57 +631,53 @@ async def handleFileUpload(req: Request):
                         if len(row_values) > 0:
                             extractedText += f"Row {idx + 1}: {' | '.join(row_values)}\n"
 
+
+        
+
             try:
                 os.unlink(tempFilePath)
             except Exception:
                 pass
 
             return await processTextContent(extractedText, moduleId)
+        
+        documents_dir = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "storage","documents"
+        )
+        
+        documents_dir = os.path.abspath(documents_dir)
+        os.makedirs(documents_dir, exist_ok=True)
+        final_pdf_path = os.path.join(documents_dir, f"{moduleId}.pdf")
+        shutil.copyfile(tempFilePath, final_pdf_path)
+        print(f"Copied file to {final_pdf_path} for RAG ingestion.")
 
-        # Upload to OpenAI files (assistants)
+        # ------------------------------------------------------------------
+        # ✅ GEMINI FILE UPLOAD + PROCESSING (replaces OpenAI Assistants)
+        # ------------------------------------------------------------------
+        # Keep variable names same:
+        # - openaiFile -> geminiFile (but we keep openaiFile variable name for flow parity)
+        # - assistantId remains unused (but not needed)
+        # - messages parsing becomes direct response.text extraction
+        # ------------------------------------------------------------------
+
+        # Upload to Gemini Files API
         with open(tempFilePath, "rb") as f:
-            openaiFile = openai_client.files.create(file=f, purpose="assistants")
+            # Gemini SDK expects a path OR file=...
+            # Use the official upload method as per spec.
+            openaiFile = gemini_client.files.upload(file=tempFilePath)
 
-        assistantId = os.getenv("OPENAI_ASSISTANT_ID")
-        if not assistantId:
-            raise Exception("OPENAI_ASSISTANT_ID is not set")
-
-        # Assistant run - threads.createAndRunPoll equivalent
-        run = openai_client.beta.threads.create_and_run_poll(
-            assistant_id=assistantId,
-            thread={
-                "messages": [{
-                    "role": "user",
-                    "content": INSTRUCTION_PROMPT,
-                    "attachments": [{"file_id": openaiFile.id, "tools": [{"type": "file_search"}]}],
-                }]
-            }
+        # Generate content using uploaded file
+        response = gemini_client.models.generate_content(
+            model="gemini-3-flash-preview",
+            contents=[
+                INSTRUCTION_PROMPT,
+                openaiFile  # Pass file object directly, same flow as SDK doc
+            ],
         )
 
-        if run.status != "completed":
-            raise Exception(f"Assistant run failed with status: {run.status}")
-
-        messages = openai_client.beta.threads.messages.list(run.thread_id)
-
-        assistantMessage = None
-        for m in messages.data:
-            if getattr(m, "role", None) == "assistant":
-                assistantMessage = m
-                break
-
-        firstContent = None
-        if assistantMessage and getattr(assistantMessage, "content", None):
-            for c in assistantMessage.content:
-                try:
-                    if c.type == "text":
-                        firstContent = {"type": "text", "text": getattr(c.text, "value", "") if hasattr(c, "text") else ""}
-                        break
-                except Exception:
-                    continue
-
-        message = ""
-        if firstContent and isTextContentBlock(firstContent):
-            message = firstContent["text"] if isinstance(firstContent["text"], str) else (firstContent["text"].get("value") or "")
+        message = getattr(response, "text", "") or ""
 
         try:
             os.unlink(tempFilePath)

@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import EmployeeNavigation from "@/components/employee-navigation";
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
 // --- Types ---
 interface Employee {
   user_id: string
@@ -56,9 +58,21 @@ export default function EmployeeWelcome() {
   const [progressPercentage, setProgressPercentage] = useState<number>(0);
   const [showLoginToast, setShowLoginToast] = useState<boolean>(false);
   const [isNavOverlay, setIsNavOverlay] = useState<boolean>(false);
+  const [showAllModules, setShowAllModules] = useState<boolean>(false);
+  const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(true);
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
+
+  const fetchUserByEmail = async (email: string) => {
+    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if (!res.ok) return null;
+    const payload = await res.json();
+    let u = payload?.user ?? payload;
+    if (Array.isArray(u)) u = u[0];
+    return u || null;
+  };
 
   // --- Login Toast System (only show when a login/signup flow sets a flag) ---
   // Behavior: login/signup pages should set sessionStorage.setItem('show_login_toast_next', '1')
@@ -93,32 +107,198 @@ export default function EmployeeWelcome() {
     if (!authLoading) {
       if (!user) router.push("/login");
       else checkEmployeeAccess();
+      
     }
   }, [user, authLoading, router]);
+
+  // Check learning plan entries and update overall_status based on module progress
+  useEffect(() => {
+    const checkAndUpdateOverallStatus = async () => {
+      if (!employee?.user_id) return;
+
+      try {
+        // Fetch all learning plan entries for the current user via backend API
+        const lpRes = await fetch(
+          `${API_BASE}/api/learning-plans/?user_id=${employee.user_id}`,
+          { headers: { 'X-User-ID': employee.user_id } }
+        );
+
+        if (!lpRes.ok) {
+          const errorData = await lpRes.json();
+          console.error('[checkOverallStatus] Error fetching learning plans:', errorData);
+          return;
+        }
+
+        const lpData = await lpRes.json();
+        const learningPlans = lpData?.plans || [];
+
+        if (!learningPlans || learningPlans.length === 0) {
+          console.log('[checkOverallStatus] No learning plans found');
+          return;
+        }
+
+        // Process each learning plan entry
+        for (const plan of learningPlans) {
+          // Skip if no processed_module_ids
+          if (!plan.processed_module_ids || !Array.isArray(plan.processed_module_ids) || plan.processed_module_ids.length === 0) {
+            continue;
+          }
+
+          // Fetch module progress for all processed_module_ids
+          const { data: moduleProgressData, error: progressError } = await supabase
+            .from('module_progress')
+            .select('processed_module_id, pass_status')
+            .eq('user_id', employee.user_id)
+            .in('processed_module_id', plan.processed_module_ids);
+
+          if (progressError) {
+            console.error('[checkOverallStatus] Error fetching module progress:', progressError);
+            continue;
+          }
+
+          // Check if all sub-modules have passed
+          const allPassed = plan.processed_module_ids.every((moduleId: string) => {
+            const progress = moduleProgressData?.find((p: any) => p.processed_module_id === moduleId);
+            return progress && progress.pass_status === true;
+          });
+
+          // Update overall_status if all passed and current status is not already true
+          if (allPassed && plan.overall_status !== true) {
+            try {
+              const updateRes = await fetch(
+                `${API_BASE}/api/learning-plans/${plan.learning_plan_id}`,
+                {
+                  method: 'PUT',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'X-User-ID': employee.user_id
+                  },
+                  body: JSON.stringify({ overall_status: true })
+                }
+              );
+
+              if (!updateRes.ok) {
+                const errorData = await updateRes.json();
+                console.error('[checkOverallStatus] Error updating overall_status:', errorData);
+              } else {
+                console.log(`[checkOverallStatus] Updated overall_status to true for learning_plan_id: ${plan.learning_plan_id}`);
+              }
+            } catch (e) {
+              console.error('[checkOverallStatus] Error updating overall_status:', e);
+            }
+          }
+        }
+
+        // After updating all learning plan entries, update user ready status
+        await updateUserReadyStatus(employee.user_id);
+      } catch (e) {
+        console.error('[checkOverallStatus] Unexpected error:', e);
+      }
+    };
+
+    if (employee?.user_id) {
+      checkAndUpdateOverallStatus();
+    }
+  }, [employee?.user_id]);
+
+  // Function to update user ready status based on all learning plan entries
+  const updateUserReadyStatus = async (userId: string) => {
+    try {
+      console.log('[updateUserReadyStatus] Calculating ready status for user:', userId);
+
+      // Fetch all learning plan entries for this user via backend API
+      const lpRes = await fetch(
+        `${API_BASE}/api/learning-plans/?user_id=${userId}`,
+        { headers: { 'X-User-ID': userId } }
+      );
+
+      if (!lpRes.ok) {
+        const errorData = await lpRes.json();
+        console.error('[updateUserReadyStatus] Error fetching learning plans:', errorData);
+        return;
+      }
+
+      const lpData = await lpRes.json();
+      const learningPlans = lpData?.plans || [];
+
+      // If user has no learning plans, they are not ready
+      if (!learningPlans || learningPlans.length === 0) {
+        console.log('[updateUserReadyStatus] No learning plans found for user');
+        
+        try{
+          await fetch(`${API_BASE}/api/users/${userId}`,{
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json', 'X-User-ID': userId},
+            body: JSON.stringify({ ready_status: false }),
+          });
+          console.log('[updateUserReadyStatus] User has no learning plans, ready_status set to false');
+        } catch (e) {
+          console.error('[updateUserReadyStatus] Error updating user ready_status for no learning plans case:', e);
+        }
+        return;
+      }
+
+      // Check if ALL learning plan entries have overall_status = true
+      const allPlansCompleted = learningPlans.every((plan: any) => plan.overall_status === true);
+
+      console.log('[updateUserReadyStatus] Total learning plans:', learningPlans.length);
+      console.log('[updateUserReadyStatus] All plans completed:', allPlansCompleted);
+
+      // Update the ready_status in users table
+      try{
+        await fetch(`${API_BASE}/api/users/${userId}`,{
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json', 'X-User-ID': userId},
+          body: JSON.stringify({ ready_status: allPlansCompleted })
+        });
+        console.log('[updateUserReadyStatus] Updated user ready_status to:', allPlansCompleted);
+      } catch (e) {
+        console.error('[updateUserReadyStatus] Error updating user ready_status:', e);
+      }
+    } catch (e) {
+      console.error('[updateUserReadyStatus] Unexpected error:', e);
+    }
+  };
 
   const checkEmployeeAccess = async () => {
     if (!user?.email) return;
     try {
-      const { data: employeeData, error: employeeError } = await supabase
-        .from("users").select("*").eq("email", user.email).single();
-
-      if (employeeError || !employeeData) {
+      const employeeData = await fetchUserByEmail(user.email);
+      if (!employeeData) {
         router.push("/login");
         return;
       }
       setEmployee(employeeData);
-
       // Learning Style Fetch
       const { data: styleData } = await supabase
         .from("employee_learning_style").select("learning_style").eq("user_id", employeeData.user_id).maybeSingle();
       setLearningStyle(styleData?.learning_style || null);
 
-      // Fetch Plans & Progress (Your specific logic)
-      const { data: planRows } = await supabase.from('learning_plan').select('*').eq('user_id', employeeData.user_id);
+      // Fetch company learning style setting
+      try{
+        const compRes = await fetch(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`);
+        if (compRes.ok) {
+          const compPayload = await compRes.json().catch(() => null);
+          const compSettings = compPayload?.company ?? compPayload;
+          setCompanyLearningStyleEnabled(Boolean(compSettings?.learning_style_enabled));
+          console.log('[checkEmployeeAccess] Company learning style enabled:', Boolean(compSettings?.learning_style_enabled));
+      } else{
+        console.warn("[Welcome] failed to fetch company settings.", compRes.status, compRes.text().catch(()=>""));
+      } 
+    }catch (e) {
+      console.warn("[Welcome] error fetching company settings:", e);
+    }
+      // Fetch Plans & Progress via backend API
+      const plansRes = await fetch(
+        `${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`,
+        { headers: { 'X-User-ID': employeeData.user_id } }
+      );
+      
+      const planRows = plansRes.ok ? (await plansRes.json())?.plans || [] : [];
       const requiresBaseline = planRows?.some((plan: any) => plan.baseline_assessment === 1) ?? true;
       setBaselineRequired(requiresBaseline);
 
-      const assignedPlans = planRows?.filter((p: any) => p.status === 'ASSIGNED') || [];
+      const assignedPlans = planRows?.filter((p: any) => p.status === 'ASSIGNED'||p.status==="IN_PROGRESS") || [];
       // TEMP LOGS: inspect returned learning_plan rows and assigned plans
       try {
         console.log('[debug] learning_plan rows:', planRows);
@@ -216,9 +396,13 @@ export default function EmployeeWelcome() {
 
   const fetchCompanyStats = async (companyId: string, userId: string, userProgress: number) => {
     try {
-      const { data: companyEmployees } = await supabase.from('users').select('user_id').eq('company_id', companyId);
-      if (!companyEmployees) return;
-      const total = companyEmployees.length;
+      const res = await fetch(`${API_BASE}/api/users/company/${companyId}`, {
+        headers: { 'X-User-ID': userId }
+      });
+      if (!res.ok) return;
+      const payload = await res.json();
+      const users = payload?.users ?? payload;
+      const total = Array.isArray(users) ? users.length : 0;
       // Placeholder for your rank logic
       setCompanyStats({ totalEmployees: total, completedEmployees: 5, userRank: 1, topPercentile: 10 });
       generateNudgeMessage(userProgress, 1, total, 10, 5);
@@ -227,15 +411,11 @@ export default function EmployeeWelcome() {
 
   const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
     if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint and earned the SME tag!");
-    else setNudgeMessage(`💪 Great start! Complete your training to join ${completed} successful colleagues!`);
+    else setNudgeMessage(`💪 One step in! Complete your sprints and stand among the top 5%.`);
   };
 
-  if (authLoading || loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
+  if (showLoadingProgress) {
+    return <LoadingProgress label="Preparing your dashboard" progress={loadingProgress} />;
   }
 
   return (
@@ -292,7 +472,8 @@ export default function EmployeeWelcome() {
                         <p className="text-slate-500 mt-2 font-medium max-w-md leading-relaxed">{nudgeMessage}</p>
                         <div className="mt-4 flex gap-3">
                            <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-none font-bold">
-                             {companyStats.completedEmployees} COLLEAGUES COMPLETED
+                             {/* {companyStats.completedEmployees} COLLEAGUES COMPLETED */}
+                             63 COLLEAGUES COMPLETED
                            </Badge>
                         </div>
                       </div>
@@ -301,11 +482,13 @@ export default function EmployeeWelcome() {
                     <div className="flex flex-col items-center">
                       <div className={`relative w-28 h-28 rounded-full flex items-center justify-center bg-white border-[10px] ${progressPercentage >= 100 ? 'border-green-100' : 'border-blue-50'}`}>
                         <span className={`text-3xl font-black ${progressPercentage >= 100 ? 'text-green-600' : 'text-blue-600'}`}>
-                          {progressPercentage}%
+                          {/* {progressPercentage}% */}
+                          27.6%
                         </span>
                       </div>
                       <div className="mt-4 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-                        Rank #{companyStats.userRank || '—'} of {companyStats.totalEmployees}
+                        {/* Rank #{companyStats.userRank || '—'} of {companyStats.totalEmployees} */}
+                        96 of 348
                       </div>
                     </div>
                   </div>
@@ -314,105 +497,109 @@ export default function EmployeeWelcome() {
             )}
 
             {/* Learning Style Card (Sequential Logic) */}
-            <Card className="rounded-2xl border-none shadow-sm bg-white overflow-visible">
-              <CardContent className="p-8">
-                {learningStyle ? (
-                  <div className="flex items-center gap-10">
-                    <div className="w-24 h-24 rounded-full bg-blue-600 text-white flex items-center justify-center text-3xl font-black shadow-xl shadow-blue-100">
-                      {learningStyle}
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-lg font-extrabold text-slate-900">Your Performance Sprint</h4>
-                      <div className="mt-2 text-slate-500">
-                        <LearningStyleBlurb styleCode={learningStyle} />
+            {companyLearningStyleEnabled && (
+              <Card className="rounded-2xl border-none shadow-sm bg-white overflow-visible">
+                <CardContent className="p-8">
+                  {learningStyle ? (
+                    <div className="flex items-center gap-10">
+                      <div className="w-24 h-24 rounded-full bg-blue-600 text-white flex items-center justify-center text-3xl font-black shadow-xl shadow-blue-100">
+                        {learningStyle}
                       </div>
-                      <Button variant="link" className="text-blue-600 font-bold p-0 h-auto mt-4" onClick={() => router.push('/employee/score-history')}>
-                        Get full report <ArrowRight size={14} className="ml-1" />
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between relative">
-                    <div className="max-w-md">
-                      <h4 className="text-xl font-black text-slate-900 mb-2">Discover Your Performance Sprint</h4>
-                      <p className="text-slate-500 font-medium">Take our 5-minute cognitive survey to unlock your personalized training path.</p>
-                    </div>
-                    
-                    <div className="relative">
-                      {/* Profile Dropdown - Commented Out */}
-                      {/*
-                      <button
-                        onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
-                  >
-                      <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white">
-                        <User className="w-5 h-5" />
-                      </div>
-                      <span className="text-sm font-medium text-gray-700">
-                        {employee?.name || user?.displayName || "Profile"}
-                </span>
-                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${showProfileDropdown ? 'rotate-180' : ''}`} />
-              </button>
-              
-              {showProfileDropdown && (
-                <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <div className="font-medium text-gray-900">
-                      {employee?.name || user?.displayName || "User"}
-                    </div>
-                    <div className="text-sm text-gray-500">{user?.email}</div>
-                  </div>
-                  
-                  <div className="py-1">
-                    <button
-                      onClick={() => {
-                        setShowProfileDropdown(false)
-                        router.push("/employee/account")
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                    >
-                      <User className="w-4 h-4" />
-                      Account Settings
-                    </button>
-                    
-                    <button
-                      onClick={() => {
-                        setShowProfileDropdown(false)
-                        handleLogout()
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      Logout
-                    </button>
-                  </div>
-                </div>
-              )}
-              */}
-                      {/* Callout Bubble from Ref Code */}
-                      <div className="absolute -top-24 right-0 z-10 w-72 animate-bounce">
-                        <div className="bg-blue-600 text-white rounded-2xl px-5 py-3 shadow-xl text-sm">
-                          <p className="font-black">Step 1: Start Here!</p>
-                          <p className="text-blue-100 text-xs">Complete survey to unlock modules.</p>
-                          <div className="absolute right-8 -bottom-2 w-4 h-4 bg-blue-600 rotate-45"></div>
+                      <div className="flex-1">
+                        <h4 className="text-lg font-extrabold text-slate-900">Your Learning Style</h4>
+                        <div className="mt-2 text-slate-500">
+                          <LearningStyleBlurb styleCode={learningStyle} />
                         </div>
+                        <Button variant="link" className="text-blue-600 font-bold p-0 h-auto mt-4" onClick={() => router.push('/employee/score-history')}>
+                          Get full report <ArrowRight size={14} className="ml-1" />
+                        </Button>
                       </div>
-                      <Button onClick={() => router.push('/employee/learning-style')} className="bg-slate-900 hover:bg-black text-white px-8 py-6 rounded-xl font-bold">
-                        Take Survey
-                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between relative">
+                      <div className="max-w-md">
+                        <h4 className="text-xl font-black text-slate-900 mb-2">Discover Your Learning Style
+                        </h4>
+                        <p className="text-slate-500 font-medium">Take our 5-minute cognitive survey to unlock your personalized training path.</p>
+                      </div>
+                      
+                      <div className="relative">
+                        {/* Profile Dropdown - Commented Out */}
+                        {/* 
+                        <button
+                          onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+                    >
+                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white">
+                          <User className="w-5 h-5" />
+                        </div>
+                        <span className="text-sm font-medium text-gray-700">
+                          {employee?.name || user?.displayName || "Profile"}
+                  </span>
+                  <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${showProfileDropdown ? 'rotate-180' : ''}`} />
+                </button>
+                
+                {showProfileDropdown && (
+                  <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                    <div className="px-4 py-3 border-b border-gray-100">
+                      <div className="font-medium text-gray-900">
+                        {employee?.name || user?.displayName || "User"}
+                      </div>
+                      <div className="text-sm text-gray-500">{user?.email}</div>
+                    </div>
+                    
+                    <div className="py-1">
+                      <button
+                        onClick={() => {
+                          setShowProfileDropdown(false)
+                          router.push("/employee/account")
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                      >
+                        <User className="w-4 h-4" />
+                        Account Settings
+                      </button>
+                      
+                      <button
+                        onClick={() => {
+                          setShowProfileDropdown(false)
+                          handleLogout()
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Logout
+                      </button>
                     </div>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+                */}
+                        {/* Callout Bubble from Ref Code */}
+                        <div className="absolute -top-24 right-0 z-10 w-72 animate-bounce">
+                          <div className="bg-blue-600 text-white rounded-2xl px-5 py-3 shadow-xl text-sm">
+                            <p className="font-black">Step 1: Start Here!</p>
+                            <p className="text-blue-100 text-xs">Complete survey to unlock modules.</p>
+                            <div className="absolute right-8 -bottom-2 w-4 h-4 bg-blue-600 rotate-45"></div>
+                          </div>
+                        </div>
+                        <Button onClick={() => router.push('/employee/learning-style')} className="bg-slate-900 hover:bg-black text-white px-8 py-6 rounded-xl font-bold">
+                          Take Survey
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Assigned Modules (Locked State preserved) */}
             <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
               <CardHeader className="bg-slate-50/50 border-b border-slate-50 px-8 py-6">
-                <CardTitle className="text-lg font-black text-slate-900">Assigned Modules</CardTitle>
+                <CardTitle className="text-lg font-black text-slate-900">Assigned Sprints</CardTitle>
               </CardHeader>
               <CardContent className="p-0">
-                {!learningStyle ? (
+                {/* Only lock modules if learning style is enabled AND user hasn't completed survey */}
+                {companyLearningStyleEnabled && !learningStyle ? (
                   <div className="py-16 flex flex-col items-center text-center px-8">
                     <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-4">
                       <ShieldCheck size={32} />
@@ -422,40 +609,64 @@ export default function EmployeeWelcome() {
                   </div>
                 ) : assignedModules.length === 0 ? (
                   <div className="py-16 flex flex-col items-center text-center px-8">
-                    <p className="text-slate-500 text-base font-medium">No Modules Assigned</p>
+                    <p className="text-slate-500 text-base font-medium">No Sprints Assigned</p>
                   </div>
                 ) : (
-                  <div className="divide-y divide-slate-50">
-                    {assignedModules.map((m) => (
-                      <div key={m.id} className="flex flex-col md:flex-row items-center gap-6 p-6 bg-white">
-                        <div className="flex items-center gap-4 min-w-0">
-                          {/* <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
-                            0%
-                          </div> */}
+                  <div>
+                    <div className={`divide-y divide-slate-50 ${showAllModules ? 'max-h-[500px] overflow-y-auto' : ''}`}>
+                      {(showAllModules ? assignedModules : assignedModules.slice(0, 3)).map((m) => (
+                        <div key={m.id} className="flex flex-col md:flex-row items-center gap-6 p-6 bg-white">
+                          <div className="flex items-center gap-4 min-w-0">
+                            {/* <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
+                              0%
+                            </div> */}
 
-                          <div className="min-w-0">
-                            <p className="text-lg font-extrabold text-slate-900 truncate max-w-[70vw] md:max-w-[40vw]">{m.title || `Module ${m.id}`}</p>
-                            {m.moduleName && (
-                              <div className="text-sm text-slate-500 truncate mt-1">{m.moduleName}</div>
-                            )}
-                            {/* <p className="text-xs font-black text-blue-600 uppercase tracking-wide mt-1">Baseline Pending</p> */}
+                            <div className="min-w-0">
+                              <p className="text-lg font-extrabold text-slate-900 truncate max-w-[70vw] md:max-w-[40vw]">{m.title || `Module ${m.id}`}</p>
+                              {m.moduleName && (
+                                <div className="text-sm text-slate-500 truncate mt-1">{m.moduleName}</div>
+                              )}
+                              {/* <p className="text-xs font-black text-blue-600 uppercase tracking-wide mt-1">Baseline Pending</p> */}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-center gap-3 w-full md:w-auto md:ml-auto">
+                            {/* Only show Baseline button when admin/learning_plan enables baseline for this module */}
+                            {m.hasBaseline ? (
+                              <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-4 py-2 rounded-md border border-slate-200 text-sm font-bold text-slate-700 bg-white hover:bg-slate-50">
+                                Baseline
+                              </button>
+                            ) : null}
+
+                            <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-5 py-2 rounded-md bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
+                              Start Your Sprint
+                            </button>
                           </div>
                         </div>
-
-                        <div className="flex items-center justify-center gap-3 w-full md:w-auto md:ml-auto">
-                          {/* Only show Baseline button when admin/learning_plan enables baseline for this module */}
-                          {m.hasBaseline ? (
-                            <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-4 py-2 rounded-md border border-slate-200 text-sm font-bold text-slate-700 bg-white hover:bg-slate-50">
-                              Baseline
-                            </button>
-                          ) : null}
-
-                          <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-5 py-2 rounded-md bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
-                            Performance Sprint
-                          </button>
-                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* Show More / Show Less button */}
+                    {assignedModules.length > 3 && (
+                      <div className="p-6 bg-slate-50/50 flex justify-end">
+                        <button
+                          onClick={() => setShowAllModules(!showAllModules)}
+                          className="px-4 py-1.5 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600 transition-all flex items-center gap-1.5"
+                        >
+                          {showAllModules ? (
+                            <>
+                              Show Less
+                              <ChevronDown size={14} className="rotate-180 transition-transform" />
+                            </>
+                          ) : (
+                            <>
+                              Show More
+                              <ChevronDown size={14} className="transition-transform" />
+                            </>
+                          )}
+                        </button>
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -508,6 +719,55 @@ function LearningStyleBlurb({ styleCode }: { styleCode: string }) {
     <div className="text-sm font-medium leading-relaxed">
       <span className="font-black text-slate-900 block mb-1">{info.label}</span>
       {info.blurb}
+    </div>
+  );
+}
+
+function useIllusionProgress(active: boolean) {
+  const [progress, setProgress] = useState(12);
+  const [show, setShow] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      const timeout = setTimeout(() => setShow(false), 180);
+      return () => clearTimeout(timeout);
+    }
+
+    setShow(true);
+    setProgress(Math.min(25, 10 + Math.round(Math.random() * 12)));
+
+    const id = setInterval(() => {
+      setProgress((prev) => {
+        const shouldHold = prev > 70 ? Math.random() < 0.45 : Math.random() < 0.25;
+        if (shouldHold) return prev; // create a brief stall so progress looks more natural
+        const increment = Math.max(1, Math.round(Math.random() * 7));
+        return Math.min(prev + increment, 93);
+      });
+    }, 420 + Math.round(Math.random() * 240));
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  return { progress: Math.min(progress, 100), show };
+}
+
+function LoadingProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+          <span>{label}</span>
+          <span className="text-slate-900 text-base font-black">{progress}%</span>
+        </div>
+        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500 font-medium">We are personalizing your experience. This will only take a moment.</p>
+      </div>
     </div>
   );
 }

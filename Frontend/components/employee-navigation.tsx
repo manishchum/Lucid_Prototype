@@ -4,11 +4,12 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
+import AdminDispatchCenter from "@/components/admin-dispatch-center";
 
 interface EmployeeNavigationProps {
   showBack?: boolean;
@@ -18,11 +19,28 @@ interface EmployeeNavigationProps {
   className?: string;
   user?: any;
   onLogout?: () => void;
+  forceCollapsed?: boolean;
 }
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByEmail = async (email: string | undefined | null) => {
+  if (!email) return null;
+  const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+  if (!res.ok) {
+    console.error('[employee-navigation] Failed to fetch user by email:', res.status, await res.text().catch(()=>''));
+    return null;
+  }
+  const payload = await res.json();
+  let u = payload?.user ?? payload;
+  if (Array.isArray(u)) u = u[0];
+  return u || null;
+};
 
 const EmployeeNavigation = ({ 
   user: providedUser,
-  onLogout: providedOnLogout
+  onLogout: providedOnLogout,
+  forceCollapsed = false
 }: EmployeeNavigationProps) => {
   const router = useRouter();
   const pathname = usePathname();
@@ -30,7 +48,7 @@ const EmployeeNavigation = ({
   
   // Existing Logic States
   const [employee, setEmployee] = useState<any>(null);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(forceCollapsed);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [coursesOpen, setCoursesOpen] = useState(false);
   const [adminDropdownOpen, setAdminDropdownOpen] = useState(false);
@@ -39,8 +57,16 @@ const EmployeeNavigation = ({
   const [isAdmin, setIsAdmin] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
   const [showReportToast, setShowReportToast] = useState(false);
+  const [showDispatchCenter, setShowDispatchCenter] = useState(false);
 
   const displayUser = providedUser || employee;
+
+  // Update isCollapsed when forceCollapsed prop changes
+  useEffect(() => {
+    if (forceCollapsed !== undefined) {
+      setIsCollapsed(forceCollapsed);
+    }
+  }, [forceCollapsed]);
 
   // Existing Logout Logic
   const handleLogout = providedOnLogout || (async () => {
@@ -64,28 +90,61 @@ const EmployeeNavigation = ({
     if (!providedUser && authUser?.email) {
       const fetchEmployee = async () => {
         try {
-          const { data: employeeData } = await supabase
-            .from("users").select("*").eq("email", authUser.email).single();
-          
+          const employeeData = await fetchUserByEmail(authUser.email);
           if (employeeData) {
+            // always set employee so name/email render even if role fetch fails
             setEmployee(employeeData);
-            const { data: roleData } = await supabase
-              .from("user_role_assignments")
-              .select(`roles!inner(name)`)
-              .eq("user_id", employeeData.user_id)
-              .eq("is_active", true);
 
-            if (roleData) {
-              const roles = roleData.map((ra: any) => ra.roles?.name);
-              setIsAdmin(roles.some((r: string | undefined) => ['ADMIN', 'SUPER_ADMIN', 'Admin'].includes(String(r))));
+            // fetch role assignments via backend API instead of direct Supabase access
+            try {
+              const rolesRes = await fetch(`${API_BASE}/api/roles/users/${employeeData.user_id}`, {
+                headers: { 'X-User-ID': employeeData.user_id }
+              });
+
+              if (!rolesRes.ok) {
+                console.error('[employee-navigation] Failed to fetch user roles from backend:', rolesRes.status, await rolesRes.text().catch(()=>''));
+                // keep user visible but not admin
+                setIsAdmin(false);
+                setUserRoles([]);
+                return;
+              }
+
+              const payload = await rolesRes.json().catch(() => null);
+              const assignments = payload?.assignments ?? payload?.data ?? payload ?? [];
+
+              // normalize and extract role objects
+              const normalizedRoles = (assignments || []).map((ra: any) => {
+                const r = ra.role ?? ra.roles ?? ra;
+                return {
+                  name: (r?.name ?? '').toString(),
+                  level: Number(r?.level ?? -1),
+                  id: r?.role_id ?? r?.id ?? null
+                };
+              }).filter((r: any) => r.name || r.level >= 0);
+
+              setUserRoles(normalizedRoles.map((r: any) => r.name));
+
+              // admin detection: role.level >= 3 OR known admin names
+              const hasAdminRole = normalizedRoles.some((r: any) => {
+                const name = (r.name || '').toLowerCase().replace(/[-_\s]/g, '');
+                return r.level >= 3 || ['admin','superadmin','super_admin','ceo'].includes(name);
+              });
+
+              setIsAdmin(hasAdminRole);
+            } catch (e) {
+              console.error('[employee-navigation] Error fetching user roles:', e);
+              setIsAdmin(false);
+              setUserRoles([]);
             }
           }
-        } catch (e) { console.error(e); }
+        } catch (e) {
+          console.error(e);
+        }
       };
       fetchEmployee();
     }
   }, [providedUser, authUser?.email, pathname]);
-
+    
   useEffect(() => {
     setIsNavigating(false);
   }, [pathname]);
@@ -127,9 +186,8 @@ const EmployeeNavigation = ({
 
   // UI Component: Tooltip for collapsed state
   const NavTooltip = ({ label }: { label: string }) => (
-    <div className="absolute left-full ml-3 px-3 py-2 bg-[#1E293B] text-white text-xs font-bold rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 translate-x-[-10px] group-hover:translate-x-0 z-[100] whitespace-nowrap shadow-xl">
+    <div className="absolute left-full ml-2 px-2.5 py-1.5 bg-slate-900 text-white text-xs font-medium rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible pointer-events-none transition-all duration-200 z-[9999] whitespace-nowrap shadow-lg top-1/2 -translate-y-1/2">
       {label}
-      <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-2 bg-[#1E293B] rotate-45" />
     </div>
   );
 
@@ -157,7 +215,7 @@ const EmployeeNavigation = ({
         </Button>
       </div>
 
-      <aside className={`fixed top-0 left-0 h-screen bg-white border-r border-slate-100 z-50 transition-all duration-300 ease-in-out flex flex-col
+      <aside className={`fixed top-0 left-0 h-screen bg-white border-r border-slate-100 z-50 transition-all duration-300 ease-in-out flex flex-col overflow-visible
         ${isMobileOpen ? 'translate-x-0 w-[280px]' : '-translate-x-full lg:translate-x-0'} 
         ${isCollapsed ? 'lg:w-20' : 'lg:w-[280px]'}`}>
         
@@ -193,7 +251,7 @@ const EmployeeNavigation = ({
           </div>
         )}
 
-        <nav className="flex-1 px-3 overflow-y-auto space-y-1 custom-scrollbar pt-2">
+        <nav className="flex-1 px-3 overflow-y-visible overflow-x-visible space-y-1 custom-scrollbar pt-2">
           {/* Home */}
           <div className="relative group">
             <button 
@@ -223,9 +281,9 @@ const EmployeeNavigation = ({
             {coursesOpen && !isCollapsed && (
               <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
                 {[
-                  { href: '/employee/welcome', label: 'Active Modules', icon: Play },
+                  { href: '/employee/welcome', label: 'In Progress', icon: Play },
                   { href: '/employee/welcome', label: 'Completed', icon: Check },
-                  { href: '/content-library', label: 'All Modules', icon: List }
+                  { href: '/content-library', label: 'All Sprints', icon: List }
                 ].map((item) => (
                   <button
                     key={item.label}
@@ -266,6 +324,16 @@ const EmployeeNavigation = ({
             )}
           </div>
 
+          <div className="relative group">
+            <button 
+              onClick={() => handleNavigate('/employee/roleplay')}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/roleplay') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+            >
+              <UsersRound size={20} className="shrink-0" />
+              {!isCollapsed && <span className="text-[15px] font-bold">Role-Play</span>}
+            </button>
+            {isCollapsed && <NavTooltip label="Role-Play" />}
+          </div>
           {/* Console */}
           {isAdmin && (
             <>
@@ -288,6 +356,52 @@ const EmployeeNavigation = ({
                         { href: "/admin/dashboard/analytics", label: "Analytics", icon: BarChart3 },
                         { href: "/admin/dashboard/employees", label: "Employees", icon: Users },
                         { href: "/admin/dashboard/uploads", label: "Uploads", icon: Upload },
+                        { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
+                    ].map((item) => (
+                        <button
+                            key={item.label}
+                            onClick={() => handleNavigate(item.href)}
+                            className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                        >
+                            <item.icon size={18} className="shrink-0" />
+                            <span className="truncate">{item.label}</span>
+                        </button>
+                    ))}
+                    {/* Notify Button */}
+                    <button
+                        onClick={() => setShowDispatchCenter(true)}
+                        className="w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50 relative"
+                    >
+                        <Bell size={18} className="shrink-0" />
+                        <span className="truncate">Notify</span>
+                        {/* Notification badge */}
+                        <div className="absolute top-2 left-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"></div>
+                    </button>
+                  </div>
+                )}
+                
+              </div>
+
+              {/* KPI Panel */}
+              <div className="relative group">
+                <button 
+                  onClick={() => isCollapsed ? handleNavigate('/kpi/intelligence') : setKpiDropdownOpen(!kpiDropdownOpen)} 
+                  className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <TrendingUp size={20} className="shrink-0" />
+                    {!isCollapsed && <span className="text-[15px] font-bold">KPI</span>}
+                  </div>
+                  {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${kpiDropdownOpen ? '' : '-rotate-90'}`} />}
+                </button>
+                {isCollapsed && <NavTooltip label="KPI" />}
+                {kpiDropdownOpen && !isCollapsed && (
+                  <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
+                    {[
+                        { href: "/kpi/intelligence", label: "KPI Intelligence", icon: TrendingUp },
+                        { href: "/kpi/configuration", label: "KPI Configuration", icon: SettingsIcon },
+                        { href: "/kpi/turbocharge", label: "KPI TurboCharge", icon: Zap },
+                        { href: "/kpi/workforce-overview", label: "Workforce Overview", icon: UsersRound },
                     ].map((item) => (
                         <button
                             key={item.label}
@@ -300,46 +414,22 @@ const EmployeeNavigation = ({
                     ))}
                   </div>
                 )}
-                
               </div>
             </>
           )}
 
-          {/* KPI Panel */}
-          
-          <div className="relative group">
+        <div className="relative group">
             <button 
-              onClick={() => isCollapsed ? handleNavigate('/kpi') : setKpiDropdownOpen(!kpiDropdownOpen)} 
-              className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
+              onClick={() => handleNavigate('/employee/account')}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/roleplay') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
             >
-              <div className="flex items-center gap-3.5">
-                <TrendingUp size={20} className="shrink-0" />
-                {!isCollapsed && <span className="text-[15px] font-bold">KPI</span>}
-              </div>
-              {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${kpiDropdownOpen ? '' : '-rotate-90'}`} />}
+              <UsersRound size={20} className="shrink-0" />
+              {!isCollapsed && <span className="text-[15px] font-bold">Profile</span>}
             </button>
-            {isCollapsed && <NavTooltip label="KPI" />}
-            {kpiDropdownOpen && !isCollapsed && (
-              <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
-                {[
-                    { href: "/kpi/intelligence", label: "KPI Intelligence", icon: TrendingUp },
-                    { href: "/kpi/configuration", label: "KPI Configuration", icon: SettingsIcon },
-                    { href: "/kpi/turbocharge", label: "KPI TurboCharge", icon: Zap },
-                    { href: "/kpi/workforce-overview", label: "Workforce Overview", icon: UsersRound },
-                ].map((item) => (
-                    <button
-                        key={item.label}
-                        onClick={() => handleNavigate(item.href)}
-                        className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
-                    >
-                        <item.icon size={18} className="shrink-0" />
-                        <span className="truncate">{item.label}</span>
-                    </button>
-                ))}
-              </div>
-            )}
+            {isCollapsed && <NavTooltip label="Profile" />}
           </div>
         </nav>
+
 
         {/* Logout */}
         <div className="p-4 border-t border-slate-50 mt-auto">
@@ -347,14 +437,21 @@ const EmployeeNavigation = ({
             <LogOut size={20} className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
             {!isCollapsed && <span>Log Out</span>}
             {isCollapsed && (
-              <div className="absolute left-full ml-3 px-3 py-2 bg-[#EF4444] text-white text-xs font-bold rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-[100] whitespace-nowrap shadow-xl">
+              <div className="absolute left-full ml-2 px-2.5 py-1.5 bg-red-600 text-white text-xs font-medium rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible pointer-events-none transition-all duration-200 z-[9999] whitespace-nowrap shadow-lg top-1/2 -translate-y-1/2">
                 Log Out
-                <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-2 bg-[#EF4444] rotate-45" />
               </div>
             )}
           </button>
         </div>
       </aside>
+
+      {/* Admin Dispatch Center Modal */}
+      {isAdmin && (
+        <AdminDispatchCenter 
+          isOpen={showDispatchCenter} 
+          onClose={() => setShowDispatchCenter(false)} 
+        />
+      )}
     </>
   );
 };

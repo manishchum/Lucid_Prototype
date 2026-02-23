@@ -1,11 +1,13 @@
 import os
+import re
 import json
 import hashlib
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase
 
 import google.generativeai as genai
 
@@ -13,27 +15,35 @@ import google.generativeai as genai
 router = APIRouter()
 
 # Equivalent of: import { supabase } from '@/lib/supabase';
-# You should use your anon/service key setup here exactly like your backend expects.
-supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
-supabaseKey = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY") or os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") or ""
-supabase: Client = create_client(supabaseUrl, supabaseKey)
+# supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
+# supabaseKey = (
+#     os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+#     or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+#     or os.getenv("SUPABASE_ANON_KEY")
+#     or ""
+# )
 
+# supabase: Client = create_client(supabaseUrl, supabaseKey)
 
 # Verify GEMINI_API_KEY is loaded
 if not os.getenv("GEMINI_API_KEY"):
     print("[gpt-mcq-quiz] CRITICAL: GEMINI_API_KEY is not set in environment variables!")
 
-# Equivalent of:
-# const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
 
 
+# -----------------------------
 # Deep comparison helpers for modules
+# -----------------------------
 def normalizeModules(modules: Any):
     if not isinstance(modules, list):
         return []
-    # Only keep objects with a title property
-    validModules = [m for m in modules if m and isinstance(m, dict) and isinstance(m.get("title"), str)]
+
+    validModules = [
+        m for m in modules
+        if m and isinstance(m, dict) and isinstance(m.get("title"), str)
+    ]
+
     return sorted(
         [
             {
@@ -47,7 +57,9 @@ def normalizeModules(modules: Any):
     )
 
 
+# -----------------------------
 # Helper to call Gemini for MCQ quiz generation
+# -----------------------------
 async def generateMCQQuiz(summary: str, modules: Any, objectives: Any) -> List[Any]:
     prompt = f"""You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom's Taxonomy.
 
@@ -97,7 +109,7 @@ Objectives: {json.dumps(objectives)}
 """
 
     try:
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
+        model = genai.GenerativeModel("gemini-3-pro-preview")
         result = model.generate_content(prompt)
         content = result.text if result else None
 
@@ -109,14 +121,12 @@ Objectives: {json.dumps(objectives)}
         try:
             cleanedContent = content.strip()
 
-            # Find JSON array bounds in the response
             jsonStart = cleanedContent.find("[")
             jsonEnd = cleanedContent.rfind("]")
 
             if jsonStart != -1 and jsonEnd != -1 and jsonEnd > jsonStart:
                 cleanedContent = cleanedContent[jsonStart:jsonEnd + 1]
             else:
-                # Fallback: remove markdown code fences if present
                 if cleanedContent.startswith("```json"):
                     cleanedContent = cleanedContent.replace("```json", "", 1).strip()
                     if cleanedContent.endswith("```"):
@@ -152,7 +162,7 @@ async def POST(request: Request):
     body = await request.json()
 
     # Derive learning style from provided user_id when available
-    reqUserId = body.get("userId") or body.get("userId") or None
+    reqUserId = body.get("userId") or body.get("user_id") or None
     userLearningStyle: Optional[str] = None
 
     if reqUserId:
@@ -173,13 +183,26 @@ async def POST(request: Request):
         except Exception as e:
             print("[gpt-mcq-quiz] Error fetching learning style:", e)
 
-    # Determine if this is a baseline or module assessment request
+    # Determine if baseline request
+
+    print("baseline check - body:", body)
     isBaselineRequest = body.get("isBaseline") is True or body.get("assessmentType") == "baseline"
 
-    # Per-module quiz branch
-    explicitModuleId = body.get("moduleIds") or body.get("moduleId") or None
-    singleFromArray = str(body["moduleIds"][0]) if isinstance(body.get("moduleIds"), list) and len(body.get("moduleIds")) == 1 else None
-    moduleId = str(explicitModuleId) if explicitModuleId else singleFromArray
+    # Per-module quiz branch: supports BOTH keys exactly like TS
+    explicitModuleId = (
+        body.get("moduleId")
+        or body.get("processed_module_id")
+        or body.get("module_id")
+        or None
+    )
+    
+    # Handle moduleIds array - extract first element if it's a list
+    if not explicitModuleId and body.get("moduleIds"):
+        moduleIds = body.get("moduleIds")
+        if isinstance(moduleIds, list) and len(moduleIds) > 0:
+            explicitModuleId = moduleIds[0]
+    
+    moduleId = str(explicitModuleId) if explicitModuleId else None
 
     if moduleId and (not isBaselineRequest):
         if (not moduleId) or moduleId == "undefined" or moduleId == "null":
@@ -195,6 +218,7 @@ async def POST(request: Request):
         processedModuleId: Optional[str] = None
         existingProcessed: Any = None
 
+        # lookup processed_modules by processed_module_id first
         try:
             pmRes = (
                 supabase
@@ -208,6 +232,7 @@ async def POST(request: Request):
             if pmIdErr:
                 print("[gpt-mcq-quiz] lookup processed_modules by processed_module_id warning:", pmIdErr)
 
+            # ✅ TS logic intends a single object, but supabase-py returns list for .execute()
             if pmById and isinstance(pmById, list) and len(pmById) > 0 and pmById[0].get("processed_module_id"):
                 existingProcessed = pmById[0]
                 processedModuleId = pmById[0].get("processed_module_id")
@@ -215,6 +240,7 @@ async def POST(request: Request):
         except Exception as e:
             print("[gpt-mcq-quiz] Error querying processed_modules by id:", e)
 
+        # fallback lookup by original_module_id
         if not processedModuleId:
             try:
                 pmOrigRes = (
@@ -226,31 +252,31 @@ async def POST(request: Request):
                 )
                 pmByOriginal = getattr(pmOrigRes, "data", None)
                 pmOrigErr = getattr(pmOrigRes, "error", None)
+                if pmOrigErr:
+                    print("[gpt-mcq-quiz] lookup processed_modules by original_module_id warning:", pmOrigErr)
 
-                module_idd = None
-                if isinstance(pmByOriginal, list) and len(pmByOriginal) == 0:
-                    pmOrigRes2 = (
+                if isinstance(pmByOriginal, list) and len(pmByOriginal) > 0 and pmByOriginal[0].get("processed_module_id"):
+                    existingProcessed = pmByOriginal[0]
+                    processedModuleId = pmByOriginal[0].get("processed_module_id")
+
+                # TS has an extra fallback: if pmByOriginal is empty, query by processed_module_id again
+                if (not processedModuleId) and isinstance(pmByOriginal, list) and len(pmByOriginal) == 0:
+                    pmRes2 = (
                         supabase
                         .table("processed_modules")
                         .select("processed_module_id, title, content, original_module_id, learning_style")
                         .eq("processed_module_id", moduleId)
                         .execute()
                     )
-                    module_idd = getattr(pmOrigRes2, "data", None)
-                else:
-                    module_idd = pmByOriginal
-
-                if pmOrigErr:
-                    print("[gpt-mcq-quiz] lookup processed_modules by original_module_id warning:", pmOrigErr)
-
-                if module_idd and isinstance(module_idd, list) and len(module_idd) > 0 and module_idd[0].get("processed_module_id"):
-                    existingProcessed = module_idd[0]
-                    processedModuleId = module_idd[0].get("processed_module_id")
+                    module_idd = getattr(pmRes2, "data", None)
+                    if isinstance(module_idd, list) and len(module_idd) > 0 and module_idd[0].get("processed_module_id"):
+                        existingProcessed = module_idd[0]
+                        processedModuleId = module_idd[0].get("processed_module_id")
 
             except Exception as e:
                 print("[gpt-mcq-quiz] Error querying processed_modules by original_module_id:", e)
 
-        # If no processed module found, fallback to raw training_module and create a processed entry
+        # If no processed module found, fallback to training_modules and create processed entry
         if not processedModuleId:
             try:
                 tmRes = (
@@ -277,20 +303,24 @@ async def POST(request: Request):
                     .insert({
                         "original_module_id": str(moduleId),
                         "title": trainingModule.get("title"),
-                        "content": trainingModule.get("gpt_summary") or trainingModule.get("content"),
+                        "content": trainingModule.get("gpt_summary") or "",
                         "learning_style": learningStyle,
-                    })
-                    .select("processed_module_id")
-                    .single()
+                    }, returning="representation")
                     .execute()
                 )
 
-                newProcessed = getattr(insertRes, "data", None)
+                newProcessedData = getattr(insertRes, "data", None)
                 insertErr = getattr(insertRes, "error", None)
 
+                newProcessed = None
+                if isinstance(newProcessedData, list) and len(newProcessedData) > 0:
+                    newProcessed = newProcessedData[0]
+                elif isinstance(newProcessedData, dict):
+                    newProcessed = newProcessedData
+
                 if insertErr:
-                    # Duplicate
                     insert_code = insertErr.get("code") if isinstance(insertErr, dict) else getattr(insertErr, "code", None)
+
                     if insert_code == "23505":
                         reRes = (
                             supabase
@@ -329,7 +359,7 @@ async def POST(request: Request):
         moduleTitle = (existingProcessed.get("title") if isinstance(existingProcessed, dict) else "") or ""
         moduleContent = (existingProcessed.get("content") if isinstance(existingProcessed, dict) else "") or ""
 
-        # Check if quiz already exists
+        # Existing quiz check
         assessmentsRes = (
             supabase
             .table("assessments")
@@ -347,20 +377,14 @@ async def POST(request: Request):
 
         if existing:
             try:
-                questions = existing.get("questions")
-                quiz = questions if isinstance(questions, list) else json.loads(questions)
-                return JSONResponse(content={"quiz": quiz, "assessmentId": existing.get("assessment_id")})
+                quizExisting = existing.get("questions")
+                quizExisting = quizExisting if isinstance(quizExisting, list) else json.loads(quizExisting)
+                return JSONResponse(content={"quiz": quizExisting, "assessmentId": existing.get("assessment_id")})
             except Exception:
                 return JSONResponse(content={"quiz": existing.get("questions"), "assessmentId": existing.get("assessment_id")})
 
-        # Compose prompt for per-module MCQ quiz
-        # Use full processed content to ensure questions match what user studied
+        # ✅ TS PER-MODULE PROMPT (preserved EXACT structure/content)
         prompt = f"""You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom's Taxonomy.
-
-IMPORTANT: Generate questions ONLY from the content provided below. Do not add external knowledge or concepts not covered in the learning content.
-
-Learning Style Adaptation: {learningStyle}
-This content has been adapted for {learningStyle} learners. Generate questions that test understanding of the ACTUAL content provided, not general knowledge about the topic.
 
 Input: A learning asset (text, notes, or structured content).
 
@@ -391,7 +415,6 @@ Question Design Rules:
 - Provide 4 answer choices (A–D).
 - Clearly mark the correct answer.
 - Avoid ambiguity; test one concept per question. Ensure every concept is tested.
-- Questions MUST be based on the content below, not external knowledge.
 
 Return ONLY a valid JSON array of 10-13 question objects, with no extra text, markdown, code blocks, or formatting. Each object must include:
 {{
@@ -403,15 +426,12 @@ Return ONLY a valid JSON array of 10-13 question objects, with no extra text, ma
 }}
 
 Learning Content:
-Module Title: {moduleTitle}
-
-Full Content (adapted for {learningStyle} learners):
-{moduleContent}
-
-Generate questions that test understanding of THIS specific content only."""
+Summary: {moduleTitle}
+Modules: {json.dumps([moduleTitle])}
+Objectives: {json.dumps([moduleContent])}"""
 
         try:
-            model = genai.GenerativeModel("gemini-2.5-flash-lite")
+            model = genai.GenerativeModel("gemini-3-pro-preview")
             result = model.generate_content(prompt)
             content = result.text if result else ""
 
@@ -437,7 +457,7 @@ Generate questions that test understanding of THIS specific content only."""
             except Exception:
                 quiz = []
 
-            # deterministic UUID
+            # Save quiz for this learning style, deterministic UUID (SHA1)
             stableIdSeed = f"module:{processedModuleId}|style:{learningStyle}"
             hash_hex = hashlib.sha1(stableIdSeed.encode("utf-8")).hexdigest()
             stableId = f"{hash_hex[0:8]}-{hash_hex[8:12]}-{hash_hex[12:16]}-{hash_hex[16:20]}-{hash_hex[20:32]}"
@@ -450,16 +470,17 @@ Generate questions that test understanding of THIS specific content only."""
                     "type": "module",
                     "processed_module_id": processedModuleId,
                     "questions": json.dumps(quiz),
-                    "learning_style": learningStyle
+                    "learning_style": learningStyle,
+                    "company_id": body.get("companyId") or None
                 })
                 .execute()
             )
 
-            insertResult = getattr(insertAssessmentRes, "data", None)
             insertError = getattr(insertAssessmentRes, "error", None)
 
             if insertError:
                 insert_code = insertError.get("code") if isinstance(insertError, dict) else getattr(insertError, "code", None)
+
                 if insert_code in ["23505", "409"]:
                     existingListAfterRes = (
                         supabase
@@ -472,12 +493,14 @@ Generate questions that test understanding of THIS specific content only."""
                         .limit(1)
                         .execute()
                     )
+
                     existingListAfter = getattr(existingListAfterRes, "data", None)
                     existingAfter = existingListAfter[0] if isinstance(existingListAfter, list) and len(existingListAfter) > 0 else None
+
                     if existingAfter:
                         try:
-                            questions = existingAfter.get("questions")
-                            quizExisting = questions if isinstance(questions, list) else json.loads(questions)
+                            quizExisting = existingAfter.get("questions")
+                            quizExisting = quizExisting if isinstance(quizExisting, list) else json.loads(quizExisting)
                             return JSONResponse(content={"quiz": quizExisting})
                         except Exception:
                             return JSONResponse(content={"quiz": existingAfter.get("questions")})
@@ -492,9 +515,9 @@ Generate questions that test understanding of THIS specific content only."""
             print("Error generating quiz with Gemini:", error)
             return JSONResponse(content={"error": "Failed to generate quiz"}, status_code=500)
 
-    # ---------------------------
-    # Baseline (multi-module) quiz generation with modules_snapshot logic
-    # ---------------------------
+    # ----------------------------------------------------------------------
+    # BASELINE (multi-module) quiz generation (merged TS logic)
+    # ----------------------------------------------------------------------
     moduleIds = body.get("moduleIds")
     companyId = body.get("companyId")
     assessmentType = body.get("assessmentType")
@@ -507,7 +530,7 @@ Generate questions that test understanding of THIS specific content only."""
     if not companyId:
         return JSONResponse(content={"error": "companyId required"}, status_code=400)
 
-    # 1. Get all selected training modules' content for this company only
+    # 1) training_modules for company
     tmRes = (
         supabase
         .table("training_modules")
@@ -518,14 +541,16 @@ Generate questions that test understanding of THIS specific content only."""
     )
     data = getattr(tmRes, "data", None)
     error = getattr(tmRes, "error", None)
+
     if error or (not data) or (not isinstance(data, list)) or len(data) == 0:
         return JSONResponse(content={"error": "Modules not found"}, status_code=404)
 
+    # tmMap: module_id -> row
     tmMap: Dict[str, Any] = {}
     for r in data:
         tmMap[str(r.get("module_id"))] = r
 
-    # 2. Ensure processed_modules exist for each training module
+    # 2) Ensure processed_modules exist per original_module_id
     processedRes = (
         supabase
         .table("processed_modules")
@@ -546,6 +571,7 @@ Generate questions that test understanding of THIS specific content only."""
 
     missingModuleIds = [mId for mId in moduleIds if str(mId) not in processedMap]
 
+    # insert missing processed_modules (try upsert, fallback insert+requery)
     if len(missingModuleIds) > 0:
         inserts = []
         for mId in missingModuleIds:
@@ -557,10 +583,6 @@ Generate questions that test understanding of THIS specific content only."""
                 "learning_style": userLearningStyle or None,
             })
 
-        insData = None
-        insErr = None
-
-        # supabase-py in this repo does not support `.select()` chained after upsert.
         upsertRes = (
             supabase
             .table("processed_modules")
@@ -569,7 +591,7 @@ Generate questions that test understanding of THIS specific content only."""
         )
         insErr = getattr(upsertRes, "error", None)
 
-        # Re-query only if success to get IDs for processedMap
+        insData = None
         if not insErr:
             requeryRes = (
                 supabase
@@ -580,11 +602,9 @@ Generate questions that test understanding of THIS specific content only."""
             )
             insData = getattr(requeryRes, "data", None)
         else:
-            insData = None
-
-        if insErr:
-            if (isinstance(insErr, dict) and insErr.get("code") == "42P10"):
+            if isinstance(insErr, dict) and insErr.get("code") == "42P10":
                 print("[gpt-mcq-quiz] upsert failed (no unique constraint). Falling back to insert + re-query.", insErr.get("message"))
+
                 insertRes = (
                     supabase
                     .table("processed_modules")
@@ -604,6 +624,7 @@ Generate questions that test understanding of THIS specific content only."""
                 )
                 requeryRows = getattr(requeryRes, "data", None)
                 requeryErr = getattr(requeryRes, "error", None)
+
                 if not requeryErr:
                     insData = requeryRows
                 else:
@@ -618,62 +639,87 @@ Generate questions that test understanding of THIS specific content only."""
                 if p and p.get("original_module_id") and p.get("processed_module_id"):
                     processedMap[str(p["original_module_id"])] = str(p["processed_module_id"])
 
-    # 3. BASELINE: must be unique per original_module_id (training_modules.module_id)
-    existingTemplatesRes = (
+    processedIds = [processedMap.get(str(mId)) for mId in moduleIds]
+    processedIds = [x for x in processedIds if x]
+
+    # 3) Baseline template check using employee_assessments join assessments
+    existingEmployeeAssessmentsRes = (
         supabase
-        .table("assessments")
-        .select("assessment_id, questions, original_module_id")
-        .eq("type", "baseline")
-        .eq("company_id", companyId)
-        .in_("original_module_id", moduleIds)
+        .table("employee_assessments")
+        .select("assessment_id, assessments(assessment_id, processed_module_id, company_id, type)")
         .execute()
     )
-    assessmentsRows = getattr(existingTemplatesRes, "data", None)
-    templatesErr = getattr(existingTemplatesRes, "error", None)
-    if templatesErr:
-        print("[gpt-mcq-quiz] baseline template lookup warning:", templatesErr)
+    existingEmployeeAssessments = getattr(existingEmployeeAssessmentsRes, "data", None)
+    existingBaselinesError = getattr(existingEmployeeAssessmentsRes, "error", None)
 
-    existingByModule: Dict[str, Any] = {}
-    if isinstance(assessmentsRows, list):
-        for a in assessmentsRows:
-            mid = a.get("original_module_id") if isinstance(a, dict) else None
-            if mid:
-                existingByModule[str(mid)] = a
+    if existingBaselinesError:
+        print("[gpt-mcq-quiz] lookup employee_assessments warning:", existingBaselinesError)
 
-    requestedModuleIds = [str(x) for x in moduleIds]
-    requestedModuleIdSet = set(requestedModuleIds)
+    matched = []
+    if isinstance(existingEmployeeAssessments, list):
+        for r in existingEmployeeAssessments:
+            rel = r.get("assessments") if isinstance(r, dict) else None
+            if isinstance(rel, list) and len(rel) > 0:
+                rel = rel[0]
+            if isinstance(rel, dict):
+                if rel.get("type") == "baseline" and str(rel.get("processed_module_id")) in set(map(str, processedIds)):
+                    matched.append(r)
 
-    # If we already have baselines for all requested modules, return mapping from DB.
-    if requestedModuleIdSet.issubset(set(existingByModule.keys())):
+    if len(matched) > 0:
+        templateMap: Dict[str, Optional[str]] = {}
+        for r in matched:
+            rel = r.get("assessments") if isinstance(r, dict) else None
+            if isinstance(rel, list) and len(rel) > 0:
+                rel = rel[0]
+            aid = rel.get("assessment_id") if isinstance(rel, dict) else None
+            pmid = rel.get("processed_module_id") if isinstance(rel, dict) else None
+            if aid:
+                templateMap[str(aid)] = str(pmid) if pmid else None
+
+        templateIds = list(templateMap.keys())
+
+        assessmentsRowsRes = (
+            supabase
+            .table("assessments")
+            .select("assessment_id, questions, processed_module_id")
+            .in_("assessment_id", templateIds)
+            .execute()
+        )
+        assessmentsRows = getattr(assessmentsRowsRes, "data", None)
+        assessmentsErr = getattr(assessmentsRowsRes, "error", None)
+        if assessmentsErr:
+            print("[gpt-mcq-quiz] fetch assessments for existing templates warning:", assessmentsErr)
+
         resultMap = []
-        seenModuleIds = set()
-        for mId in requestedModuleIds:
-            if mId in seenModuleIds:
-                continue
-            seenModuleIds.add(mId)
-
-            a = existingByModule.get(mId)
-            if not a:
-                continue
-
-            questions = a.get("questions")
+        for a in (assessmentsRows or []):
+            questions = a.get("questions") if isinstance(a, dict) else None
             try:
                 if isinstance(questions, str):
                     questions = json.loads(questions)
             except Exception:
                 pass
 
+            procId = (a.get("processed_module_id") if isinstance(a, dict) else None) or templateMap.get(str(a.get("assessment_id")))
+            moduleIdFound = None
+            for k, v in processedMap.items():
+                if str(v) == str(procId):
+                    moduleIdFound = k
+                    break
+
             resultMap.append({
-                "module_id": str(a.get("original_module_id")),
-                "processed_module_id": None,
+                "module_id": moduleIdFound,
+                "processed_module_id": procId,
                 "assessment_id": a.get("assessment_id"),
                 "questions": questions
             })
 
-        # Optionally assign to a specific user
+        # assign to requesting user
         if reqUserId:
-            rowsToUpsert = [
-                {
+            rowsToUpsert = []
+            for a in (assessmentsRows or []):
+                if not isinstance(a, dict):
+                    continue
+                rowsToUpsert.append({
                     "user_id": reqUserId,
                     "assessment_id": a.get("assessment_id"),
                     "score": None,
@@ -681,10 +727,7 @@ Generate questions that test understanding of THIS specific content only."""
                     "answers": None,
                     "feedback": None,
                     "question_feedback": None
-                }
-                for a in (assessmentsRows or [])
-                if isinstance(a, dict) and a.get("assessment_id")
-            ]
+                })
 
             if len(rowsToUpsert) > 0:
                 upsertEARes = (
@@ -706,34 +749,22 @@ Generate questions that test understanding of THIS specific content only."""
                 })
             return JSONResponse(content={"quizMapping": resultMap, "source": "db", "assignedTo": reqUserId})
 
-        # Bulk assign
+        # bulk assign
         try:
             plansRes = (
                 supabase
                 .table("learning_plan")
                 .select("user_id")
                 .eq("company_id", companyId)
-                .eq("status", "ASSIGNED")
                 .execute()
             )
-            plansErr = getattr(plansRes, "error", None)
-            if plansErr and isinstance(plansErr, dict) and plansErr.get("code") == "42703":
-                # Column likely doesn't exist; retry without company_id filter.
-                plansRes = (
-                    supabase
-                    .table("learning_plan")
-                    .select("user_id")
-                    .eq("status", "ASSIGNED")
-                    .execute()
-                )
-
-            plans = getattr(plansRes, "data", None)
-            users = [p.get("user_id") for p in plans] if isinstance(plans, list) else []
+            plans = getattr(plansRes, "data", None) or []
+            users = [p.get("user_id") for p in plans if isinstance(p, dict) and p.get("user_id")]
 
             bulkRows = []
             for u in users:
                 for a in (assessmentsRows or []):
-                    if not isinstance(a, dict) or not a.get("assessment_id"):
+                    if not isinstance(a, dict):
                         continue
                     bulkRows.append({
                         "user_id": u,
@@ -755,6 +786,7 @@ Generate questions that test understanding of THIS specific content only."""
                 bulkErr = getattr(bulkRes, "error", None)
                 if bulkErr:
                     print("[gpt-mcq-quiz] bulk upsert employee_assessments warning:", bulkErr)
+
         except Exception as e:
             print("[gpt-mcq-quiz] bulk-assign warning:", e)
 
@@ -767,10 +799,10 @@ Generate questions that test understanding of THIS specific content only."""
             })
         return JSONResponse(content={"quizMapping": resultMap, "source": "db", "assignedTo": "bulk"})
 
-    # Prepare normalized snapshot
+    # 4) Prepare normalized snapshot
     currentModules = []
     for mod in data:
-        ai_modules = mod.get("ai_modules")
+        ai_modules = mod.get("ai_modules") if isinstance(mod, dict) else None
         if ai_modules:
             try:
                 currentModules.extend(json.loads(ai_modules) if isinstance(ai_modules, str) else ai_modules)
@@ -779,14 +811,40 @@ Generate questions that test understanding of THIS specific content only."""
 
     normalizedSnapshot = json.dumps(normalizeModules(currentModules))
 
-    # Check for existing baseline templates directly by original_module_id.
-    # If some are missing, we will generate and insert only for those moduleIds.
-    missingForBaseline = [mId for mId in moduleIds if str(mId) not in existingByModule]
+    # 5) Check existing assessment with snapshot for ANY of processedIds
+    existingAssessmentRes = (
+        supabase
+        .table("assessments")
+        .select("assessment_id, questions, company_id, modules_snapshot, processed_module_id")
+        .eq("type", "baseline")
+        .eq("company_id", companyId)
+        .in_("processed_module_id", processedIds)
+        .order("created_at", desc=True)
+        .limit(1)
+        .maybe_single()
+        .execute()
+    )
 
-    combinedSummary = "\n".join([mod.get("gpt_summary") for mod in data if mod.get("gpt_summary")])
+    existingAssessment = getattr(existingAssessmentRes, "data", None)
+    assessmentError = getattr(existingAssessmentRes, "error", None)
+
+    if assessmentError and (not (isinstance(assessmentError, dict) and assessmentError.get("code") == "PGRST116")):
+        print("[gpt-mcq-quiz] existing baseline lookup warning:", assessmentError)
+
+    if existingAssessment and isinstance(existingAssessment, dict) and existingAssessment.get("modules_snapshot"):
+        if existingAssessment.get("modules_snapshot") == normalizedSnapshot:
+            try:
+                quizData = existingAssessment.get("questions")
+                if isinstance(quizData, str):
+                    quizData = json.loads(quizData)
+                return JSONResponse(content={"quiz": quizData, "source": "db", "assessmentId": existingAssessment.get("assessment_id")})
+            except Exception:
+                pass
+
+    combinedSummary = "\n".join([mod.get("gpt_summary") for mod in data if isinstance(mod, dict) and mod.get("gpt_summary")])
     combinedObjectives = []
     for mod in data:
-        ai_objectives = mod.get("ai_objectives")
+        ai_objectives = mod.get("ai_objectives") if isinstance(mod, dict) else None
         if ai_objectives:
             try:
                 combinedObjectives.extend(json.loads(ai_objectives) if isinstance(ai_objectives, str) else ai_objectives)
@@ -802,91 +860,81 @@ Generate questions that test understanding of THIS specific content only."""
             "rawResponse": quiz
         }, status_code=500)
 
-    if len(missingForBaseline) > 0:
-        rowsToInsert = [
-            {
-                "type": "baseline",
+    # update or insert
+    if existingAssessment and isinstance(existingAssessment, dict) and existingAssessment.get("assessment_id"):
+        updateRes = (
+            supabase
+            .table("assessments")
+            .update({
                 "questions": json.dumps(quiz),
-                "company_id": companyId,
-                "modules_snapshot": normalizedSnapshot,
-                "original_module_id": str(mId),
-                "learning_style": None
-            }
-            for mId in missingForBaseline
-        ]
-
-        insertAssessmentRes = (
-            supabase
-            .table("assessments")
-            .insert(rowsToInsert)
-            .execute()
-        )
-        insertError = getattr(insertAssessmentRes, "error", None)
-
-        if insertError:
-            print("[gpt-mcq-quiz] Failed to insert baseline assessment(s):", insertError)
-            return JSONResponse(content={"error": "Failed to save baseline assessment (insert)."}, status_code=500)
-
-        # supabase-py doesn't support `.select()` after insert in this repo.
-        # Re-query baseline templates and return mapping.
-        requeryRes = (
-            supabase
-            .table("assessments")
-            .select("assessment_id, questions, original_module_id")
-            .eq("type", "baseline")
+                "modules_snapshot": normalizedSnapshot
+            })
+            .eq("assessment_id", existingAssessment.get("assessment_id"))
             .eq("company_id", companyId)
-            .in_("original_module_id", moduleIds)
             .execute()
         )
-        afterRows = getattr(requeryRes, "data", None)
+        updateError = getattr(updateRes, "error", None)
+        if updateError:
+            print("[gpt-mcq-quiz] Failed to update baseline assessment:", updateError)
+            return JSONResponse(content={"error": "Failed to save baseline assessment (update)."}, status_code=500)
 
-        resultMap = []
-        for a in (afterRows or []):
-            questions = a.get("questions") if isinstance(a, dict) else None
-            try:
-                if isinstance(questions, str):
-                    questions = json.loads(questions)
-            except Exception:
-                pass
+        return JSONResponse(content={"quiz": quiz, "source": "generated", "assessmentId": existingAssessment.get("assessment_id")})
 
-            resultMap.append({
-                "module_id": str(a.get("original_module_id")) if isinstance(a, dict) else None,
-                "processed_module_id": None,
-                "assessment_id": a.get("assessment_id") if isinstance(a, dict) else None,
-                "questions": questions
-            })
-
-        if len(resultMap) == 1:
-            return JSONResponse(content={
-                "quizMapping": resultMap,
-                "quiz": resultMap[0].get("questions"),
-                "source": "generated"
-            })
-        return JSONResponse(content={"quizMapping": resultMap, "source": "generated"})
-
-    # If we got here, we had some baseline rows but not for all requested modules.
-    # Return what we have (client can request missing modules again).
-    resultMap = []
-    for a in (assessmentsRows or []):
-        if not isinstance(a, dict):
+    # Insert baseline rows: 1 per module
+    rowsToInsert = []
+    snapshotHash = hashlib.sha1(normalizedSnapshot.encode("utf-8")).hexdigest()
+    for mId in moduleIds:
+        processedId = processedMap.get(str(mId))
+        if not processedId:
             continue
-        questions = a.get("questions")
-        try:
-            if isinstance(questions, str):
-                questions = json.loads(questions)
-        except Exception:
-            pass
-        resultMap.append({
-            "module_id": str(a.get("original_module_id")),
-            "processed_module_id": None,
-            "assessment_id": a.get("assessment_id"),
-            "questions": questions
+
+        stableSeed = f"baseline:{companyId}|pm:{processedId}|style:{userLearningStyle or ''}|snap:{snapshotHash}"
+        hash_hex = hashlib.sha1(stableSeed.encode("utf-8")).hexdigest()
+        stableId = f"{hash_hex[0:8]}-{hash_hex[8:12]}-{hash_hex[12:16]}-{hash_hex[16:20]}-{hash_hex[20:32]}"
+
+        rowsToInsert.append({
+            "assessment_id": stableId,
+            "type": "baseline",
+            "questions": json.dumps(quiz),
+            "company_id": companyId,
+            "modules_snapshot": normalizedSnapshot,
+            "processed_module_id": processedId,
+            "learning_style": userLearningStyle or None
         })
 
-    if len(resultMap) == 1:
-        return JSONResponse(content={
-            "quizMapping": resultMap,
-            "quiz": resultMap[0].get("questions"),
-            "source": "db"
-        })
-    return JSONResponse(content={"quizMapping": resultMap, "source": "db"})
+    if len(rowsToInsert) == 0:
+        return JSONResponse(content={"error": "Failed to map moduleIds to processed_modules."}, status_code=500)
+
+    # supabase-py/postgrest does not support chaining `.select()` after `.insert()` in this environment
+    insertAssessmentRes = (
+        supabase
+        .table("assessments")
+        .insert(rowsToInsert)
+        .execute()
+    )
+
+    insertData = getattr(insertAssessmentRes, "data", None)
+    insertError = getattr(insertAssessmentRes, "error", None)
+
+    if insertError:
+        insert_code = insertError.get("code") if isinstance(insertError, dict) else getattr(insertError, "code", None)
+
+        # If the deterministic IDs already exist, fetch and return them
+        if insert_code in ["23505", "409"]:
+            stableIds = [r.get("assessment_id") for r in rowsToInsert if isinstance(r, dict) and r.get("assessment_id")]
+            reRes = (
+                supabase
+                .table("assessments")
+                .select("assessment_id, processed_module_id")
+                .in_("assessment_id", stableIds)
+                .execute()
+            )
+            reData = getattr(reRes, "data", None)
+            reErr = getattr(reRes, "error", None)
+            if not reErr:
+                return JSONResponse(content={"quiz": quiz, "source": "generated", "inserted": reData})
+
+        print("[gpt-mcq-quiz] Failed to insert baseline assessment(s):", insertError)
+        return JSONResponse(content={"error": "Failed to save baseline assessment (insert)."}, status_code=500)
+
+    return JSONResponse(content={"quiz": quiz, "source": "generated", "inserted": insertData})

@@ -6,11 +6,12 @@ import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
 import EmployeeNavigation from "@/components/employee-navigation"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Upload, Download, Filter, FileSpreadsheet, CheckCircle2, XCircle, Settings, Search, TrendingUp, Target } from "lucide-react"
+import { Upload, Download, Filter, FileSpreadsheet, CheckCircle2, XCircle, Settings, TrendingUp, Target } from "lucide-react"
 import * as XLSX from 'xlsx'
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface KPI {
   kpi_id: string
@@ -44,6 +45,12 @@ interface ParsedKPI {
   sub_function: string
   title: string
 }
+type KPIUploadResult = {
+    created?: number;
+    updated?: number;
+    skipped?: { row: number; reason: string }[];
+  };
+  
 
 interface FunctionData {
   function_id: string
@@ -56,23 +63,189 @@ interface SubFunctionData {
   function_id: string
 }
 
+
+interface Admin {
+  user_id: string
+  email: string
+  name: string | null
+  company_id: string
+}
 interface TitleData {
   title_id: string
   title_name: string
   sub_function_id: string
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByEmail = async (email: string | null) => {
+  if (!email) return null;
+  try{
+    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if(!res.ok) return null;
+    const payload = await res.json();
+    let u = payload?.user ?? payload;
+    if (Array.isArray(u)) u = u[0];
+    return u || null;
+  } catch (e){
+    console.error("Error fetching user by email:", e);
+    return null;
+  }
+};
+
+function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Admin | null }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const [preview, setPreview] = useState<string[][]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [result, setResult] = useState<{ created?: number; updated?: number; skipped?: { row: number; reason: string }[]; affectedEmployees?: string[] } | null>(null);
+  const [error, setError] = useState("");
+
+  // Parse file for preview
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    setResult(null);
+    setError("");
+    const f = e.target.files?.[0] || null;
+    setFile(f);
+    if (!f) return setPreview([]);
+    try {
+      const arrayBuffer = await f.arrayBuffer();
+      if (f.name.endsWith(".csv")) {
+        const text = new TextDecoder().decode(arrayBuffer);
+        const rows = text.split(/\r?\n/).map(line => line.split(",").map(cell => cell.trim()));
+        setPreview(rows.slice(0, 10));
+      } else if (f.name.endsWith(".xlsx")) {
+        // Dynamically import xlsx for preview
+        const xlsx = await import("xlsx");
+        const workbook = xlsx.read(arrayBuffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+        setPreview((rows as string[][]).slice(0, 10));
+      } else {
+        setError("Unsupported file type. Only CSV or XLSX allowed.");
+        setPreview([]);
+      }
+    } catch (err) {
+      setError("Failed to parse file for preview.");
+      setPreview([]);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!file || !companyId) return;
+    setUploading(true);
+    setResult(null);
+    setError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      // For prototype, send companyId in header (never in prod)
+      const res = await fetch("/api/admin/kpi/upload-scores", {
+        method: "POST",
+        body: formData,
+        headers: {
+          "x-company-id": companyId,
+          ...(admin?.user_id ? { "x-admin-id": admin.user_id } : {})
+        },
+      });
+      console.log(res)
+      const json = await res.json();
+      console.log(json)
+      if (!res.ok) {
+        setError(json.error || "Upload failed");
+      } else {
+        setResult(json);
+        // Reset file input after successful upload
+        setFile(null);
+        setPreview([]);
+        setFileInputKey(prev => prev + 1);
+      }
+    } catch (err) {
+      setError("Upload failed.");
+      // Reset file input after failed upload
+      setFile(null);
+      setPreview([]);
+      setFileInputKey(prev => prev + 1);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div>
+        {/* <Input key={fileInputKey} type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
+        <Button onClick={handleUpload} disabled={!file || uploading}>
+          {uploading ? "Uploading..." : "Upload"}
+        </Button> */}
+  <Card>
+
+                  <div className="space-y-4">
+                    <label
+                      htmlFor="file-upload"
+                      className="flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-all duration-300"
+                    >
+                      <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center mb-3">
+                        <Upload className="w-8 h-8 text-purple-600" />
+                      </div>
+                      <span className="text-sm font-medium text-gray-700">Click to upload Excel file</span>
+                      <span className="text-xs text-gray-500 mt-1">Supported: .xlsx, .xls</span>
+                      <span className="text-xs text-gray-500 mt-1 text-center">Refer to the predefined data fields in the<br/> template before uploading the data</span>
+                    </label>
+                    <Input
+                      id="file-upload"
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      />
+                  </div>
+                      </Card>
+      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+      {preview.length > 0 && (
+        <div className="mb-2">
+          <div className="font-semibold mb-1">Preview (first 10 rows):</div>
+          <table className="text-sm border">
+            <tbody>
+              {preview.map((row, i) => (
+                <tr key={i}>{row.map((cell, j) => <td key={j} className="border px-2 py-1">{cell}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {result && (
+        <div className="mt-2">
+          <div className="font-semibold">Upload Result:</div>
+          <div>Created: {result.created || 0}, Updated: {result.updated || 0}</div>
+          {result.skipped && result.skipped.length > 0 && (
+            <div className="mt-1 text-xs text-gray-500">
+            </div>
+          )}
+          {result.affectedEmployees && (
+            <div className="mt-1 text-xs text-gray-500">
+              Affected Employees:
+              <ul>
+                {result.affectedEmployees.map((id, i) => <li key={i}>{id}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function KPIConfigurationPage() {
-  const router = useRouter()
-  const { user } = useAuth()
-  const [kpis, setKpis] = useState<KPI[]>([])
-  const [filteredKpis, setFilteredKpis] = useState<KPI[]>([])
-  const [loading, setLoading] = useState(true)
-  const [uploading, setUploading] = useState(false)
-  const [parsedData, setParsedData] = useState<ParsedKPI[]>([])
-  const [showPreview, setShowPreview] = useState(false)
-  const [companyId, setCompanyId] = useState<string>("")
-  
+const router = useRouter()
+const { user,loading:authLoading } = useAuth()
+const [kpis, setKpis] = useState<KPI[]>([])
+const [filteredKpis, setFilteredKpis] = useState<KPI[]>([])
+const [loading, setLoading] = useState(true)
+const [uploading, setUploading] = useState(false)
+const [parsedData, setParsedData] = useState<ParsedKPI[]>([])
+const [showPreview, setShowPreview] = useState(false)
+const [companyId, setCompanyId] = useState<string>("")
+
   // Filter data from database
   const [functions, setFunctions] = useState<FunctionData[]>([])
   const [subFunctions, setSubFunctions] = useState<SubFunctionData[]>([])
@@ -83,18 +256,30 @@ export default function KPIConfigurationPage() {
   const [subFunctionFilter, setSubFunctionFilter] = useState("All")
   const [titleFilter, setTitleFilter] = useState("All")
   const [searchTerm, setSearchTerm] = useState("")
-
+  const [admin, setAdmin] = useState<Admin | null>(null);
   useEffect(() => {
-    setTimeout(() => {
-    // console.log(user)
-    if (!user) {
-      router.push("/")
-      return
-    }
-}, 200);
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else fetchAdminId();
+          
+        }
+      }, [user, authLoading, router]);
+
+  const fetchAdminId = async () => {
+    try {
+      if (!user?.email) return;
+      const employeeData = await fetchUserByEmail(user.email);
+      if (!employeeData){
+        throw new Error("Admin user not found.")
+      }
+
     fetchCompanyAndKPIs()
     fetchFilterData()
-  }, [user, router])
+
+    } catch (error) {
+      console.error("Error fetching admin data:", error)
+    }
+  }
 
   const fetchFilterData = async () => {
     try {
@@ -137,34 +322,35 @@ export default function KPIConfigurationPage() {
       setLoading(true)
       
       // Fetch user's company
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("company_id")
-        .eq("email", user?.email)
-        .single()
-
-      if (userError) throw userError
-      
-      if (userData?.company_id) {
-        setCompanyId(userData.company_id)
-        
-        // Fetch KPIs for the company with related data
-        const { data: kpiData, error: kpiError } = await supabase
-          .from("kpis")
-          .select(`
-            *,
-            function:function_id (function_name),
-            sub_function:sub_function_id (sub_function_name),
-            titles:title_id (title_name)
-          `)
-          .eq("company_id", userData.company_id)
-          .order("created_at", { ascending: false })
-
-        if (kpiError) throw kpiError
-        
-        setKpis(kpiData || [])
-        setFilteredKpis(kpiData || [])
+      if(!user?.email) {
+        setLoading(false);
+        return;
       }
+        
+      const employeeData = await fetchUserByEmail(user.email);
+      if (!employeeData?.company_id) {
+        setLoading(false);
+        return;
+      }
+
+      setCompanyId(employeeData.company_id)
+      
+      // Fetch KPIs for the company with related data
+      const { data: kpiData, error: kpiError } = await supabase
+        .from("kpis")
+        .select(`
+          *,
+          function:function_id (function_name),
+          sub_function:sub_function_id (sub_function_name),
+          titles:title_id (title_name)
+        `)
+        .eq("company_id", employeeData.company_id)
+        .order("created_at", { ascending: false })
+
+      if (kpiError) throw kpiError
+      
+      setKpis(kpiData || [])
+      setFilteredKpis(kpiData || [])
     } catch (error) {
       console.error("Error fetching data:", error)
     } finally {
@@ -414,15 +600,9 @@ export default function KPIConfigurationPage() {
     const wb = XLSX.utils.book_new();
     const wsKPIs = XLSX.utils.json_to_sheet(exportData);
     XLSX.utils.book_append_sheet(wb, wsKPIs, 'KPIs');
-    // console.log(XLSX)
-    // Add Summary sheet
     const wsSummary = XLSX.utils.json_to_sheet(summaryData);
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
-    // console.log(wsSummary)
-    // Add KPIs sheet
     
-    // console.log("This is the data in the KPI sheet:")
-    // console.log(wsKPIs)
     // Generate filename
     const filename = `KPI_Configuration_Export_${new Date().toISOString().split('T')[0]}.xlsx`;
 
@@ -487,57 +667,115 @@ export default function KPIConfigurationPage() {
           {/* Header */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900">KPI Configuration</h1>
-            <p className="text-gray-600 mt-1">Configure role-based success metrics and upload definitions via Excel</p>
+            <p className="text-gray-600 mt-1">Upload KPI scores and definitions to configure success metrics</p>
           </div>
 
-          {/* Upload Section */}
+          {/* Upload Sections - Consistent Design */}
           {!showPreview && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card className="border-2 border-dashed border-gray-300 hover:border-blue-400 transition-all duration-300 p-10 bg-white">
-                <div className="flex flex-col items-center justify-center text-center space-y-6">
-                  <div className="relative">
-                    <div className="w-24 h-24 rounded-2xl bg-blue-50 flex items-center justify-center border-2 border-blue-200">
-                      <FileSpreadsheet className="w-12 h-12 text-blue-600" />
+              {/* KPI Scores Upload Card */}
+              <Card className="border-2 border-gray-200 hover:border-blue-400 transition-all duration-300 shadow-sm">
+                <CardHeader className="border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
+                      <TrendingUp className="w-5 h-5 text-white" />
                     </div>
-                    <div className="absolute -top-2 -right-2 w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center shadow-lg animate-pulse">
-                      <Upload className="w-4 h-4 text-white" />
+                    <div>
+                      <CardTitle className="text-lg text-gray-900">KPI Scores Upload</CardTitle>
+                      <CardDescription className="text-sm mt-1">
+                        Upload employee KPI scores (CSV or XLSX)
+                      </CardDescription>
                     </div>
                   </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">Drag & Drop Excel File</h3>
-                    <p className="text-sm text-gray-600">
-                      or <label htmlFor="file-upload" className="text-blue-600 cursor-pointer hover:text-blue-700 font-semibold underline">browse</label> to upload
-                    </p>
+                </CardHeader>
+                <CardContent className="pt-6">
+                  <KPIScoresUpload companyId={admin?.company_id} admin={admin} />
+                  <div className="mt-4 pt-4 border-t border-gray-100">
+                    <Button asChild variant="outline" size="sm" className="w-full border-dashed border-2 hover:bg-blue-50 hover:border-blue-400">
+                      <a
+                        href="https://manugdmjylsvdjemwzcq.supabase.co/storage/v1/object/public/file_format/Sample_Emplyee.xlsx"
+                        download
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        Download Template
+                      </a>
+                    </Button>
                   </div>
-                  <Input
-                    id="file-upload"
-                    type="file"
-                    accept=".xlsx,.xls"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-                  <Button
-                    onClick={handleDownloadTemplate}
-                    variant="outline"
-                    className="mt-4 border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-blue-500 transition-all duration-300"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Download Template
-                  </Button>
-                  <div className="pt-4 text-xs text-gray-500">
-                    Supported formats: .xlsx, .xls • Max size: 5MB
-                  </div>
-                </div>
+                </CardContent>
               </Card>
 
-              <Card className="border border-gray-200 p-8 bg-white shadow-sm">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                    <FileSpreadsheet className="w-5 h-5 text-purple-600" />
+              {/* KPI Definitions Upload Card */}
+              <Card className="border-2 border-gray-200 hover:border-purple-400 transition-all duration-300 shadow-sm">
+                <CardHeader className="border-b border-gray-100 bg-gradient-to-r from-purple-50 to-pink-50">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 rounded-lg bg-purple-600 flex items-center justify-center">
+                      <FileSpreadsheet className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg text-gray-900">KPI Definitions Upload</CardTitle>
+                      <CardDescription className="text-sm mt-1">
+                        Upload KPI definitions & formulas (CSV or XLSX)
+                      </CardDescription>
+                    </div>
                   </div>
-                  <h3 className="text-xl font-bold text-gray-900">Required Columns</h3>
+                </CardHeader>
+                <CardContent className="pt-6">
+                  <div className="space-y-4">
+                    <label
+                      htmlFor="file-upload"
+                      className="flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-all duration-300"
+                    >
+                      <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center mb-3">
+                        <Upload className="w-8 h-8 text-purple-600" />
+                      </div>
+                      <span className="text-sm font-medium text-gray-700">Click to upload Excel file</span>
+                      <span className="text-xs text-gray-500 mt-1">Supported: .xlsx, .xls</span>
+                      <span className="text-xs text-gray-500 mt-1 text-center">Refer to the predefined data fields in the<br/> template before uploading the data</span>
+                    </label>
+                    <Input
+                      id="file-upload"
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-gray-100">
+                    <Button
+                      onClick={handleDownloadTemplate}
+                      variant="outline"
+                      size="sm"
+                      className="w-full border-dashed border-2 hover:bg-purple-50 hover:border-purple-400"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Download Template
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Required Columns Info Card */}
+          {/* {!showPreview && (
+            <Card className="border border-gray-200 shadow-sm">
+              <CardHeader className="bg-gradient-to-r from-gray-50 to-blue-50 border-b border-gray-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center">
+                    <Settings className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg text-gray-900">Required Columns for KPI Definitions</CardTitle>
+                    <CardDescription className="text-sm mt-1">
+                      Ensure your Excel file contains these columns
+                    </CardDescription>
+                  </div>
                 </div>
-                <div className="space-y-3">
+              </CardHeader>
+              <CardContent className="pt-6">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[
                     { name: 'KPI Name', icon: 'K', color: 'blue' },
                     { name: 'Definition', icon: 'D', color: 'purple' },
@@ -548,306 +786,310 @@ export default function KPIConfigurationPage() {
                     { name: 'Sub Function', icon: 'S', color: 'cyan' },
                     { name: 'Title', icon: 'T', color: 'violet' }
                   ].map((col) => (
-                    <div key={col.name} className="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-xl border border-gray-200 hover:border-gray-300 transition-all">
-                      <div className={`w-8 h-8 rounded-lg bg-${col.color}-100 flex items-center justify-center border border-${col.color}-200`}>
-                        <span className="text-sm font-bold text-${col.color}-600">{col.icon}</span>
+                    <div key={col.name} className={`flex items-center gap-2 px-3 py-2.5 bg-${col.color}-50 rounded-lg border border-${col.color}-200`}>
+                      <div className={`w-6 h-6 rounded bg-${col.color}-600 flex items-center justify-center flex-shrink-0`}>
+                        <span className="text-xs font-bold text-white">{col.icon}</span>
                       </div>
-                      <span className="text-sm font-medium text-gray-700">{col.name}</span>
-                      <div className="ml-auto">
-                        <CheckCircle2 className={`w-4 h-4 text-${col.color}-500`} />
-                      </div>
+                      <span className="text-xs font-medium text-gray-700">{col.name}</span>
                     </div>
                   ))}
                 </div>
-              </Card>
-            </div>
-          )}
+              </CardContent>
+            </Card>
+          )} */}
 
           {/* Preview Section */}
           {showPreview && (
-            <Card className="border border-gray-200 p-8 bg-white shadow-sm">
-              <div className="flex items-center justify-between mb-8">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center">
-                    <CheckCircle2 className="w-6 h-6 text-green-600" />
+            <Card className="border border-gray-200 shadow-sm">
+              <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-gray-100">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-green-600 flex items-center justify-center">
+                      <CheckCircle2 className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-xl text-gray-900">Preview Uploaded Data</CardTitle>
+                      <CardDescription className="text-sm mt-1">
+                        <span className="text-green-600 font-semibold">{parsedData.length}</span> KPIs ready to upload to database
+                      </CardDescription>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-2xl font-bold text-gray-900">Preview Uploaded Data</h3>
-                    <p className="text-sm text-gray-600 mt-1">
-                      <span className="text-blue-600 font-semibold">{parsedData.length}</span> KPIs ready to upload to database
-                    </p>
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={() => {
+                        setShowPreview(false)
+                        setParsedData([])
+                      }}
+                      variant="outline"
+                      className="border-gray-300 text-gray-700 hover:bg-red-50 hover:border-red-500 transition-all"
+                    >
+                      <XCircle className="w-4 h-4 mr-2" />
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleUploadToDatabase}
+                      disabled={uploading}
+                      className="bg-green-600 hover:bg-green-700 text-white transition-all"
+                    >
+                      <CheckCircle2 className="w-4 h-4 mr-2" />
+                      {uploading ? 'Uploading...' : 'Upload to Database'}
+                    </Button>
                   </div>
                 </div>
-                <div className="flex gap-3">
-                  <Button
-                    onClick={() => {
-                      setShowPreview(false)
-                      setParsedData([])
-                    }}
-                    variant="outline"
-                    className="border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-red-500 transition-all"
-                  >
-                    <XCircle className="w-4 h-4 mr-2" />
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={handleUploadToDatabase}
-                    disabled={uploading}
-                    className="bg-blue-600 hover:bg-blue-700 text-white transition-all"
-                  >
-                    <CheckCircle2 className="w-4 h-4 mr-2" />
-                    {uploading ? 'Uploading...' : 'Upload to Database'}
-                  </Button>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto rounded-xl border border-gray-200">
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">KPI Name</th>
-                      <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Definition</th>
-                      <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Formula</th>
-                      <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Target</th>
-                      <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Weight %</th>
-                      <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Function</th>
-                      <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Sub Function</th>
-                      <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Title</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {parsedData.map((kpi, index) => (
-                      <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                        <td className="py-4 px-6 text-sm text-gray-900 font-semibold">{kpi.name}</td>
-                        <td className="py-4 px-6 text-sm text-gray-700 max-w-md">{kpi.definition}</td>
-                        <td className="py-4 px-6 text-xs text-blue-600 font-mono bg-blue-50 rounded">{kpi.formula}</td>
-                        <td className="py-4 px-6 text-sm text-green-600 font-semibold">{kpi.target}</td>
-                        <td className="py-4 px-6 text-sm text-purple-600 font-semibold">{kpi.weight}%</td>
-                        <td className="py-4 px-6 text-sm text-gray-700">{kpi.function || '-'}</td>
-                        <td className="py-4 px-6 text-sm text-gray-700">{kpi.sub_function || '-'}</td>
-                        <td className="py-4 px-6 text-sm text-gray-700">{kpi.title || '-'}</td>
+              </CardHeader>
+              <CardContent className="pt-6">
+                <div className="overflow-x-auto rounded-xl border border-gray-200">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">KPI Name</th>
+                        <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Definition</th>
+                        <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Formula</th>
+                        <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Target</th>
+                        <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Weight %</th>
+                        <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Function</th>
+                        <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Sub Function</th>
+                        <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Title</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {parsedData.map((kpi, index) => (
+                        <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                          <td className="py-4 px-6 text-sm text-gray-900 font-semibold">{kpi.name}</td>
+                          <td className="py-4 px-6 text-sm text-gray-700 max-w-md">{kpi.definition}</td>
+                          <td className="py-4 px-6 text-xs text-blue-600 font-mono bg-blue-50 rounded">{kpi.formula}</td>
+                          <td className="py-4 px-6 text-sm text-green-600 font-semibold">{kpi.target}</td>
+                          <td className="py-4 px-6 text-sm text-purple-600 font-semibold">{kpi.weight}%</td>
+                          <td className="py-4 px-6 text-sm text-gray-700">{kpi.function || '-'}</td>
+                          <td className="py-4 px-6 text-sm text-gray-700">{kpi.sub_function || '-'}</td>
+                          <td className="py-4 px-6 text-sm text-gray-700">{kpi.title || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
             </Card>
           )}
 
           {/* Filters and Library View */}
           {!showPreview && (
             <>
-              <Card className="border border-gray-200 p-8 bg-white shadow-sm">
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                    <Filter className="w-5 h-5 text-blue-600" />
+              <Card className="border border-gray-200 shadow-sm">
+                <CardHeader className="bg-gradient-to-r from-gray-50 to-purple-50 border-b border-gray-100">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-lg bg-purple-600 flex items-center justify-center">
+                        <Filter className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-xl text-gray-900">Function wise KPI Library</CardTitle>
+                        <CardDescription className="text-sm mt-1">
+                          <span className="text-purple-600 font-semibold">{filteredKpis.length}</span> KPIs configured
+                        </CardDescription>
+                      </div>
+                    </div>
+                    <Button 
+                      onClick={handleExportExcel}
+                      disabled={filteredKpis.length === 0}
+                      className="bg-green-600 hover:bg-green-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Export Excel
+                    </Button>
                   </div>
-                  <h3 className="text-xl font-bold text-gray-900">Filter Scope</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-gray-700">Function</label>
-                    <Select value={functionFilter} onValueChange={(value) => {
-                      setFunctionFilter(value)
-                      setSubFunctionFilter("All")
-                      setTitleFilter("All")
-                    }}>
-                      <SelectTrigger className="bg-white border-gray-300 text-gray-900 hover:border-blue-500 transition-all">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white border-gray-200">
-                        <SelectItem value="All">All Functions</SelectItem>
-                        {functions.map((func) => (
-                          <SelectItem key={func.function_id} value={func.function_id}>
-                            {func.function_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-gray-700">Sub-Function</label>
-                    <Select 
-                      value={subFunctionFilter} 
-                      onValueChange={(value) => {
-                        setSubFunctionFilter(value)
+                </CardHeader>
+                <CardContent className="pt-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-blue-600"></div>
+                        Function
+                      </label>
+                      <Select value={functionFilter} onValueChange={(value) => {
+                        setFunctionFilter(value)
+                        setSubFunctionFilter("All")
                         setTitleFilter("All")
-                      }}
-                      disabled={functionFilter === "All"}
-                    >
-                      <SelectTrigger className="bg-white border-gray-300 text-gray-900 hover:border-blue-500 transition-all disabled:opacity-50">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white border-gray-200">
-                        <SelectItem value="All">All Sub-Functions</SelectItem>
-                        {filteredSubFunctions.map((subFunc) => (
-                          <SelectItem key={subFunc.sub_function_id} value={subFunc.sub_function_id}>
-                            {subFunc.sub_function_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-gray-700">Title</label>
-                    <Select 
-                      value={titleFilter} 
-                      onValueChange={setTitleFilter}
-                      disabled={subFunctionFilter === "All"}
-                    >
-                      <SelectTrigger className="bg-white border-gray-300 text-gray-900 hover:border-blue-500 transition-all disabled:opacity-50">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white border-gray-200">
-                        <SelectItem value="All">All Titles</SelectItem>
-                        {filteredTitles.map((title) => (
-                          <SelectItem key={title.title_id} value={title.title_id}>
-                            {title.title_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </Card>
-
-              {/* KPI Library */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                    <Settings className="w-5 h-5 text-purple-600" />
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-900">Library View: Consolidated</h2>
-                    <p className="text-sm text-gray-600 mt-1">
-                      <span className="text-blue-600 font-semibold">{filteredKpis.length}</span> Metrics Available
-                    </p>
-                  </div>
-                </div>
-                <Button 
-                  onClick={handleExportExcel}
-                  disabled={filteredKpis.length === 0}
-                  variant="outline" 
-                  className="border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-green-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Export Excel
-                </Button>
-              </div>
-
-              {/* KPI Grid */}
-              <div className="space-y-5">
-                {filteredKpis.map((kpi) => (
-                  <Card key={kpi.kpi_id} className="border border-gray-200 p-8 bg-white hover:border-blue-400 hover:shadow-lg transition-all duration-300">
-                    <div className="grid grid-cols-12 gap-8 items-center">
-                      <div className="col-span-3">
-                        <div className="space-y-3">
-                          <h3 className="text-xl font-bold text-gray-900">{kpi.name}</h3>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold border border-blue-200">
-                              ID: {kpi.kpi_id.slice(0, 8)}
-                            </span>
-                            {kpi.function && (
-                              <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold border border-indigo-200">
-                                {kpi.function.function_name}
-                              </span>
-                            )}
-                            {kpi.sub_function && (
-                              <span className="px-3 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-xs font-semibold border border-cyan-200">
-                                {kpi.sub_function.sub_function_name}
-                              </span>
-                            )}
-                            {kpi.titles && (
-                              <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-semibold flex items-center gap-1 border border-purple-200">
-                                <Settings className="w-3 h-3" />
-                                {kpi.titles.title_name}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="col-span-5">
-                        <div className="space-y-3">
-                          <p className="text-sm text-gray-700 leading-relaxed">{kpi.description?.split('\n\n')[0]}</p>
-                          {kpi.description?.includes('Formula:') && (
-                            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                              <div className="text-xs text-gray-600 mb-1 font-semibold">Formula:</div>
-                              <code className="text-xs text-blue-600 font-mono">
-                                {kpi.description.split('Formula:')[1]?.trim()}
-                              </code>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="col-span-2 flex items-center justify-center">
-                        <div className="relative w-28 h-28">
-                          <svg className="w-28 h-28 transform -rotate-90">
-                            <circle
-                              cx="56"
-                              cy="56"
-                              r="48"
-                              stroke="currentColor"
-                              strokeWidth="10"
-                              fill="none"
-                              className="text-gray-200"
-                            />
-                            <circle
-                              cx="56"
-                              cy="56"
-                              r="48"
-                              stroke="url(#gradient)"
-                              strokeWidth="10"
-                              fill="none"
-                              strokeDasharray={`${(kpi.weight || 0) * 3.01} 301`}
-                              className="transition-all duration-500"
-                            />
-                          </svg>
-                          <defs>
-                            <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                              <stop offset="0%" stopColor="#3b82f6" />
-                              <stop offset="100%" stopColor="#8b5cf6" />
-                            </linearGradient>
-                          </defs>
-                          <div className="absolute inset-0 flex flex-col items-center justify-center">
-                            <span className="text-2xl font-bold text-gray-900">{kpi.weight || 0}%</span>
-                            <span className="text-xs text-gray-600">Weight</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="col-span-2">
-                        <div className="flex flex-col items-center justify-center p-6 bg-green-50 rounded-xl border border-green-200">
-                          <Target className="w-6 h-6 text-green-600 mb-2" />
-                          <div className="text-3xl font-bold text-gray-900">{kpi.target}%</div>
-                          <div className="text-xs text-gray-600 mt-1">Target</div>
-                          <div className="text-xs text-green-600 mt-2">Avg: {Math.floor(kpi.target * 0.85)}%</div>
-                        </div>
-                      </div>
+                      }}>
+                        <SelectTrigger className="bg-white border-gray-300 text-gray-900 hover:border-blue-500 transition-all">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white border-gray-200">
+                          <SelectItem value="All">All Functions</SelectItem>
+                          {functions.map((func) => (
+                            <SelectItem key={func.function_id} value={func.function_id}>
+                              {func.function_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                  </Card>
-                ))}
-
-                {filteredKpis.length === 0 && (
-                  <Card className="border border-gray-200 p-16 bg-white shadow-sm">
-                    <div className="text-center">
-                      <div className="w-24 h-24 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-6">
-                        <FileSpreadsheet className="w-12 h-12 text-gray-400" />
-                      </div>
-                      <h3 className="text-2xl font-bold text-gray-900 mb-3">No KPIs Found</h3>
-                      <p className="text-gray-600 mb-6">Upload an Excel file to get started or adjust your filters.</p>
-                      <Button
-                        onClick={() => document.getElementById('file-upload')?.click()}
-                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-purple-600"></div>
+                        Sub-Function
+                      </label>
+                      <Select 
+                        value={subFunctionFilter} 
+                        onValueChange={(value) => {
+                          setSubFunctionFilter(value)
+                          setTitleFilter("All")
+                        }}
+                        disabled={functionFilter === "All"}
                       >
-                        <Upload className="w-4 h-4 mr-2" />
-                        Upload KPIs
-                      </Button>
+                        <SelectTrigger className="bg-white border-gray-300 text-gray-900 hover:border-purple-500 transition-all disabled:opacity-50">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white border-gray-200">
+                          <SelectItem value="All">All Sub-Functions</SelectItem>
+                          {filteredSubFunctions.map((subFunc) => (
+                            <SelectItem key={subFunc.sub_function_id} value={subFunc.sub_function_id}>
+                              {subFunc.sub_function_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                  </Card>
-                )}
-              </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-pink-600"></div>
+                        Title
+                      </label>
+                      <Select 
+                        value={titleFilter} 
+                        onValueChange={setTitleFilter}
+                        disabled={subFunctionFilter === "All"}
+                      >
+                        <SelectTrigger className="bg-white border-gray-300 text-gray-900 hover:border-pink-500 transition-all disabled:opacity-50">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white border-gray-200">
+                          <SelectItem value="All">All Titles</SelectItem>
+                          {filteredTitles.map((title) => (
+                            <SelectItem key={title.title_id} value={title.title_id}>
+                              {title.title_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* KPI Grid */}
+                  <div className="space-y-5">
+                    {filteredKpis.map((kpi) => (
+                      <Card key={kpi.kpi_id} className="border border-gray-200 p-8 bg-white hover:border-blue-400 hover:shadow-lg transition-all duration-300">
+                        <div className="grid grid-cols-12 gap-8 items-center">
+                          <div className="col-span-3">
+                            <div className="space-y-3">
+                              <h3 className="text-xl font-bold text-gray-900">{kpi.name}</h3>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold border border-blue-200">
+                                  ID: {kpi.kpi_id.slice(0, 8)}
+                                </span>
+                                {kpi.function && (
+                                  <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold border border-indigo-200">
+                                    {kpi.function.function_name}
+                                  </span>
+                                )}
+                                {kpi.sub_function && (
+                                  <span className="px-3 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-xs font-semibold border border-cyan-200">
+                                    {kpi.sub_function.sub_function_name}
+                                  </span>
+                                )}
+                                {kpi.titles && (
+                                  <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-semibold flex items-center gap-1 border border-purple-200">
+                                    <Settings className="w-3 h-3" />
+                                    {kpi.titles.title_name}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="col-span-5">
+                            <div className="space-y-3">
+                              <p className="text-sm text-gray-700 leading-relaxed">{kpi.description?.split('\n\n')[0]}</p>
+                              {kpi.description?.includes('Formula:') && (
+                                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                  <div className="text-xs text-gray-600 mb-1 font-semibold">Formula:</div>
+                                  <code className="text-xs text-blue-600 font-mono">
+                                    {kpi.description.split('Formula:')[1]?.trim()}
+                                  </code>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="col-span-2 flex items-center justify-center">
+                            <div className="relative w-28 h-28">
+                              <svg className="w-28 h-28 transform -rotate-90">
+                                <circle
+                                  cx="56"
+                                  cy="56"
+                                  r="48"
+                                  stroke="currentColor"
+                                  strokeWidth="10"
+                                  fill="none"
+                                  className="text-gray-200"
+                                />
+                                <circle
+                                  cx="56"
+                                  cy="56"
+                                  r="48"
+                                  stroke="url(#gradient)"
+                                  strokeWidth="10"
+                                  fill="none"
+                                  strokeDasharray={`${(kpi.weight || 0) * 3.01} 301`}
+                                  className="transition-all duration-500"
+                                />
+                              </svg>
+                              <defs>
+                                <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                  <stop offset="0%" stopColor="#3b82f6" />
+                                  <stop offset="100%" stopColor="#8b5cf6" />
+                                </linearGradient>
+                              </defs>
+                              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                <span className="text-2xl font-bold text-gray-900">{kpi.weight || 0}%</span>
+                                <span className="text-xs text-gray-600">Weight</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="col-span-2">
+                            <div className="flex flex-col items-center justify-center p-6 bg-green-50 rounded-xl border border-green-200">
+                              <Target className="w-6 h-6 text-green-600 mb-2" />
+                              <div className="text-3xl font-bold text-gray-900">{kpi.target}%</div>
+                              <div className="text-xs text-gray-600 mt-1">Target</div>
+                              {/* <div className="text-xs text-green-600 mt-2">Avg: {Math.floor(kpi.target * 0.85)}%</div> */}
+                            </div>
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+
+                    {filteredKpis.length === 0 && (
+                      <Card className="border-2 border-dashed border-gray-300 p-16 bg-white">
+                        <div className="text-center">
+                          <div className="w-24 h-24 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-6">
+                            <FileSpreadsheet className="w-12 h-12 text-gray-400" />
+                          </div>
+                          <h3 className="text-2xl font-bold text-gray-900 mb-3">No KPIs Found</h3>
+                          <p className="text-gray-600 mb-6">Upload an Excel file to get started or adjust your filters.</p>
+                          <Button
+                            onClick={() => document.getElementById('file-upload')?.click()}
+                            className="bg-purple-600 hover:bg-purple-700 text-white"
+                          >
+                            <Upload className="w-4 h-4 mr-2" />
+                            Upload KPI Definitions
+                          </Button>
+                        </div>
+                      </Card>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
             </>
           )}
         </div>

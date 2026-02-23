@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { BookOpen, Database, Sparkles, Plus, ExternalLink, TrendingUp, TrendingDown } from 'lucide-react';
+import { BookOpen, Database, Sparkles, Plus, ExternalLink, TrendingUp, TrendingDown, ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { formatContentType } from '@/lib/contentType';
 
@@ -13,7 +13,7 @@ interface DatasetSuggestion {
   purpose: string;
 }
 
-interface SuggestedModule {
+export interface SuggestedModule {
   module_id?: string;
   title: string;
   description: string;
@@ -29,17 +29,24 @@ interface ModuleSuggestionsProps {
   leadIndicators: string[];
   lagIndicators: string[];
   roleName: string;
+  onModulesLoaded?: (modules: SuggestedModule[]) => void;
 }
 
-export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleName }: ModuleSuggestionsProps) {
+export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleName, onModulesLoaded }: ModuleSuggestionsProps) {
   const [suggestedModules, setSuggestedModules] = useState<SuggestedModule[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [expandedLeadKpis, setExpandedLeadKpis] = useState<Record<string, boolean>>({});
+  const [expandedLagKpis, setExpandedLagKpis] = useState<Record<string, boolean>>({});
+  const lastFetchedKey = useRef<string>('');
 
   useEffect(() => {
-    if (leadIndicators.length > 0 || lagIndicators.length > 0) {
-      fetchModuleSuggestions();
-    }
-  }, [leadIndicators, lagIndicators]);
+    // const key = JSON.stringify([leadIndicators, lagIndicators]);
+    // if (key === lastFetchedKey.current) return;
+    // if (leadIndicators.length > 0 || lagIndicators.length > 0) {
+    //   lastFetchedKey.current = key;
+    // }
+    fetchModuleSuggestions();
+  }, []);
 
   const fetchModuleSuggestions = async () => {
     setIsLoading(true);
@@ -62,11 +69,26 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
 
       const data = await response.json();
       setSuggestedModules(data.modules);
+      onModulesLoaded?.(data.modules);
     } catch (error) {
       console.error('Error fetching module suggestions:', error);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const toggleLeadKpi = (kpi: string) => {
+    setExpandedLeadKpis(prev => ({
+      ...prev,
+      [kpi]: !prev[kpi]
+    }));
+  };
+
+  const toggleLagKpi = (kpi: string) => {
+    setExpandedLagKpis(prev => ({
+      ...prev,
+      [kpi]: !prev[kpi]
+    }));
   };
 
   // Group modules by KPI
@@ -83,11 +105,11 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-purple-600" />
-          Suggested Training Modules by KPI
+          Suggested Sprints by KPI
         </CardTitle>
-        <p className="text-sm text-gray-600">
+        {/* <p className="text-sm text-gray-600">
           AI-powered module recommendations categorized by each KPI indicator
-        </p>
+        </p> */}
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -101,7 +123,7 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
             <div className="space-y-4">
               <div className="flex items-center gap-2 pb-2 border-b-2 border-green-200">
                 <TrendingUp className="w-5 h-5 text-green-600" />
-                <h3 className="font-semibold text-lg text-gray-900">Lead Indicator Modules</h3>
+                <h3 className="font-semibold text-lg text-gray-900">Lead Indicator Sprints</h3>
               </div>
               {leadIndicators.map((kpi) => {
                 const modules = groupedModules[kpi];
@@ -111,89 +133,96 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
                   <div key={kpi} className="space-y-3">
                     <div className="flex items-start gap-2">
                       <div className="w-2 h-2 rounded-full bg-green-500 mt-2 flex-shrink-0"></div>
-                      <div className="flex-1">
-                        <h4 className="font-medium text-gray-900 mb-3">{kpi}</h4>
-                        <div className="space-y-3 pl-4">
-                          {modules.map((module, index) => (
-                            <div
-                              key={index}
-                              className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow bg-white"
-                            >
-                              <div className="flex items-start justify-between mb-2">
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <h5 className="font-semibold text-gray-900">{module.title}</h5>
-                                    <Badge 
-                                      variant={module.source === 'database' ? 'default' : 'secondary'}
-                                      className={module.source === 'database' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}
-                                    >
-                                      {module.source === 'database' ? 'Existing' : 'Suggested'}
-                                    </Badge>
-                                  </div>
-                                  <p className="text-sm text-gray-600 mb-3">{module.description}</p>
-                                  
-                                  {module.content_type && (
-                                    <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
-                                      <BookOpen className="w-3.5 h-3.5" />
-                                      <span className="">{formatContentType(module.content_type)}</span>
+                      <div className="flex-1" >
+                        <div className="flex items-center justify-between" onClick={() => toggleLeadKpi(kpi)}>
+                          <h4 className="font-medium text-gray-900 mb-3">{kpi}</h4>
+                          <button >
+                            {expandedLeadKpis[kpi] ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
+                          </button>
+                        </div>
+                        {expandedLeadKpis[kpi] && (
+                          <div className="space-y-3 pl-4">
+                            {modules.map((module, index) => (
+                              <div
+                                key={index}
+                                className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow bg-white"
+                              >
+                                <div className="flex items-start justify-between mb-2">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <h5 className="font-semibold text-gray-900">{module.title}</h5>
+                                      {/* <Badge 
+                                        variant={module.source === 'database' ? 'default' : 'secondary'}
+                                        className={module.source === 'database' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}
+                                      >
+                                        {module.source === 'database' ? 'Existing' : 'Suggested'}
+                                      </Badge> */}
                                     </div>
-                                  )}
-
-                                  {/* Suggested Datasets */}
-                                  {module.suggested_datasets && module.suggested_datasets.length > 0 && (
-                                    <div className="mt-3 pt-3 border-t border-gray-100">
-                                      <div className="flex items-center gap-1.5 mb-2">
-                                        <Database className="w-4 h-4 text-orange-600" />
-                                        <span className="text-xs font-semibold text-gray-700">Suggested Company Datasets</span>
+                                    <p className="text-sm text-gray-600 mb-3">{module.description}</p>
+                                    
+                                    {/* {module.content_type && (
+                                      <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
+                                        <BookOpen className="w-3.5 h-3.5" />
+                                        <span className="">{formatContentType(module.content_type)}</span>
                                       </div>
-                                      <div className="space-y-2 ml-5">
-                                        {module.suggested_datasets.map((dataset, idx) => (
-                                          <div key={idx} className="bg-orange-50 border border-orange-200 rounded p-2">
-                                            <div className="flex items-start gap-2">
-                                              <div className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-1.5 flex-shrink-0"></div>
-                                              <div className="flex-1">
-                                                <p className="text-xs font-medium text-gray-900">{dataset.source}</p>
-                                                <p className="text-xs text-gray-600 mt-0.5">
-                                                  <span className="font-medium">Track: </span>
-                                                  {dataset.data_points.join(', ')}
-                                                </p>
-                                                <p className="text-xs text-gray-500 mt-1 italic">{dataset.purpose}</p>
+                                    )} */}
+
+                                    {/* Suggested Datasets */}
+                                    {module.suggested_datasets && module.suggested_datasets.length > 0 && (
+                                      <div className="mt-3 pt-3 border-t border-gray-100">
+                                        <div className="flex items-center gap-1.5 mb-2">
+                                          <Database className="w-4 h-4 text-orange-600" />
+                                          <span className="text-xs font-semibold text-gray-700">Suggested Company Datasets</span>
+                                        </div>
+                                        <div className="space-y-2 ml-5">
+                                          {module.suggested_datasets.map((dataset, idx) => (
+                                            <div key={idx} className="bg-orange-50 border border-orange-200 rounded p-2">
+                                              <div className="flex items-start gap-2">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-1.5 flex-shrink-0"></div>
+                                                <div className="flex-1">
+                                                  <p className="text-xs font-medium text-gray-900">{dataset.source}</p>
+                                                  <p className="text-xs text-gray-600 mt-0.5">
+                                                    <span className="font-medium">Track: </span>
+                                                    {dataset.data_points.join(', ')}
+                                                  </p>
+                                                  <p className="text-xs text-gray-500 mt-1 italic">{dataset.purpose}</p>
+                                                </div>
                                               </div>
                                             </div>
-                                          </div>
-                                        ))}
+                                          ))}
+                                        </div>
                                       </div>
+                                    )}
+                                  </div>
+                                  
+                                  {module.relevance_score && (
+                                    <div className="ml-4 text-right">
+                                      <div className="text-xl font-bold text-green-600">{module.relevance_score}%</div>
+                                      <div className="text-xs text-gray-500">Match</div>
                                     </div>
                                   )}
                                 </div>
-                                
-                                {module.relevance_score && (
-                                  <div className="ml-4 text-right">
-                                    <div className="text-xl font-bold text-green-600">{module.relevance_score}%</div>
-                                    <div className="text-xs text-gray-500">Match</div>
-                                  </div>
-                                )}
-                              </div>
 
-                              <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
-                                {module.source === 'database' ? (
-                                  <Button size="sm" variant="outline" className="gap-1">
-                                    <ExternalLink className="w-3.5 h-3.5" />
-                                    View Module
+                                {/* <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
+                                  {module.source === 'database' ? (
+                                    <Button size="sm" variant="outline" className="gap-1">
+                                      <ExternalLink className="w-3.5 h-3.5" />
+                                      View Module
+                                    </Button>
+                                  ) : (
+                                    <Button size="sm" variant="outline" className="gap-1">
+                                      <Plus className="w-3.5 h-3.5" />
+                                      Create Module
+                                    </Button>
+                                  )}
+                                  <Button size="sm" className="bg-green-600 hover:bg-green-700">
+                                    Assign to Role
                                   </Button>
-                                ) : (
-                                  <Button size="sm" variant="outline" className="gap-1">
-                                    <Plus className="w-3.5 h-3.5" />
-                                    Create Module
-                                  </Button>
-                                )}
-                                <Button size="sm" className="bg-green-600 hover:bg-green-700">
-                                  Assign to Role
-                                </Button>
+                                </div> */}
                               </div>
-                            </div>
-                          ))}
-                        </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -205,7 +234,7 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
             <div className="space-y-4">
               <div className="flex items-center gap-2 pb-2 border-b-2 border-blue-200">
                 <TrendingDown className="w-5 h-5 text-blue-600" />
-                <h3 className="font-semibold text-lg text-gray-900">Lag Indicator Modules</h3>
+                <h3 className="font-semibold text-lg text-gray-900">Lag Indicator Sprints</h3>
               </div>
               {lagIndicators.map((kpi) => {
                 const modules = groupedModules[kpi];
@@ -215,89 +244,96 @@ export default function ModuleSuggestions({ leadIndicators, lagIndicators, roleN
                   <div key={kpi} className="space-y-3">
                     <div className="flex items-start gap-2">
                       <div className="w-2 h-2 rounded-full bg-blue-500 mt-2 flex-shrink-0"></div>
-                      <div className="flex-1">
-                        <h4 className="font-medium text-gray-900 mb-3">{kpi}</h4>
-                        <div className="space-y-3 pl-4">
-                          {modules.map((module, index) => (
-                            <div
-                              key={index}
-                              className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow bg-white"
-                            >
-                              <div className="flex items-start justify-between mb-2">
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <h5 className="font-semibold text-gray-900">{module.title}</h5>
-                                    <Badge 
-                                      variant={module.source === 'database' ? 'default' : 'secondary'}
-                                      className={module.source === 'database' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}
-                                    >
-                                      {module.source === 'database' ? 'Existing' : 'Suggested'}
-                                    </Badge>
-                                  </div>
-                                  <p className="text-sm text-gray-600 mb-3">{module.description}</p>
-                                  
-                                  {module.content_type && (
-                                    <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
-                                      <BookOpen className="w-3.5 h-3.5" />
-                                      <span className="">{formatContentType(module.content_type)}</span>
+                      <div className="flex-1" >
+                        <div className="flex items-center justify-between" onClick={() => toggleLagKpi(kpi)}>
+                          <h4 className="font-medium text-gray-900 mb-3" >{kpi}</h4>
+                          <button >
+                            {expandedLagKpis[kpi] ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
+                          </button>
+                        </div>
+                        {expandedLagKpis[kpi] && (
+                          <div className="space-y-3 pl-4">
+                            {modules.map((module, index) => (
+                              <div
+                                key={index}
+                                className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow bg-white"
+                              >
+                                <div className="flex items-start justify-between mb-2">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <h5 className="font-semibold text-gray-900" >{module.title}</h5>
+                                      {/* <Badge 
+                                        variant={module.source === 'database' ? 'default' : 'secondary'}
+                                        className={module.source === 'database' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}
+                                      >
+                                        {module.source === 'database' ? 'Existing' : 'Suggested'}
+                                      </Badge> */}
                                     </div>
-                                  )}
-
-                                  {/* Suggested Datasets */}
-                                  {module.suggested_datasets && module.suggested_datasets.length > 0 && (
-                                    <div className="mt-3 pt-3 border-t border-gray-100">
-                                      <div className="flex items-center gap-1.5 mb-2">
-                                        <Database className="w-4 h-4 text-orange-600" />
-                                        <span className="text-xs font-semibold text-gray-700">Suggested Company Datasets</span>
+                                    <p className="text-sm text-gray-600 mb-3">{module.description}</p>
+                                    
+                                    {/* {module.content_type && (
+                                      <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
+                                        <BookOpen className="w-3.5 h-3.5" />
+                                        <span className="">{formatContentType(module.content_type)}</span>
                                       </div>
-                                      <div className="space-y-2 ml-5">
-                                        {module.suggested_datasets.map((dataset, idx) => (
-                                          <div key={idx} className="bg-orange-50 border border-orange-200 rounded p-2">
-                                            <div className="flex items-start gap-2">
-                                              <div className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-1.5 flex-shrink-0"></div>
-                                              <div className="flex-1">
-                                                <p className="text-xs font-medium text-gray-900">{dataset.source}</p>
-                                                <p className="text-xs text-gray-600 mt-0.5">
-                                                  <span className="font-medium">Track: </span>
-                                                  {dataset.data_points.join(', ')}
-                                                </p>
-                                                <p className="text-xs text-gray-500 mt-1 italic">{dataset.purpose}</p>
+                                    )} */}
+
+                                    {/* Suggested Datasets */}
+                                    {module.suggested_datasets && module.suggested_datasets.length > 0 && (
+                                      <div className="mt-3 pt-3 border-t border-gray-100">
+                                        <div className="flex items-center gap-1.5 mb-2">
+                                          <Database className="w-4 h-4 text-orange-600" />
+                                          <span className="text-xs font-semibold text-gray-700">Suggested Company Datasets</span>
+                                        </div>
+                                        <div className="space-y-2 ml-5">
+                                          {module.suggested_datasets.map((dataset, idx) => (
+                                            <div key={idx} className="bg-orange-50 border border-orange-200 rounded p-2">
+                                              <div className="flex items-start gap-2">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-1.5 flex-shrink-0"></div>
+                                                <div className="flex-1">
+                                                  <p className="text-xs font-medium text-gray-900">{dataset.source}</p>
+                                                  <p className="text-xs text-gray-600 mt-0.5">
+                                                    <span className="font-medium">Track: </span>
+                                                    {dataset.data_points.join(', ')}
+                                                  </p>
+                                                  <p className="text-xs text-gray-500 mt-1 italic">{dataset.purpose}</p>
+                                                </div>
                                               </div>
                                             </div>
-                                          </div>
-                                        ))}
+                                          ))}
+                                        </div>
                                       </div>
+                                    )}
+                                  </div>
+                                  
+                                  {module.relevance_score && (
+                                    <div className="ml-4 text-right">
+                                      <div className="text-xl font-bold text-blue-600">{module.relevance_score}%</div>
+                                      <div className="text-xs text-gray-500">Match</div>
                                     </div>
                                   )}
                                 </div>
-                                
-                                {module.relevance_score && (
-                                  <div className="ml-4 text-right">
-                                    <div className="text-xl font-bold text-blue-600">{module.relevance_score}%</div>
-                                    <div className="text-xs text-gray-500">Match</div>
-                                  </div>
-                                )}
-                              </div>
 
-                              <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
-                                {module.source === 'database' ? (
-                                  <Button size="sm" variant="outline" className="gap-1">
-                                    <ExternalLink className="w-3.5 h-3.5" />
-                                    View Module
+                                {/* <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
+                                  {module.source === 'database' ? (
+                                    <Button size="sm" variant="outline" className="gap-1">
+                                      <ExternalLink className="w-3.5 h-3.5" />
+                                      View Module
+                                    </Button>
+                                  ) : (
+                                    <Button size="sm" variant="outline" className="gap-1">
+                                      <Plus className="w-3.5 h-3.5" />
+                                      Create Module
+                                    </Button>
+                                  )}
+                                  <Button size="sm" className="bg-blue-600 hover:bg-blue-700">
+                                    Assign to Role
                                   </Button>
-                                ) : (
-                                  <Button size="sm" variant="outline" className="gap-1">
-                                    <Plus className="w-3.5 h-3.5" />
-                                    Create Module
-                                  </Button>
-                                )}
-                                <Button size="sm" className="bg-blue-600 hover:bg-blue-700">
-                                  Assign to Role
-                                </Button>
+                                </div> */}
                               </div>
-                            </div>
-                          ))}
-                        </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

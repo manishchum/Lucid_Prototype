@@ -1,220 +1,733 @@
 // Standalone version of generate-module-content for VM worker
 const { createClient } = require('@supabase/supabase-js');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-require('dotenv').config();
+const { GoogleGenAI } = require('@google/genai');
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+require('../env').loadWorkerEnv();
+
+const axios = require('axios');
+console.log("Environment variables loaded successfully");
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+console.log("Fetched supabase url succesfully")
+
+console.log("Fetched supabase key succesfully", Boolean(SUPABASE_KEY))
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+console.log("Supabase client created successfully")
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY  });
+
+
+// Configs 
+const TEMPERATURE = 0.2;
+const TOP_P = 1.0;
+
+
 
 async function generateModuleContent({ moduleId = null } = {}) {
+  console.log(`[GENERATE] Starting content generation ${moduleId ? `for module: ${moduleId}` : 'for all modules'}`);
+  
   // Fetch all processed_modules with empty or placeholder content (optionally scoped by moduleId)
   let query = supabase
     .from('processed_modules')
-    .select('processed_module_id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives)')
+    .select(`
+      processed_module_id,
+      title,
+      content,
+      original_module_id,
+      learning_style,
+      training_modules (
+        ai_modules,
+        ai_topics,
+        ai_objectives,
+        gpt_summary
+      )
+    `)
     .or('content.is.null,content.eq.\'\',content.eq.""');
 
+    
+
   if (moduleId) {
+    console.log(`[GENERATE] Filtering by module_id: ${moduleId}`);
     query = query.eq('original_module_id', moduleId);
   }
 
+  console.log(`[GENERATE] Fetching modules from Supabase...`);
   const { data: modules, error } = await query;
 
   if (error) {
-    console.error('Supabase fetch error:', error);
+    console.error('[GENERATE] Supabase fetch error:', error);
     throw new Error(error.message);
   }
 
-  // console.log(`Fetched ${modules?.length || 0} modules for content generation.`);
+  console.log(`[GENERATE] Fetched ${modules?.length || 0} modules for content generation`);
 
   let updated = 0;
   for (const mod of modules || []) {
+    console.log(`\n[MODULE] ======================================`);
+    console.log(`[MODULE] Processing: ${mod.title}`);
+    console.log(`[MODULE] ID: ${mod.processed_module_id}`);
+    console.log(`[MODULE] Learning Style: ${mod.learning_style}`);
+    console.log(`[MODULE] ======================================\n`);
+    
     try {
-      // Extract topics and objectives from all related training_modules/ai_modules
       let topics = [];
       let objectives = [];
-      let globalObjectives = [];
+      
+      console.log(`[EXTRACT] Found ${mod.training_modules?.length || 0} training modules`);
+      function normalizeTitle(title) {
+        return title
+          ?.toLowerCase()
+          .replace(/[^\w\s]/g, '')   // remove punctuation
+          .replace(/\s+/g, ' ')      // collapse multiple spaces
+          .trim();
+      }
+      
       if (Array.isArray(mod.training_modules)) {
         for (const tm of mod.training_modules) {
           if (Array.isArray(tm.ai_modules)) {
-            for (const aimod of tm.ai_modules) {
-              if (Array.isArray(aimod.topics)) {
-                topics.push(...aimod.topics);
-              }
-              if (Array.isArray(aimod.objectives)) {
-                objectives.push(...aimod.objectives);
-              }
+            console.log(`[EXTRACT] Checking ${tm.ai_modules.length} AI modules for match`);
+            // const matched = tm.ai_modules.find(m =>
+            //   m.title?.trim().toLowerCase() === mod.title?.trim().toLowerCase()
+            // );
+            const matched = tm.ai_modules.find(m =>
+              normalizeTitle(m.title) === normalizeTitle(mod.title)
+            );
+            console.log(`[EXTRACT] Processed title: "${mod.title}"`);
+            console.log(`[EXTRACT] AI module titles:`, tm.ai_modules.map(m => m.title));
+
+            if (matched) {
+              console.log(`[EXTRACT] Found matching module!`);
+              topics = Array.isArray(matched.topics) ? matched.topics : [];
+              objectives = Array.isArray(matched.objectives) ? matched.objectives : [];
+              console.log(`[EXTRACT] Extracted ${topics.length} topics, ${objectives.length} objectives`);
+            } else {
+              console.log(`[EXTRACT] No matching module found`);
             }
-          }
-          if (Array.isArray(tm.ai_objectives)) {
-            globalObjectives.push(...tm.ai_objectives);
           }
         }
       }
+      
       topics = [...new Set(topics)];
+      console.log("Extracted topics:", topics);
       objectives = [...new Set(objectives)];
-      globalObjectives = [...new Set(globalObjectives)];
-      if (objectives.length === 0 && globalObjectives.length > 0) {
-        objectives = globalObjectives;
-      }
+      console.log(`[EXTRACT] Final counts - Topics: ${topics.length}, Objectives: ${objectives.length}`);
+      
       const topicsText = topics.length > 0
         ? `Topics for this module:\n${topics.map((topic, idx) => `${idx + 1}. ${topic}`).join('\n')}`
         : '';
+      
       const objectivesText = objectives.length > 0
         ? `Objectives for this module:\n${objectives.map((obj, idx) => `${idx + 1}. ${obj}`).join('\n')}`
         : '';
+      
+      console.log(`[QUERY] Building semantic query...`);
+      
+      // -------------------------------------
+      // STEP 1: Build semantic query
+      // -------------------------------------
+
+      const semanticQuery = `
+Module Title:
+${mod.title}
+
+${topicsText}
+
+${objectivesText}
+`;
+
+      console.log(`[QUERY] Semantic query built for: ${mod.title}`);
+      console.log("Module:", mod.title);
+      console.log(`Topics for ${mod.title}`, topicsText,"--notopic");
+      console.log(`Objectives for ${mod.title}`, objectivesText);
+      
+      // -------------------------------------
+      // STEP 2: Generate embedding
+      // -------------------------------------
+
+      async function generateEmbedding(text) {
+        try {
+          console.log(`[EMBEDDING] Starting embedding generation for text length: ${text.length}`);
+          console.log(`[EMBEDDING] Backend URL: ${process.env.NEXT_PUBLIC_BACKEND_URL}/api/embed-query`);
+          
+          const response = await axios.post(
+            `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/embed-query`, 
+            { text },
+            {
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            }
+          );
+          
+          console.log(`[EMBEDDING] Successfully generated embedding`);
+          return response.data.embedding;
+        } catch(err) {
+          console.error(`[EMBEDDING] Error generating embedding:`, err.message);
+          console.error(`[EMBEDDING] Error code:`, err.code);
+          if (err.response) {
+            console.error(`[EMBEDDING] Response status:`, err.response.status);
+            console.error(`[EMBEDDING] Response data:`, err.response.data);
+          }
+          throw err;
+        }
+      }
+      
+      console.log(`[RAG] Generating embedding for module: ${mod.title}`);
+      const queryEmbedding = await generateEmbedding(semanticQuery);
+      
+      console.log(`[RAG] Fetching top-K chunks from vector DB...`);
+      console.log(`[RAG] Module ID: ${mod.original_module_id}, Match count: 6`);
+      
+      const { data: matchedChunks, error: matchError } = await supabase.rpc(
+        'match_module_chunks',
+        {
+          query_embedding: queryEmbedding,
+          p_module_id: mod.original_module_id,
+          match_count: 6
+        }
+      );
+      
+      console.log(`[RAG] Matched chunks count: ${matchedChunks?.length || 0}`);
+
+      if (matchError) {
+        console.error(`[RAG] Vector search error:`, matchError);
+      }
+
+      // -------------------------------------
+      // STEP 3: Build RAG context
+      // -------------------------------------
+      console.log(`[RAG] Building RAG context from matched chunks...`);
+      
+      const ragContext = (matchedChunks || [])
+        .map((c, idx) => {
+          const importance =
+            idx === 0
+              ? "CRITICAL PRIMARY SOURCE"
+              : `SUPPORTING SOURCE (Rank ${idx + 1})`;
+
+          return `[${importance}]:\n${c.content}`;
+        })
+        .join("\n\n");
+
+      const documentContext = ragContext
+        ? `
+-----------------------------
+SOURCE DOCUMENT CONTEXT (AUTHORITATIVE)
+-----------------------------
+The following content is retrieved using semantic similarity from the uploaded document.
+All entities present here are FACTUAL and must be reused verbatim when relevant.
+
+${ragContext}
+`
+        : '';
+      
+      console.log(`[RAG] Document context built: ${documentContext ? 'YES' : 'NO'}, Length: ${documentContext.length}`);
 
       // Compose prompt for the learning style of this row
       const style = mod.learning_style;
-      const stylePrompt = `You are an expert Instructional Designer and Technical Writer. Your task is to write a complete, self-contained training module for employees, formatted as a high-end professional e-learning chapter with rich HTML formatting.
 
+            const stylePrompt = `You are an expert Instructional Designer and Technical Writer.
+
+Your task is to write ONE complete, self-contained training module, formatted as a high-quality professional e-learning chapter using rich, structured HTML5.
+
+This module will be generated independently inside a loop. Treat it as fully isolated.
+
+-----------------------------c
+MODULE CONTEXT
+-----------------------------
 **Module Context:**
 * **Module Title:** "${mod.title}"
-* **Topics to Cover:** ${topicsText}
-* **Target Objectives:** ${objectivesText}
-* **Learning Style Focus:** ${style}
+// * **Topics to Cover:** ${topicsText}
+// * **Target Objectives:** ${objectivesText}
+// * **Learning Style Focus:** ${style}
 
-**Core Instructions:**
-1.  **Content Fidelity:** Create comprehensive content based on the topics and objectives provided.
-2.  **Tone & Style:** Professional, engaging, and instructive. Adapt the delivery to the specific Learning Style provided below.
-3.  **HTML Formatting (STRICT REQUIREMENT):**
-    * Use semantic HTML5 elements: <h2>, <h3>, <p>, <strong>, <em>, <table>, <ul>, <ol>, <li>, <blockquote>, <section>, <article>.
-    * For tables: Use proper <table>, <thead>, <tbody>, <tr>, <th>, <td> tags. Add data-comparison="true" attribute to comparison tables.
-    * For callouts/tips: Use <div class="callout tip">, <div class="callout warning">, or <div class="callout definition">.
-    * For lists: Use <ul> for unordered and <ol> for ordered lists with proper <li> items.
-    * For key takeaways: Use <blockquote class="key-takeaway">.
-    * NO Markdown syntax - output pure HTML only. Do NOT use **, ##, ---, etc.
-    * Do NOT wrap everything in a single <div> - use semantic section organization.
-4.  **Table Requirements (CRITICAL):**
-    * When comparing concepts, create comparison tables with clear headers and rows.
-    * When listing steps, create step tables with Step #, Action, and Details columns.
-    * When presenting data, use appropriate data visualization tables.
-    * Tables MUST use <thead> for headers and <tbody> for content.
-    * Each table MUST have a descriptive <caption> element or preceding context.
-5.  **Visual Aids:** Insert descriptive <img> tags with data-type="diagram", data-type="chart", data-type="infographic" attributes and clear alt text. These will be replaced with actual assets later. Do not use them just for decoration.
+────────────────────────────────────
+SOURCE CONTEXT (AUTHORITATIVE)
+────────────────────────────────────
+The following content is extracted verbatim from the source document.
+All entities present here are FACTUAL.
 
-**Learning Style Adaptation (${style}):**
-* **If CS (Concrete Sequential):** Use structured step tables, numbered lists, clear procedural content with checkpoints, and factual headings.
-* **If CR (Concrete Random):** Use problem-solving scenarios, interactive prompts, open-ended formatting, and "Try this" sections.
-* **If AS (Abstract Sequential):** Use comparison tables, theoretical models, logical frameworks, data tables, and deep analysis.
-* **If AR (Abstract Random):** Use group scenario sections, emotional context, narrative examples, collaborative prompts, and discussion tables.
+${documentContext}
 
----
+-----------------------------
+MODULE ISOLATION RULE (CRITICAL)
+-----------------------------
+This module must be fully self-contained.
+Do NOT reference other modules, earlier sections, or future modules.
+Do NOT assume prior learner knowledge beyond what is implied by the topics.
 
-**REQUIRED HTML STRUCTURE:**
+-----------------------------
+CONTENT BOUNDARIES (CRITICAL)
+-----------------------------
+
+ALLOWED:
+Explain and elaborate on concepts present in the topics
+Teach beyond the document by adding clarity, depth, and conceptual examples
+Use neutral, generic scenarios (e.g., “an organization”, “a system”, “a team”)
+Add analogies, explanations, and conceptual activities
+
+STRICTLY FORBIDDEN:
+Do NOT invent or reference company names (real or fictional)
+Do NOT invent policies, procedures, KPIs, workflows, or compliance rules
+Do NOT attribute practices to any specific organization
+Do NOT introduce tools, vendors, platforms, or products unless explicitly listed in the topics
+Do NOT introduce unrelated domains outside the subject matter
+
+If information is insufficient:
+Stay abstract and educational
+Do NOT fabricate specificity
+
+MANDATORY:
+If a company name, product name, regulation, or date is present in the provided context, you MUST reuse it verbatim.
+if any policies, procedures, KPIs, workflows, or compliance rules are present in the provided context, you MUST reuse it verbatim.
+if any practices are present in the provided context, you MUST reuse it verbatim.
+if any tools, vendors, platforms, or products are present in the provided context, you MUST reuse it verbatim.
+Use only domains present in the subject matter
+
+
+------------------------------------------
+DOCUMENT FIDELITY REQUIREMENT (CRITICAL)
+-----------------------------------------
+
+You MUST:
+Reuse product names, ingredient names, regulations, timelines, numeric limits,
+  thresholds, caps, and process names exactly as provided in the Topics and Objectives.
+Prefer concrete references explicitly present in the source.
+
+You MAY:
+Explain industry concepts ONLY to the extent required to understand
+  the document-specific items.
+Use industry terminology ONLY if it is explicitly named or directly implied
+  by the document.
+
+You MUST NOT:
+Replace document-specific rules, products, regulations, or workflows
+  with generic industry explanations.
+Introduce canonical frameworks, architectures, or best practices
+  unless they are explicitly mentioned in the source.
+Introduce examples that could apply equally to any other organization
+  or any other domain.
+
+If a concept is mentioned with specifics (numbers, durations, caps, product names),
+those specifics MUST appear verbatim in the generated content.
+If a concept is mentioned without specifics, keep explanations abstract and
+do NOT introduce specificity.
+
+If the source document is conceptual or educational
+(e.g., AI, GenAI, leadership theory, etc.) and does NOT contain
+company-specific entities:
+
+Do NOT force company references
+Stay domain-correct
+Do NOT introduce enterprise frameworks not present in the source
+
+**SOURCE TABLE REPLICATION RULE (MANDATORY)**
+
+If ANY table exists in ${documentContext}:
+
+1. You MUST reproduce that table in the module.
+2. All rows, columns, headers, numbers, and wording MUST match verbatim.
+3. You may reformat it into valid HTML5 table structure,
+   but you MUST NOT:
+   - Modify wording
+   - Add rows
+   - Remove rows
+   - Summarize content
+   - Combine cells
+   - Interpret the table
+   - Add new comparison columns
+
+If multiple tables exist:
+→ Include ALL of them.
+
+If numeric values, thresholds, limits, or caps appear in a table:
+→ They MUST appear unchanged.
+
+If no table exists in the document:
+→ Only create a table if the document logically structures
+   comparative or stepwise content.
+→ Do NOT invent comparison categories.
+
+
+
+-----------------------------
+CONTROLLED EXPLANATION RULE
+-----------------------------
+
+Explanation is allowed ONLY to clarify document-stated content.
+
+You MAY:
+- Rephrase document language for clarity
+- Break long sentences into simpler explanations
+- Explain terminology only if used in the document
+- Add structural learning aids (headings, bullet organization)
+
+You MUST NOT:
+- Add conceptual depth beyond document scope
+- Add analogies
+- Add stories
+- Add hypothetical scenarios
+- Add industry comparisons
+- Add external examples
+- Add exploratory activities not grounded in document language
+
+All expansion must remain semantically equivalent to the source.
+No net-new conceptual information may be introduced.
+
+
+-----------------------------
+HTML FORMATTING REQUIREMENTS (STRICT)
+-----------------------------
+Output ONLY valid HTML5 (no Markdown)
+Use semantic elements: <section>, <article>, <h2>, <h3>, <h4>, <p>, <strong>, <em>, <ul>, <ol>, <li>, <table>, <thead>, <tbody>, <tr>, <th>, <td>, <blockquote>
+Do NOT use Markdown symbols (#, **, ---, etc)
+Close all HTML tags properly
+Do NOT wrap the entire output in a single <div>
+
+-----------------------------
+TABLE REQUIREMENTS
+-----------------------------
+Use tables when comparing concepts, steps, or categories
+Comparison tables MUST include:
+  <table data-comparison="true">
+Step tables MUST include columns:
+  Step # | Action | Explanation
+All tables MUST use <thead> and <tbody>
+Every table must have a <caption> OR a heading immediately before it
+
+-----------------------------
+VISUAL PLACEHOLDERS
+-----------------------------
+Where helpful, insert placeholders if needed, if diagrams, charts or infographics are available. eg, 
+<img data-type="diagram" alt="Description of the diagram">
+<img data-type="chart" alt="Description of the chart">
+<img data-type="infographic" alt="Description of the infographic">
+
+Use visuals only when they add learning value.
+
+STRICT DOCUMENT LOCK:
+
+Every explanatory paragraph must be traceable to a specific concept,
+statement, number, or table found in ${documentContext}.
+
+If a reviewer cannot directly trace a sentence back to the document,
+that sentence MUST NOT exist.
+
+No conceptual expansion unless directly supported by document language.
+No contextual padding.
+No generic instructional filler.
+No external domain knowledge.
+
+// -----------------------------
+// LEARNING STYLE ADAPTATION
+// -----------------------------
+// CS (Concrete Sequential):
+// Structured steps, ordered tables, checkpoints
+
+// CR (Concrete Random):
+// Exploratory problems, open-ended prompts
+
+// AS (Abstract Sequential):
+// Conceptual models, comparison tables, structured analysis
+
+// AR (Abstract Random):
+// Narrative explanations, reflective prompts, discussion activities
+
+-----------------------------
+REQUIRED HTML STRUCTURE
+-----------------------------
 
 <section class="learning-objectives">
-<h2>Learning Objectives</h2>
-<ol>
-<li>Clear, measurable objective 1</li>
-<li>Clear, measurable objective 2</li>
-<li>Clear, measurable objective 3</li>
-</ol>
+  <h2>Learning Objectives</h2>
+  <ol>
+    <li>Objective 1</li>
+    <li>Objective 2</li>
+    <li>Objective 3</li>
+  </ol>
 </section>
 
 <section class="module-section">
-<h2>Section 1: [Descriptive Title]</h2>
+  <h2>Section 1: Descriptive Title</h2>
 
-<h3>Concept</h3>
-<p>Explain the core concept in depth. Use 300+ words with clear explanations.</p>
+  <h3>Concept Explanation</h3>
+  <p>Explain the concept clearly and thoroughly.</p>
 
-<h3>Real-World Context</h3>
-<p>Provide specific business examples. Include practical applications.</p>
+  <h3>Practical Interpretation</h3>
+  <p>Describe how this concept is commonly applied in real-world systems using generic, non-attributed examples.</p>
 
-<h3>Key Points Comparison</h3>
-<table>
-<thead>
-<tr><th>Aspect</th><th>Description</th><th>Example</th></tr>
-</thead>
-<tbody>
-<tr><td>Point 1</td><td>Details</td><td>Example</td></tr>
-</tbody>
-</table>
+  <h3>Key Concept Breakdown</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Aspect</th>
+        <th>Description</th>
+        <th>Illustrative Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Aspect 1</td>
+        <td>Description</td>
+        <td>Example</td>
+      </tr>
+    </tbody>
+  </table>
 
-<blockquote class="key-takeaway"><strong>Key Takeaway:</strong> State the most important point from this section.</blockquote>
+  <blockquote class="key-takeaway">
+    <strong>Key Takeaway:</strong> Summarize the most important learning point.
+  </blockquote>
 </section>
 
 <section class="activity">
-<h3>Activity 1: [Activity Name]</h3>
-<p><strong>Objective:</strong> What will the learner achieve?</p>
-<p><strong>Time:</strong> [Estimated time]</p>
-<h4>Instructions</h4>
-<ol>
-<li>First instruction step</li>
-<li>Second instruction step</li>
-<li>Reflection question or deliverable</li>
-</ol>
+  <h3>Learning Activity</h3>
+  <p><strong>Objective:</strong> What the learner should achieve</p>
+  <p><strong>Time:</strong> Estimated duration</p>
+  <ol>
+    <li>Instruction step one</li>
+    <li>Instruction step two</li>
+    <li>Reflection or deliverable</li>
+  </ol>
 </section>
-
-(Continue with Section 2, 3, etc. following the same HTML structure with tables, comparisons, and activities)
 
 <section class="module-summary">
-<h2>Module Summary</h2>
-<h3>Key Takeaways</h3>
-<ul>
-<li>Takeaway 1</li>
-<li>Takeaway 2</li>
-<li>Takeaway 3</li>
-</ul>
+  <h2>Module Summary</h2>
+  <ul>
+    <li>Key takeaway 1</li>
+    <li>Key takeaway 2</li>
+    <li>Key takeaway 3</li>
+  </ul>
 </section>
 
----
+-----------------------------
+FINAL SELF-CHECK (MANDATORY)
+-----------------------------
+Before responding, confirm:
+No company names invented or fabricated, use verbatim company names
+No invented policies or procedures appear, use verbatim policies or procedures
+No invented tools, vendors, or platforms appear, use verbatim tools, vendors, or platforms
+All examples are generic or domain-specific only
+Module is fully self-contained
+`;
 
-**IMPORTANT REMINDERS:**
-- Output ONLY valid HTML5, no Markdown syntax.
-- Ensure proper semantic structure with <section>, <h2>, <h3>, <p>, <table>, <ul>, <ol> tags.
-- Do NOT output any markdown characters like #, ##, ***, ---, >, etc.
-- Do NOT output code blocks with \`\`\`.
-- Do NOT use any markdown formatting - use HTML only.
-- All tables MUST have proper <thead> and <tbody> structure.
-- All lists MUST use <ul>/<ol> with <li> elements.
-- All emphasis MUST use <strong> or <em> tags, NOT ** or * symbols.
-- Close all HTML tags properly.
-- Generate 3-5 comprehensive sections, each with supporting tables or structured content where appropriate.`;
-      console.log(`Calling Gemini for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
-      const result = await model.generateContent(stylePrompt);
-      const response = await result.response;
-      let aiContent = response.text();
+      console.log(`[GEMINI] Calling Gemini API...`);
+      console.log(`[GEMINI] Module: ${mod.title} (${mod.processed_module_id})`);
+      console.log(`[GEMINI] Learning style: ${style}`);
+      console.log(`[GEMINI] Prompt length: ${stylePrompt.length} chars`);
       
-      // Clean the response to remove any potential markdown code blocks
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: stylePrompt,
+        generationConfig: {
+          maxOutputTokens: 6000,
+          temperature: TEMPERATURE,
+          topP: TOP_P
+        }
+      });
+      
+      let aiContent = response.text || '';
+      
+      console.log(`[CLEAN] Cleaning AI content...`);
       if (aiContent) {
         if (aiContent.includes('```html')) {
+          console.log(`[CLEAN] Removing HTML code blocks`);
           aiContent = aiContent.replace(/```html\n?/g, '').replace(/```\n?/g, '');
         } else if (aiContent.includes('```')) {
+          console.log(`[CLEAN] Removing generic code blocks`);
           aiContent = aiContent.replace(/```[\s\S]*?```/g, '');
         }
         aiContent = aiContent.trim();
       }
+      
       if (!aiContent) {
-        console.warn(`No content generated for module: ${mod.processed_module_id} style: ${style}`);
+        console.warn(`[CLEAN] No content generated for module: ${mod.processed_module_id} style: ${style}`);
         continue;
       }
-      
+
       // Remove any learning style code references (CS, CR, AS, AR) from content
+      console.log(`[CLEAN] Removing learning style references...`);
       aiContent = aiContent.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
+      // aiContent = aiContent.replace(/\s*\((CS|CR|AS|AR|cs|cr|as|ar)[,\s]*\)/gi, '');
+
       aiContent = aiContent.replace(/\b(CS|CR|AS|AR)\b/g, '');
-      // Upsert the content using processed_module_id as the conflict key.
+      
+      console.log(`[DB] Updating database for module: ${mod.processed_module_id}`);
       const { data: upserted, error: updateError } = await supabase
         .from('processed_modules')
         .update({ content: aiContent })
         .eq('processed_module_id', mod.processed_module_id)
         .select('processed_module_id');
+      
       if (updateError) {
-        console.error(`Failed to upsert content for processed_module ${mod.processed_module_id} style ${style}:`, updateError);
+        console.error(`[DB] Failed to update content for processed_module ${mod.processed_module_id}:`, updateError);
       } else {
         updated++;
-        // console.log(`Upserted content for processed_module ${mod.processed_module_id} with AI content for style ${style}.`);
+        console.log(`[DB] ✅ Successfully updated module ${mod.processed_module_id} (${updated} total)`);
       }
     } catch (err) {
-      console.error(`Error processing module ${mod.module_id}:`, err);
-      console.error(`Error processing module ${mod.processed_module_id}:`, err);
+      console.error(`[ERROR] Error processing module ${mod.processed_module_id}:`, err.message);
+      console.error(`[ERROR] Stack trace:`, err.stack);
     }
   }
 
+  console.log(`\n[GENERATE] ========================================`);
+  console.log(`[GENERATE] Content generation complete`);
+  console.log(`[GENERATE] Total modules updated: ${updated}`);
+  console.log(`[GENERATE] ========================================\n`);
+  
   return { message: `Updated ${updated} modules with AI-generated content.` };
 }
 
 module.exports = { generateModuleContent };
+
+
+
+
+// // Standalone version of generate-module-content for VM worker
+// const { createClient } = require('@supabase/supabase-js');
+// const OpenAI = require('openai');
+// require('dotenv').config();
+
+// const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+// const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// const openai = new OpenAI({
+//   apiKey: process.env.OPENAI_API_KEY,
+// });
+
+// async function generateModuleContent({ moduleId = null } = {}) {
+//   let query = supabase
+//     .from('processed_modules')
+//     .select('processed_module_id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives, gpt_summary)')
+//     .or('content.is.null,content.eq.\'\',content.eq.""');
+
+//   if (moduleId) {
+//     query = query.eq('original_module_id', moduleId);
+//   }
+
+//   const { data: modules, error } = await query;
+
+//   if (error) {
+//     console.error('Supabase fetch error:', error);
+//     throw new Error(error.message);
+//   }
+
+//   let updated = 0;
+
+//   for (const mod of modules || []) {
+//     try {
+//       let topics = [];
+//       let objectives = [];
+//       let globalObjectives = [];
+//       let summaries = [];
+
+//       if (Array.isArray(mod.training_modules)) {
+//         for (const tm of mod.training_modules) {
+//           if (Array.isArray(tm.ai_modules)) {
+//             for (const aimod of tm.ai_modules) {
+//               if (Array.isArray(aimod.topics)) topics.push(...aimod.topics);
+//               if (Array.isArray(aimod.objectives)) objectives.push(...aimod.objectives);
+//             }
+//           }
+//           if (Array.isArray(tm.ai_objectives)) globalObjectives.push(...tm.ai_objectives);
+//           if (tm.gpt_summary && typeof tm.gpt_summary === 'string') summaries.push(tm.gpt_summary);
+//         }
+//       }
+
+//       topics = [...new Set(topics)];
+//       objectives = [...new Set(objectives)];
+//       globalObjectives = [...new Set(globalObjectives)];
+//       summaries = [...new Set(summaries)];
+
+//       if (objectives.length === 0 && globalObjectives.length > 0) {
+//         objectives = globalObjectives;
+//       }
+
+//       const topicsText = topics.length > 0
+//         ? `Topics for this module:\n${topics.map((topic, idx) => `${idx + 1}. ${topic}`).join('\n')}`
+//         : '';
+
+//       const objectivesText = objectives.length > 0
+//         ? `Objectives for this module:\n${objectives.map((obj, idx) => `${idx + 1}. ${obj}`).join('\n')}`
+//         : '';
+
+//       const companyContext = summaries.length > 0
+//         ? `\n\n**COMPANY-SPECIFIC CONTEXT (CRITICAL):**\n${summaries.join('\n\n')}`
+//         : '';
+
+//       const style = mod.learning_style;
+
+//       const stylePrompt = `You are an expert Instructional Designer and Technical Writer. Your task is to write a complete, self-contained training module for employees, formatted as a high-end professional e-learning chapter with rich HTML formatting.
+
+// **Module Context:**
+// * **Module Title:** "${mod.title}"
+// * **Topics to Cover:** ${topicsText}
+// * **Target Objectives:** ${objectivesText}
+// * **Learning Style Focus:** ${style}${companyContext}
+
+// **CRITICAL COMPANY-SPECIFIC REQUIREMENTS:**
+// 1. This training module is for a SPECIFIC COMPANY whose context is provided above.
+// 2. You MUST reference the company name, policies, procedures, and specific business context throughout the content.
+// 3. DO NOT write generic textbook content - all examples must be tailored.
+// 4. Extract and use company-specific terminology from the context.
+// 5. Tie concepts directly to how they apply within THIS organization.
+// 6. Use the company name naturally throughout the module.
+// 7. All activities must reflect the company's real environment.
+
+// **Core Instructions:**
+// - Output ONLY valid HTML5 (no Markdown)
+// - Use semantic tags: <section>, <h2>, <h3>, <p>, <table>, <ul>, <ol>, <blockquote>
+// - Tables must use <thead> and <tbody>
+// - Lists must use <ul>/<ol> with <li>
+// - Use <strong>/<em> for emphasis
+// - Close all HTML tags
+// - Generate 3–5 detailed sections with structured tables and activities`;
+
+//       console.log(`Calling OpenAI for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
+
+//       const response = await openai.responses.create({
+//         model: 'gpt-5.2-2025-12-11',
+//         input: stylePrompt,
+//         max_output_tokens: 7000
+//       });
+
+//       let aiContent = response.output_text;
+
+//       if (aiContent) {
+//         if (aiContent.includes('```html')) {
+//           aiContent = aiContent.replace(/```html\n?/g, '').replace(/```\n?/g, '');
+//         } else if (aiContent.includes('```')) {
+//           aiContent = aiContent.replace(/```[\s\S]*?```/g, '');
+//         }
+//         aiContent = aiContent.trim();
+//       }
+
+//       if (!aiContent) {
+//         console.warn(`No content generated for module: ${mod.processed_module_id} style: ${style}`);
+//         continue;
+//       }
+
+//       aiContent = aiContent.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
+//       aiContent = aiContent.replace(/\b(CS|CR|AS|AR)\b/g, '');
+
+//       const { error: updateError } = await supabase
+//         .from('processed_modules')
+//         .update({ content: aiContent })
+//         .eq('processed_module_id', mod.processed_module_id);
+
+//       if (updateError) {
+//         console.error(`Failed to update module ${mod.processed_module_id}:`, updateError);
+//       } else {
+//         updated++;
+//       }
+
+//     } catch (err) {
+//       console.error(`Error processing module ${mod.processed_module_id}:`, err);
+//     }
+//   }
+
+//   return { message: `Updated ${updated} modules with AI-generated content.` };
+// }
+
+// module.exports = { generateModuleContent };
