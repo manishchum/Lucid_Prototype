@@ -4,11 +4,12 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
+import AdminDispatchCenter from "@/components/admin-dispatch-center";
 
 interface EmployeeNavigationProps {
   showBack?: boolean;
@@ -56,6 +57,7 @@ const EmployeeNavigation = ({
   const [isAdmin, setIsAdmin] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
   const [showReportToast, setShowReportToast] = useState(false);
+  const [showDispatchCenter, setShowDispatchCenter] = useState(false);
 
   const displayUser = providedUser || employee;
 
@@ -279,9 +281,9 @@ const EmployeeNavigation = ({
             {coursesOpen && !isCollapsed && (
               <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
                 {[
-                  { href: '/employee/welcome', label: 'Active Modules', icon: Play },
+                  { href: '/employee/welcome', label: 'In Progress', icon: Play },
                   { href: '/employee/welcome', label: 'Completed', icon: Check },
-                  { href: '/content-library', label: 'All Modules', icon: List }
+                  { href: '/content-library', label: 'All Sprints', icon: List }
                 ].map((item) => (
                   <button
                     key={item.label}
@@ -365,6 +367,16 @@ const EmployeeNavigation = ({
                             <span className="truncate">{item.label}</span>
                         </button>
                     ))}
+                    {/* Notify Button */}
+                    <button
+                        onClick={() => setShowDispatchCenter(true)}
+                        className="w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50 relative"
+                    >
+                        <Bell size={18} className="shrink-0" />
+                        <span className="truncate">Notify</span>
+                        {/* Notification badge */}
+                        <div className="absolute top-2 left-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"></div>
+                    </button>
                   </div>
                 )}
                 
@@ -432,6 +444,14 @@ const EmployeeNavigation = ({
           </button>
         </div>
       </aside>
+
+      {/* Admin Dispatch Center Modal */}
+      {isAdmin && (
+        <AdminDispatchCenter 
+          isOpen={showDispatchCenter} 
+          onClose={() => setShowDispatchCenter(false)} 
+        />
+      )}
     </>
   );
 };

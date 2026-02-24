@@ -24,60 +24,52 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
 
   useEffect(() => {
     fetchSprintModules();
-  }, [userId, sprintModuleId]);
+  }, [currentModuleId, sprintModuleId]);
 
   const fetchSprintModules = async () => {
     try {
       setLoading(true);
-      console.log("[ModuleSideNav] Fetching modules for userId:", userId, "sprintModuleId:", sprintModuleId);
+      console.log("[ModuleSideNav] Fetching modules for currentModuleId:", currentModuleId, "sprintModuleId:", sprintModuleId);
 
-      // First, get the processed_module_ids from learning_plan
-      const { data: learningPlanData, error: planError } = await supabase
-        .from("learning_plan")
-        .select("processed_module_ids, module_id")
-        .eq("user_id", userId)
-        .order("assigned_on", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      // Determine the original_module_id (sprint-level module_id)
+      let originalModuleId = sprintModuleId;
 
-      if (planError) {
-        console.error("[ModuleSideNav] Error fetching learning plan:", planError);
-        setLoading(false);
-        return;
-      }
+      // If sprintModuleId is not provided, get it from the current processed module
+      if (!originalModuleId && currentModuleId) {
+        const { data: currentModule, error: currentModuleError } = await supabase
+          .from("processed_modules")
+          .select("original_module_id")
+          .eq("processed_module_id", currentModuleId)
+          .maybeSingle();
 
-      if (!learningPlanData?.processed_module_ids) {
-        console.log("[ModuleSideNav] No processed_module_ids found");
-        setLoading(false);
-        return;
-      }
-
-      let processedModuleIds = learningPlanData.processed_module_ids;
-      
-      // Parse if it's a string
-      if (typeof processedModuleIds === 'string') {
-        try {
-          processedModuleIds = JSON.parse(processedModuleIds);
-        } catch (e) {
-          console.error("[ModuleSideNav] Error parsing processed_module_ids:", e);
+        if (currentModuleError) {
+          console.error("[ModuleSideNav] Error fetching current module:", currentModuleError);
           setLoading(false);
           return;
         }
+
+        if (!currentModule?.original_module_id) {
+          console.log("[ModuleSideNav] No original_module_id found for current module");
+          setLoading(false);
+          return;
+        }
+
+        originalModuleId = currentModule.original_module_id;
       }
 
-      if (!Array.isArray(processedModuleIds) || processedModuleIds.length === 0) {
-        console.log("[ModuleSideNav] processed_module_ids is not an array or is empty");
+      if (!originalModuleId) {
+        console.log("[ModuleSideNav] No original_module_id available");
         setLoading(false);
         return;
       }
 
-      console.log("[ModuleSideNav] Fetching modules with IDs:", processedModuleIds);
+      console.log("[ModuleSideNav] Fetching all processed modules for original_module_id:", originalModuleId);
 
-      // Fetch all processed modules with these IDs
+      // Fetch all processed modules that belong to this sprint/original module
       const { data: modulesData, error: modulesError } = await supabase
         .from("processed_modules")
         .select("processed_module_id, title, order_index")
-        .in("processed_module_id", processedModuleIds)
+        .eq("original_module_id", originalModuleId)
         .order("order_index", { ascending: true });
 
       if (modulesError) {
@@ -88,14 +80,7 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
 
       console.log("[ModuleSideNav] Fetched modules:", modulesData);
       
-      // Sort by the order in the processed_module_ids array if order_index is not available
-      const sortedModules = modulesData?.sort((a: Module, b: Module) => {
-        const aIndex = processedModuleIds.indexOf(a.processed_module_id);
-        const bIndex = processedModuleIds.indexOf(b.processed_module_id);
-        return aIndex - bIndex;
-      }) || [];
-
-      setModules(sortedModules);
+      setModules(modulesData || []);
     } catch (error) {
       console.error("[ModuleSideNav] Unexpected error:", error);
     } finally {
