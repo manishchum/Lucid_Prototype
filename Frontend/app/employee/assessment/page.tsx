@@ -61,20 +61,24 @@ const AssessmentContent = () => {
       try {
         // Get employee's company_id first via backend API
         let companyId: string | null = null;
+        let fetchedUserId: string | null = null;
         if (user?.email) {
           const empData = await fetchUserByEmail(user.email);
           companyId = empData?.company_id || null;
-          setUserId(empData?.user_id || null);
+          fetchedUserId = empData?.user_id || null;
+          setUserId(fetchedUserId);
         }
         if (!companyId) throw new Error("Could not find company for user");
         // Get modules for this company only
-        const { data, error } = await supabase
-          .from("training_modules")
-          .select("module_id, title, ai_modules")
-          .eq("company_id", companyId)
-          .order("created_at", { ascending: true });
-        if (error) throw error;
-        setModules(data || []);
+        const moduleRes = await fetch(`${API_BASE}/api/training-modules/company/${encodeURIComponent(companyId)}`,{
+          headers: {'X-User-ID': fetchedUserId || ''}
+        });
+        if (!moduleRes.ok) {
+          const txt = await moduleRes.text().catch(() => "");
+          throw new Error(`Failed to fetch modules: ${moduleRes.status} ${txt}`);
+        }
+        const modulesPayload = await moduleRes.json().catch(() => ({}));
+        setModules(modulesPayload.modules || []);
         setCompanyId(companyId);
       } catch (err: any) {
   setError("Failed to load modules: " + err.message);
@@ -138,7 +142,7 @@ const AssessmentContent = () => {
               // baseline_assessment is stored as smallint (0 or 1) in database, not boolean
               if (learningPlan) {
                 console.log("baseline_assessment value:", learningPlan.baseline_assessment, "type:", typeof learningPlan.baseline_assessment);
-                isBaselineRequest = learningPlan.baseline_assessment === 1;
+                isBaselineRequest = learningPlan.baseline_assessment === true;
               }
             } else {
               const errorData = await lpRes.json();

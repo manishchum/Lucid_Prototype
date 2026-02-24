@@ -229,10 +229,20 @@ function TrainingPlanContent() {
       console.log("Inside the useEffect")
       // Fetch module-specific baseline requirements AND user's completion status
       try {
-        const { data: modules } = await supabase
-          .from("training_modules")
-          .select("module_id, baseline_assessment_id")
-          .eq("company_id", employeeData.company_id);
+        let modules: any[] = [];
+        try{
+          const tmRes = await fetch(`${API_BASE}/api/training-modules/company/${encodeURIComponent(employeeData.company_id)}`,{
+            headers: {'X-User-ID': employeeData.user_id || ''}
+          });
+          if(tmRes.ok){
+            const payload = await tmRes.json().catch(() => ({}));
+            modules = payload?.modules || [];
+          } else {
+            console.error("[training-plan] Failed to fetch modules for baseline status check:", await tmRes.text().catch(() => ""));
+          }
+        } catch(tmErr){
+          console.error("[training-plan] Error fetching training modules:", tmErr);
+        }
         
         // Get all baseline assessments this user has completed
         const { data: userCompletedBaselines } = await supabase
@@ -332,17 +342,22 @@ function TrainingPlanContent() {
 
         // Fetch additional_readings from training_modules for this sprint-level module
         try {
-          const { data: tmData } = await supabase
-            .from("training_modules")
-            .select("additional_readings")
-            .eq("module_id", moduleId)
-            .single();
-          if (tmData?.additional_readings) {
-            const readings = typeof tmData.additional_readings === "string"
-              ? JSON.parse(tmData.additional_readings)
-              : tmData.additional_readings;
-            setAdditionalReadings(Array.isArray(readings) ? readings : [readings]);
+          const singleRes = await fetch(`${API_BASE}/api/training-modules/${encodeURIComponent(moduleId)}`, {
+            headers: { 'X-User-ID': employeeData.user_id }
+          });
+          if (singleRes.ok) {
+            const payload = await singleRes.json().catch(()=>({}));
+            const tmData = payload.module || payload || {};
+            if (tmData?.additional_readings) {
+              const readings = typeof tmData.additional_readings === "string"
+                ? JSON.parse(tmData.additional_readings)
+                : tmData.additional_readings;
+              setAdditionalReadings(Array.isArray(readings) ? readings : [readings]);
+            } else {
+              setAdditionalReadings(null);
+            }
           } else {
+            console.error("[training-plan] Failed to fetch module details:", await singleRes.text().catch(()=>""));
             setAdditionalReadings(null);
           }
         } catch (e) {

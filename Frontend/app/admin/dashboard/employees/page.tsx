@@ -259,13 +259,17 @@ export default function EmployeesPage() {
 
   const loadTrainingModules = async (companyId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('training_modules')
-        .select('*')
-        .eq('company_id', companyId);
-
-      if (error) throw error;
-      setTrainingModules(data || []);
+      const adminId = admin?.user_id || sessionStorage.getItem('lucid_admin_user_id') ||'';
+      const res = await fetch(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
+        headers: { 'X-User-ID': adminId || ''}
+      });
+      if (!res.ok) {
+        console.warn('[loadTrainingModules] Failed to fetch training modules:', res.status);
+        setTrainingModules([]);
+        return;
+      }
+      const payload = await res.json().catch(()=>({}));
+      setTrainingModules(payload.modules || []);
     } catch (error: any) {
       console.error('Failed to load training modules:', error.message);
     }
@@ -2337,22 +2341,32 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         return;
       }
       
-      // Now fetch only modules that have completed jobs
-      const { data, error: modulesError } = await supabase
-        .from('training_modules')
-        .select('*')
-        .eq('company_id', companyId)
-        .in('module_id', completedModuleIds)
-        .order('title');
-        
-      if (modulesError) throw modulesError;
-      setModules(data || []);
+      try{
+        const tmRes = await fetch(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
+          headers: { 'X-User-ID': adminId }
+        });
+        if(!tmRes.ok) {
+          console.warn('[Bulk-assign] Failed to fetch training modules:', tmRes.status);
+          setModules([]);
+          setModuleBaselineSettings({});
+          return;
+      }
+      const payload = await tmRes.json().catch(() => ({}));
+      const allModules = payload.modules || [];
+      const filtered = allModules.filter((m:any) => completedModuleIds.includes(m.module_id));
+      filtered.sort((a:any, b:any)=>(a.title).localeCompare(b.title));
+      setModules(filtered || []);
+    }catch(e){
+      console.error('[bulk-assign] Error loading modules:', e);
+      setModules([]);
+      setModuleBaselineSettings({});
+    }
       
       // Initialize baseline settings for all modules (default to false)
-      const initialSettings: {[moduleId: string]: boolean} = {};
-      (data || []).forEach(module => {
-        initialSettings[module.module_id] = false;
-      });
+    const initialSettings: {[moduleId: string]: boolean} = {};
+    (modules || []).forEach(module => {
+      initialSettings[module.module_id] = false;
+    });
       setModuleBaselineSettings(initialSettings);
     } catch (error: any) {
       setError('Failed to load modules: ' + error.message);

@@ -118,7 +118,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       // Log quiz taken into module_progress
       try {
         // console.log(result);
-        await fetch('/api/module-progress', {
+        await fetch(`${API_BASE}/api/module-progress`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -22,7 +22,8 @@ from gpt_video_generation.route import router as gpt_video_generation_router
 from generate_infographic.route import router as generate_infographic_router
 from flashcard_generation.route import router as flashcard_generation_router
 from generate_mindmap.route import router as generate_mindmap_router
-from routes import users, roles, assessments, companies, content_jobs, learning_plan
+from module_progress.route import router as module_progress_router
+from routes import users, roles, assessments, companies, content_jobs, learning_plan, training_modules, dispatch
 
 # Import user routes
 # from routes.users import router as users_router
@@ -95,6 +96,7 @@ app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindm
 app.include_router(roleplay_assessment_router, prefix="/api", tags=["roleplay-assessment"])
 app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
 app.include_router(embed_router, prefix="/api", tags=["embeddings"])
+app.include_router(module_progress_router, prefix="/api", tags=["module-progress"])
 
 
 # Router Includes are here
@@ -105,6 +107,8 @@ app.include_router(assessments.router)  # assessments router
 app.include_router(companies.router)  # companies router
 app.include_router(content_jobs.router)  # content jobs router
 app.include_router(learning_plan.router)  # learning plan router
+app.include_router(training_modules.router)  # training modules router
+app.include_router(dispatch.router)  # dispatch router
 
 if __name__ == "__main__":
     import uvicorn

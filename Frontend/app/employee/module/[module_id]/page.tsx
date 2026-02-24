@@ -170,7 +170,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           if (empObj?.user_id) {
             console.log("Inside the module progress log 2")
             console.log(data)
-            await fetch('/api/module-progress', {
+            await fetch(`${API_BASE}/api/module-progress`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -230,7 +230,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   setChatLoading(true);
 
     try {
-      const response = await fetch('/api/module-chat', {
+      const response = await fetch(`${API_BASE}/api/module-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

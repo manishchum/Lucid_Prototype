@@ -64,14 +64,21 @@ const fetchCompanyUsers = async (companyId: string, adminUserId?: string) => {
   }
 };
 
-const loadModules = async (companyId: string) => {
-  const { data: moduleData } = await supabase
-    .from('training_modules')
-    .select('module_id, title, processing_status, created_at')
-    .eq('company_id', companyId)
-    .order('title');
-  
-  return moduleData || [];
+const loadModules = async (companyId: string, adminUserId?: string) => {
+  try {
+    const res = await fetch(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
+      headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
+    });
+    if (!res.ok) {
+      console.warn('[loadModules] backend returned', res.status);
+      return [];
+    }
+    const payload = await res.json().catch(() => ({}));
+    return payload?.modules || [];
+  } catch (e) {
+    console.error('[loadModules] error', e);
+    return [];
+  }
 };
 
 // Update ProgressAnalytics to accept adminUserId so it can call backend safely
@@ -126,8 +133,10 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
         setCompanyLearningStyleEnabled(false);
       }
 
+      // Load modules from backend then other analytics (other loaders may depend on modules/state)
+      const mods = await loadModules(companyId, adminUserId);
+      setModules(mods);
       await Promise.all([
-        loadModules(),
         loadLearningPlanData(),
         loadAssessmentData(),
         loadLearningStyleData(),
@@ -364,12 +373,8 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       const activeEmployees = companyUsers.filter(emp => emp.employment_status === 'ACTIVE').length;
 
       // Other stats remain the same (modules, assessments, kpIs, learning style counts)
-      const { data: moduleData } = await supabase
-        .from('training_modules')
-        .select('module_id')
-        .eq('company_id', companyId);
-
-      const totalModules = moduleData?.length || 0;
+      const moduleList = await loadModules(companyId, adminUserId);
+      const totalModules = moduleList.length;
 
       const { data: assessmentData } = await supabase
         .from('employee_assessments')
