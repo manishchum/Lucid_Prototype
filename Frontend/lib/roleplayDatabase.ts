@@ -93,7 +93,7 @@ export async function fetchAllScenarios(): Promise<{ data: Scenario[] | null; er
       else if (difficultyLower === 'hard') difficulty = 'Hard';
       
       return {
-        id: dbScenario.scenario_id,
+        scenario_id: dbScenario.scenario_id,
         title: dbScenario.title || '',
         description: dbScenario.description || '',
         role: dbScenario.role || '',
@@ -195,9 +195,37 @@ export async function fetchScenariosForUser(userId: string, isAdmin: boolean): P
         return { data: SCENARIOS, error: null };
       }
 
-      console.log("Assigned Scenarios for the user are ",assignedScenarios);
+      // Map database scenarios to proper Scenario type with scenario_id
+      const mappedScenarios: Scenario[] = (assignedScenarios || []).map((dbScenario: any) => {
+        let difficulty = dbScenario.difficulty || 'Medium';
+        const difficultyLower = difficulty.toLowerCase();
+        if (difficultyLower === 'easy') difficulty = 'Easy';
+        else if (difficultyLower === 'medium') difficulty = 'Medium';
+        else if (difficultyLower === 'hard') difficulty = 'Hard';
+        
+        return {
+          scenario_id: dbScenario.scenario_id,
+          title: dbScenario.title || '',
+          description: dbScenario.description || '',
+          role: dbScenario.role || '',
+          difficulty: difficulty,
+          initialPrompt: dbScenario.initialPrompt || '',
+          userRole: dbScenario.userRole || '',
+          tone: dbScenario.tone || 'Neutral',
+          learnerBrief: dbScenario.learnerBrief || '',
+          aiObjectives: Array.isArray(dbScenario.aiObjective) ? dbScenario.aiObjective[0] : dbScenario.aiObjective,
+          maxDuration: Array.isArray(dbScenario.maxDuration) ? dbScenario.maxDuration[0] : dbScenario.maxDuration,
+          minTurns: Array.isArray(dbScenario.minTurns) ? dbScenario.minTurns[0] : dbScenario.minTurns,
+          endConditions: Array.isArray(dbScenario.endConditions) ? dbScenario.endConditions[0] : dbScenario.endConditions,
+          evaluationParams: Array.isArray(dbScenario.evaluationParams) ? dbScenario.evaluationParams[0] : dbScenario.evaluationParams,
+          passingScore: Array.isArray(dbScenario.passingScore) ? dbScenario.passingScore[0] : dbScenario.passingScore,
+          isCustom: true,
+        };
+      });
+
+      console.log("Assigned Scenarios for the user are ",mappedScenarios);
       console.log("Assigned Scenario Ids for the user are ",assignedScenarioIds);
-      return { data: assignedScenarios, error: null };
+      return { data: mappedScenarios, error: null };
     
     }
 

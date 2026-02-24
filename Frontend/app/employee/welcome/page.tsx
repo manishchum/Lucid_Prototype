@@ -250,10 +250,19 @@ export default function EmployeeWelcome() {
       setLearningStyle(styleData?.learning_style || null);
 
       // Fetch company learning style setting
-      const { data: companySettings } = await supabase
-        .from("companies").select("learning_style").eq("company_id", employeeData.company_id).maybeSingle();
-      setCompanyLearningStyleEnabled(companySettings.learning_style);
-      console.log("Company Learning Style Enabled:", companySettings.learning_style);
+      try{
+        const compRes = await fetch(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`);
+        if (compRes.ok) {
+          const compPayload = await compRes.json().catch(() => null);
+          const compSettings = compPayload?.company ?? compPayload;
+          setCompanyLearningStyleEnabled(Boolean(compSettings?.learning_style_enabled));
+          console.log('[checkEmployeeAccess] Company learning style enabled:', Boolean(compSettings?.learning_style_enabled));
+      } else{
+        console.warn("[Welcome] failed to fetch company settings.", compRes.status, compRes.text().catch(()=>""));
+      } 
+    }catch (e) {
+      console.warn("[Welcome] error fetching company settings:", e);
+    }
       // Fetch Plans & Progress (Your specific logic)
       const { data: planRows } = await supabase.from('learning_plan').select('*').eq('user_id', employeeData.user_id);
       const requiresBaseline = planRows?.some((plan: any) => plan.baseline_assessment === 1) ?? true;
@@ -339,7 +348,7 @@ export default function EmployeeWelcome() {
               title: resolvedTitle,
               moduleName: adminName,
               // Preserve whether admin/learning_plan has baseline enabled for this module
-              hasBaseline: (p.baseline_assessment === 1 || p.baseline_assessment === 1),
+              hasBaseline: (p.baseline_assessment === 1 || p.baseline_assessment === true),
             };
         });
 

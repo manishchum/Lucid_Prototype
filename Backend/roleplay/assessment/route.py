@@ -106,9 +106,62 @@ CRITICAL INSTRUCTION: You are evaluating the LEARNER ({learner_role}), NOT the A
 Conversation Transcript:
 {transcript}
 
-Analyze the LEARNER's performance and provide a detailed assessment in JSON format.
+Analyze the LEARNER's performance and provide a detailed assessment in this EXACT JSON format:
 
-Provide ONLY the JSON object, no additional text.
+{{
+  "overallScore": <number between 0-100>,
+  "summary": "<detailed summary of overall performance>",
+  "parameters": [
+    {{
+      "name": "Communication Clarity",
+      "score": <number between 0-100>,
+      "feedback": "<specific feedback>"
+    }},
+    {{
+      "name": "Eye Contact & Engagement",
+      "score": <number between 0-100>,
+      "feedback": "<specific feedback>"
+    }},
+    {{
+      "name": "Hand Gestures & Body Language",
+      "score": <number between 0-100>,
+      "feedback": "<specific feedback>"
+    }},
+    {{
+      "name": "Facial Expressions",
+      "score": <number between 0-100>,
+      "feedback": "<specific feedback>"
+    }},
+    {{
+      "name": "Objection Handling",
+      "score": <number between 0-100>,
+      "feedback": "<specific feedback>"
+    }},
+    {{
+      "name": "Value Proposition",
+      "score": <number between 0-100>,
+      "feedback": "<specific feedback>"
+    }},
+    {{
+      "name": "Active Listening",
+      "score": <number between 0-100>,
+      "feedback": "<specific feedback>"
+    }},
+    {{
+      "name": "Confidence & Professionalism",
+      "score": <number between 0-100>,
+      "feedback": "<specific feedback>"
+    }}
+  ],
+  "recommendations": [
+    "<recommendation 1>",
+    "<recommendation 2>",
+    "<recommendation 3>",
+    "<recommendation 4>"
+  ]
+}}
+
+Provide ONLY the JSON object with these exact keys: overallScore, summary, parameters, recommendations. No additional text before or after.
 """
 
         async with httpx.AsyncClient() as client:
@@ -157,8 +210,14 @@ Provide ONLY the JSON object, no additional text.
             logging.error("Failed to parse assessment JSON: %s", assessment_text)
             raise HTTPException(status_code=500, detail="Failed to parse assessment report")
 
+        # Log the assessment structure for debugging
+        logging.info("Assessment keys: %s", list(assessment.keys()))
+        logging.info("Full assessment: %s", json.dumps(assessment, indent=2))
+
         if not all(k in assessment for k in ("overallScore", "summary", "parameters", "recommendations")):
-            raise HTTPException(status_code=500, detail="Invalid assessment report structure")
+            missing_keys = [k for k in ("overallScore", "summary", "parameters", "recommendations") if k not in assessment]
+            logging.error("Missing required keys: %s. Available keys: %s", missing_keys, list(assessment.keys()))
+            raise HTTPException(status_code=500, detail=f"Invalid assessment report structure. Missing: {missing_keys}")
 
         return JSONResponse(content=assessment)
 

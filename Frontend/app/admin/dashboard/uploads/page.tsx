@@ -552,49 +552,64 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
       if (error) throw error;
 
-      // For each module, check content_jobs status
-      const modulesWithStatus = await Promise.all(
-        (data || []).map(async (module) => {
-          // Check if module exists in content_jobs
-          const { data: jobData, error: jobError } = await supabase
-            .from('content_jobs')
-            .select('status')
+      // Fetch ALL content jobs in ONE batch call (much faster than per-module)
+      let jobsMap = new Map<string, any>();
+      try {
+        const jobsRes = await fetch(`${API_URL}/api/content-jobs/?limit=1000`, {
+          headers: { 'X-User-ID': adminId }
+        });
+        
+        if (jobsRes.ok) {
+          const jobsPayload = await jobsRes.json().catch(() => null);
+          const jobs = jobsPayload?.jobs ?? jobsPayload?.data ?? jobsPayload ?? [];
+          
+          // Create a map of module_id -> job for fast lookup
+          (jobs || []).forEach((job: any) => {
+            if (job.module_id) {
+              jobsMap.set(job.module_id, job);
+            }
+          });
+          console.log(`[uploads] Loaded ${jobsMap.size} content jobs in batch`);
+        } else {
+          const errorText = await jobsRes.text().catch(() => '');
+          console.error('[uploads] Failed to fetch content jobs batch:', jobsRes.status, errorText);
+          console.error('[uploads] Using adminId:', adminId);
+        }
+      } catch (e) {
+        console.error('[uploads] Error fetching content jobs batch:', e);
+      }
+
+      // Map modules with their job status (no async operations, just lookups)
+      const modulesWithStatus = (data || []).map((module) => {
+        let finalStatus = module.processing_status;
+        
+        const job = jobsMap.get(module.module_id);
+        if (job) {
+          // Map backend job status to frontend status
+          if (job.status === 'completed') finalStatus = 'completed';
+          else if (job.status === 'failed') finalStatus = 'failed';
+          else if (job.status === 'in_progress' || job.status === 'in-progress') finalStatus = 'processing';
+          else finalStatus = 'pending';
+        } else {
+          // No job found, keep existing status or default
+          finalStatus = finalStatus || 'processing';
+        }
+
+        // Update module status in database if it changed (fire and forget)
+        if (finalStatus !== module.processing_status) {
+          supabase
+            .from('training_modules')
+            .update({ processing_status: finalStatus })
             .eq('module_id', module.module_id)
-            .single();
+            .then(() => {})
+            .catch((err) => console.warn('[uploads] Failed to update module status:', err));
+        }
 
-          let finalStatus = module.processing_status;
-
-          if (jobError || !jobData) {
-            // Module not in content_jobs yet - keep as "processing"
-            if (finalStatus?.toLowerCase() !== 'processing') {
-              finalStatus = 'processing';
-            }
-          } else {
-            // Module exists in content_jobs
-            if (jobData.status === 'completed') {
-              finalStatus = 'completed';
-            } else if (jobData.status === 'failed') {
-              finalStatus = 'failed';
-            } else {
-              // Job exists but not completed - set to "pending"
-              finalStatus = 'pending';
-            }
-          }
-
-          // Update module status in database if it changed
-          if (finalStatus !== module.processing_status) {
-            await supabase
-              .from('training_modules')
-              .update({ processing_status: finalStatus })
-              .eq('module_id', module.module_id);
-          }
-
-          return {
-            ...module,
-            processing_status: finalStatus
-          };
-        })
-      );
+        return {
+          ...module,
+          processing_status: finalStatus
+        };
+      });
 
       setTrainingModules(modulesWithStatus);
     } catch (error: any) {

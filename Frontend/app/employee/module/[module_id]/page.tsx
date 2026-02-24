@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import EmployeeNavigation from "@/components/employee-navigation";
+import ModuleSideNav from "@/components/ModuleSideNav";
 import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download } from "lucide-react";
 import FlashcardCards from '@/components/FlashcardCards'
 import MindmapViewer from '@/components/MindmapViewer'
@@ -46,7 +47,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const [liveTranscript, setLiveTranscript] = useState("");
   const [plainTranscript, setPlainTranscript] = useState("");
   const [hasVideo, setHasVideo] = useState(false);
-  const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string; isVoice?: boolean }>>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const router = useRouter();
@@ -215,15 +216,16 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   setChatInput('');
 
   // If overrideInput is present, it means voice input was used
-  setLastUserInputWasVoice(!!overrideInput);
-    if (!!overrideInput) {
-      setVoiceLoopActive(true);
-      }   
-    else {
-      setVoiceLoopActive(false);
-          }
+  const isVoiceInput = !!overrideInput;
+  setLastUserInputWasVoice(isVoiceInput);
+  
+  if (isVoiceInput) {
+    setVoiceLoopActive(true);
+  } else {
+    setVoiceLoopActive(false);
+  }
 
-  const newUserMessage = { role: 'user' as const, content: userMessage };
+  const newUserMessage = { role: 'user' as const, content: userMessage, isVoice: isVoiceInput };
   setUserChatHistory((prev) => [...prev, newUserMessage]);
   setChatLoading(true);
 
@@ -268,6 +270,18 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const handleVoiceTranscription = (text: string) => {
   setChatInput(text);
   setLastUserInputWasVoice(true);
+  
+  // Check if user said "bye" or similar exit phrases
+  const exitPhrases = ['bye', 'goodbye', 'stop', 'exit', 'quit'];
+  const lowerText = text.toLowerCase().trim();
+  const shouldExit = exitPhrases.some(phrase => lowerText === phrase || lowerText.endsWith(phrase));
+  
+  if (shouldExit) {
+    setVoiceLoopActive(false);
+    console.log('[ModuleChat] Voice loop stopped - exit phrase detected:', text);
+    return; // Don't auto-send, let user decide
+  }
+  
   setVoiceLoopActive(true);
     console.log('[ModuleChat] handleVoiceTranscription called. text:', text, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
     // Auto-send after transcription
@@ -294,9 +308,21 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
 
   return (
     <div className="min-h-screen">
-      <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} />
+      <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} forceCollapsed={true} />
+      
+      {/* Module Side Navigation */}
+      {employee?.user_id && (
+        <ModuleSideNav 
+          userId={employee.user_id} 
+          currentModuleId={moduleId}
+          sprintModuleId={module?.original_module_id}
+        />
+      )}
 
-      <div className="transition-all duration-300 ease-in-out px-12 py-8" style={{ marginLeft: 'var(--sidebar-width, 0px)' }}>
+      <div 
+        className="transition-all duration-300 ease-in-out px-12 py-8" 
+        style={{ marginLeft: 'calc(var(--sidebar-width, 5rem) + 16rem)' }}
+      >
         <div className="w-full mx-auto">
           <div>
             <main className="w-full">
@@ -373,14 +399,19 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       <div className="space-y-4">
                         {userChatHistory.map((msg, idx) => {
                           // Determine if TTS should be enabled for this bot reply
+                          // TTS is enabled if this is the most recent assistant message 
+                          // AND it follows a voice user message
                           let ttsEnabled = false;
-                          if (msg.role === 'assistant') {
-                            // TTS only for the most recent bot reply after a voice input
-                            // Find the previous user message
-                            const prevUserIdx = userChatHistory.slice(0, idx).reverse().findIndex(m => m.role === 'user');
-                            const prevUserWasVoice = prevUserIdx === 0 ? lastUserInputWasVoice : false;
-                            ttsEnabled = idx === userChatHistory.length - 1 && lastUserInputWasVoice;
+                          if (msg.role === 'assistant' && idx === userChatHistory.length - 1) {
+                            // Find the most recent user message before this assistant message
+                            for (let i = idx - 1; i >= 0; i--) {
+                              if (userChatHistory[i].role === 'user') {
+                                ttsEnabled = userChatHistory[i].isVoice === true;
+                                break;
+                              }
+                            }
                           }
+                          
                           return (
                             <div
                               key={idx}
@@ -446,6 +477,10 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                         onTranscription={handleVoiceTranscription}
                         disabled={chatLoading}
                         autoStart={autoStartMic}
+                        onManualStop={() => {
+                          console.log('[ModuleChat] Voice loop stopped - manual stop by user');
+                          setVoiceLoopActive(false);
+                        }}
                       />
                       <input
                         type="text"
@@ -570,12 +605,12 @@ function ContentCards({ content }: { content: string }) {
 
   // Cycling colors for generic "section" types
   const sectionCycleColors = [
-    { bg: 'bg-gradient-to-br from-rose-50 via-pink-100 to-fuchsia-100', border: 'border-rose-400', titleColor: 'text-rose-800', icon: '🔷' },
-    { bg: 'bg-gradient-to-br from-teal-50 via-emerald-100 to-green-100', border: 'border-teal-400', titleColor: 'text-teal-800', icon: '🔶' },
-    { bg: 'bg-gradient-to-br from-sky-50 via-blue-100 to-indigo-100', border: 'border-sky-400', titleColor: 'text-sky-800', icon: '🟣' },
-    { bg: 'bg-gradient-to-br from-orange-50 via-amber-100 to-yellow-100', border: 'border-orange-400', titleColor: 'text-orange-800', icon: '🟢' },
-    { bg: 'bg-gradient-to-br from-fuchsia-50 via-purple-100 to-violet-100', border: 'border-fuchsia-400', titleColor: 'text-fuchsia-800', icon: '🔴' },
-    { bg: 'bg-gradient-to-br from-emerald-50 via-teal-100 to-cyan-100', border: 'border-emerald-400', titleColor: 'text-emerald-800', icon: '🟡' },
+    { bg: 'bg-[#FFFFFF]/40', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🔷' },
+    { bg: 'bg-[#FFFFFF]/30', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🔶' },
+    { bg: 'bg-[#FFFFFF]/50', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🟣' },
+    { bg: 'bg-[#FFFFFF]/35', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🟢' },
+    { bg: 'bg-[#FFFFFF]/45', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🔴' },
+    { bg: 'bg-[#FFFFFF]/25', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🟡' },
   ];
 
   let sectionColorIdx = 0;
@@ -619,7 +654,7 @@ function ContentCards({ content }: { content: string }) {
           >
             {section.title && (
               <div className="flex items-center gap-3 mb-6">
-                <span className="text-2xl">{style.icon}</span>
+                {/* <span className="text-2xl">{style.icon}</span> */}
                 <h2 className={clsx("font-bold text-xl", style.titleColor)}>
                   {section.title}
                 </h2>
@@ -1180,7 +1215,7 @@ function ContentTransformer({
             ✨
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-slate-900">Content Transformer</h2>
+            <h2 className="text-2xl font-bold text-slate-900">Lucid Studio</h2>
             <p className="text-slate-600 text-sm mt-1">Convert this Sprint into your preferred format.</p>
           </div>
         </div>

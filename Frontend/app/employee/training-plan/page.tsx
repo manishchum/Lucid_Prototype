@@ -9,12 +9,11 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import EmployeeNavigation from "@/components/employee-navigation";
-import { Users, ChevronLeft } from "lucide-react";
+import { Users, ChevronLeft, CheckCircle2 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -54,15 +53,8 @@ function TrainingPlanContent() {
   const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
   const [processedModuleIds, setProcessedModuleIds] = useState<string[]>([]);
   let userId:any = null;
-  useEffect(() => {
-          if (!authLoading) {
-            if (!user) router.push("/login");
-            else fetchCompletedModules();
-            
-          }
-        }, [user, authLoading, router]);
   // Fetch completed modules from Supabase (same logic as employee/welcome)
- 
+  useEffect(() => {
     // console.log("[training-plan] Fetching completed modules for user:", user?.email);
     async function fetchCompletedModules() {
       if (!user?.email) return;
@@ -93,7 +85,14 @@ function TrainingPlanContent() {
     }
 
 
-   
+   fetchCompletedModules();
+    console.log(user)
+    console.log(userId)
+
+    if(!user||!actualUserId)return;
+    console.log(actualUserId)
+    // setActualUserId(employeeData.id);
+  }, [user]);
 
   // Helper to render reasoning in a readable format
   function renderReasoning(reasoning: any) {
@@ -267,16 +266,14 @@ function TrainingPlanContent() {
         setBaselineExists(false);
         setBaselineCompleted(false);
         if (employeeData?.company_id && employeeData?.user_id) {
-          const q = new URLSearchParams({
-            type: "baseline",
-            company_id: employeeData.company_id,
-            user_id_filter: employeeData.user_id
-          });
-          const defsRes = await fetch(`${API_BASE}/api/assessments/filter/search?${q.toString()}`,{
-            headers: { "X-User-Id": employeeData.user_id }
-          });
-          const defsPayload = await defsRes.json().catch(() => ({}));
-          const baselineDefs = defsPayload.assessments ?? defsPayload.data ?? defsPayload ?? [];
+          const { data: baselineDefs } = await supabase
+            .from("assessments")
+            .select("assessment_id, processed_modules!inner(user_id)")
+            .eq("type", "baseline")
+            .eq("company_id", employeeData.company_id)
+            .eq("processed_modules.user_id", employeeData.user_id)
+            ;
+
 
           const {data: userBaselines, error: userBaselinesError } = await supabase
             .from("learning_plan")
@@ -740,331 +737,230 @@ function TrainingPlanContent() {
             <ChevronLeft className="w-5 h-5" />
             Back
           </button>
-          <Card className="mb-8">
+
+          {/* Header Card */}
+          <Card className="mb-6 border-0 shadow-sm">
             <CardHeader>
-              <CardTitle>Your Roadmap to Mastery</CardTitle>
-              <CardDescription>
-                Performance Sprint which works for you
-              </CardDescription>
-              {/* Progress Summary */}
-              <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 via-white to-purple-50 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
+                  <Users className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-xl font-bold text-gray-900">
+                    Your Roadmap to Mastery
+                  </CardTitle>
+                  <CardDescription className="text-sm text-gray-600">
+                    Performance Sprint which works for you.
+                  </CardDescription>
+                </div>
+              </div>
+
+              {/* Progress Overview */}
+              <div className="mt-4 pt-4 border-t">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-base font-bold text-gray-900">
                     Progress Overview
-                  </span>
-                  <span className="text-sm font-bold text-green-600">
+                  </h3>
+                  {/* <a href="#" className="text-sm text-blue-600 hover:underline">
+                    View Details
+                  </a> */}
+                </div>
+                <div className="mb-3">
+                  <span className="text-2xl font-bold text-blue-600">
                     {actualCompletedCount} / {totalModulesCount} Modules Completed
                   </span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className="bg-gradient-to-r from-green-400 to-green-600 h-2 rounded-full transition-all duration-500"
-                    style={{
-                      width: `${Math.min(
-                        (actualCompletedCount / Math.max(totalModulesCount, 1)) * 100,
-                        100
-                      )}%`,
-                    }}
-                  ></div>
+                {/* Individual Module Progress Bars */}
+                <div className="flex gap-2">
+                  {normalizedModules.map((mod: any, idx: number) => (
+                    <div 
+                      key={idx} 
+                      className={`flex-1 h-2 rounded-full ${
+                        mod._isCompleted ? 'bg-blue-600' : 'bg-blue-200'
+                      }`}
+                      title={`${mod.title} - ${mod._isCompleted ? 'Completed' : 'Not Started'}`}
+                    />
+                  ))}
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
-              {/* Reworked layout: Tabs root spans full width, sidebar fixed, content stretches */}
-              <Tabs
-                defaultValue={normalizedModules[0]?._tabValue || ""}
-                className="flex flex-col lg:flex-row gap-8 w-full"
-              >
-                {/* Sidebar */}
-                <div className="w-full lg:w-80 shrink-0">
-                  <TabsList className="w-full flex flex-col bg-white rounded-xl shadow-lg p-3 sticky top-4 h-fit border">
-                    {normalizedModules.map((mod: any) => (
-                      <TabsTrigger
-                        key={mod._tabValue}
-                        value={mod._tabValue}
-                        className={`text-left py-0 px-5 rounded-xl mb-3 border whitespace-normal relative transition-all duration-200 flex w-full h-28 ${
-                          mod._isCompleted
-                            ? "bg-green-100 text-green-800 border-green-300 shadow-md"
-                            : "bg-white text-gray-900 hover:bg-blue-50 hover:shadow-md border-gray-200"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between w-full h-full">
-                          <div className="flex-1 flex flex-col justify-between h-full py-4">
-                            <div className="font-semibold text-base lg:text-base flex items-center gap-2 leading-tight break-words">
-                              {mod._isCompleted && (
-                                <span className="text-green-600 text-lg">
-                                  ✓
-                                </span>
-                              )}
-                              {mod.title}
-                            </div>
-                            {/* <div className="text-sm text-gray-500">
-                              {mod.recommended_time || 0} hours
-                            </div> */}
-                          </div>
-                          {mod._isCompleted && (
-                            <div className="absolute top-3 right-3">
-                              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                            </div>
-                          )}
-                        </div>
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
+          </Card>
+
+          {/* Tips for Success Card */}
+          {(parsedPlan?.tips || overallRecommendations) && (
+            <Card className="mb-6 bg-yellow-50 border-blue-200 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg font-bold text-gray-900">
+                  Tips for Success
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 text-sm text-gray-700">
+                  {parsedPlan?.tips ? (
+                    typeof parsedPlan.tips === 'string' ? (
+                      renderTipsContent(parsedPlan.tips)
+                    ) : (
+                      <div>{JSON.stringify(parsedPlan.tips)}</div>
+                    )
+                  ) : overallRecommendations ? (
+                    Array.isArray(overallRecommendations) ? (
+                      <ol className="space-y-2 list-decimal list-inside">
+                        {overallRecommendations.slice(0, 4).map((rec: any, i: number) => (
+                          <li key={i} className="leading-relaxed">
+                            {typeof rec === 'string' ? rec : JSON.stringify(rec)}
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <div>{typeof overallRecommendations === 'string' ? overallRecommendations : JSON.stringify(overallRecommendations)}</div>
+                    )
+                  ) : null}
                 </div>
-                {/* Content Area */}
-                <div className="flex-1 min-w-0">
-                  {normalizedModules.map((mod: any) => (
-                    <TabsContent
-                      key={mod._tabValue}
-                      value={mod._tabValue}
-                      className="bg-white rounded-xl shadow-lg p-8 border w-full"
-                    >
-                      {/* Header */}
-                      <div className="flex items-center justify-between mb-5">
-                        <h2 className="text-2xl font-semibold text-gray-900 leading-snug pr-4 break-words">
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Module Cards - Scrollable Section */}
+          <div className="mb-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Your Modules</h2>
+            <div className="max-h-[600px] overflow-y-auto pr-2 space-y-4 scroll-smooth">
+              {normalizedModules.map((mod: any, idx: number) => (
+                <Card key={mod._tabValue} className="border-0 shadow-sm hover:shadow-md transition-shadow">
+                  <CardHeader className="pb-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="text-sm font-semibold text-gray-600 mb-1">
+                          MODULE {idx + 1} OF {totalModulesCount}
+                        </div>
+                        <CardTitle className="text-base font-bold text-gray-900">
                           {mod.title}
-                        </h2>
+                        </CardTitle>
+                      </div>
+                      <div className="flex items-center gap-3">
                         {mod._isCompleted && (
-                          <div className="px-4 py-2 bg-green-100 text-green-800 text-sm font-semibold rounded-full border border-green-200 shadow-sm">
-                            ✓ Completed
+                          <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 text-xs font-semibold rounded-full border border-green-200">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Completed
                           </div>
                         )}
-                      </div>
-                      {/* Summary Metrics */}
-                      {/* <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
-                        <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                          <div className="text-sm font-semibold text-blue-800 mb-1">
-                            Recommended Time
-                          </div>
-                          <div className="text-2xl font-bold text-blue-900">
-                            {mod.recommended_time} hours
-                          </div>
-                        </div>
-
-                      </div> */}
-
-                      {/* Tips for Success (per-module banner shown between metrics and actions) */}
-                      {(() => {
-                        // Prefer module-level tips, then plan-level tips. Fall back to static text.
-                        // Try several possible locations where tips might be stored.
-                        const moduleIndex = normalizedModules.findIndex((nm) => nm._tabValue === mod._tabValue);
-                        const planObj: any = parsedPlan || {};
-                        let tips: any = null;
-
-                        // 1) module-level property on the mod object returned by the plan
-                        if (mod?.tips) tips = mod.tips;
-                        if (!tips && mod?.tips_for_success) tips = mod.tips_for_success;
-
-                        // 2) corresponding module entry in parsed plan (if available)
-                        if (!tips && Array.isArray(planObj?.modules) && moduleIndex >= 0) {
-                          const planModule = planObj.modules[moduleIndex] || planObj.learning_plan?.modules?.[moduleIndex] || planObj.plan?.modules?.[moduleIndex];
-                          if (planModule) {
-                            tips = planModule.tips || planModule.tips_for_success || planModule.quick_tips || null;
-                          }
+                    <Button
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={async () => {
+                        const moduleIdentifier = mod.processed_module_id || mod._tabValue;
+                        setContentLoadingModuleId(moduleIdentifier);
+                        const navId = await resolveModuleId(mod);
+                        if (navId) {
+                          router.push(`/employee/module/${navId}`);
+                        } else {
+                          alert("Could not find module content. Please contact support.");
+                          setContentLoadingModuleId(null);
                         }
-
-                        // 3) top-level plan tips
-                        if (!tips) {
-                          tips = planObj?.tips || planObj?.plan?.tips || planObj?.learning_plan?.tips || planObj?.raw?.plan?.tips || null;
-                        }
-
-                        // Normalize arrays/objects into a display string
-                        let tipsText = "";
-                        if (Array.isArray(tips)) {
-                          tipsText = tips.join("\n\n");
-                        } else if (typeof tips === 'object' && tips !== null) {
-                          try { tipsText = JSON.stringify(tips, null, 2); } catch { tipsText = String(tips); }
-                        } else if (typeof tips === 'string') {
-                          tipsText = tips;
-                        }
-
-                        // Trim leading/trailing whitespace and newlines
-                        tipsText = tipsText.trim();
-
-                        const showFallback = !tipsText || tipsText.trim().length === 0;
-
-                        return (
-                          <div className="mt-4 mb-3 px-4 py-3 bg-yellow-50 rounded-xl border border-yellow-200 shadow-sm">
-                            <div className="font-bold text-xl text-yellow-900">Tips for Success</div>
-                            {showFallback ? (
-                              <div className="text-yellow-800 text-sm">Use these quick tips to get the most from your Performance Sprint.</div>
-                            ) : (
-                              <div className="text-yellow-800 text-sm">
-                                {renderTipsContent(tipsText)}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-
-                      {/* Additional Readings (sprint-level) */}
-                      {additionalReadings && additionalReadings.length > 0 && (
-                        <div className="mt-4 mb-3 px-4 py-3 bg-indigo-50 rounded-xl border border-indigo-200 shadow-sm">
-                          <div className="font-bold text-xl text-indigo-900 mb-2">Additional Resources</div>
-                          <ul className="list-disc list-inside space-y-2 pl-1">
-                            {additionalReadings.map((item: any, idx: number) => {
-                              const url = typeof item === "string" ? item : (item?.url || item?.link || item?.href);
-                              const title = typeof item === "string" ? url : (item?.title || item?.name || item?.label || url);
-                              if (!url) return null;
-                              return (
-                                <li key={idx} className="text-indigo-800 text-sm">
-                                  <a
-                                    href={url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="underline hover:text-indigo-600 transition-colors font-medium"
-                                  >
-                                    {title}
-                                  </a>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        </div>
+                      }}
+                      disabled={
+                        mod._isCompleted ||
+                        moduleRequiresBaseline(mod) ||
+                        contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ||
+                        quizLoadingModuleId === (mod.processed_module_id || mod._tabValue)
+                      }
+                    >
+                      {contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ? (
+                        <span className="flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-500 border-t-transparent"></div>
+                          Loading...
+                        </span>
+                      ) : (
+                        "View Content"
                       )}
-
-                      {/* Actions */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        <Button
-                          variant="outline"
-                          size="lg"
-                          onClick={async () => {
-                            // console.log(
-                            //   "[training-plan] View Content clicked for module:",
-                            //   mod
-                            // );
-                            setContentLoadingModuleId(mod.processed_module_id);
-                            const  navId = await resolveModuleId(mod);
-                            // console.log(
-                            //   "[training-plan] Resolved module id:",
-                            //   navId
-                            // );
-                            if (navId) {
-                              router.push(`/employee/module/${navId}`);
-                            } else {
-                              alert(
-                                "Could not find module content. Please contact support."
-                              );
-                              setContentLoadingModuleId(null);
-                            }
-                          }}
-                          disabled={
-                            mod._isCompleted ||
-                            moduleRequiresBaseline(mod) ||
-                            contentLoadingModuleId === mod.processed_module_id ||
-                            quizLoadingModuleId === mod.processed_module_id
-                          }
-                          className={`w-full py-3 text-base font-semibold border-2 transition-all duration-200 ${
-                            mod._isCompleted ||
-                            moduleRequiresBaseline(mod) ||
-                            contentLoadingModuleId === mod.processed_module_id ||
-                            quizLoadingModuleId === mod.processed_module_id
-                              ? "bg-gray-100 text-gray-500 cursor-not-allowed"
-                              : "hover:bg-blue-50"
-                          }`}
-                        >
-                          {contentLoadingModuleId === mod.processed_module_id ? (
-                            <span className="flex items-center justify-center gap-2">
-                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-500 border-t-transparent"></div>
-                              Loading...
-                            </span>
-                          ) : (
-                            "View Content"
-                          )}
-                        </Button>
-                        <Button
-                          variant={mod._isCompleted ? "outline" : "default"}
-                          size="lg"
-                          onClick={async () => {
-                            // console.log(
-                            //   "[training-plan] Quiz clicked for module:",
-                            //   mod
-                            // );
-                            setQuizLoadingModuleId(mod.processed_module_id);
-                            const navId = await resolveModuleId(mod);
-                            // console.log(
-                            //   "[training-plan] Resolved module id:",
-                            //   navId
-                            // );
-                            if (navId) {
-                              router.push(`/employee/quiz/${navId}`);
-                            } else {
-                              alert(
-                                "Could not find module quiz. Please contact support."
-                              );
-                              setQuizLoadingModuleId(null);
-                            }
-                          }}
-                          disabled={
-                            mod._isCompleted ||
-                            moduleRequiresBaseline(mod) ||
-                            contentLoadingModuleId === mod.processed_module_id ||
-                            quizLoadingModuleId === mod.processed_module_id
-                          }
-                          className={`w-full py-3 text-base font-semibold transition-all duration-200 ${
-                            mod._isCompleted ||
-                            moduleRequiresBaseline(mod) ||
-                            contentLoadingModuleId === mod.processed_module_id ||
-                            quizLoadingModuleId === mod.processed_module_id
-                              ? "bg-gray-100 text-gray-500 cursor-not-allowed border-2"
-                              : "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
-                          }`}
-                        >
-                          {mod._isCompleted ? (
-                            "Quiz Completed"
-                          ) : quizLoadingModuleId === mod.processed_module_id ? (
-                            <span className="flex items-center justify-center gap-2">
-                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                              Loading...
-                            </span>
-                          ) : (
-                            "Module Quiz"
-                          )}
-                        </Button>
+                    </Button>
+                    <Button
+                      className={`shrink-0 ${
+                        mod._isCompleted || moduleRequiresBaseline(mod)
+                          ? "bg-gray-200 text-gray-500 hover:bg-gray-200"
+                          : "bg-blue-600 hover:bg-blue-700"
+                      }`}
+                      onClick={async () => {
+                        const moduleIdentifier = mod.processed_module_id || mod._tabValue;
+                        setQuizLoadingModuleId(moduleIdentifier);
+                        const navId = await resolveModuleId(mod);
+                        if (navId) {
+                          router.push(`/employee/quiz/${navId}`);
+                        } else {
+                          alert("Could not find module quiz. Please contact support.");
+                          setQuizLoadingModuleId(null);
+                        }
+                      }}
+                      disabled={
+                        mod._isCompleted ||
+                        moduleRequiresBaseline(mod) ||
+                        contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ||
+                        quizLoadingModuleId === (mod.processed_module_id || mod._tabValue)
+                      }
+                    >
+                      {quizLoadingModuleId === (mod.processed_module_id || mod._tabValue) ? (
+                        <span className="flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                          Loading...
+                        </span>
+                      ) : (
+                        "Module Quiz"
+                      )}
+                    </Button>
                       </div>
-                    </TabsContent>
-                  ))}
-                </div>
-              </Tabs>
-              {overallRecommendations && (
-                <div className="mt-8 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 shadow-lg">
-                  <div className="font-bold text-xl mb-4 text-blue-900 flex items-center gap-2">
-                    {/* <span className="text-2xl">🌟</span> */}
-                    Overall Recommendations
-                  </div>
-                  {Array.isArray(overallRecommendations) ? (
-                    <ul className="space-y-3">
-                      {overallRecommendations.map((r: any, i: number) => (
-                        <li key={`rec-${i}`} className="flex items-start gap-3">
-                          <div className="w-6 h-6 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold mt-0.5">
-                            {i + 1}
-                          </div>
-                          <div className="text-blue-800 flex-1">{r}</div>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="text-blue-800 text-lg">
-                      {overallRecommendations}
                     </div>
-                  )}
-                </div>
-              )}
-              {/* Reasoning Section */}
-              {reasoning && (
-                <div className="mt-8 p-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl border border-yellow-200 shadow-lg">
-                  <div className="font-bold text-xl mb-4 text-yellow-900 flex items-center gap-2">
-                    {/* <span className="text-2xl">🧠</span> */}
-                    Understand How Your Sprint Is Crafted
+                  </CardHeader>
+                </Card>
+            ))}
+            </div>
+          </div>
+
+          {/* Understand How Your Module Is Crafted Section */}
+          {reasoning && (
+            <Card className="mt-6 bg-gradient-to-r from-ornage-50 to-yellow-50 border-purple-200 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg font-bold text-gray-900">
+                  Understand How Your Module Is Crafted
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="font-semibold text-gray-900 mb-2">Module Selection</h3>
+                    <div className="space-y-3">
+                      {normalizedModules.map((mod: any, idx: number) => (
+                        <div key={idx} className="flex items-start gap-3 p-3 bg-white rounded-lg">
+                          <div className="flex items-center justify-center w-8 h-8 rounded bg-blue-100 text-blue-700 font-bold text-sm shrink-0">
+                            {idx + 1}
+                          </div>
+                          <div className="flex-1">
+                            <div className="font-semibold text-gray-900 mb-1">
+                              Module Name: {mod.title}
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              Overview: {
+                                reasoning?.module_selection?.[idx]?.justification ||
+                                `Selected for comprehensive understanding of ${mod.title.toLowerCase()}.`
+                              }
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="text-yellow-800">
-                    {renderReasoning(reasoning)}
+
+                  <div className="p-4 bg-white rounded-lg">
+                    <h3 className="font-semibold text-gray-900 mb-2">Learning Blueprint</h3>
+                    <p className="text-sm text-gray-700 leading-relaxed">
+                      {reasoning?.overall_strategy || 
+                       "The learning plan is designed using a 'Macro-to-Micro' and 'Theory-to-Practice' architecture, structured around the Kolb Learning Cycle. We begin with 'Professional Identity' (Profile modules) to establish the learner's baseline. We then move to 'Contextual Application' (Internship modules) to build real-world understanding."}
+                    </p>
                   </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="mb-8"></div>
         </div>
       </div>
     </div>
