@@ -52,7 +52,8 @@ export async function splitAudioIntoChunks(
   console.log('📦 Original audio size:', audioBlob.size, 'bytes');
 
   // Decode audio to get duration
-  const audioContext = new AudioContext();
+  // const audioContext = new AudioContext();
+  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
   const arrayBuffer = await audioBlob.arrayBuffer();
   const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
   
@@ -156,12 +157,13 @@ async function audioBufferToBlob(audioBuffer: AudioBuffer, mimeType: string): Pr
   source.start();
 
   // Render audio
-  const renderedBuffer = await offlineContext.startRendering();
+  // const renderedBuffer = await offlineContext.startRendering();
 
   // Convert to WAV format (more compatible than WebM for chunking)
-  const wavBlob = audioBufferToWav(renderedBuffer);
+  // const wavBlob = audioBufferToWav(renderedBuffer);
   
-  return wavBlob;
+  // return wavBlob;
+  return audioBufferToWav(audioBuffer);
 }
 
 /**

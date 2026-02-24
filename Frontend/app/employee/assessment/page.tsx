@@ -257,9 +257,12 @@ const AssessmentContent = () => {
       try {
         const q = new URLSearchParams({
           type: 'baseline',
-          company_id: compId,
-          original_module_id: modId || ''
+          company_id: compId
         });
+        // Only add original_module_id if it's provided
+        if (modId) {
+          q.append('original_module_id', modId);
+        }
         const assessRes = await fetch(`${API_BASE}/api/assessments/filter/search?${q.toString()}`, {
           headers: { 'X-User-ID': empId }
         });
