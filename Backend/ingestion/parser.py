@@ -252,7 +252,7 @@ def extract_images_per_page(pdf_path: str, zoom: float = 2.0):
             for rect_index, rect in enumerate(rects):
 
                 # Skip tiny areas
-                if rect.width < 20 or rect.height < 20:
+                if rect.width < 40 or rect.height < 40:
                     continue
 
                 try:
@@ -292,8 +292,8 @@ def extract_images_per_page(pdf_path: str, zoom: float = 2.0):
 def parse_pdf(pdf_path: str):
     text_blocks = parse_text_per_page_unstructured(pdf_path)
     raster_images = extract_images_per_page(pdf_path)
-    vector_images = extract_vector_drawings(pdf_path)
-    images = raster_images + vector_images
+    # vector_images = extract_vector_drawings(pdf_path)
+    images = raster_images 
     
 
     return text_blocks, images

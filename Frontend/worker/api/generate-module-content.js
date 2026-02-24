@@ -344,18 +344,41 @@ if any practices are present in the provided context, you MUST reuse it verbatim
 if any tools, vendors, platforms, or products are present in the provided context, you MUST reuse it verbatim.
 Use only domains present in the subject matter
 
------------------------------
-IMAGE USAGE RULE (MANDATORY)
------------------------------
 
-If retrieved images are provided:
+IMAGE USAGE POLICY (MANDATORY – NO EXCEPTIONS)
 
-1. Use ONLY the provided images.
-2. Insert them using:
-   <img src="IMAGE_URL" alt="Descriptive alt text">
-3. Do NOT invent new images.
-4. Do NOT modify image URLs.
-5. Place images directly under relevant section headings.
+1. You are provided with a fixed list of image URLs.
+2. You MUST use ONLY those exact image URLs.
+3. You are NOT allowed to:
+   - Invent image URLs
+   - Create placeholder images
+   - Use <img data-type="...">
+   - Generate generic or descriptive-only <img> tags
+   - Output <img> without a real src URL
+
+4. If a relevant image URL is not available:
+   - DO NOT generate any image.
+   - Do NOT create a placeholder.
+   - Do NOT simulate an infographic.
+   - Simply skip the image.
+
+5. Every image MUST:
+   - Use a valid provided URL.
+   - Be wrapped inside the required <figure> structure.
+   - Appear immediately under the correct section heading.
+
+6. Standalone <img> tags are STRICTLY FORBIDDEN.
+
+7. If you cannot match a provided image URL to the section concept:
+   - Do NOT include an image.
+   - It is better to have no image than a fake image.
+
+8. Before inserting an image, verify:
+   - Does this section concept clearly match one of the provided image URLs?
+   - If no exact match exists, skip image.
+
+CRITICAL VALIDATION STEP:
+If the image does not have a real working URL, DO NOT OUTPUT THE IMAGE.
 
 -----------------------------
 IMAGE STRUCTURE REQUIREMENT (CRITICAL)
@@ -458,9 +481,6 @@ If no table exists in the document:
 → Only create a table if the document logically structures
    comparative or stepwise content.
 → Do NOT invent comparison categories.
-
-
-
 -----------------------------
 CONTROLLED EXPLANATION RULE
 -----------------------------
