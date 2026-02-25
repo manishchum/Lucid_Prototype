@@ -204,35 +204,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       setLoading(true);
       setError(null);
       
-      // Fetch module metadata and resolve canonical processed_module_id
-      try {
-        let moduleData: any = null;
-        const byProcessed = await supabase
-          .from('processed_modules')
-          .select('processed_module_id, original_module_id, title')
-          .eq('processed_module_id', moduleId)
-          .maybeSingle();
-        moduleData = byProcessed?.data || null;
-
-        if (!moduleData) {
-          const byOriginal = await supabase
-            .from('processed_modules')
-            .select('processed_module_id, original_module_id, title')
-            .eq('original_module_id', moduleId)
-            .maybeSingle();
-          moduleData = byOriginal?.data || null;
-        }
-
-        if (moduleData) {
-          if (moduleData.title) setModuleName(moduleData.title);
-          if(moduleData.original_module_id) setOriginalModuleId(String(moduleData.original_module_id));
-          if (moduleData.processed_module_id) setResolvedModuleId(String(moduleData.processed_module_id));
-          console.log('Value of originalModuleId:', originalModuleId);
-        }
-      } catch (e) {
-        // console.log('[quiz] module metadata fetch error', e);
-      }
-      
+      // Fetch employee data first to get userId for API calls
       let learningStyle: string | null = null;
       if (!authLoading && user?.email) {
         // console.log("Inside the quiz tab")
@@ -253,6 +225,58 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           }
         } catch (e) {
           // console.log('[quiz] employee fetch error', e);
+        }
+      }
+      
+      // Fetch module metadata and resolve canonical processed_module_id
+      if (userId) {
+        try {
+          let moduleData: any = null;
+          
+          // First try: fetch by processed_module_id
+          try {
+            const res = await fetch(`${API_BASE}/api/processed-modules/${moduleId}`, {
+              headers: {
+                'X-User-ID': userId
+              }
+            });
+
+            if (res.ok) {
+              const payload = await res.json();
+              moduleData = payload?.data || payload;
+            }
+          } catch (error) {
+            console.error('[quiz] Error fetching by processed_module_id:', error);
+          }
+
+          // Second try: if not found, fetch by original_module_id
+          if (!moduleData) {
+            try {
+              const res = await fetch(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
+                headers: {
+                  'X-User-ID': userId
+                }
+              });
+
+              if (res.ok) {
+                const payload = await res.json();
+                const modules = payload?.data || payload || [];
+                // Take the first match
+                moduleData = modules[0] || null;
+              }
+            } catch (error) {
+              console.error('[quiz] Error fetching by original_module_id:', error);
+            }
+          }
+
+          if (moduleData) {
+            if (moduleData.title) setModuleName(moduleData.title);
+            if(moduleData.original_module_id) setOriginalModuleId(String(moduleData.original_module_id));
+            if (moduleData.processed_module_id) setResolvedModuleId(String(moduleData.processed_module_id));
+            console.log('Value of originalModuleId:', originalModuleId);
+          }
+        } catch (e) {
+          // console.log('[quiz] module metadata fetch error', e);
         }
       }
       if (!learningStyle) {

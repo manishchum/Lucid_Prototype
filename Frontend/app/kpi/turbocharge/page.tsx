@@ -713,10 +713,27 @@ export default function KPITurbocharge() {
 
         console.log(maxScoreData);
       // Get processed modules mapping
-      const { data: processedModules } = await supabase
-        .from('processed_modules')
-        .select('processed_module_id, original_module_id')
-        .in('original_module_id', moduleIds);
+      let processedModules: Array<{ processed_module_id: string; original_module_id: string }> = [];
+      
+      // Fetch processed modules for each original module
+      for (const moduleId of moduleIds) {
+        if (!user?.user_id) continue;
+        
+        const res = await fetch(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
+          headers: {
+            'X-User-ID': user.user_id
+          }
+        });
+
+        if (res.ok) {
+          const payload = await res.json();
+          const modules = payload?.data || payload || [];
+          processedModules.push(...modules.map((m: any) => ({
+            processed_module_id: m.processed_module_id,
+            original_module_id: m.original_module_id
+          })));
+        }
+      }
 
       // Build heatmap data structure
       const heatmap: HeatmapData[] = users.map(user => {

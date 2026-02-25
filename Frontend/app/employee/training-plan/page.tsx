@@ -433,25 +433,32 @@ function TrainingPlanContent() {
       if (!baselineEnabled && moduleId) {
         console.log('[training-plan] Baseline OFF - fetching all processed modules');
         try {
-          const { data: allProcessedModules } = await supabase
-            .from('processed_modules')
-            .select('*')
-            .eq('original_module_id', moduleId)
-            .order('order_index');
+          // Fetch all processed modules via backend API
+          const pmRes = await fetch(
+            `${API_BASE}/api/processed-modules/original-module/${moduleId}`,
+            { headers: { 'X-User-ID': employeeData.user_id } }
+          );
 
-          if (allProcessedModules && allProcessedModules.length > 0) {
-            // Replace plan modules with all processed modules
-            parsedPlanData = {
-              ...parsedPlanData,
-              modules: allProcessedModules.map((pm: any, idx: number) => ({
-                title: pm.title,
-                processed_module_id: pm.processed_module_id,
-                original_module_id: pm.original_module_id,
-                order: idx + 1,
-                recommended_time: 4, // Default time
-              }))
-            };
-            console.log('[training-plan] Replaced with all processed modules:', parsedPlanData.modules);
+          if (pmRes.ok) {
+            const pmData = await pmRes.json();
+            const allProcessedModules = pmData?.data || [];
+
+            if (allProcessedModules && allProcessedModules.length > 0) {
+              // Replace plan modules with all processed modules
+              parsedPlanData = {
+                ...parsedPlanData,
+                modules: allProcessedModules.map((pm: any, idx: number) => ({
+                  title: pm.title,
+                  processed_module_id: pm.processed_module_id,
+                  original_module_id: pm.original_module_id,
+                  order: idx + 1,
+                  recommended_time: 4, // Default time
+                }))
+              };
+              console.log('[training-plan] Replaced with all processed modules:', parsedPlanData.modules);
+            }
+          } else {
+            console.error('[training-plan] Error fetching processed modules:', await pmRes.text());
           }
         } catch (e) {
           console.error('[training-plan] Error fetching all processed modules:', e);
@@ -512,19 +519,29 @@ function TrainingPlanContent() {
       const moduleName = mod?.title || mod?.name;
       console.log(moduleName);
       console.log(userId)
-      if (moduleName) {
+      if (moduleName && mod?.original_module_id) {
         // console.log("[resolveModuleId] Searching by title:", moduleName);
-        const { data: pmByTitle } = await supabase
-          .from("processed_modules")
-          .select("processed_module_id")
-          .eq('title', moduleName)
-          // .eq("user_id", actualUserId)
-          .limit(1)
-          .maybeSingle();
+        // Fetch all processed modules for the original module via backend API
+        try {
+          const pmRes = await fetch(
+            `${API_BASE}/api/processed-modules/original-module/${mod.original_module_id}`,
+            { headers: { 'X-User-ID': actualUserId || userId } }
+          );
 
-        if (pmByTitle?.processed_module_id) {
-          // console.log("[resolveModuleId] Found by title:", pmByTitle.processed_module_id);
-          return pmByTitle.processed_module_id;
+          if (pmRes.ok) {
+            const pmData = await pmRes.json();
+            const allModules = pmData?.data || [];
+            
+            // Find module by title
+            const pmByTitle = allModules.find((pm: any) => pm.title === moduleName);
+
+            if (pmByTitle?.processed_module_id) {
+              // console.log("[resolveModuleId] Found by title:", pmByTitle.processed_module_id);
+              return pmByTitle.processed_module_id;
+            }
+          }
+        } catch (e) {
+          console.error('[resolveModuleId] Error fetching processed modules:', e);
         }
       }
 

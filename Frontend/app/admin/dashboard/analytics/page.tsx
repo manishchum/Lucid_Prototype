@@ -202,53 +202,73 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
         // Get original module ids and processed modules as before
         const moduleIds = [...new Set(enrichedResults.map(r => r.module_id))];
 
-        const { data: processedModulesData } = await supabase
-          .from('processed_modules')
-          .select('processed_module_id, original_module_id')
-          .in('original_module_id', moduleIds);
-
-        const moduleIdToProcessedIds = new Map();
-        processedModulesData?.forEach(pm => {
-          if (!moduleIdToProcessedIds.has(pm.original_module_id)) {
-            moduleIdToProcessedIds.set(pm.original_module_id, []);
+        // Fetch processed_modules via backend route per original_module_id (frontend should not query DB directly)
+        const processedModulesData: any[] = [];
+        for (const origId of moduleIds) {
+          try {
+            const pmRes = await fetch(`${API_URL}/api/processed-modules/original-module/${encodeURIComponent(origId)}`, {
+              headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
+            });
+            if (!pmRes.ok) {
+              const txt = await pmRes.text().catch(()=> '');
+              console.warn(`[analytics] failed to fetch processed modules for ${origId}:`, pmRes.status, txt);
+              continue;
+            }
+            const pmPayload = await pmRes.json().catch(()=> ({}));
+            const pms = pmPayload?.data || [];
+            (pms || []).forEach((pm: any) => {
+              processedModulesData.push({
+                processed_module_id: pm.processed_module_id,
+                original_module_id: pm.original_module_id
+              });
+            });
+          } catch (e) {
+            console.error('[analytics] error fetching processed modules for', origId, e);
           }
-          moduleIdToProcessedIds.get(pm.original_module_id).push(pm.processed_module_id);
-        });
+        }
+ 
+         const moduleIdToProcessedIds = new Map();
+         processedModulesData?.forEach(pm => {
+           if (!moduleIdToProcessedIds.has(pm.original_module_id)) {
+             moduleIdToProcessedIds.set(pm.original_module_id, []);
+           }
+           moduleIdToProcessedIds.get(pm.original_module_id).push(pm.processed_module_id);
+         });
 
-        const allProcessedModuleIds = Array.from(moduleIdToProcessedIds.values()).flat();
+         const allProcessedModuleIds = Array.from(moduleIdToProcessedIds.values()).flat();
 
-        const { data: moduleProgressData } = await supabase
-          .from('module_progress')
-          .select('user_id, processed_module_id, completed_at')
-          .in('processed_module_id', allProcessedModuleIds);
+         const { data: moduleProgressData } = await supabase
+           .from('module_progress')
+           .select('user_id, processed_module_id, completed_at')
+           .in('processed_module_id', allProcessedModuleIds);
 
-        const progressMap = new Map();
-        moduleProgressData?.forEach(mp => {
-          const key = `${mp.user_id}-${mp.processed_module_id}`;
-          progressMap.set(key, mp);
-        });
+         const progressMap = new Map();
+         moduleProgressData?.forEach(mp => {
+           const key = `${mp.user_id}-${mp.processed_module_id}`;
+           progressMap.set(key, mp);
+         });
 
-        // Merge user info from companyUsers (avoid direct users table calls)
-        const userMap = new Map((companyUsers || []).map((u: any) => [u.user_id, u]));
+         // Merge user info from companyUsers (avoid direct users table calls)
+         const userMap = new Map((companyUsers || []).map((u: any) => [u.user_id, u]));
 
-        enrichedResults = enrichedResults.map(record => {
-          const processedModuleIds = moduleIdToProcessedIds.get(record.module_id) || [];
-          const completedProcessedModules = processedModuleIds.filter(pmId => {
-            const key = `${record.user_id}-${pmId}`;
-            return progressMap.has(key);
-          });
+         enrichedResults = enrichedResults.map(record => {
+           const processedModuleIds = moduleIdToProcessedIds.get(record.module_id) || [];
+           const completedProcessedModules = processedModuleIds.filter(pmId => {
+             const key = `${record.user_id}-${pmId}`;
+             return progressMap.has(key);
+           });
 
-          const user = userMap.get(record.user_id) || { name: 'Unknown', email: '', department_id: null };
+           const user = userMap.get(record.user_id) || { name: 'Unknown', email: '', department_id: null };
 
-          return {
-            ...record,
-            users: user,
-            status: (completedProcessedModules.length === 0) ? 'ASSIGNED' :
-                    (completedProcessedModules.length === processedModuleIds.length) ? 'COMPLETED' : 'IN_PROGRESS',
-            completedItems: completedProcessedModules.length,
-            totalItems: processedModuleIds.length
-          };
-        });
+           return {
+             ...record,
+             users: user,
+             status: (completedProcessedModules.length === 0) ? 'ASSIGNED' :
+                     (completedProcessedModules.length === processedModuleIds.length) ? 'COMPLETED' : 'IN_PROGRESS',
+             completedItems: completedProcessedModules.length,
+             totalItems: processedModuleIds.length
+           };
+         });
       }
 
       setProgressData(enrichedResults);
