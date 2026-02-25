@@ -26,6 +26,7 @@ from module_progress.route import router as module_progress_router
 from module_chat.route import router as module_chat
 from assistant.route import router as assistant_router
 from assistant.chat.route import router as assistant_chat_router
+from change_password.route import router as change_password_router
 from routes import users, roles, assessments, companies, content_jobs, learning_plan, training_modules, dispatch, processed_modules
 
 # Import user routes
@@ -103,6 +104,7 @@ app.include_router(module_progress_router, prefix="/api", tags=["module-progress
 app.include_router(module_chat, prefix="/api", tags=["module-chat"])
 app.include_router(assistant_router, prefix="/api", tags=["assistant"])
 app.include_router(assistant_chat_router, prefix="/api", tags=["assistant-chat"])
+app.include_router(change_password_router, prefix="/api", tags=["change-password"])
 
 
 # Router Includes are here

@@ -187,22 +187,24 @@ export default function AccountPage() {
     setPasswordLoading(true);
     setPasswordError("");
     try {
-      const res = await fetch("/api/change-password", {
+      const res = await fetch(`${API_URL}/api/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           user_id: employee?.user_id,
           current_password: currentPassword,
-          new_password: newPassword,
+          new_password: "", // Empty for validation step
         }),
       });
-      console.log(res);
       const data = await res.json();
-      if (res.status === 401) {
-        setPasswordError("Current password is incorrect");
-      } else {
+      if (res.ok) {
+        // Current password is correct
         setPasswordStep("new");
         setPasswordError("");
+      } else if (res.status === 401) {
+        setPasswordError("Current password is incorrect");
+      } else {
+        setPasswordError(data.error || "Failed to validate password");
       }
     } catch {
       setPasswordError("Something went wrong. Please try again.");
@@ -227,7 +229,7 @@ export default function AccountPage() {
     setPasswordLoading(true);
     setPasswordError("");
     try {
-      const res = await fetch("/api/change-password", {
+      const res = await fetch(`${API_URL}/api/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
