@@ -144,21 +144,30 @@ export default function EmployeeWelcome() {
             continue;
           }
 
-          // Fetch module progress for all processed_module_ids
-          const { data: moduleProgressData, error: progressError } = await supabase
-            .from('module_progress')
-            .select('processed_module_id, pass_status')
-            .eq('user_id', employee.user_id)
-            .in('processed_module_id', plan.processed_module_ids);
-
-          if (progressError) {
-            console.error('[checkOverallStatus] Error fetching module progress:', progressError);
+          // Fetch module progress for all processed_module_ids via backend
+          let moduleProgressData: any[] = [];
+          try {
+            const mpRes = await fetch(`${API_BASE}/api/module-progress/user/${encodeURIComponent(employee.user_id)}`, {
+              headers: { 'X-User-ID': employee.user_id }
+            });
+            if (mpRes.ok) {
+              const mpPayload = await mpRes.json().catch(() => ({}));
+              const allProg = mpPayload?.progress || mpPayload || [];
+              moduleProgressData = (Array.isArray(allProg) ? allProg : [allProg]).filter((r: any) =>
+                plan.processed_module_ids.includes(r.processed_module_id)
+              );
+            } else {
+              console.warn('[checkOverallStatus] failed to fetch module progress', mpRes.status);
+              continue;
+            }
+          } catch (e) {
+            console.error('[checkOverallStatus] Error fetching module progress:', e);
             continue;
           }
 
-          // Check if all sub-modules have passed
+          // Check if all sub-modules have passed (use pass_status)
           const allPassed = plan.processed_module_ids.every((moduleId: string) => {
-            const progress = moduleProgressData?.find((p: any) => p.processed_module_id === moduleId);
+            const progress = moduleProgressData.find((p: any) => p.processed_module_id === moduleId);
             return progress && progress.pass_status === true;
           });
 
@@ -347,16 +356,28 @@ export default function EmployeeWelcome() {
          } catch (e) { /* ignore */ }
 
          const pIds = pMods?.map((m: any) => m.module_id) || [];
-         const { data: pProg } = await supabase
-           .from('module_progress')
-           .select('*')
-           .eq('user_id', employeeData.user_id)
-           .in('processed_module_id', pIds);
+        
+         // Fetch module progress for this user via backend and filter to pIds
+         let pProg: any[] = [];
+         if (pIds.length > 0) {
+           try {
+             const mpRes = await fetch(`${API_BASE}/api/module-progress/user/${encodeURIComponent(employeeData.user_id)}`, {
+               headers: { 'X-User-ID': employeeData.user_id }
+             });
+             if (mpRes.ok) {
+               const mpPayload = await mpRes.json().catch(() => ({}));
+               const allProg = mpPayload?.progress || mpPayload || [];
+               pProg = (Array.isArray(allProg) ? allProg : [allProg]).filter((r: any) => pIds.includes(r.processed_module_id));
+             } else {
+               console.warn('[Welcome] failed to fetch module progress', mpRes.status);
+             }
+           } catch (e) {
+             console.error('[Welcome] error fetching module progress', e);
+           }
+         }
 
          // TEMP LOG: inspect module_progress rows
-         try {
-           console.log('[debug] module_progress (pProg):', pProg);
-         } catch (e) { /* ignore */ }
+         try { console.log('[debug] module_progress (pProg):', pProg); } catch (e) { /* ignore */ }
 
          const completedCount = pProg?.filter((p: any) => p.completed_at).length || 0;
          const prog = mIds.length > 0 ? Math.round((completedCount / mIds.length) * 100) : 0;
@@ -404,8 +425,23 @@ export default function EmployeeWelcome() {
          setAssignedModules(mappedAssigned);
        }
 
-       const { data: progressData } = await supabase.from("module_progress").select("*, processed_modules(title)").eq("user_id", employeeData.user_id);
-       setModuleProgress(progressData || []);
+       // Fetch module progress via backend (includes processed_modules relation)
+       try {
+         const mpRes = await fetch(`${API_BASE}/api/module-progress/user/${encodeURIComponent(employeeData.user_id)}`, {
+           headers: { 'X-User-ID': employeeData.user_id }
+         });
+         if (mpRes.ok) {
+           const mpPayload = await mpRes.json().catch(() => ({}));
+           const progressData = mpPayload?.progress || mpPayload || [];
+           setModuleProgress(Array.isArray(progressData) ? progressData : [progressData]);
+         } else {
+           console.warn('[Welcome] failed to fetch user module progress', mpRes.status);
+           setModuleProgress([]);
+         }
+       } catch (e) {
+         console.error('[Welcome] error fetching user module progress', e);
+         setModuleProgress([]);
+       }
 
      } catch (e) { console.error(e); } finally { setLoading(false); }
    };

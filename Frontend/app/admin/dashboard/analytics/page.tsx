@@ -237,17 +237,40 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
 
          const allProcessedModuleIds = Array.from(moduleIdToProcessedIds.values()).flat();
 
-         const { data: moduleProgressData } = await supabase
-           .from('module_progress')
-           .select('user_id, processed_module_id, completed_at')
-           .in('processed_module_id', allProcessedModuleIds);
+         const moduleProgressData : any[] = [];
+          for (const pmId of allProcessedModuleIds) {
+            try {
+              const mpRes = await fetch(`${API_URL}/api/module-progress/module/${encodeURIComponent(pmId)}`, {
+                headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
+              });
+
+              if (!mpRes.ok) {
+                const txt = await mpRes.text().catch(()=> '');
+                console.warn(`[analytics] failed to fetch module progress for ${pmId}:`, mpRes.status, txt);
+                continue;
+              }
+
+              const mpPayload = await mpRes.json().catch(()=> ({}));
+              const items = mpPayload?.progress || mpPayload || [];
+              (Array.isArray(items) ? items : [items]).forEach((rec: any) => {
+                if (rec.user_id && rec.processed_module_id) {
+                  moduleProgressData.push({
+                    user_id: rec.user_id,
+                    processed_module_id: rec.processed_module_id,
+                    completed_at: rec.completed_at
+                  });
+                }
+              });
+            } catch (e) {
+              console.error('[analytics] error fetching module progress for', pmId, e);
+            }
+          }
 
          const progressMap = new Map();
-         moduleProgressData?.forEach(mp => {
+         moduleProgressData.forEach(mp => {
            const key = `${mp.user_id}-${mp.processed_module_id}`;
            progressMap.set(key, mp);
          });
-
          // Merge user info from companyUsers (avoid direct users table calls)
          const userMap = new Map((companyUsers || []).map((u: any) => [u.user_id, u]));
 

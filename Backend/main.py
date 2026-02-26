@@ -22,12 +22,11 @@ from gpt_video_generation.route import router as gpt_video_generation_router
 from generate_infographic.route import router as generate_infographic_router
 from flashcard_generation.route import router as flashcard_generation_router
 from generate_mindmap.route import router as generate_mindmap_router
-from module_progress.route import router as module_progress_router
 from module_chat.route import router as module_chat
 from assistant.route import router as assistant_router
 from assistant.chat.route import router as assistant_chat_router
 from change_password.route import router as change_password_router
-from routes import users, roles, assessments, companies, content_jobs, learning_plan, training_modules, dispatch, processed_modules
+from routes import users, roles, assessments, companies, content_jobs, learning_plan, training_modules, dispatch, processed_modules, module_progress
 
 # Import user routes
 # from routes.users import router as users_router
@@ -100,7 +99,6 @@ app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindm
 app.include_router(roleplay_assessment_router, prefix="/api", tags=["roleplay-assessment"])
 app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
 app.include_router(embed_router, prefix="/api", tags=["embeddings"])
-app.include_router(module_progress_router, prefix="/api", tags=["module-progress"])
 app.include_router(module_chat, prefix="/api", tags=["module-chat"])
 app.include_router(assistant_router, prefix="/api", tags=["assistant"])
 app.include_router(assistant_chat_router, prefix="/api", tags=["assistant-chat"])
@@ -118,6 +116,7 @@ app.include_router(learning_plan.router)  # learning plan router
 app.include_router(training_modules.router)  # training modules router
 app.include_router(processed_modules.router)  # processed modules router
 app.include_router(dispatch.router)  # dispatch router
+app.include_router(module_progress.router)  # module progress router
 
 if __name__ == "__main__":
     import uvicorn

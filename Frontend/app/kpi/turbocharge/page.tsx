@@ -687,12 +687,23 @@ export default function KPITurbocharge() {
         .in('user_id', userIds)
         .in('module_id', moduleIds);
 
-      // Get all module progress with quiz scores
-      const { data: moduleProgress } = await supabase
-        .from('module_progress')
-        .select('user_id, processed_module_id, quiz_score, pass_status')
-        .in('user_id', userIds)
-        .not('quiz_score', 'is', null);
+      // Get all module progress with quiz scores via backend
+      let moduleProgress: any[] = [];
+      if (user?.company_id) {
+        const res = await fetch(`${API_BASE}/api/module-progress/company/${user.company_id}`, {
+          headers: {
+            'X-User-ID': user.user_id
+          }
+        });
+
+        if (res.ok) {
+          const payload = await res.json();
+          const allProgress = payload?.progress || payload?.data || payload || [];
+          moduleProgress = allProgress.filter((mp: any) => userIds.includes(mp.user_id) && mp.quiz_score != null);
+        } else {
+          console.error('Error loading module progress:', await res.text());
+        }
+      }
 
 
         // Get max_score for each sub-module (processed_module_id)

@@ -66,21 +66,31 @@ function TrainingPlanContent() {
       userId = employeeData.user_id;
       setActualUserId(employeeData.user_id);
 
-      // Get completed modules for employee (match employee/welcome logic)
-      const { data: progressData } = await supabase
-        .from("module_progress")
-        .select("processed_module_id, completed_at")
-        .eq("user_id", employeeData.user_id)
-        .not("completed_at", "is", null);
+      // Get completed modules for employee via backend API
+      try {
+        const progressRes = await fetch(`${API_BASE}/api/module-progress/user/${employeeData.user_id}`, {
+          headers: {
+            'X-User-ID': employeeData.user_id
+          }
+        });
 
-      if (progressData) {
-        // console.log("This is the progress data")
-        // console.log(progressData)
-        // Store completed processed_module_ids
-        setCompletedModules(
-          progressData.map((row: any) => String(row.processed_module_id))
-        );
-        // console.log(completedModules)
+        if (progressRes.ok) {
+          const progressPayload = await progressRes.json();
+          const allProgress = progressPayload?.progress || progressPayload?.data || progressPayload || [];
+          // Filter for completed modules only (completed_at not null)
+          const progressData = allProgress.filter((p: any) => p.completed_at != null);
+          
+          if (progressData && progressData.length > 0) {
+            // Store completed processed_module_ids
+            setCompletedModules(
+              progressData.map((row: any) => String(row.processed_module_id))
+            );
+          }
+        } else {
+          console.error('[training-plan] Error fetching module progress:', await progressRes.text());
+        }
+      } catch (e) {
+        console.error('[training-plan] Error fetching completed modules:', e);
       }
     }
 
@@ -618,16 +628,27 @@ function TrainingPlanContent() {
           console.log("Inside the try catch second")
           console.log(userId)
           console.log(m)
-        const{data:insertedData}=await supabase
-        .from("module_progress")
-        .upsert({
-          user_id:userId,
-          processed_module_id:m,
-        },
-        
-      
-      )
-        // console.log(insertedData);
+          
+          // Create or update module progress via backend API
+          try {
+            const progressRes = await fetch(`${API_BASE}/api/module-progress`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': userId
+              },
+              body: JSON.stringify({
+                user_id: userId,
+                processed_module_id: m
+              })
+            });
+            
+            if (!progressRes.ok) {
+              console.error('[training-plan] Error upserting module progress:', await progressRes.text());
+            }
+          } catch (e) {
+            console.error('[training-plan] Error creating module progress:', e);
+          }
       }
       }
     } catch (e) {
