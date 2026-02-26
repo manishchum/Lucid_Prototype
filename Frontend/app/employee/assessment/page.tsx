@@ -61,20 +61,24 @@ const AssessmentContent = () => {
       try {
         // Get employee's company_id first via backend API
         let companyId: string | null = null;
+        let fetchedUserId: string | null = null;
         if (user?.email) {
           const empData = await fetchUserByEmail(user.email);
           companyId = empData?.company_id || null;
-          setUserId(empData?.user_id || null);
+          fetchedUserId = empData?.user_id || null;
+          setUserId(fetchedUserId);
         }
         if (!companyId) throw new Error("Could not find company for user");
         // Get modules for this company only
-        const { data, error } = await supabase
-          .from("training_modules")
-          .select("module_id, title, ai_modules")
-          .eq("company_id", companyId)
-          .order("created_at", { ascending: true });
-        if (error) throw error;
-        setModules(data || []);
+        const moduleRes = await fetch(`${API_BASE}/api/training-modules/company/${encodeURIComponent(companyId)}`,{
+          headers: {'X-User-ID': fetchedUserId || ''}
+        });
+        if (!moduleRes.ok) {
+          const txt = await moduleRes.text().catch(() => "");
+          throw new Error(`Failed to fetch modules: ${moduleRes.status} ${txt}`);
+        }
+        const modulesPayload = await moduleRes.json().catch(() => ({}));
+        setModules(modulesPayload.modules || []);
         setCompanyId(companyId);
       } catch (err: any) {
   setError("Failed to load modules: " + err.message);
@@ -120,28 +124,31 @@ const AssessmentContent = () => {
         let isBaselineRequest = false;
         let res;
         if (urlModuleId) {
-          // Check if this is a baseline assessment request by looking at learning plan
+          // Check if this is a baseline assessment request by looking at learning plan via backend API
           try {
-            const { data: learningPlan, error: lpError } = await supabase
-              .from('learning_plan')
-              .select('baseline_assessment')
-              .eq('user_id', employeeId)
-              .eq('module_id', urlModuleId)
-              .maybeSingle();
+            const lpRes = await fetch(
+              `${API_BASE}/api/learning-plans/?user_id=${employeeId}&module_id=${urlModuleId}`,
+              { headers: { 'X-User-ID': employeeId } }
+            );
 
             console.log("Learning Plan Query - User ID:", employeeId, "Module ID:", urlModuleId);
-            console.log("Learning Plan Data:", learningPlan);
-            console.log("Learning Plan Error:", lpError);
             
-            if (lpError) {
-              console.error("Error fetching learning plan:", lpError);
+            if (lpRes.ok) {
+              const lpData = await lpRes.json();
+              const learningPlan = lpData?.plans?.[0] || null;
+              
+              console.log("Learning Plan Data:", learningPlan);
+              
+              // baseline_assessment is stored as smallint (0 or 1) in database, not boolean
+              if (learningPlan) {
+                console.log("baseline_assessment value:", learningPlan.baseline_assessment, "type:", typeof learningPlan.baseline_assessment);
+                isBaselineRequest = learningPlan.baseline_assessment === true;
+              }
+            } else {
+              const errorData = await lpRes.json();
+              console.error("Error fetching learning plan:", errorData);
             }
             
-            // baseline_assessment is stored as smallint (0 or 1) in database, not boolean
-            if (learningPlan) {
-              console.log("baseline_assessment value:", learningPlan.baseline_assessment, "type:", typeof learningPlan.baseline_assessment);
-              isBaselineRequest = learningPlan.baseline_assessment === 1;
-            }
             console.log("Is Baseline Request:", isBaselineRequest);
           } catch (err) {
             console.error("Exception while checking learning plan:", err);
