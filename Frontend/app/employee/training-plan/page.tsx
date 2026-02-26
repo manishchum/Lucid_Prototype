@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
+import LoadingProgress from "@/components/shared/LoadingProgress";
+import { useLoadingProgress } from "@/hooks/useLoadingProgress";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Card,
@@ -12,26 +14,19 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import EmployeeNavigation from "@/components/employee-navigation";
+import { useDataCache } from "@/contexts/data-context";
+
 import { Users, ChevronLeft, CheckCircle2 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-const fetchUserByEmail = async (email: string) => {
-  if(!email) return null;
-  const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
-  if (!res.ok) return null;
-  const payload = await res.json();
-  let u = payload?.user || payload;
-  if (Array.isArray(u)) u = u[0];
-  return u || null;
-};
+
 
 function TrainingPlanContent() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, internalUser, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  
+
   const [plan, setPlan] = useState<any>(null);
   const [reasoning, setReasoning] = useState<any>(null);
   const [baselineRequired, setBaselineRequired] = useState(false);
@@ -47,52 +42,70 @@ function TrainingPlanContent() {
   const [actualUserId, setActualUserId] = useState<string | null>(null);
   const [additionalReadings, setAdditionalReadings] = useState<any[] | null>(null);
 
-  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
+  const moduleId = searchParams.get("module_id");
+  const { getCacheData, setCacheData } = useDataCache();
+
+  // Check cache on mount or when moduleId changes
+  useEffect(() => {
+    const key = `training_plan_data_${moduleId || "all"}`;
+    const cachedData = getCacheData(key);
+    if (cachedData) {
+      setPlan(cachedData.plan);
+      setReasoning(cachedData.reasoning);
+      setBaselineRequired(cachedData.baselineRequired);
+      setBaselineMessage(cachedData.baselineMessage);
+      setCompletedModules(cachedData.completedModules);
+      setAdditionalReadings(cachedData.additionalReadings);
+      setLoading(false); // Skip loader if we have cached data
+    } else {
+      setLoading(true); // Show loader if no cache for this specific moduleId
+    }
+  }, [getCacheData, moduleId]);
+
+  const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || loading);
 
 
   const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
   const [processedModuleIds, setProcessedModuleIds] = useState<string[]>([]);
-  let userId:any = null;
+  let userId: any = null;
   // Fetch completed modules from Supabase (same logic as employee/welcome)
   useEffect(() => {
-    // console.log("[training-plan] Fetching completed modules for user:", user?.email);
     async function fetchCompletedModules() {
-      if (!user?.email) return;
-      const employeeData = await fetchUserByEmail(user.email);
-      if(!employeeData?.user_id){
-        setLoading(false);
-        return;
-      }
-      userId = employeeData.user_id;
+      if (!internalUser) return;
+      const employeeData = internalUser;
+
       setActualUserId(employeeData.user_id);
 
-      // Get completed modules for employee (match employee/welcome logic)
-      const { data: progressData } = await supabase
-        .from("module_progress")
-        .select("processed_module_id, completed_at")
-        .eq("user_id", employeeData.user_id)
-        .not("completed_at", "is", null);
+      // Get completed modules for employee via backend API
+      try {
+        const progressRes = await fetch(`${API_BASE}/api/module-progress/user/${employeeData.user_id}`, {
+          headers: {
+            'X-User-ID': employeeData.user_id
+          }
+        });
 
-      if (progressData) {
-        // console.log("This is the progress data")
-        // console.log(progressData)
-        // Store completed processed_module_ids
-        setCompletedModules(
-          progressData.map((row: any) => String(row.processed_module_id))
-        );
-        // console.log(completedModules)
+        if (progressRes.ok) {
+          const progressPayload = await progressRes.json();
+          const allProgress = progressPayload?.progress || progressPayload?.data || progressPayload || [];
+          // Filter for completed modules only (completed_at not null)
+          const progressData = allProgress.filter((p: any) => p.completed_at != null);
+          
+          if (progressData && progressData.length > 0) {
+            // Store completed processed_module_ids
+            setCompletedModules(
+              progressData.map((row: any) => String(row.processed_module_id))
+            );
+          }
+        } else {
+          console.error('[training-plan] Error fetching module progress:', await progressRes.text());
+        }
+      } catch (e) {
+        console.error('[training-plan] Error fetching completed modules:', e);
       }
     }
 
-
-   fetchCompletedModules();
-    console.log(user)
-    console.log(userId)
-
-    if(!user||!actualUserId)return;
-    console.log(actualUserId)
-    // setActualUserId(employeeData.id);
-  }, [user]);
+    fetchCompletedModules();
+  }, [internalUser]);
 
   // Helper to render reasoning in a readable format
   function renderReasoning(reasoning: any) {
@@ -185,8 +198,8 @@ function TrainingPlanContent() {
                   {typeof value === "string"
                     ? value
                     : value !== undefined
-                    ? JSON.stringify(value)
-                    : ""}
+                      ? JSON.stringify(value)
+                      : ""}
                 </div>
               )}
             </div>
@@ -196,72 +209,67 @@ function TrainingPlanContent() {
     );
   }
 
-   useEffect(() => {
-        if (!authLoading) {
-          if (!user) router.push("/login");
-          else fetchPlan();
-          
-        }
-      }, [user, authLoading, router]);
-  const moduleId = searchParams.get('module_id');
-  const fetchPlan = async () => {
-    // console.log("[training-plan] Fetching training plan...");
-    setLoading(true);
+  useEffect(() => {
+    if (!authLoading) {
+      if (!user) {
+        router.push("/login");
+      } else if (internalUser) {
+        fetchPlan(internalUser);
+      }
+    }
+  }, [user, authLoading, internalUser, router]);
+
+  const fetchPlan = async (employeeData: any) => {
+    const key = `training_plan_data_${moduleId || "all"}`;
+    if (!getCacheData(key)) {
+      setLoading(true);
+    }
     try {
-      // Get employee id from Supabase
-      if (!user || !user.email) {
-        setPlan("Could not find employee record.");
-        setLoading(false);
-        return;
-      }
-      const employeeData = await fetchUserByEmail(user.email);
-      if(!employeeData?.user_id){
-        setPlan("Could not find employee record.");
-        setLoading(false);
-        return;
-      }
-      // Store the actual user_id for use in resolveModuleId
       setActualUserId(employeeData.user_id);
-      console.log(actualUserId)
-      userId = employeeData.user_id;
-      console.log(userId)
-      console.log(employeeData)
-      console.log("Inside the useEffect")
+      const userIdVal = employeeData.user_id;
+
       // Fetch module-specific baseline requirements AND user's completion status
       try {
-        const { data: modules } = await supabase
-          .from("training_modules")
-          .select("module_id, baseline_assessment_id")
-          .eq("company_id", employeeData.company_id);
+        let modules: any[] = [];
+        try{
+          const tmRes = await fetch(`${API_BASE}/api/training-modules/company/${encodeURIComponent(employeeData.company_id)}`,{
+            headers: {'X-User-ID': employeeData.user_id || ''}
+          });
+          if(tmRes.ok){
+            const payload = await tmRes.json().catch(() => ({}));
+            modules = payload?.modules || [];
+          } else {
+            console.error("[training-plan] Failed to fetch modules for baseline status check:", await tmRes.text().catch(() => ""));
+          }
+        } catch(tmErr){
+          console.error("[training-plan] Error fetching training modules:", tmErr);
+        }
         
         // Get all baseline assessments this user has completed
         const { data: userCompletedBaselines } = await supabase
           .from("employee_assessments")
           .select("assessment_id")
           .eq("user_id", employeeData.user_id);
-        
+
         const completedBaselineIds = new Set(
           (userCompletedBaselines || []).map((ub: any) => ub.assessment_id)
         );
-        
+
         const statusMap = new Map<string, boolean>();
         if (modules) {
           modules.forEach((mod: any) => {
-            // Check if module requires baseline AND user hasn't completed it
             const requiresBaseline = !!mod.baseline_assessment_id;
-            const userCompletedIt = mod.baseline_assessment_id && 
-                                   completedBaselineIds.has(mod.baseline_assessment_id);
-            // Store true only if baseline is required AND user hasn't completed it
+            const userCompletedIt = mod.baseline_assessment_id &&
+              completedBaselineIds.has(mod.baseline_assessment_id);
             statusMap.set(mod.module_id, requiresBaseline && !userCompletedIt);
           });
         }
         setModuleBaselineStatus(statusMap);
-        // console.log("[training-plan] Module baseline status map:", statusMap);
       } catch (e) {
         console.error("[training-plan] Error fetching module baseline requirements:", e);
       }
-      
-      // Pre-check: detect if company has baseline definitions and whether user completed one
+
+      // Pre-check
       try {
         setBaselineExists(false);
         setBaselineCompleted(false);
@@ -271,20 +279,27 @@ function TrainingPlanContent() {
             .select("assessment_id, processed_modules!inner(user_id)")
             .eq("type", "baseline")
             .eq("company_id", employeeData.company_id)
-            .eq("processed_modules.user_id", employeeData.user_id)
-            ;
+            .eq("processed_modules.user_id", employeeData.user_id);
 
 
-          const {data: userBaselines, error: userBaselinesError } = await supabase
-            .from("learning_plan")
-            .select("user_id,module_id,baseline_assessment")
-            .eq("module_id",moduleId)
-            .eq("user_id", employeeData.user_id);
-            // console.log(userBaselines)
-            if(userBaselines && userBaselines.length>0 && userBaselines[0].baseline_assessment==0){
-            // console.log("Inside the baseline pre-check")
-            setBaselineExists(true);
-            setBaselineCompleted(true);
+          // Fetch learning plan from backend API
+          try {
+            const lpRes = await fetch(
+              `${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}&module_id=${moduleId}`,
+              { headers: { 'X-User-ID': employeeData.user_id } }
+            );
+            if (lpRes.ok) {
+              const lpData = await lpRes.json();
+              const userBaselines = lpData?.plans || [];
+              // console.log(userBaselines)
+              if (userBaselines && userBaselines.length > 0 && userBaselines[0].baseline_assessment == 0) {
+                // console.log("Inside the baseline pre-check")
+                setBaselineExists(true);
+                setBaselineCompleted(true);
+              }
+            }
+          } catch (e) {
+            console.error("[training-plan] Error fetching learning plan:", e);
           }
           if (baselineDefs && baselineDefs.length > 0) {
             setBaselineExists(true);
@@ -300,41 +315,37 @@ function TrainingPlanContent() {
               if (userBaselines && userBaselines.length > 0) {
                 setBaselineCompleted(true);
               } else {
-                // console.log("Inside the else statement of baseline pre-check")
                 setBaselineCompleted(false);
               }
             }
           }
-
         }
-        // console.log(baselineCompleted)
-        // console.log(baselineExists)
       } catch (e) {
         console.error("[training-plan] baseline pre-check failed", e);
       }
 
-      // Extract module_id from URL parameters
-      
-      
-      // Call training-plan API with module_id if present
       const requestBody: any = { user_id: employeeData.user_id };
       if (moduleId) {
         requestBody.module_id = moduleId;
         requestBody.processedModuleIds = processedModuleIds;
 
-        // Fetch additional_readings from training_modules for this sprint-level module
         try {
-          const { data: tmData } = await supabase
-            .from("training_modules")
-            .select("additional_readings")
-            .eq("module_id", moduleId)
-            .single();
-          if (tmData?.additional_readings) {
-            const readings = typeof tmData.additional_readings === "string"
-              ? JSON.parse(tmData.additional_readings)
-              : tmData.additional_readings;
-            setAdditionalReadings(Array.isArray(readings) ? readings : [readings]);
+          const singleRes = await fetch(`${API_BASE}/api/training-modules/${encodeURIComponent(moduleId)}`, {
+            headers: { 'X-User-ID': employeeData.user_id }
+          });
+          if (singleRes.ok) {
+            const payload = await singleRes.json().catch(()=>({}));
+            const tmData = payload.module || payload || {};
+            if (tmData?.additional_readings) {
+              const readings = typeof tmData.additional_readings === "string"
+                ? JSON.parse(tmData.additional_readings)
+                : tmData.additional_readings;
+              setAdditionalReadings(Array.isArray(readings) ? readings : [readings]);
+            } else {
+              setAdditionalReadings(null);
+            }
           } else {
+            console.error("[training-plan] Failed to fetch module details:", await singleRes.text().catch(()=>""));
             setAdditionalReadings(null);
           }
         } catch (e) {
@@ -343,7 +354,6 @@ function TrainingPlanContent() {
         }
       }
 
-      // console.log("[training-plan] Fetching plan with body:", requestBody);
       const res = await fetch(`${API_BASE}/api/training-plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -351,8 +361,6 @@ function TrainingPlanContent() {
       });
       const result = await res.json();
 
-      // console.log("[training-plan] Fetched plan result:", result);
-      // If API indicates baseline is required, show a clear prompt
       if (result?.error === "BASELINE_REQUIRED") {
         setBaselineRequired(true);
         setBaselineMessage(
@@ -366,27 +374,83 @@ function TrainingPlanContent() {
         setBaselineRequired(false);
         setBaselineMessage(null);
       }
-      // If error, show raw JSON for debugging
       if (result.error) {
         setPlan({ error: result.error, raw: result.raw });
         setReasoning(null);
         setLoading(false);
         return;
       }
+      // Check if baseline is enabled for this learning plan
+      let baselineEnabled = true; // Default to true (personalized)
+      try {
+        const lpCheckRes = await fetch(
+          `${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}&module_id=${moduleId}`,
+          { headers: { 'X-User-ID': employeeData.user_id } }
+        );
+        if (lpCheckRes.ok) {
+          const lpCheckData = await lpCheckRes.json();
+          const plans = lpCheckData?.plans || [];
+          if (plans.length > 0) {
+            baselineEnabled = plans[0].baseline_assessment === 1; // 1 = baseline ON, 0 = baseline OFF
+            console.log('[training-plan] Baseline enabled:', baselineEnabled);
+          }
+        }
+      } catch (e) {
+        console.error('[training-plan] Error checking baseline flag:', e);
+      }
+
       // Parse plan
+      let parsedPlanData: any = null;
       if (result.plan) {
         if (typeof result.plan === "string") {
           try {
-            setPlan(JSON.parse(result.plan));
+            parsedPlanData = JSON.parse(result.plan);
           } catch {
-            setPlan(result.plan);
+            parsedPlanData = result.plan;
           }
         } else {
-          setPlan(result.plan);
+          parsedPlanData = result.plan;
         }
-      } else {
-        setPlan(null);
       }
+
+      // If baseline is OFF, fetch ALL processed modules instead of using plan modules
+      if (!baselineEnabled && moduleId) {
+        console.log('[training-plan] Baseline OFF - fetching all processed modules');
+        try {
+          // Fetch all processed modules via backend API
+          const pmRes = await fetch(
+            `${API_BASE}/api/processed-modules/original-module/${moduleId}`,
+            { headers: { 'X-User-ID': employeeData.user_id } }
+          );
+
+          if (pmRes.ok) {
+            const pmData = await pmRes.json();
+            const allProcessedModules = pmData?.data || [];
+
+            if (allProcessedModules && allProcessedModules.length > 0) {
+              // Replace plan modules with all processed modules
+              parsedPlanData = {
+                ...parsedPlanData,
+                modules: allProcessedModules.map((pm: any, idx: number) => ({
+                  title: pm.title,
+                  processed_module_id: pm.processed_module_id,
+                  original_module_id: pm.original_module_id,
+                  order: idx + 1,
+                  recommended_time: 4, // Default time
+                }))
+              };
+              console.log('[training-plan] Replaced with all processed modules:', parsedPlanData.modules);
+            }
+          } else {
+            console.error('[training-plan] Error fetching processed modules:', await pmRes.text());
+          }
+        } catch (e) {
+          console.error('[training-plan] Error fetching all processed modules:', e);
+        }
+      }
+
+      setPlan(parsedPlanData);
+
       // Parse reasoning
       if (result.reasoning) {
         if (typeof result.reasoning === "string") {
@@ -403,10 +467,23 @@ function TrainingPlanContent() {
       }
 
       // Collect and save processed module IDs
-      if (result.plan?.modules) {
+      if (parsedPlanData?.modules) {
         console.log("Inside the fetch plan")
-        await collectAndSaveProcessedModuleIds(result.plan.modules);
+        await collectAndSaveProcessedModuleIds(parsedPlanData.modules, userIdVal);
       }
+
+      // Update cache
+      const finalBaselineStatus = result?.error === "BASELINE_REQUIRED";
+      const key = `training_plan_data_${moduleId || "all"}`;
+      setCacheData(key, {
+        plan: result.plan,
+        reasoning: result.reasoning,
+        baselineRequired: finalBaselineStatus,
+        baselineMessage: result.message,
+        completedModules: completedModules,
+        additionalReadings: additionalReadings,
+      });
+
     } catch (err) {
       setPlan("Error fetching training plan.");
     } finally {
@@ -439,19 +516,29 @@ function TrainingPlanContent() {
       const moduleName = mod?.title || mod?.name;
       console.log(moduleName);
       console.log(userId)
-      if (moduleName) {
+      if (moduleName && mod?.original_module_id) {
         // console.log("[resolveModuleId] Searching by title:", moduleName);
-        const { data: pmByTitle } = await supabase
-          .from("processed_modules")
-          .select("processed_module_id")
-          .eq('title', moduleName)
-          // .eq("user_id", actualUserId)
-          .limit(1)
-          .maybeSingle();
+        // Fetch all processed modules for the original module via backend API
+        try {
+          const pmRes = await fetch(
+            `${API_BASE}/api/processed-modules/original-module/${mod.original_module_id}`,
+            { headers: { 'X-User-ID': actualUserId || userId } }
+          );
 
-        if (pmByTitle?.processed_module_id) {
-          // console.log("[resolveModuleId] Found by title:", pmByTitle.processed_module_id);
-          return pmByTitle.processed_module_id;
+          if (pmRes.ok) {
+            const pmData = await pmRes.json();
+            const allModules = pmData?.data || [];
+            
+            // Find module by title
+            const pmByTitle = allModules.find((pm: any) => pm.title === moduleName);
+
+            if (pmByTitle?.processed_module_id) {
+              // console.log("[resolveModuleId] Found by title:", pmByTitle.processed_module_id);
+              return pmByTitle.processed_module_id;
+            }
+          }
+        } catch (e) {
+          console.error('[resolveModuleId] Error fetching processed modules:', e);
         }
       }
 
@@ -463,7 +550,7 @@ function TrainingPlanContent() {
   };
 
   // Helper: collect all processed_module_ids and save to learning_plan table
-  const collectAndSaveProcessedModuleIds = async (modules: any[]) => {
+  const collectAndSaveProcessedModuleIds = async (modules: any[], userIdVal: string) => {
     try {
       const ids: string[] = [];
       for (const mod of modules) {
@@ -474,23 +561,53 @@ function TrainingPlanContent() {
       }
       setProcessedModuleIds(ids);
 
-      // Save to learning_plan table
+      // Save to learning_plan table via backend API
       if (ids.length > 0 && userId && moduleId) {
-        const { error } = await supabase
-          .from("learning_plan")
-          .update({
-            user_id: userId,
-            module_id: moduleId,
-            processed_module_ids: ids,
-            status: 'IN_PROGRESS'
-          })
-          .eq('user_id', userId)
-          .eq('module_id', moduleId);
-
-        if (error) {
-          console.error("[collectAndSaveProcessedModuleIds] Error saving to learning_plan:", error);
-        } else {
-          // console.log("[collectAndSaveProcessedModuleIds] Successfully saved processed_module_ids:", ids);
+        try {
+          // First, fetch the learning_plan_id
+          const fetchRes = await fetch(
+            `${API_BASE}/api/learning-plans/?user_id=${userId}&module_id=${moduleId}`,
+            { headers: { 'X-User-ID': userId } }
+          );
+          
+          if (fetchRes.ok) {
+            const fetchData = await fetchRes.json();
+            const plans = fetchData?.plans || [];
+            
+            if (plans.length > 0) {
+              const learningPlanId = plans[0].learning_plan_id;
+              
+              // Update the learning plan
+              const updateRes = await fetch(
+                `${API_BASE}/api/learning-plans/${learningPlanId}`,
+                {
+                  method: 'PUT',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'X-User-ID': userId
+                  },
+                  body: JSON.stringify({
+                    processed_module_ids: ids,
+                    status: 'IN_PROGRESS'
+                  })
+                }
+              );
+              
+              if (!updateRes.ok) {
+                const errorData = await updateRes.json();
+                console.error("[collectAndSaveProcessedModuleIds] Error saving to learning_plan:", errorData);
+              } else {
+                // console.log("[collectAndSaveProcessedModuleIds] Successfully saved processed_module_ids:", ids);
+              }
+            } else {
+              console.error("[collectAndSaveProcessedModuleIds] No learning plan found for user and module");
+            }
+          } else {
+            const errorData = await fetchRes.json();
+            console.error("[collectAndSaveProcessedModuleIds] Error fetching learning plan:", errorData);
+          }
+        } catch (error) {
+          console.error("[collectAndSaveProcessedModuleIds] Error updating learning plan:", error);
         }
 
         console.log(ids)
@@ -498,16 +615,27 @@ function TrainingPlanContent() {
           console.log("Inside the try catch second")
           console.log(userId)
           console.log(m)
-        const{data:insertedData}=await supabase
-        .from("module_progress")
-        .upsert({
-          user_id:userId,
-          processed_module_id:m,
-        },
-        
-      
-      )
-        // console.log(insertedData);
+          
+          // Create or update module progress via backend API
+          try {
+            const progressRes = await fetch(`${API_BASE}/api/module-progress`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': userId
+              },
+              body: JSON.stringify({
+                user_id: userId,
+                processed_module_id: m
+              })
+            });
+            
+            if (!progressRes.ok) {
+              console.error('[training-plan] Error upserting module progress:', await progressRes.text());
+            }
+          } catch (e) {
+            console.error('[training-plan] Error creating module progress:', e);
+          }
       }
       }
     } catch (e) {
@@ -523,11 +651,7 @@ function TrainingPlanContent() {
   if (baselineRequired) {
     return (
       <div className="min-h-screen">
-        <EmployeeNavigation showForward={false} />
-        <div
-          className="transition-all duration-300 ease-in-out px-4 py-8"
-          style={{ marginLeft: "var(--sidebar-width, 0px)" }}
-        >
+        <div className="transition-all duration-300 ease-in-out px-4 py-8">
           <div className="max-w-3xl mx-auto">
             <div className="bg-white rounded-xl shadow-lg p-8 border">
               <h2 className="text-2xl font-semibold mb-2">
@@ -560,7 +684,7 @@ function TrainingPlanContent() {
                   variant="outline"
                   onClick={() => {
                     setBaselineRequired(false);
-                    fetchPlan();
+                    if (internalUser) fetchPlan(internalUser);
                   }}
                 >
                   Retry
@@ -603,7 +727,7 @@ function TrainingPlanContent() {
       if (modules && Array.isArray(modules)) {
         parsedPlan = parsedRaw;
       }
-    } catch {}
+    } catch { }
   }
 
   if (!plan || !modules || !Array.isArray(modules)) {
@@ -664,8 +788,8 @@ function TrainingPlanContent() {
     let isCompleted = false;
     const processedModuleId = String(
       normalizedMod?.processed_module_id ??
-        normalizedMod?.id ??
-        normalizedMod?.original_module_id
+      normalizedMod?.id ??
+      normalizedMod?.original_module_id
     );
     if (
       processedModuleId &&
@@ -683,8 +807,8 @@ function TrainingPlanContent() {
   const planModuleIds = normalizedModules.map(mod => String(
     mod?.processed_module_id ?? mod?.id ?? mod?.original_module_id
   )).filter(id => id && id !== "undefined" && id !== "null");
-  
-  const actualCompletedCount = planModuleIds.filter(moduleId => 
+
+  const actualCompletedCount = planModuleIds.filter(moduleId =>
     completedModules.includes(moduleId)
   ).length;
 
@@ -692,14 +816,8 @@ function TrainingPlanContent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <EmployeeNavigation showBack={false} showForward={false} />
       {/* Main content area that adapts to sidebar */}
-      <div
-        className="transition-all duration-300 ease-in-out"
-        style={{
-          marginLeft: "var(--sidebar-width, 0px)",
-        }}
-      >
+      <div className="transition-all duration-300 ease-in-out">
         {/* Header */}
         <div
           className="bg-white shadow-sm border-b"
@@ -722,12 +840,7 @@ function TrainingPlanContent() {
       </div>
 
       {/* Main content area that adapts to sidebar */}
-      <div
-        className="transition-all duration-300 ease-in-out px-4 py-8"
-        style={{
-          marginLeft: "var(--sidebar-width, 0px)",
-        }}
-      >
+      <div className="transition-all duration-300 ease-in-out px-4 py-8">
         <div className="max-w-7xl mx-auto">
           {/* Back Button */}
           <button
@@ -773,11 +886,10 @@ function TrainingPlanContent() {
                 {/* Individual Module Progress Bars */}
                 <div className="flex gap-2">
                   {normalizedModules.map((mod: any, idx: number) => (
-                    <div 
-                      key={idx} 
-                      className={`flex-1 h-2 rounded-full ${
-                        mod._isCompleted ? 'bg-blue-600' : 'bg-blue-200'
-                      }`}
+                    <div
+                      key={idx}
+                      className={`flex-1 h-2 rounded-full ${mod._isCompleted ? 'bg-blue-600' : 'bg-blue-200'
+                        }`}
                       title={`${mod.title} - ${mod._isCompleted ? 'Completed' : 'Not Started'}`}
                     />
                   ))}
@@ -843,74 +955,73 @@ function TrainingPlanContent() {
                             Completed
                           </div>
                         )}
-                    <Button
-                      variant="outline"
-                      className="shrink-0"
-                      onClick={async () => {
-                        const moduleIdentifier = mod.processed_module_id || mod._tabValue;
-                        setContentLoadingModuleId(moduleIdentifier);
-                        const navId = await resolveModuleId(mod);
-                        if (navId) {
-                          router.push(`/employee/module/${navId}`);
-                        } else {
-                          alert("Could not find module content. Please contact support.");
-                          setContentLoadingModuleId(null);
-                        }
-                      }}
-                      disabled={
-                        mod._isCompleted ||
-                        moduleRequiresBaseline(mod) ||
-                        contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ||
-                        quizLoadingModuleId === (mod.processed_module_id || mod._tabValue)
-                      }
-                    >
-                      {contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ? (
-                        <span className="flex items-center gap-2">
-                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-500 border-t-transparent"></div>
-                          Loading...
-                        </span>
-                      ) : (
-                        "View Content"
-                      )}
-                    </Button>
-                    <Button
-                      className={`shrink-0 ${
-                        mod._isCompleted || moduleRequiresBaseline(mod)
-                          ? "bg-gray-200 text-gray-500 hover:bg-gray-200"
-                          : "bg-blue-600 hover:bg-blue-700"
-                      }`}
-                      onClick={async () => {
-                        const moduleIdentifier = mod.processed_module_id || mod._tabValue;
-                        setQuizLoadingModuleId(moduleIdentifier);
-                        const navId = await resolveModuleId(mod);
-                        if (navId) {
-                          router.push(`/employee/quiz/${navId}`);
-                        } else {
-                          alert("Could not find module quiz. Please contact support.");
-                          setQuizLoadingModuleId(null);
-                        }
-                      }}
-                      disabled={
-                        mod._isCompleted ||
-                        moduleRequiresBaseline(mod) ||
-                        contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ||
-                        quizLoadingModuleId === (mod.processed_module_id || mod._tabValue)
-                      }
-                    >
-                      {quizLoadingModuleId === (mod.processed_module_id || mod._tabValue) ? (
-                        <span className="flex items-center gap-2">
-                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                          Loading...
-                        </span>
-                      ) : (
-                        "Module Quiz"
-                      )}
-                    </Button>
+                        <Button
+                          variant="outline"
+                          className="shrink-0"
+                          onClick={async () => {
+                            const moduleIdentifier = mod.processed_module_id || mod._tabValue;
+                            setContentLoadingModuleId(moduleIdentifier);
+                            const navId = await resolveModuleId(mod);
+                            if (navId) {
+                              router.push(`/employee/module/${navId}`);
+                            } else {
+                              alert("Could not find module content. Please contact support.");
+                              setContentLoadingModuleId(null);
+                            }
+                          }}
+                          disabled={
+                            mod._isCompleted ||
+                            moduleRequiresBaseline(mod) ||
+                            contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ||
+                            quizLoadingModuleId === (mod.processed_module_id || mod._tabValue)
+                          }
+                        >
+                          {contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ? (
+                            <span className="flex items-center gap-2">
+                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-500 border-t-transparent"></div>
+                              Loading...
+                            </span>
+                          ) : (
+                            "View Content"
+                          )}
+                        </Button>
+                        <Button
+                          className={`shrink-0 ${mod._isCompleted || moduleRequiresBaseline(mod)
+                            ? "bg-gray-200 text-gray-500 hover:bg-gray-200"
+                            : "bg-blue-600 hover:bg-blue-700"
+                            }`}
+                          onClick={async () => {
+                            const moduleIdentifier = mod.processed_module_id || mod._tabValue;
+                            setQuizLoadingModuleId(moduleIdentifier);
+                            const navId = await resolveModuleId(mod);
+                            if (navId) {
+                              router.push(`/employee/quiz/${navId}`);
+                            } else {
+                              alert("Could not find module quiz. Please contact support.");
+                              setQuizLoadingModuleId(null);
+                            }
+                          }}
+                          disabled={
+                            mod._isCompleted ||
+                            moduleRequiresBaseline(mod) ||
+                            contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ||
+                            quizLoadingModuleId === (mod.processed_module_id || mod._tabValue)
+                          }
+                        >
+                          {quizLoadingModuleId === (mod.processed_module_id || mod._tabValue) ? (
+                            <span className="flex items-center gap-2">
+                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                              Loading...
+                            </span>
+                          ) : (
+                            "Module Quiz"
+                          )}
+                        </Button>
                       </div>
                     </div>
                   </CardHeader>
                 </Card>
-            ))}
+              ))}
             </div>
           </div>
 
@@ -951,8 +1062,8 @@ function TrainingPlanContent() {
                   <div className="p-4 bg-white rounded-lg">
                     <h3 className="font-semibold text-gray-900 mb-2">Learning Blueprint</h3>
                     <p className="text-sm text-gray-700 leading-relaxed">
-                      {reasoning?.overall_strategy || 
-                       "The learning plan is designed using a 'Macro-to-Micro' and 'Theory-to-Practice' architecture, structured around the Kolb Learning Cycle. We begin with 'Professional Identity' (Profile modules) to establish the learner's baseline. We then move to 'Contextual Application' (Internship modules) to build real-world understanding."}
+                      {reasoning?.overall_strategy ||
+                        "The learning plan is designed using a 'Macro-to-Micro' and 'Theory-to-Practice' architecture, structured around the Kolb Learning Cycle. We begin with 'Professional Identity' (Profile modules) to establish the learner's baseline. We then move to 'Contextual Application' (Internship modules) to build real-world understanding."}
                     </p>
                   </div>
                 </div>
@@ -967,34 +1078,6 @@ function TrainingPlanContent() {
   );
 }
 
-function useIllusionProgress(active: boolean) {
-  const [progress, setProgress] = useState(15);
-  const [show, setShow] = useState(active);
-
-  useEffect(() => {
-    if (!active) {
-      setProgress(100);
-      const timeout = setTimeout(() => setShow(false), 180);
-      return () => clearTimeout(timeout);
-    }
-
-    setShow(true);
-    setProgress(Math.min(30, 12 + Math.round(Math.random() * 10)));
-
-    const id = setInterval(() => {
-      setProgress((prev) => {
-        const hold = prev > 70 ? Math.random() < 0.5 : Math.random() < 0.3;
-        if (hold) return prev; // pause occasionally to mimic real loading
-        const increment = Math.max(1, Math.round(Math.random() * 7));
-        return Math.min(prev + increment, 94);
-      });
-    }, 420 + Math.round(Math.random() * 240));
-
-    return () => clearInterval(id);
-  }, [active]);
-
-  return { progress: Math.min(progress, 100), show };
-}
 
 function renderTipsContent(tipsText: string) {
   const escapeHtml = (text: string) =>
@@ -1038,25 +1121,6 @@ function renderTipsContent(tipsText: string) {
   );
 }
 
-function LoadingProgress({ label, progress }: { label: string; progress: number }) {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
-        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
-          <span>{label}</span>
-          <span className="text-slate-900 text-base font-black">{progress}%</span>
-        </div>
-        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
-          <div
-            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <p className="text-xs text-slate-500 font-medium">Crafting your personalized roadmap. Hang tight.</p>
-      </div>
-    </div>
-  );
-}
 
 export default function TrainingPlanPage() {
   return (

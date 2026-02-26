@@ -10,8 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { 
-  Upload, 
+import {
+  Upload,
   Sparkles,
   Loader2,
   FileText,
@@ -44,7 +44,7 @@ interface ParsedKPIData {
 }
 
 export default function KPIIntelligencePage() {
-  const {user, loading:authLoading} = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [roleName, setRoleName] = useState('');
   const [jobDescription, setJobDescription] = useState('');
@@ -70,12 +70,12 @@ export default function KPIIntelligencePage() {
   }, []);
 
   useEffect(() => {
-        if (!authLoading) {
-          if (!user) router.push("/login");
-          // else checkAdminAccess();
-          
-        }
-      }, [user, authLoading, router]);
+    if (!authLoading) {
+      if (!user) router.push("/login");
+      // else checkAdminAccess();
+
+    }
+  }, [user, authLoading, router]);
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -111,7 +111,7 @@ export default function KPIIntelligencePage() {
 
       const data = await response.json();
       setJobDescription(data.text);
-      
+
       // Auto-extract role name from filename if not set
       if (!roleName) {
         const filename = file.name.replace(/\.(pdf|docx?|doc)$/i, '');
@@ -187,9 +187,7 @@ export default function KPIIntelligencePage() {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <EmployeeNavigation />
-      
-      <main className="flex-1 lg:ml-72 transition-all duration-300">
+      <main className="flex-1 transition-all duration-300">
         <div className="p-8">
           {/* Header Section */}
           <div className="mb-8">
@@ -229,11 +227,10 @@ export default function KPIIntelligencePage() {
                 <div className="flex items-center gap-3">
                   <label
                     htmlFor="file-upload"
-                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-8 border-2 border-dashed rounded-lg transition-colors cursor-pointer ${
-                      uploadedFile
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-8 border-2 border-dashed rounded-lg transition-colors cursor-pointer ${uploadedFile
                         ? 'border-green-300 bg-green-50'
                         : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                    } ${isLoading || isParsingFile ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      } ${isLoading || isParsingFile ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     {isParsingFile ? (
                       <>
@@ -308,8 +305,8 @@ export default function KPIIntelligencePage() {
               )}
 
               <div className="flex gap-3 pt-2">
-                <Button 
-                  onClick={handleParseJD} 
+                <Button
+                  onClick={handleParseJD}
                   disabled={isLoading || isParsingFile || !roleName.trim() || !jobDescription.trim()}
                   className="bg-blue-600 hover:bg-blue-700"
                 >
@@ -325,8 +322,8 @@ export default function KPIIntelligencePage() {
                     </>
                   )}
                 </Button>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={handleReset}
                   disabled={isLoading || isParsingFile}
                 >
@@ -356,7 +353,7 @@ export default function KPIIntelligencePage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Sparkles className="w-5 h-5 text-purple-600" />
-                   Analysis Results
+                    Analysis Results
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -365,7 +362,7 @@ export default function KPIIntelligencePage() {
                       <TabsTrigger value="indicators">Key Performance Indicators</TabsTrigger>
                       {/* <TabsTrigger value="strategies">Strategies</TabsTrigger> */}
                     </TabsList>
-                    
+
                     <TabsContent value="indicators" className="space-y-6 mt-4">
                       {/* Lead Indicators */}
                       <div className="space-y-4">
@@ -376,7 +373,7 @@ export default function KPIIntelligencePage() {
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           {parsedData.leadIndicators.map((indicator, index) => (
-                            <Card 
+                            <Card
                               key={index}
                               className="border-l-4 border-l-green-500 hover:shadow-lg transition-shadow"
                             >
@@ -414,7 +411,7 @@ export default function KPIIntelligencePage() {
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           {parsedData.lagIndicators.map((indicator, index) => (
-                            <Card 
+                            <Card
                               key={index}
                               className="border-l-4 border-l-blue-500 hover:shadow-lg transition-shadow"
                             >
@@ -445,8 +442,8 @@ export default function KPIIntelligencePage() {
                     </TabsContent>
 
                     {/* <TabsContent value="strategies" className="space-y-4 mt-4"> */}
-                      {/* Learning Strategy */}
-                      {/* <div className="space-y-3">
+                    {/* Learning Strategy */}
+                    {/* <div className="space-y-3">
                         <div className="flex items-center gap-2 mb-2">
                           <BookOpen className="w-5 h-5 text-purple-600" />
                           <h3 className="font-semibold text-gray-900">Learning Strategy</h3>
@@ -456,8 +453,8 @@ export default function KPIIntelligencePage() {
                         </div>
                       </div> */}
 
-                      {/* Data Strategy */}
-                      {/* <div className="space-y-3">
+                    {/* Data Strategy */}
+                    {/* <div className="space-y-3">
                         <div className="flex items-center gap-2 mb-2">
                           <Database className="w-5 h-5 text-orange-600" />
                           <h3 className="font-semibold text-gray-900">Data Strategy</h3>

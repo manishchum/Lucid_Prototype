@@ -50,6 +50,9 @@ async def POST(request: Request):
 
         print("Outside First IF. Succesfull")
         
+        # Extract type from body explicitly if provided
+        reqType = body.get("type") or body.get("assessmentType")
+
         # Normalize parameters for the new API
         normalizedUserId = user_id or userId or employeeId
         normalizedAssessmentId = assessment_id or assessmentId
@@ -107,7 +110,7 @@ async def POST(request: Request):
 
         assessmentResult = submitAssessmentResponse.json()
         
-        print("Assessment result:", assessmentResult)
+        # print("Assessment result:", assessmentResult)
 
         # Return response in the format expected by legacy clients
         return JSONResponse(content={

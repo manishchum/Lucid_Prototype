@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import EmployeeNavigation from "@/components/employee-navigation"
+
 import { BookOpen, Smile, Meh, Frown, ChevronLeft, ChevronRight, CheckCircle, Star, Target, Lightbulb, Trophy, ChevronDown } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import LoadingProgress from "@/components/shared/LoadingProgress";
+import { useLoadingProgress } from "@/hooks/useLoadingProgress";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
@@ -59,20 +61,20 @@ const questions = [
 // Extract ONLY the report text from JSON response - ignore everything else before JSON
 const extractReportFromJson = (analysis: string) => {
   if (!analysis) return ''
-  
+
   // Remove all markdown code blocks and JSON artifacts
   let cleaned = analysis.replace(/```json[\s\S]*?```/g, '')  // Remove ```json...``` blocks
   cleaned = cleaned.replace(/```[\s\S]*?```/g, '')  // Remove any other ``` blocks
   cleaned = cleaned.replace(/^\s*[{}]\s*$/gm, '')  // Remove standalone { or }
   cleaned = cleaned.replace(/^\s*\*\*[\s\S]*?\*\*\s*$/gm, '') // Remove markdown bold markers
-  
+
   // Extract "Here is your personalized learning style report:" section if it exists
   const reportStart = cleaned.indexOf('Here is your personalized learning style report:')
   if (reportStart !== -1) {
     const reportText = cleaned.substring(reportStart + 'Here is your personalized learning style report:'.length)
     return reportText.trim()
   }
-  
+
   // If no explicit marker, return the cleaned text (it's likely already the report)
   return cleaned.trim()
 }
@@ -80,13 +82,13 @@ const extractReportFromJson = (analysis: string) => {
 // Helper function to parse report text into 3 main tab sections
 const parseReportIntoTabs = (reportText: string) => {
   const tabs: { id: string; title: string; icon: any; color: string; content: string; subsections: { subtitle: string; items: string[] }[] }[] = []
-  
+
   if (!reportText) return tabs
-  
+
   // Remove "Title:" and the title line
   reportText = reportText.replace(/^Title:\s*Your Personal Learning Style Insights\s*\n\n/i, '')
   reportText = reportText.replace(/^Here is your personalized learning style report:\s*\n\n/i, '')
-  
+
   const lines = reportText.split('\n').map(l => l.trim()).filter(l => {
     // Skip empty lines, dividers, JSON brackets, markdown code blocks, markdown bold markers
     if (!l) return false
@@ -97,10 +99,10 @@ const parseReportIntoTabs = (reportText: string) => {
     if (l.match(/Score:|Points|Preference|Calculating|Identifying|Secondary|Dominant/i)) return false
     return true
   })
-  
+
   let currentTab: any = null
   let currentSubsection: any = null
-  
+
   for (const line of lines) {
     // Main section headers: numbered (e.g., "1. Your Natural Learning Style:") OR plain headers
     const mainHeaderMatch = line.match(/^(?:\d+\.\s*)?(.+?):\s*$/)
@@ -110,18 +112,18 @@ const parseReportIntoTabs = (reportText: string) => {
       mainHeaderMatch[1].toLowerCase().includes('tips to make') ||
       mainHeaderMatch[1].toLowerCase().includes('tips to learn')
     )
-    
+
     if (isMainHeader && mainHeaderMatch) {
       // Save previous tab
       if (currentTab) {
         tabs.push(currentTab)
       }
-      
+
       const title = mainHeaderMatch[1]
       let icon = BookOpen
       let color = 'green'
       let id = 'natural'
-      
+
       if (title.toLowerCase().includes('natural learning')) {
         icon = BookOpen
         color = 'green'
@@ -135,12 +137,12 @@ const parseReportIntoTabs = (reportText: string) => {
         color = 'blue'
         id = 'tips'
       }
-      
+
       currentTab = { id, title, icon, color, content: '', subsections: [] }
       currentSubsection = null
       continue
     }
-    
+
     // Subsection headers: lines that end with : but don't start with bullet
     const subHeaderMatch = line.match(/^(?![•*\-·])(.+?):\s*$/)
     if (subHeaderMatch && currentTab && !line.match(/^\d+\./)) {
@@ -151,7 +153,7 @@ const parseReportIntoTabs = (reportText: string) => {
         continue
       }
     }
-    
+
     // Lines starting with bullets or asterisks (both * and •)
     const bulletMatch = line.match(/^[•*\-·]\s*(.+)$/)
     if (bulletMatch) {
@@ -174,12 +176,12 @@ const parseReportIntoTabs = (reportText: string) => {
       }
     }
   }
-  
+
   // Add the last tab
   if (currentTab) {
     tabs.push(currentTab)
   }
-  
+
   return tabs
 }
 
@@ -327,13 +329,13 @@ export default function LearningStyleSurvey() {
   const [submitting, setSubmitting] = useState(false)
   const [employeeId, setEmployeeId] = useState<string | null>(null)
   const [loadingId, setLoadingId] = useState(true)
-  const [page, setPage] = useState<'intro'|'survey'|'summary'>('intro')
+  const [page, setPage] = useState<'intro' | 'survey' | 'summary'>('intro')
   const [surveyPage, setSurveyPage] = useState(0); // 0-based page index for question sets
-  const [learningStyleResult, setLearningStyleResult] = useState<{ 
-    code: string, 
-    label: string, 
+  const [learningStyleResult, setLearningStyleResult] = useState<{
+    code: string,
+    label: string,
     description: string,
-    gptAnalysis?: string 
+    gptAnalysis?: string
   } | null>(null)
   const [openSections, setOpenSections] = useState<string[]>([])
   const router = useRouter()
@@ -355,7 +357,7 @@ export default function LearningStyleSurvey() {
       const data = await res.json()
       if (data.user_id) {
         setEmployeeId(data.user_id)
-        
+
         // Check if user already has learning style data
         const styleRes = await fetch(`${API_BASE}/api/learning-style?user_id=${data.user_id}`)
         const styleData = await styleRes.json()
@@ -439,23 +441,23 @@ export default function LearningStyleSurvey() {
         console.log('[Learning Style Submit] Full response data:', data)
         console.log('[Learning Style Submit] gptResult:', gptResult)
         console.log('[Learning Style Submit] gptResult.report:', gptResult.report)
-        
+
         const learningStyleMap = {
           'CS': { code: 'CS', label: 'Concrete Sequential', description: 'The Planner - Prefers structure, clear steps, and hands-on practice.' },
           'AS': { code: 'AS', label: 'Abstract Sequential', description: 'The Analyst - Learns through analysis, intellectual exploration, and theoretical models.' },
           'AR': { code: 'AR', label: 'Abstract Random', description: 'The Connector - Learns through reflection, emotional connection, and group harmony.' },
           'CR': { code: 'CR', label: 'Concrete Random', description: 'The Explorer - Learns through experimentation, intuition, and discovery.' }
         }
-        
+
         const dominantStyle = gptResult.dominant_style || 'CS'
         const styleInfo = learningStyleMap[dominantStyle as keyof typeof learningStyleMap] || learningStyleMap.CS
-        
+
         // Show success toast
         toast({
           title: "Survey Completed!",
           description: "Your Performance Sprint results are ready. Redirecting to your report...",
         })
-        
+
         // Redirect to score-history page to show results
         setTimeout(() => {
           router.push('/employee/score-history')
@@ -474,167 +476,173 @@ export default function LearningStyleSurvey() {
   }
 
   if (authLoading || loadingId) {
-    return <div className="max-w-3xl mx-auto py-10 px-4 text-center">Loading...</div>
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center">
+        {(() => {
+          const { progress } = useLoadingProgress(true);
+          return <LoadingProgress label="Loading Performance Sprint" progress={progress} />;
+        })()}
+      </div>
+    );
   }
 
   // Intro page
   if (page === 'intro') {
     return (
       <div className="min-h-screen">
-        <EmployeeNavigation showForward={false} />
-        
+
         {/* Main content area that adapts to sidebar */}
-        <div 
+        <div
           className="transition-all duration-300 ease-in-out py-10"
-          style={{ 
+          style={{
             marginLeft: 'var(--sidebar-width, 0px)',
           }}
         >
           <div className="max-w-4xl mx-auto px-4 flex flex-col items-center">
-        <BookOpen className="w-20 h-20 text-blue-500 mb-4" />
-        <h1 className="text-3xl font-bold mb-6">Performance Sprint Survey</h1>
-        
-        <div className="text-left max-w-4xl space-y-6">
-          {/* Purpose Section */}
-          <Card className="bg-blue-50 border-blue-200">
-            <CardHeader>
-              <CardTitle className="flex items-center text-blue-800">
-                {/* <Target className="w-6 h-6 mr-2" /> */}
-                Purpose
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-blue-700">
-                This survey is designed to identify your <strong> Performance Sprint</strong>. Understanding how you naturally learn and process information helps us personalize your learning journey so that  you can learn more effectively and the way you are meant to learn
+            <BookOpen className="w-20 h-20 text-blue-500 mb-4" />
+            <h1 className="text-3xl font-bold mb-6">Performance Sprint Survey</h1>
 
-              </p>
-            </CardContent>
-          </Card>
+            <div className="text-left max-w-4xl space-y-6">
+              {/* Purpose Section */}
+              <Card className="bg-blue-50 border-blue-200">
+                <CardHeader>
+                  <CardTitle className="flex items-center text-blue-800">
+                    {/* <Target className="w-6 h-6 mr-2" /> */}
+                    Purpose
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-blue-700">
+                    This survey is designed to identify your <strong> Performance Sprint</strong>. Understanding how you naturally learn and process information helps us personalize your learning journey so that  you can learn more effectively and the way you are meant to learn
 
-          {/* What It Measures Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center text-gray-800">
-                {/* <BookOpen className="w-6 h-6 mr-2" /> */}
-                What It Measures
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-700 mb-4">Before you start, here’s how this 5‑minute survey improves your learning experience.</p>
-              <div className="grid md:grid-cols-2 gap-4">
-                {/* Why Take This Survey */}
-                <div className="bg-green-50 p-4 rounded-lg border-l-4 border-green-400">
-                  <h3 className="font-bold text-green-800 mb-2">Why Take This Survey</h3>
-                  <ul className="text-green-700 text-sm space-y-1 list-disc pl-4">
-                    <li>Tailors modules to how you naturally work.</li>
-                    <li>Improves speed‑to‑skill and retention.</li>
-                    <li>Removes generic content that doesn’t fit you.</li>
-                    <li>Reduces time spent on what you already know.</li>
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* What It Measures Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center text-gray-800">
+                    {/* <BookOpen className="w-6 h-6 mr-2" /> */}
+                    What It Measures
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-gray-700 mb-4">Before you start, here’s how this 5‑minute survey improves your learning experience.</p>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {/* Why Take This Survey */}
+                    <div className="bg-green-50 p-4 rounded-lg border-l-4 border-green-400">
+                      <h3 className="font-bold text-green-800 mb-2">Why Take This Survey</h3>
+                      <ul className="text-green-700 text-sm space-y-1 list-disc pl-4">
+                        <li>Tailors modules to how you naturally work.</li>
+                        <li>Improves speed‑to‑skill and retention.</li>
+                        <li>Removes generic content that doesn’t fit you.</li>
+                        <li>Reduces time spent on what you already know.</li>
+                      </ul>
+                    </div>
+
+                    {/* What You’ll Get */}
+                    <div className="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-400">
+                      <h3 className="font-bold text-blue-800 mb-2">What You’ll Get</h3>
+                      <ul className="text-blue-700 text-sm space-y-1 list-disc pl-4">
+                        <li>Personalized module order and difficulty.</li>
+                        <li>Examples and practice that match your style.</li>
+                        <li>Focused feedback and quick wins.</li>
+                        <li>A clear roadmap that updates as you learn.</li>
+                      </ul>
+                    </div>
+
+                    {/* How It Works */}
+                    <div className="bg-orange-50 p-4 rounded-lg border-l-4 border-orange-400">
+                      <h3 className="font-bold text-orange-800 mb-2">How It Works</h3>
+                      <ul className="text-orange-700 text-sm space-y-1 list-disc pl-4">
+                        <li>Answer quick, scenario‑based questions.</li>
+                        <li>We generate your learning profile instantly.</li>
+                        <li>Your dashboard and plan adapt immediately.</li>
+                        <li>Modules, sequence, pacing, and nudges adjust.</li>
+                      </ul>
+                    </div>
+
+                    {/* Tips For Best Results */}
+                    <div className="bg-purple-50 p-4 rounded-lg border-l-4 border-purple-400">
+                      <h3 className="font-bold text-purple-800 mb-2">Tips For Best Results</h3>
+                      <ul className="text-purple-700 text-sm space-y-1 list-disc pl-4">
+                        <li>Think about a typical workday—answer instinctively.</li>
+                        <li>No right or wrong answers; be honest.</li>
+                        <li>Avoid overthinking; complete in one sitting.</li>
+                        <li>You can retake later if your role changes.</li>
+                      </ul>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* How to Take the Survey Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center text-gray-800">
+                    {/* <CheckCircle className="w-6 h-6 mr-2" /> */}
+                    How to Take the Survey
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="text-gray-700 space-y-3">
+                    <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
+                      <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
+                        1
+                      </span>
+                      <span>
+                        You'll be presented with <strong>statements or scenarios</strong> about
+                        how you prefer to learn and solve problems.
+                      </span>
+                    </li>
+
+                    <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
+                      <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
+                        2
+                      </span>
+                      <span>
+                        <strong>Read each statement carefully</strong> and select the response
+                        that best reflects your natural tendency.
+                      </span>
+                    </li>
+
+                    <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
+                      <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
+                        3
+                      </span>
+                      <span>
+                        <strong>Be honest and instinctive</strong> — there are no right or
+                        wrong answers. This isn't a test; it's a tool to understand you better.
+                      </span>
+                    </li>
+
+                    <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
+                      <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
+                        4
+                      </span>
+                      <span>
+                        The survey usually takes <strong>5–10 minutes</strong> to complete.
+                      </span>
+                    </li>
+
+                    <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
+                      <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
+                        5
+                      </span>
+                      <span>
+                        For each statement, rate your preference on a scale of <strong>1 to 5 </strong> — where <strong>1 means least preferred</strong> and <strong>5 means most preferred.</strong>
+                      </span>
+                    </li>
                   </ul>
-                </div>
+                </CardContent>
+              </Card>
+            </div>
 
-                {/* What You’ll Get */}
-                <div className="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-400">
-                  <h3 className="font-bold text-blue-800 mb-2">What You’ll Get</h3>
-                  <ul className="text-blue-700 text-sm space-y-1 list-disc pl-4">
-                    <li>Personalized module order and difficulty.</li>
-                    <li>Examples and practice that match your style.</li>
-                    <li>Focused feedback and quick wins.</li>
-                    <li>A clear roadmap that updates as you learn.</li>
-                  </ul>
-                </div>
-
-                {/* How It Works */}
-                <div className="bg-orange-50 p-4 rounded-lg border-l-4 border-orange-400">
-                  <h3 className="font-bold text-orange-800 mb-2">How It Works</h3>
-                  <ul className="text-orange-700 text-sm space-y-1 list-disc pl-4">
-                    <li>Answer quick, scenario‑based questions.</li>
-                    <li>We generate your learning profile instantly.</li>
-                    <li>Your dashboard and plan adapt immediately.</li>
-                    <li>Modules, sequence, pacing, and nudges adjust.</li>
-                  </ul>
-                </div>
-
-                {/* Tips For Best Results */}
-                <div className="bg-purple-50 p-4 rounded-lg border-l-4 border-purple-400">
-                  <h3 className="font-bold text-purple-800 mb-2">Tips For Best Results</h3>
-                  <ul className="text-purple-700 text-sm space-y-1 list-disc pl-4">
-                    <li>Think about a typical workday—answer instinctively.</li>
-                    <li>No right or wrong answers; be honest.</li>
-                    <li>Avoid overthinking; complete in one sitting.</li>
-                    <li>You can retake later if your role changes.</li>
-                  </ul>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* How to Take the Survey Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center text-gray-800">
-                {/* <CheckCircle className="w-6 h-6 mr-2" /> */}
-                How to Take the Survey
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="text-gray-700 space-y-3">
-                <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
-                  <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
-                    1
-                  </span>
-                  <span>
-                    You'll be presented with <strong>statements or scenarios</strong> about
-                    how you prefer to learn and solve problems.
-                  </span>
-                </li>
-
-                <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
-                  <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
-                    2
-                  </span>
-                  <span>
-                    <strong>Read each statement carefully</strong> and select the response
-                    that best reflects your natural tendency.
-                  </span>
-                </li>
-
-                <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
-                  <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
-                    3
-                  </span>
-                  <span>
-                    <strong>Be honest and instinctive</strong> — there are no right or
-                    wrong answers. This isn't a test; it's a tool to understand you better.
-                  </span>
-                </li>
-
-                <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
-                  <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
-                    4
-                  </span>
-                  <span>
-                    The survey usually takes <strong>5–10 minutes</strong> to complete.
-                  </span>
-                </li>
-
-                <li className="grid grid-cols-[min-content,1fr] gap-x-3 items-start">
-                  <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
-                    5
-                  </span>
-                  <span>
-                    For each statement, rate your preference on a scale of <strong>1 to 5 </strong> — where <strong>1 means least preferred</strong> and <strong>5 means most preferred.</strong>
-                  </span>
-                </li>
-              </ul>
-            </CardContent>
-          </Card>
-        </div>
-        
-        <Button className="mt-8 px-8 py-3 text-lg" onClick={() => setPage('survey')}>Start Survey</Button>
+            <Button className="mt-8 px-8 py-3 text-lg" onClick={() => setPage('survey')}>Start Survey</Button>
+          </div>
         </div>
       </div>
-    </div>
     )
   }
 
@@ -646,108 +654,109 @@ export default function LearningStyleSurvey() {
     console.log('[Learning Style] Extracted Report Text:', reportText)
     const accordionSections = buildAccordionSections(reportText, learningStyleResult.description)
     console.log('[Learning Style] Accordion Sections:', accordionSections)
-    
+
     return (
       <div className="min-h-screen">
-        <EmployeeNavigation showForward={false} />
-        
+
+
+
         {/* Main content area that adapts to sidebar */}
-        <div 
+        <div
           className="transition-all duration-300 ease-in-out py-10"
-          style={{ 
+          style={{
             marginLeft: 'var(--sidebar-width, 0px)',
           }}
         >
           <div className="max-w-4xl mx-auto px-4">
-        
-        {/* Header Section */}
-        <div className="text-center mb-8">
-          {/* <CheckCircle className="w-20 h-20 text-green-500 mx-auto mb-4" /> */}
-          <h1 className="text-3xl font-bold mb-2">Survey Complete!</h1>
-          <div className="inline-flex items-center bg-gradient-to-r from-blue-500 to-purple-600 text-white px-6 py-3 rounded-full text-xl font-semibold mb-4">
-            <Star className="w-6 h-6 mr-2" />
-            {learningStyleResult.label}
+
+            {/* Header Section */}
+            <div className="text-center mb-8">
+              {/* <CheckCircle className="w-20 h-20 text-green-500 mx-auto mb-4" /> */}
+              <h1 className="text-3xl font-bold mb-2">Survey Complete!</h1>
+              <div className="inline-flex items-center bg-gradient-to-r from-blue-500 to-purple-600 text-white px-6 py-3 rounded-full text-xl font-semibold mb-4">
+                <Star className="w-6 h-6 mr-2" />
+                {learningStyleResult.label}
+              </div>
+            </div>
+
+            {/* Display parsed report sections as dropdown cards */}
+            <div className="space-y-4">
+              <h2 className="text-2xl font-bold text-center mb-4">Your Learning Insights</h2>
+              {accordionSections.filter(section => section.id !== 'checklist').map(section => {
+                const isOpen = openSections.includes(section.id)
+                const toggleSection = () => {
+                  setOpenSections(prev => (
+                    prev.includes(section.id)
+                      ? prev.filter(id => id !== section.id)
+                      : [...prev, section.id]
+                  ))
+                }
+
+                return (
+                  <Card key={section.id} className={`bg-gradient-to-br ${section.accent} border-2 shadow-sm`}>
+                    <CardHeader className="cursor-pointer" onClick={toggleSection}>
+                      <CardTitle className="flex items-center justify-between text-lg sm:text-xl font-semibold text-gray-900">
+                        <span>{section.title}</span>
+                        <ChevronDown className={`w-6 h-6 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                      </CardTitle>
+                    </CardHeader>
+                    {isOpen && (
+                      <CardContent className="space-y-5">
+                        {section.paragraphs
+                          .filter(para => {
+                            // Remove learning style descriptions like "The Innovator - Learns through..."
+                            const hasLearningStylePattern = /^The (Innovator|Organizer|Thinker|Connector)\s*-\s*Learns through/i.test(para)
+                            // Remove standalone "Tips" headings
+                            const isTipsHeading = /^Tips\s*$/i.test(para.trim())
+                            return !hasLearningStylePattern && !isTipsHeading
+                          })
+                          .map((para, idx) => (
+                            <p key={idx} className="text-gray-800 leading-relaxed text-base">
+                              {para}
+                            </p>
+                          ))
+                        }
+
+                        {section.subsections.length > 0 && (
+                          <div className="space-y-5">
+                            {section.subsections.map((subsection, subIdx) => (
+                              <div key={subIdx}>
+                                {subsection.subtitle.toLowerCase() !== 'tips' && (
+                                  <h3 className="font-extrabold text-gray-900 mb-3 text-base sm:text-lg">
+                                    {subsection.subtitle}
+                                  </h3>
+                                )}
+                                <ul className="space-y-2 ml-2">
+                                  {subsection.items.map((item, itemIdx) => (
+                                    <li key={itemIdx} className="flex gap-3 text-gray-800 leading-relaxed text-sm">
+                                      <span className="text-blue-600 font-semibold mt-0.5 flex-shrink-0">•</span>
+                                      <span>{item}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    )}
+                  </Card>
+                )
+              })}
+            </div>
+
+            {/* Action Button */}
+            <div className="text-center mt-8">
+              <Button
+                className="px-8 py-3 text-lg bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                onClick={() => router.push('/employee/welcome')}
+              >
+                Go to Dashboard
+              </Button>
+            </div>
           </div>
         </div>
-
-        {/* Display parsed report sections as dropdown cards */}
-        <div className="space-y-4">
-          <h2 className="text-2xl font-bold text-center mb-4">Your Learning Insights</h2>
-          {accordionSections.filter(section => section.id !== 'checklist').map(section => {
-            const isOpen = openSections.includes(section.id)
-            const toggleSection = () => {
-              setOpenSections(prev => (
-                prev.includes(section.id)
-                  ? prev.filter(id => id !== section.id)
-                  : [...prev, section.id]
-              ))
-            }
-
-            return (
-              <Card key={section.id} className={`bg-gradient-to-br ${section.accent} border-2 shadow-sm`}>
-                <CardHeader className="cursor-pointer" onClick={toggleSection}>
-                  <CardTitle className="flex items-center justify-between text-lg sm:text-xl font-semibold text-gray-900">
-                    <span>{section.title}</span>
-                    <ChevronDown className={`w-6 h-6 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-                  </CardTitle>
-                </CardHeader>
-                {isOpen && (
-                  <CardContent className="space-y-5">
-                    {section.paragraphs
-                      .filter(para => {
-                        // Remove learning style descriptions like "The Innovator - Learns through..."
-                        const hasLearningStylePattern = /^The (Innovator|Organizer|Thinker|Connector)\s*-\s*Learns through/i.test(para)
-                        // Remove standalone "Tips" headings
-                        const isTipsHeading = /^Tips\s*$/i.test(para.trim())
-                        return !hasLearningStylePattern && !isTipsHeading
-                      })
-                      .map((para, idx) => (
-                        <p key={idx} className="text-gray-800 leading-relaxed text-base">
-                          {para}
-                        </p>
-                      ))
-                    }
-
-                    {section.subsections.length > 0 && (
-                      <div className="space-y-5">
-                        {section.subsections.map((subsection, subIdx) => (
-                          <div key={subIdx}>
-                            {subsection.subtitle.toLowerCase() !== 'tips' && (
-                              <h3 className="font-extrabold text-gray-900 mb-3 text-base sm:text-lg">
-                                {subsection.subtitle}
-                              </h3>
-                            )}
-                            <ul className="space-y-2 ml-2">
-                              {subsection.items.map((item, itemIdx) => (
-                                <li key={itemIdx} className="flex gap-3 text-gray-800 leading-relaxed text-sm">
-                                  <span className="text-blue-600 font-semibold mt-0.5 flex-shrink-0">•</span>
-                                  <span>{item}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                )}
-              </Card>
-            )
-          })}
-        </div>
-
-        {/* Action Button */}
-        <div className="text-center mt-8">
-          <Button 
-            className="px-8 py-3 text-lg bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700" 
-            onClick={() => router.push('/employee/welcome')}
-          >
-            Go to Dashboard
-          </Button>
-        </div>
-        </div>
       </div>
-    </div>
     )
   }
 
@@ -762,109 +771,106 @@ export default function LearningStyleSurvey() {
   if (page === 'survey') {
     return (
       <div className="min-h-screen">
-        <EmployeeNavigation showForward={false} />
         {/* Main content area that adapts to sidebar */}
-        <div 
+        <div
           className="transition-all duration-300 ease-in-out py-10"
-          style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
         >
           <div className="max-w-4xl mx-auto px-4">
-        {/* Progress Bar */}
-        <Card className="shadow-sm mb-6">
-          <CardContent className="p-4 sm:p-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-              <h2 className="text-lg sm:text-xl font-semibold">Performance Sprint Assessment</h2>
-              <div className="text-sm text-gray-600">
-                Page {surveyPage + 1} of {totalPages}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm text-gray-600">
-                <span>Progress</span>
-                <span>{Math.round((answers.filter(a => a !== null).length / questions.length) * 100)}% Complete</span>
-              </div>
-              <Progress value={(answers.filter(a => a !== null).length / questions.length) * 100} className="h-2" />
-            </div>
-          </CardContent>
-        </Card>
+            {/* Progress Bar */}
+            <Card className="shadow-sm mb-6">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+                  <h2 className="text-lg sm:text-xl font-semibold">Performance Sprint Assessment</h2>
+                  <div className="text-sm text-gray-600">
+                    Page {surveyPage + 1} of {totalPages}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>Progress</span>
+                    <span>{Math.round((answers.filter(a => a !== null).length / questions.length) * 100)}% Complete</span>
+                  </div>
+                  <Progress value={(answers.filter(a => a !== null).length / questions.length) * 100} className="h-2" />
+                </div>
+              </CardContent>
+            </Card>
 
-         {/* Questions Card */}
-         <Card className="shadow-lg">
-           <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50 border-b">
-             <CardTitle className="text-lg sm:text-xl">
-               Questions {startIdx + 1} - {endIdx}
-             </CardTitle>
-             <CardDescription className="text-sm text-gray-600">
-               Rate each statement: <span className="font-semibold">1 = least preferred</span>, <span className="font-semibold">5 = most preferred</span>
-             </CardDescription>
-           </CardHeader>
-           <CardContent className="p-6 space-y-8">
-             {questions.slice(startIdx, endIdx).map((q, idx) => (
-               <div key={startIdx + idx} className="border-b last:border-b-0 pb-6 last:pb-0">
-                 <div className="font-medium text-base sm:text-lg mb-4 text-gray-900">
-                   <span className="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-semibold mr-3">
-                     Q{startIdx + idx + 1}
-                   </span>
-                   {q}
-                 </div>
-                 <div className="flex justify-center gap-2 sm:gap-3">
-                   {[1,2,3,4,5].map(val => (
-                     <button
-                       type="button"
-                       key={val}
-                       className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 flex items-center justify-center text-lg font-bold transition-all duration-200 ${
-                         answers[startIdx + idx] === val 
-                           ? "bg-blue-600 text-white border-blue-600 scale-110 shadow-lg" 
-                           : "bg-white text-gray-700 border-gray-300 hover:bg-blue-50 hover:border-blue-400 hover:scale-105"
-                       }`}
-                       onClick={() => handleChange(startIdx + idx, val)}
-                       aria-label={`Rate ${val}`}
-                       disabled={submitting || surveyFrozen}
-                     >
-                       <span>{val}</span>
-                     </button>
-                   ))}
-                 </div>
-               </div>
-             ))}
-           </CardContent>
-         </Card>
+            {/* Questions Card */}
+            <Card className="shadow-lg">
+              <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50 border-b">
+                <CardTitle className="text-lg sm:text-xl">
+                  Questions {startIdx + 1} - {endIdx}
+                </CardTitle>
+                <CardDescription className="text-sm text-gray-600">
+                  Rate each statement: <span className="font-semibold">1 = least preferred</span>, <span className="font-semibold">5 = most preferred</span>
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-6 space-y-8">
+                {questions.slice(startIdx, endIdx).map((q, idx) => (
+                  <div key={startIdx + idx} className="border-b last:border-b-0 pb-6 last:pb-0">
+                    <div className="font-medium text-base sm:text-lg mb-4 text-gray-900">
+                      <span className="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-semibold mr-3">
+                        Q{startIdx + idx + 1}
+                      </span>
+                      {q}
+                    </div>
+                    <div className="flex justify-center gap-2 sm:gap-3">
+                      {[1, 2, 3, 4, 5].map(val => (
+                        <button
+                          type="button"
+                          key={val}
+                          className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 flex items-center justify-center text-lg font-bold transition-all duration-200 ${answers[startIdx + idx] === val
+                            ? "bg-blue-600 text-white border-blue-600 scale-110 shadow-lg"
+                            : "bg-white text-gray-700 border-gray-300 hover:bg-blue-50 hover:border-blue-400 hover:scale-105"
+                            }`}
+                          onClick={() => handleChange(startIdx + idx, val)}
+                          aria-label={`Rate ${val}`}
+                          disabled={submitting || surveyFrozen}
+                        >
+                          <span>{val}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
 
-         {/* Navigation Buttons */}
-         <div className="flex flex-col sm:flex-row gap-4 justify-between mt-6">
-           <Button
-             type="button"
-             variant="outline"
-             size="sm"
-             className="flex items-center gap-2"
-             disabled={surveyPage === 0 || submitting || surveyFrozen}
-             onClick={() => setSurveyPage(surveyPage - 1)}
-           >
-             <ChevronLeft className="w-4 h-4" />
-             Previous
-           </Button>
-           {surveyPage === totalPages - 1 ? (
-             <Button
-               type="button"
-               onClick={handleSubmit}
-               className="px-8"
-               disabled={submitting || !allAnswered || surveyFrozen}
-             >
-               {submitting ? "Submitting..." : "Submit Survey"}
-             </Button>
-           ) : (
-             <Button
-               type="button"
-               size="sm"
-               className="flex items-center gap-2"
-               disabled={answers.slice(startIdx, endIdx).some(a => a === null) || submitting || surveyFrozen}
-               onClick={() => setSurveyPage(surveyPage + 1)}
-             >
-               Next
-               <ChevronRight className="w-4 h-4" />
-             </Button>
-           )}
-         </div>
+            {/* Navigation Buttons */}
+            <div className="flex flex-col sm:flex-row gap-4 justify-between mt-6">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="flex items-center gap-2"
+                disabled={surveyPage === 0 || submitting || surveyFrozen}
+                onClick={() => setSurveyPage(surveyPage - 1)}
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Previous
+              </Button>
+              {surveyPage === totalPages - 1 ? (
+                <Button
+                  type="button"
+                  onClick={handleSubmit}
+                  className="px-8"
+                  disabled={submitting || !allAnswered || surveyFrozen}
+                >
+                  {submitting ? "Submitting..." : "Submit Survey"}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="flex items-center gap-2"
+                  disabled={answers.slice(startIdx, endIdx).some(a => a === null) || submitting || surveyFrozen}
+                  onClick={() => setSurveyPage(surveyPage + 1)}
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </div>

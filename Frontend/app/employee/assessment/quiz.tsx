@@ -6,7 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle, XCircle, Clock, Award, BookOpen, TrendingUp } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
-import AIFeedbackSections  from './ai-feedback-sections';
+import AIFeedbackSections from './ai-feedback-sections';
+import LoadingProgress from "@/components/shared/LoadingProgress";
+import { useLoadingProgress } from "@/hooks/useLoadingProgress";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 interface QuizQuestion {
@@ -37,13 +39,13 @@ interface QuizResult {
   message?: string;
 }
 
-const Quiz: React.FC<QuizProps> = ({ 
-  quiz, 
-  assessmentId, 
-  moduleId, 
+const Quiz: React.FC<QuizProps> = ({
+  quiz,
+  assessmentId,
+  moduleId,
   processedModuleId,
   onComplete,
-  showFeedback = true 
+  showFeedback = true
 }) => {
   const { user } = useAuth();
   const [currentQuestion, setCurrentQuestion] = useState(0);
@@ -186,14 +188,12 @@ const Quiz: React.FC<QuizProps> = ({
   // Show loading state
   if (!quiz || quiz.length === 0) {
     return (
-      <Card className="w-full max-w-4xl mx-auto">
-        <CardContent className="flex items-center justify-center p-8">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading quiz questions...</p>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="w-full h-[60vh] flex items-center justify-center">
+        {(() => {
+          const { progress, show } = useLoadingProgress(true);
+          return <LoadingProgress label="Loading quiz questions" progress={progress} />;
+        })()}
+      </div>
     );
   }
 
@@ -231,8 +231,8 @@ const Quiz: React.FC<QuizProps> = ({
               </div>
               <div className="text-center">
                 <Badge variant={getScoreBadgeVariant(quizResult.percentage)} className="text-lg px-3 py-1">
-                  {quizResult.percentage >= 80 ? 'Excellent' : 
-                   quizResult.percentage >= 60 ? 'Good' : 'Needs Improvement'}
+                  {quizResult.percentage >= 80 ? 'Excellent' :
+                    quizResult.percentage >= 60 ? 'Good' : 'Needs Improvement'}
                 </Badge>
               </div>
             </div>
@@ -259,7 +259,7 @@ const Quiz: React.FC<QuizProps> = ({
                 {quiz.map((question, index) => {
                   const result = quizResult.correctAnswers?.[index];
                   const isCorrect = result?.isCorrect;
-                  
+
                   return (
                     <div key={index} className="border rounded-lg p-4">
                       <div className="flex items-start gap-3">
@@ -271,20 +271,19 @@ const Quiz: React.FC<QuizProps> = ({
                         <div className="flex-1">
                           <h4 className="font-medium mb-2">Question {index + 1}</h4>
                           <p className="text-gray-700 mb-3">{question.question}</p>
-                          
+
                           <div className="space-y-2">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-medium">Your answer:</span>
-                              <span className={`px-2 py-1 rounded text-sm ${
-                                isCorrect ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                              }`}>
-                                {result?.userAnswer !== undefined 
+                              <span className={`px-2 py-1 rounded text-sm ${isCorrect ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                }`}>
+                                {result?.userAnswer !== undefined
                                   ? question.options[result.userAnswer] || 'No answer selected'
                                   : 'No answer selected'
                                 }
                               </span>
                             </div>
-                            
+
                             {!isCorrect && (
                               <div className="flex items-center gap-2">
                                 <span className="text-sm font-medium">Correct answer:</span>
@@ -302,7 +301,7 @@ const Quiz: React.FC<QuizProps> = ({
                               </p>
                             </div>
                           )}
-                          
+
                           {question.bloomLevel && (
                             <div className="mt-2">
                               <Badge variant="outline" className="text-xs">
@@ -357,10 +356,10 @@ const Quiz: React.FC<QuizProps> = ({
             </div>
           </div>
         </div>
-        
+
         {/* Progress Bar */}
         <div className="w-full bg-gray-200 rounded-full h-2">
-          <div 
+          <div
             className="bg-blue-500 h-2 rounded-full transition-all duration-300"
             style={{ width: `${progress}%` }}
           />
@@ -372,7 +371,7 @@ const Quiz: React.FC<QuizProps> = ({
           {/* Question */}
           <div>
             <h3 className="text-lg font-medium mb-4">{currentQuizQuestion.question}</h3>
-            
+
             {currentQuizQuestion.bloomLevel && (
               <Badge variant="outline" className="mb-4">
                 {currentQuizQuestion.bloomLevel}
@@ -385,19 +384,17 @@ const Quiz: React.FC<QuizProps> = ({
             {currentQuizQuestion.options.map((option, index) => (
               <button
                 key={index}
-                className={`w-full text-left p-4 border rounded-lg transition-colors ${
-                  selectedAnswer === index
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                }`}
+                className={`w-full text-left p-4 border rounded-lg transition-colors ${selectedAnswer === index
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                  }`}
                 onClick={() => handleAnswerSelect(index)}
               >
                 <div className="flex items-center">
-                  <div className={`w-6 h-6 rounded-full border-2 mr-3 flex items-center justify-center ${
-                    selectedAnswer === index
-                      ? 'border-blue-500 bg-blue-500'
-                      : 'border-gray-300'
-                  }`}>
+                  <div className={`w-6 h-6 rounded-full border-2 mr-3 flex items-center justify-center ${selectedAnswer === index
+                    ? 'border-blue-500 bg-blue-500'
+                    : 'border-gray-300'
+                    }`}>
                     {selectedAnswer === index && (
                       <div className="w-2 h-2 bg-white rounded-full" />
                     )}
@@ -417,7 +414,7 @@ const Quiz: React.FC<QuizProps> = ({
             >
               Previous
             </Button>
-            
+
             <Button
               onClick={handleNext}
               disabled={selectedAnswer === null || isSubmitting}

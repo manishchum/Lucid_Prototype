@@ -22,7 +22,11 @@ from gpt_video_generation.route import router as gpt_video_generation_router
 from generate_infographic.route import router as generate_infographic_router
 from flashcard_generation.route import router as flashcard_generation_router
 from generate_mindmap.route import router as generate_mindmap_router
-from routes import users, roles, assessments, companies, content_jobs
+from module_chat.route import router as module_chat
+from assistant.route import router as assistant_router
+from assistant.chat.route import router as assistant_chat_router
+from change_password.route import router as change_password_router
+from routes import users, roles, assessments, companies, content_jobs, learning_plan, training_modules, dispatch, processed_modules, module_progress
 
 # Import user routes
 # from routes.users import router as users_router
@@ -40,7 +44,13 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL, "http://localhost:3000"],
+    allow_origins=[
+        FRONTEND_URL, 
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -95,6 +105,10 @@ app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindm
 app.include_router(roleplay_assessment_router, prefix="/api", tags=["roleplay-assessment"])
 app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
 app.include_router(embed_router, prefix="/api", tags=["embeddings"])
+app.include_router(module_chat, prefix="/api", tags=["module-chat"])
+app.include_router(assistant_router, prefix="/api", tags=["assistant"])
+app.include_router(assistant_chat_router, prefix="/api", tags=["assistant-chat"])
+app.include_router(change_password_router, prefix="/api", tags=["change-password"])
 
 
 # Router Includes are here
@@ -104,6 +118,11 @@ app.include_router(roles.router)  # roles router
 app.include_router(assessments.router)  # assessments router
 app.include_router(companies.router)  # companies router
 app.include_router(content_jobs.router)  # content jobs router
+app.include_router(learning_plan.router)  # learning plan router
+app.include_router(training_modules.router)  # training modules router
+app.include_router(processed_modules.router)  # processed modules router
+app.include_router(dispatch.router)  # dispatch router
+app.include_router(module_progress.router)  # module progress router
 
 if __name__ == "__main__":
     import uvicorn
