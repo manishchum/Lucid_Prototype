@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 import clsx from "clsx";
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 interface Module {
   processed_module_id: string;
@@ -36,25 +37,33 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
 
       // If sprintModuleId is not provided, get it from the current processed module
       if (!originalModuleId && currentModuleId) {
-        const { data: currentModule, error: currentModuleError } = await supabase
-          .from("processed_modules")
-          .select("original_module_id")
-          .eq("processed_module_id", currentModuleId)
-          .maybeSingle();
+        try {
+          const pmRes = await fetch(
+            `${API_BASE}/api/processed-modules/${currentModuleId}`,
+            { headers: { 'X-User-ID': userId } }
+          );
 
-        if (currentModuleError) {
-          console.error("[ModuleSideNav] Error fetching current module:", currentModuleError);
+          if (!pmRes.ok) {
+            console.error("[ModuleSideNav] Error fetching current module:", await pmRes.text());
+            setLoading(false);
+            return;
+          }
+
+          const pmData = await pmRes.json();
+          const currentModule = pmData?.data;
+
+          if (!currentModule?.original_module_id) {
+            console.log("[ModuleSideNav] No original_module_id found for current module");
+            setLoading(false);
+            return;
+          }
+
+          originalModuleId = currentModule.original_module_id;
+        } catch (error) {
+          console.error("[ModuleSideNav] Error fetching current module:", error);
           setLoading(false);
           return;
         }
-
-        if (!currentModule?.original_module_id) {
-          console.log("[ModuleSideNav] No original_module_id found for current module");
-          setLoading(false);
-          return;
-        }
-
-        originalModuleId = currentModule.original_module_id;
       }
 
       if (!originalModuleId) {
@@ -65,22 +74,30 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
 
       console.log("[ModuleSideNav] Fetching all processed modules for original_module_id:", originalModuleId);
 
-      // Fetch all processed modules that belong to this sprint/original module
-      const { data: modulesData, error: modulesError } = await supabase
-        .from("processed_modules")
-        .select("processed_module_id, title, order_index")
-        .eq("original_module_id", originalModuleId)
-        .order("order_index", { ascending: true });
+      // Fetch all processed modules that belong to this sprint/original module via backend API
+      try {
+        const modulesRes = await fetch(
+          `${API_BASE}/api/processed-modules/original-module/${originalModuleId}`,
+          { headers: { 'X-User-ID': userId } }
+        );
 
-      if (modulesError) {
-        console.error("[ModuleSideNav] Error fetching modules:", modulesError);
+        if (!modulesRes.ok) {
+          console.error("[ModuleSideNav] Error fetching modules:", await modulesRes.text());
+          setLoading(false);
+          return;
+        }
+
+        const modulesData = await modulesRes.json();
+        const modules = modulesData?.data || [];
+
+        console.log("[ModuleSideNav] Fetched modules:", modules);
+        
+        setModules(modules);
+      } catch (error) {
+        console.error("[ModuleSideNav] Error fetching modules:", error);
         setLoading(false);
         return;
       }
-
-      console.log("[ModuleSideNav] Fetched modules:", modulesData);
-      
-      setModules(modulesData || []);
     } catch (error) {
       console.error("[ModuleSideNav] Unexpected error:", error);
     } finally {
