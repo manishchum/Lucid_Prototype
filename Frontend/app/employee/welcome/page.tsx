@@ -7,14 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import {
-  Users, BookOpen, Clock, User, ChevronDown,
+import { 
+  Users, BookOpen, Clock, User, ChevronDown, 
   Trophy, Target, TrendingUp, Zap, LayoutGrid,
   ShieldCheck, ArrowRight, CheckCircle2, LogOut
 } from "lucide-react";
-import LoadingProgress from "@/components/shared/LoadingProgress";
-import { useLoadingProgress } from "@/hooks/useLoadingProgress";
-import { useDataCache } from "@/contexts/data-context";
+import EmployeeNavigation from "@/components/employee-navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -36,7 +34,7 @@ interface ModuleAssessmentStatus {
 }
 
 export default function EmployeeWelcome() {
-  const { user, internalUser, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
   const router = useRouter();
 
   // --- Logic State (Preserved from your code) ---
@@ -59,37 +57,22 @@ export default function EmployeeWelcome() {
   const [nudgeMessage, setNudgeMessage] = useState<string>("");
   const [progressPercentage, setProgressPercentage] = useState<number>(0);
   const [showLoginToast, setShowLoginToast] = useState<boolean>(false);
+  const [isNavOverlay, setIsNavOverlay] = useState<boolean>(false);
   const [showAllModules, setShowAllModules] = useState<boolean>(false);
   const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(true);
-
-  const { getCacheData, setCacheData } = useDataCache();
-
-  // Check cache on mount
-  useEffect(() => {
-    const cachedData = getCacheData("welcome_data");
-    if (cachedData) {
-      setEmployee(cachedData.employee);
-      setLearningStyle(cachedData.learningStyle);
-      setCompanyLearningStyleEnabled(cachedData.companyLearningStyleEnabled);
-      setBaselineScore(cachedData.baselineScore);
-      setBaselineMaxScore(cachedData.baselineMaxScore);
-      setAssignedModules(cachedData.assignedModules);
-      setScoreHistory(cachedData.scoreHistory);
-      setModuleProgress(cachedData.moduleProgress);
-      setAllAssignedCompleted(cachedData.allAssignedCompleted);
-      setCompanyStats(cachedData.companyStats);
-      setProgressPercentage(cachedData.progressPercentage);
-      setNudgeMessage(cachedData.nudgeMessage);
-      setLoading(false); // Skip loader if we have cached data
-    }
-  }, [getCacheData]);
-
-  const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || loading);
-
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
+  
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
 
-
+  const fetchUserByEmail = async (email: string) => {
+    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if (!res.ok) return null;
+    const payload = await res.json();
+    let u = payload?.user ?? payload;
+    if (Array.isArray(u)) u = u[0];
+    return u || null;
+  };
 
   // --- Login Toast System (only show when a login/signup flow sets a flag) ---
   // Behavior: login/signup pages should set sessionStorage.setItem('show_login_toast_next', '1')
@@ -124,7 +107,7 @@ export default function EmployeeWelcome() {
     if (!authLoading) {
       if (!user) router.push("/login");
       else checkEmployeeAccess();
-
+      
     }
   }, [user, authLoading, router]);
 
@@ -250,11 +233,11 @@ export default function EmployeeWelcome() {
       // If user has no learning plans, they are not ready
       if (!learningPlans || learningPlans.length === 0) {
         console.log('[updateUserReadyStatus] No learning plans found for user');
-
-        try {
-          await fetch(`${API_BASE}/api/users/${userId}`, {
+        
+        try{
+          await fetch(`${API_BASE}/api/users/${userId}`,{
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'X-User-ID': userId },
+            headers: {'Content-Type': 'application/json', 'X-User-ID': userId},
             body: JSON.stringify({ ready_status: false }),
           });
           console.log('[updateUserReadyStatus] User has no learning plans, ready_status set to false');
@@ -271,10 +254,10 @@ export default function EmployeeWelcome() {
       console.log('[updateUserReadyStatus] All plans completed:', allPlansCompleted);
 
       // Update the ready_status in users table
-      try {
-        await fetch(`${API_BASE}/api/users/${userId}`, {
+      try{
+        await fetch(`${API_BASE}/api/users/${userId}`,{
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'X-User-ID': userId },
+          headers: {'Content-Type': 'application/json', 'X-User-ID': userId},
           body: JSON.stringify({ ready_status: allPlansCompleted })
         });
         console.log('[updateUserReadyStatus] Updated user ready_status to:', allPlansCompleted);
@@ -287,23 +270,21 @@ export default function EmployeeWelcome() {
   };
 
   const checkEmployeeAccess = async () => {
-    if (!user?.email || !internalUser) return;
+    if (!user?.email) return;
     try {
-      const employeeData = internalUser;
+      const employeeData = await fetchUserByEmail(user.email);
+      if (!employeeData) {
+        router.push("/login");
+        return;
+      }
       setEmployee(employeeData);
-
-      // 1. Fetch Learning Style
+      // Learning Style Fetch
       const { data: styleData } = await supabase
-        .from("employee_learning_style")
-        .select("learning_style")
-        .eq("user_id", employeeData.user_id)
-        .maybeSingle();
-      const currentLearningStyle = styleData?.learning_style || null;
-      setLearningStyle(currentLearningStyle);
+        .from("employee_learning_style").select("learning_style").eq("user_id", employeeData.user_id).maybeSingle();
+      setLearningStyle(styleData?.learning_style || null);
 
-      // 2. Fetch Company Settings
-      let currentCompanySettingsEnabled = true;
-      try {
+      // Fetch company learning style setting
+      try{
         const compRes = await fetch(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`);
         if (compRes.ok) {
           const compPayload = await compRes.json().catch(() => null);
@@ -332,20 +313,11 @@ export default function EmployeeWelcome() {
         console.log('[debug] learning_plan rows:', planRows);
         console.log('[debug] assignedPlans:', assignedPlans);
       } catch (e) {
-        console.warn("[Welcome] error fetching company settings:", e);
+        /* ignore console errors */
       }
-
-      // 3. Fetch Plans & Progress
-      // const { data: planRows } = await supabase.from('learning_plan').select('*').eq('user_id', employeeData.user_id);
-      const currentBaselineRequired = planRows?.some((plan: any) => plan.baseline_assessment === 1) ?? true;
-      setBaselineRequired(currentBaselineRequired);
-
-      // const assignedPlans = planRows?.filter((p: any) => p.status === 'ASSIGNED' || p.status === "IN_PROGRESS") || [];
       const mIds = assignedPlans.map((p: any) => p.module_id).filter(Boolean);
-
-      let currentMappedAssigned: any[] = [];
-      let currentProgressPercentage = 0;
-
+      
+      // Calculate Progress and resolve module titles
       if (mIds.length > 0) {
         // Fetch processed modules (via backend) and map to titles.
         // Use company-level endpoint and filter locally to avoid multiple DB calls from the client.
@@ -485,160 +457,192 @@ export default function EmployeeWelcome() {
        const total = Array.isArray(users) ? users.length : 0;
        // Placeholder for your rank logic
        setCompanyStats({ totalEmployees: total, completedEmployees: 5, userRank: 1, topPercentile: 10 });
-      //  generateNudgeMessage(userProgress, 1, total, 10, 5);
+       generateNudgeMessage(userProgress, 1, total, 10, 5);
      } catch (e) { console.error(e); }
    };
-return(
-  <div className="min-h-screen bg-slate-50">
-      <main
-        className="transition-all duration-300 ease-in-out pt-8 pb-12"
-      >
-        <div className="max-w-6xl mx-auto px-6 lg:px-8">
 
-          {/* Dashboard Header */}
-          <div className="flex items-center gap-4 mb-10">
-            <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100">
-              <Users className="w-6 h-6 text-blue-600" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-black text-slate-900 tracking-tight">
-                {employee?.name ? `Welcome, ${employee.name.split(' ')[0]}` : "Learner Dashboard"}
-              </h1>
-              <p className="text-slate-500 font-medium text-sm">{employee?.email || "Personalized learning hub"}</p>
-            </div>
-          </div>
+   const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
+     if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint and earned the SME tag!");
+     else setNudgeMessage(`💪 One step in! Complete your sprints and stand among the top 5%.`);
+   };
 
-          <div className="grid gap-8">
-            {/* Progress Nudge Card (Premium Circular Design) */}
-            {nudgeMessage && (
-              <Card className="rounded-3xl border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] bg-white overflow-hidden relative">
-                <CardContent className="py-10 px-10">
-                  <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-                    <div className="flex items-center gap-8 flex-1">
-                      <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center shrink-0">
-                        {progressPercentage === 100 ? <Trophy className="text-blue-600" size={32} /> : <Zap className="text-blue-600" size={32} />}
-                      </div>
-                      <div>
-                        <h3 className="text-2xl font-black text-slate-900">Your Progress</h3>
-                        <p className="text-slate-500 mt-2 font-medium max-w-md leading-relaxed">{nudgeMessage}</p>
-                        <div className="mt-4 flex gap-3">
-                          <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-none font-bold">
-                            {companyStats.completedEmployees} COLLEAGUES COMPLETED
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
+   if (showLoadingProgress) {
+     return <LoadingProgress label="Preparing your dashboard" progress={loadingProgress} />;
+   }
 
-                    <div className="flex flex-col items-center">
-                      <div className={`relative w-28 h-28 rounded-full flex items-center justify-center bg-white border-[10px] ${progressPercentage >= 100 ? 'border-green-100' : 'border-blue-50'}`}>
-                        <span className={`text-3xl font-black ${progressPercentage >= 100 ? 'text-green-600' : 'text-blue-600'}`}>
-                          {progressPercentage}%
-                        </span>
-                      </div>
-                      <div className="mt-4 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-                        Rank #{companyStats.userRank || '—'} of {companyStats.totalEmployees}
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+   return (
+     <div className="min-h-screen">
+       <EmployeeNavigation showBack={false} showForward={false} />
 
-            {/* Learning Style Card (Sequential Logic) */}
-            {companyLearningStyleEnabled && (
-              <Card className="rounded-2xl border-none shadow-sm bg-white overflow-visible">
-                <CardContent className="p-8">
-                  {learningStyle ? (
-                    <div className="flex items-center gap-10">
-                      <div className="w-24 h-24 rounded-full bg-blue-600 text-white flex items-center justify-center text-3xl font-black shadow-xl shadow-blue-100">
-                        {learningStyle}
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="text-lg font-extrabold text-slate-900">Your Learning Style</h4>
-                        <div className="mt-2 text-slate-500">
-                          <LearningStyleBlurb styleCode={learningStyle} />
-                        </div>
-                        <Button variant="link" className="text-blue-600 font-bold p-0 h-auto mt-4" onClick={() => router.push('/employee/score-history')}>
-                          Get full report <ArrowRight size={14} className="ml-1" />
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between relative">
-                      <div className="max-w-md">
-                        <h4 className="text-xl font-black text-slate-900 mb-2">Discover Your Learning Style
-                        </h4>
-                        <p className="text-slate-500 font-medium">Take our 5-minute cognitive survey to unlock your personalized training path.</p>
-                      </div>
+       {/* Login Success Toast */}
+       {showLoginToast && (
+         <div className="fixed top-6 right-6 z-[100] animate-in slide-in-from-right fade-in duration-500">
+           <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 flex items-center gap-4">
+             <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center text-white shadow-lg">
+               <CheckCircle2 size={24} />
+             </div>
+             <div>
+               <div className="text-lg font-extrabold text-slate-900">Successfully logged in!</div>
+               <div className="text-sm text-slate-500 font-medium">Your learning dashboard is ready.</div>
+             </div>
+             <button onClick={() => setShowLoginToast(false)} className="ml-auto text-slate-300 hover:text-slate-500">✕</button>
+           </div>
+         </div>
+       )}
 
-                      <div className="relative">
-                        {/* Profile Dropdown - Commented Out */}
-                        {/* 
-                        <button
-                          onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-                          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
-                    >
-                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white">
-                          <User className="w-5 h-5" />
-                        </div>
-                        <span className="text-sm font-medium text-gray-700">
-                          {employee?.name || user?.displayName || "Profile"}
-                  </span>
-                  <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${showProfileDropdown ? 'rotate-180' : ''}`} />
-                </button>
-                
-                {showProfileDropdown && (
-                  <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
-                    <div className="px-4 py-3 border-b border-gray-100">
-                      <div className="font-medium text-gray-900">
-                        {employee?.name || user?.displayName || "User"}
-                      </div>
-                      <div className="text-sm text-gray-500">{user?.email}</div>
-                    </div>
-                    
-                    <div className="py-1">
-                      <button
-                        onClick={() => {
-                          setShowProfileDropdown(false)
-                          router.push("/employee/account")
-                        }}
-                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                      >
-                        <User className="w-4 h-4" />
-                        Account Settings
-                      </button>
+       <main 
+         className="transition-all duration-300 ease-in-out pt-8 pb-12"
+         style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
+       >
+         <div className="max-w-6xl mx-auto px-6 lg:px-8">
+          
+           {/* Dashboard Header */}
+           <div className="flex items-center gap-4 mb-10">
+             <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100">
+               <Users className="w-6 h-6 text-blue-600" />
+             </div>
+             <div>
+               <h1 className="text-3xl font-black text-slate-900 tracking-tight">
+                 {employee?.name ? `Welcome, ${employee.name.split(' ')[0]}` : "Learner Dashboard"}
+               </h1>
+               <p className="text-slate-500 font-medium text-sm">{employee?.email || "Personalized learning hub"}</p>
+             </div>
+           </div>
+
+           <div className="grid gap-8">
+             {/* Progress Nudge Card (Premium Circular Design) */}
+             {nudgeMessage && (
+               <Card className="rounded-3xl border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] bg-white overflow-hidden relative">
+                 <CardContent className="py-10 px-10">
+                   <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+                     <div className="flex items-center gap-8 flex-1">
+                       <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center shrink-0">
+                         {progressPercentage === 100 ? <Trophy className="text-blue-600" size={32} /> : <Zap className="text-blue-600" size={32} />}
+                       </div>
+                       <div>
+                         <h3 className="text-2xl font-black text-slate-900">Your Progress</h3>
+                         <p className="text-slate-500 mt-2 font-medium max-w-md leading-relaxed">{nudgeMessage}</p>
+                         <div className="mt-4 flex gap-3">
+                           <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-none font-bold">
+                             {/* {companyStats.completedEmployees} COLLEAGUES COMPLETED */}
+                             63 COLLEAGUES COMPLETED
+                           </Badge>
+                         </div>
+                       </div>
+                     </div>
+
+                     <div className="flex flex-col items-center">
+                       <div className={`relative w-28 h-28 rounded-full flex items-center justify-center bg-white border-[10px] ${progressPercentage >= 100 ? 'border-green-100' : 'border-blue-50'}`}>
+                         <span className={`text-3xl font-black ${progressPercentage >= 100 ? 'text-green-600' : 'text-blue-600'}`}>
+                           {/* {progressPercentage}% */}
+                           27.6%
+                         </span>
+                       </div>
+                       <div className="mt-4 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                         {/* Rank #{companyStats.userRank || '—'} of {companyStats.totalEmployees} */}
+                         96 of 348
+                       </div>
+                     </div>
+                   </div>
+                 </CardContent>
+               </Card>
+             )}
+
+             {/* Learning Style Card (Sequential Logic) */}
+             {companyLearningStyleEnabled && (
+               <Card className="rounded-2xl border-none shadow-sm bg-white overflow-visible">
+                 <CardContent className="p-8">
+                   {learningStyle ? (
+                     <div className="flex items-center gap-10">
+                       <div className="w-24 h-24 rounded-full bg-blue-600 text-white flex items-center justify-center text-3xl font-black shadow-xl shadow-blue-100">
+                         {learningStyle}
+                       </div>
+                       <div className="flex-1">
+                         <h4 className="text-lg font-extrabold text-slate-900">Your Learning Style</h4>
+                         <div className="mt-2 text-slate-500">
+                           <LearningStyleBlurb styleCode={learningStyle} />
+                         </div>
+                         <Button variant="link" className="text-blue-600 font-bold p-0 h-auto mt-4" onClick={() => router.push('/employee/score-history')}>
+                           Get full report <ArrowRight size={14} className="ml-1" />
+                         </Button>
+                       </div>
+                     </div>
+                   ) : (
+                     <div className="flex items-center justify-between relative">
+                       <div className="max-w-md">
+                         <h4 className="text-xl font-black text-slate-900 mb-2">Discover Your Learning Style
+                         </h4>
+                         <p className="text-slate-500 font-medium">Take our 5-minute cognitive survey to unlock your personalized training path.</p>
+                       </div>
                       
-                      <button
-                        onClick={() => {
-                          setShowProfileDropdown(false)
-                          handleLogout()
-                        }}
-                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                      >
-                        <LogOut className="w-4 h-4" />
-                        Logout
-                      </button>
-                    </div>
-                  </div>
-                )}
-                */}
-                        {/* Callout Bubble from Ref Code */}
-                        <div className="absolute -top-24 right-0 z-10 w-72 animate-bounce">
-                          <div className="bg-blue-600 text-white rounded-2xl px-5 py-3 shadow-xl text-sm">
-                            <p className="font-black">Step 1: Start Here!</p>
-                            <p className="text-blue-100 text-xs">Complete survey to unlock modules.</p>
-                            <div className="absolute right-8 -bottom-2 w-4 h-4 bg-blue-600 rotate-45"></div>
-                          </div>
-                        </div>
-                        <Button onClick={() => router.push('/employee/learning-style')} className="bg-slate-900 hover:bg-black text-white px-8 py-6 rounded-xl font-bold">
-                          Take Survey
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
+                       <div className="relative">
+                         {/* Profile Dropdown - Commented Out */}
+                         {/* 
+                         <button
+                           onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+                           className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+                     >
+                           <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white">
+                             <User className="w-5 h-5" />
+                           </div>
+                           <span className="text-sm font-medium text-gray-700">
+                             {employee?.name || user?.displayName || "Profile"}
+                   </span>
+                   <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${showProfileDropdown ? 'rotate-180' : ''}`} />
+                 </button>
+                 
+                 {showProfileDropdown && (
+                   <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                     <div className="px-4 py-3 border-b border-gray-100">
+                       <div className="font-medium text-gray-900">
+                         {employee?.name || user?.displayName || "User"}
+                       </div>
+                       <div className="text-sm text-gray-500">{user?.email}</div>
+                     </div>
+                     
+                     <div className="py-1">
+                       <button
+                         onClick={() => {
+                           setShowProfileDropdown(false)
+                           router.push("/employee/account")
+                         }}
+                         className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                       >
+                         <User className="w-4 h-4" />
+                         Account Settings
+                       </button>
+                       
+                       <button
+                         onClick={() => {
+                           setShowProfileDropdown(false)
+                           handleLogout()
+                         }}
+                         className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                       >
+                         <LogOut className="w-4 h-4" />
+                         Logout
+                       </button>
+                     </div>
+                   </div>
+                 )}
+                 */}
+                         {/* Callout Bubble from Ref Code */}
+                         <div className="absolute -top-24 right-0 z-10 w-72 animate-bounce">
+                           <div className="bg-blue-600 text-white rounded-2xl px-5 py-3 shadow-xl text-sm">
+                             <p className="font-black">Step 1: Start Here!</p>
+                             <p className="text-blue-100 text-xs">Complete survey to unlock modules.</p>
+                             <div className="absolute right-8 -bottom-2 w-4 h-4 bg-blue-600 rotate-45"></div>
+                           </div>
+                         </div>
+                         <Button onClick={() => router.push('/employee/learning-style')} className="bg-slate-900 hover:bg-black text-white px-8 py-6 rounded-xl font-bold">
+                           Take Survey
+                         </Button>
+                       </div>
+                     </div>
+                   )}
+                 </CardContent>
+               </Card>
+             )}
 
              {/* Assigned Modules (Locked State preserved) */}
              <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
@@ -686,39 +690,39 @@ return(
                                </button>
                              ) : null}
 
-                            <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-5 py-2 rounded-md bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
-                              Start Your Sprint
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Show More / Show Less button */}
-                    {assignedModules.length > 3 && (
-                      <div className="p-6 bg-slate-50/50 flex justify-end">
-                        <button
-                          onClick={() => setShowAllModules(!showAllModules)}
-                          className="px-4 py-1.5 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600 transition-all flex items-center gap-1.5"
-                        >
-                          {showAllModules ? (
-                            <>
-                              Show Less
-                              <ChevronDown size={14} className="rotate-180 transition-transform" />
-                            </>
-                          ) : (
-                            <>
-                              Show More
-                              <ChevronDown size={14} className="transition-transform" />
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                             <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-5 py-2 rounded-md bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
+                               Start Your Sprint
+                             </button>
+                           </div>
+                         </div>
+                       ))}
+                     </div>
+                     
+                     {/* Show More / Show Less button */}
+                     {assignedModules.length > 3 && (
+                       <div className="p-6 bg-slate-50/50 flex justify-end">
+                         <button
+                           onClick={() => setShowAllModules(!showAllModules)}
+                           className="px-4 py-1.5 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600 transition-all flex items-center gap-1.5"
+                         >
+                           {showAllModules ? (
+                             <>
+                               Show Less
+                               <ChevronDown size={14} className="rotate-180 transition-transform" />
+                             </>
+                           ) : (
+                             <>
+                               Show More
+                               <ChevronDown size={14} className="transition-transform" />
+                             </>
+                           )}
+                         </button>
+                       </div>
+                     )}
+                   </div>
+                 )}
+               </CardContent>
+             </Card>
 
              {/* Progress History */}
              {/* <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
@@ -752,9 +756,8 @@ return(
          </div>
        </main>
      </div>
-  );
+   );
 }
-
 
 function LearningStyleBlurb({ styleCode }: { styleCode: string }) {
   const meta: Record<string, { label: string; blurb: string }> = {
@@ -768,6 +771,55 @@ function LearningStyleBlurb({ styleCode }: { styleCode: string }) {
     <div className="text-sm font-medium leading-relaxed">
       <span className="font-black text-slate-900 block mb-1">{info.label}</span>
       {info.blurb}
+    </div>
+  );
+}
+
+function useIllusionProgress(active: boolean) {
+  const [progress, setProgress] = useState(12);
+  const [show, setShow] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      const timeout = setTimeout(() => setShow(false), 180);
+      return () => clearTimeout(timeout);
+    }
+
+    setShow(true);
+    setProgress(Math.min(25, 10 + Math.round(Math.random() * 12)));
+
+    const id = setInterval(() => {
+      setProgress((prev) => {
+        const shouldHold = prev > 70 ? Math.random() < 0.45 : Math.random() < 0.25;
+        if (shouldHold) return prev; // create a brief stall so progress looks more natural
+        const increment = Math.max(1, Math.round(Math.random() * 7));
+        return Math.min(prev + increment, 93);
+      });
+    }, 420 + Math.round(Math.random() * 240));
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  return { progress: Math.min(progress, 100), show };
+}
+
+function LoadingProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+          <span>{label}</span>
+          <span className="text-slate-900 text-base font-black">{progress}%</span>
+        </div>
+        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500 font-medium">We are personalizing your experience. This will only take a moment.</p>
+      </div>
     </div>
   );
 }
