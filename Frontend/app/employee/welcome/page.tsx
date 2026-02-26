@@ -485,10 +485,11 @@ export default function EmployeeWelcome() {
        const total = Array.isArray(users) ? users.length : 0;
        // Placeholder for your rank logic
        setCompanyStats({ totalEmployees: total, completedEmployees: 5, userRank: 1, topPercentile: 10 });
-       generateNudgeMessage(userProgress, 1, total, 10, 5);
+      //  generateNudgeMessage(userProgress, 1, total, 10, 5);
      } catch (e) { console.error(e); }
    };
-
+return(
+  <div className="min-h-screen bg-slate-50">
       <main
         className="transition-all duration-300 ease-in-out pt-8 pb-12"
       >
@@ -750,8 +751,8 @@ export default function EmployeeWelcome() {
            </div>
          </div>
        </main>
-    //  </div>
-  // );
+     </div>
+  );
 }
 
 
