@@ -528,7 +528,7 @@ async def POST(request: Request):
                             for m in tmRows
                         ]
 
-        print("[Training Plan API] Modules for company_id:", company_id, modules)
+        # print("[Training Plan API] Modules for company_id:", company_id, modules)
 
         # Fetch learning style only if company uses learning styles (learning_style = FALSE)
         geminiText = ""
