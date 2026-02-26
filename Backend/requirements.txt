@@ -1,7 +1,10 @@
+Backend
 cloudconvert
 faiss-cpu
 fastapi
 ffmpeg
+ffmpeg_python
+fitz
 httpx
 imageio_ffmpeg
 numpy
@@ -11,10 +14,13 @@ playwright
 protobuf
 pydantic
 PyJWT
-PyJWT
 pytesseract
 python-dotenv
+bcrypt
+retriever
 sentence_transformers
 static_ffmpeg
+supabase
 unstructured
 uvicorn
+pyMuPDF

@@ -140,7 +140,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       // Log quiz taken into module_progress
       try {
         // console.log(result);
-        await fetch('/api/module-progress', {
+        await fetch(`${API_BASE}/api/module-progress`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -164,7 +164,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     }
   };
 
-  const moduleId = params.module_id;
+  let moduleId = params.module_id;
   const [quiz, setQuiz] = useState<any[] | null>(null);
   const [moduleName, setModuleName] = useState<string>("Module Quiz");
   const [loading, setLoading] = useState(true);
@@ -231,40 +231,17 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         setLoading(true);
       }
       setError(null);
-
-      // Fetch module metadata and resolve canonical processed_module_id
-      try {
-        let moduleData: any = null;
-        const byProcessed = await supabase
-          .from('processed_modules')
-          .select('processed_module_id, original_module_id, title')
-          .eq('processed_module_id', moduleId)
-          .maybeSingle();
-        moduleData = byProcessed?.data || null;
-
-        if (!moduleData) {
-          const byOriginal = await supabase
-            .from('processed_modules')
-            .select('processed_module_id, original_module_id, title')
-            .eq('original_module_id', moduleId)
-            .maybeSingle();
-          moduleData = byOriginal?.data || null;
-        }
-
-        if (moduleData) {
-          if (moduleData.title) setModuleName(moduleData.title);
-          if (moduleData.original_module_id) setOriginalModuleId(String(moduleData.original_module_id));
-          if (moduleData.processed_module_id) setResolvedModuleId(String(moduleData.processed_module_id));
-        }
-      } catch (e) {
-        console.error('[quiz] module metadata fetch error', e);
-      }
-
+      
       let activeLearningStyle = learningStyle;
       let activeUserId = userId;
       let activeCompanyId = companyId;
 
       if (!activeUserId && !authLoading && user?.email) {
+      // Fetch employee data first to get userId for API calls
+      let learningStyle: string | null = null;
+      if (!authLoading && user?.email) {
+        // console.log("Inside the quiz tab")
+        // console.log(user.email)
         try {
           const emp = await fetchUserByEmail(user.email);
           if (emp?.user_id) {
@@ -317,15 +294,60 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           console.error('[quiz] employee fetch error:', e);
         }
       }
+      
+      // Fetch module metadata and resolve canonical processed_module_id
+      if (userId) {
+        try {
+          let moduleData: any = null;
+          
+          // First try: fetch by processed_module_id
+          try {
+            const res = await fetch(`${API_BASE}/api/processed-modules/${moduleId}`, {
+              headers: {
+                'X-User-ID': userId
+              }
+            });
 
-      if (!activeLearningStyle) {
-        // Fallback if everything else fails
-        activeLearningStyle = 'default';
-        setLearningStyle('default');
+            if (res.ok) {
+              const payload = await res.json();
+              moduleData = payload?.data || payload;
+            }
+          } catch (error) {
+            console.error('[quiz] Error fetching by processed_module_id:', error);
+          }
+
+          // Second try: if not found, fetch by original_module_id
+          if (!moduleData) {
+            try {
+              const res = await fetch(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
+                headers: {
+                  'X-User-ID': userId
+                }
+              });
+
+              if (res.ok) {
+                const payload = await res.json();
+                const modules = payload?.data || payload || [];
+                // Take the first match
+                moduleData = modules[0] || null;
+              }
+            } catch (error) {
+              console.error('[quiz] Error fetching by original_module_id:', error);
+            }
+          }
+
+          if (moduleData) {
+            if (moduleData.title) setModuleName(moduleData.title);
+            if(moduleData.original_module_id) setOriginalModuleId(String(moduleData.original_module_id));
+            if (moduleData.processed_module_id) setResolvedModuleId(String(moduleData.processed_module_id));
+            console.log('Value of originalModuleId:', originalModuleId);
+          }
+        } catch (e) {
+          // console.log('[quiz] module metadata fetch error', e);
+        }
       }
-
-      if (!activeUserId) {
-        setError('Could not identify user. Please refresh and try again.');
+      if (!learningStyle) {
+        setError('Could not determine your Performance Sprint.');
         setLoading(false);
         return;
       }
@@ -421,7 +443,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       setLoading(false);
     };
     if (!authLoading && user?.email && moduleId && moduleId !== 'undefined' && moduleId !== 'null') fetchOrGenerateQuiz();
-  }, [user, authLoading, moduleId]);
+  }
+}, [user, authLoading, moduleId]);
 
 
   // End of quiz logic

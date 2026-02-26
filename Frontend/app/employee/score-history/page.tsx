@@ -299,15 +299,22 @@ export default function ScoreHistoryPage() {
 
       // Enrich with module titles
       let enriched = assessments || [];
-      try {
-        const moduleIds = (enriched || [])
-          .filter((a: any) => a?.assessments?.type === 'module' && a.assessments?.processed_module_id)
-          .map((a: any) => String(a.assessments.processed_module_id));
-        if (moduleIds.length) {
-          const { data: mods } = await supabase
-            .from('processed_modules')
-            .select('processed_module_id, title')
-            .in('processed_module_id', moduleIds);
+      const moduleIds = (enriched || [])
+        .filter((a: any) => a?.assessments?.type === 'module' && a.assessments?.processed_module_id)
+        .map((a: any) => String(a.assessments.processed_module_id));
+      if (moduleIds.length) {
+        // Fetch processed_modules via backend batch endpoint instead of direct Supabase call
+        try {
+          const pmRes = await fetch(`${API_BASE}/api/processed-modules/batch`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(employeeData?.user_id ? { 'X-User-ID': employeeData.user_id } : {})
+            },
+            body: JSON.stringify({ processed_module_ids: moduleIds })
+          });
+          const pmPayload = await pmRes.json().catch(() => ({}));
+          const mods = Array.isArray(pmPayload?.data) ? pmPayload.data : [];
           const titleMap = new Map<string, string>();
           (mods || []).forEach((m: any) => {
             if (m?.processed_module_id && m?.title) {
@@ -322,9 +329,11 @@ export default function ScoreHistoryPage() {
             }
             return a;
           });
+        } catch (e) {
+          console.warn('[score-history] failed to fetch processed module titles via backend', e);
         }
-      } catch (e) { }
-
+      }
+      
       setScoreHistory(enriched);
 
       // Fetch learning style data

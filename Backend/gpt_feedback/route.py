@@ -110,7 +110,7 @@ async def POST(request: Request):
 
         assessmentResult = submitAssessmentResponse.json()
         
-        print("Assessment result:", assessmentResult)
+        # print("Assessment result:", assessmentResult)
 
         # Return response in the format expected by legacy clients
         return JSONResponse(content={
