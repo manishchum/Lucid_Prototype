@@ -222,7 +222,7 @@ async def POST(request: Request):
                 orFilter = ",".join(conds)
 
                 res = supabase.table("processed_modules") \
-                    .select("processed_module_id,title,content,original_module_id,audio_duration") \
+                    .select("processed_module_id,title,content,original_module_id") \
                     .or_(orFilter) \
                     .limit(8) \
                     .execute()
