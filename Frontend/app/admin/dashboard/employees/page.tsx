@@ -2475,7 +2475,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
             module_id: moduleId,
             assigned_on: new Date().toISOString(),
             due_date: dueDate || null,
-            baseline_assessment: moduleBaselineSettings[moduleId] ? 1 : 0,
+            baseline_assessment: moduleBaselineSettings[moduleId] ? true : false,
             status: 'ASSIGNED'
           });
         }
