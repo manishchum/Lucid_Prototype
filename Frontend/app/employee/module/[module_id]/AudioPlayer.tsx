@@ -10,15 +10,12 @@ interface AudioPlayerProps {
   className?: string;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
-
-
 export default function AudioPlayer({ employeeId, processedModuleId, moduleId, audioUrl, onTimeUpdate, onPlayExtra, className }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
 
   const handlePlay = async () => {
     if (onPlayExtra) onPlayExtra();
-    await fetch(`${API_URL}/api/module-progress`, {
+    await fetch('/api/module-progress', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -32,7 +29,7 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
 
   const handleEnded = async () => {
     const duration = audioRef.current?.duration || 0;
-    await fetch(`${API_URL}/api/module-progress`, {
+    await fetch('/api/module-progress', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

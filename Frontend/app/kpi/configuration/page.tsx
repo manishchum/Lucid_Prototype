@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
-
+import EmployeeNavigation from "@/components/employee-navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -46,11 +46,11 @@ interface ParsedKPI {
   title: string
 }
 type KPIUploadResult = {
-  created?: number;
-  updated?: number;
-  skipped?: { row: number; reason: string }[];
-};
-
+    created?: number;
+    updated?: number;
+    skipped?: { row: number; reason: string }[];
+  };
+  
 
 interface FunctionData {
   function_id: string
@@ -78,7 +78,20 @@ interface TitleData {
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-
+const fetchUserByEmail = async (email: string | null) => {
+  if (!email) return null;
+  try{
+    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if(!res.ok) return null;
+    const payload = await res.json();
+    let u = payload?.user ?? payload;
+    if (Array.isArray(u)) u = u[0];
+    return u || null;
+  } catch (e){
+    console.error("Error fetching user by email:", e);
+    return null;
+  }
+};
 
 function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Admin | null }) {
   const [file, setFile] = useState<File | null>(null);
@@ -160,33 +173,33 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
 
   return (
     <div>
-      {/* <Input key={fileInputKey} type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
+        {/* <Input key={fileInputKey} type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
         <Button onClick={handleUpload} disabled={!file || uploading}>
           {uploading ? "Uploading..." : "Upload"}
         </Button> */}
-      <Card>
+  <Card>
 
-        <div className="space-y-4">
-          <label
-            htmlFor="file-upload"
-            className="flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-all duration-300"
-          >
-            <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center mb-3">
-              <Upload className="w-8 h-8 text-purple-600" />
-            </div>
-            <span className="text-sm font-medium text-gray-700">Click to upload Excel file</span>
-            <span className="text-xs text-gray-500 mt-1">Supported: .xlsx, .xls</span>
-            <span className="text-xs text-gray-500 mt-1 text-center">Refer to the predefined data fields in the<br /> template before uploading the data</span>
-          </label>
-          <Input
-            id="file-upload"
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={handleFileChange}
-            className="hidden"
-          />
-        </div>
-      </Card>
+                  <div className="space-y-4">
+                    <label
+                      htmlFor="file-upload"
+                      className="flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-all duration-300"
+                    >
+                      <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center mb-3">
+                        <Upload className="w-8 h-8 text-purple-600" />
+                      </div>
+                      <span className="text-sm font-medium text-gray-700">Click to upload Excel file</span>
+                      <span className="text-xs text-gray-500 mt-1">Supported: .xlsx, .xls</span>
+                      <span className="text-xs text-gray-500 mt-1 text-center">Refer to the predefined data fields in the<br/> template before uploading the data</span>
+                    </label>
+                    <Input
+                      id="file-upload"
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      />
+                  </div>
+                      </Card>
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       {preview.length > 0 && (
         <div className="mb-2">
@@ -223,21 +236,21 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
 }
 
 export default function KPIConfigurationPage() {
-  const router = useRouter()
-  const { user, internalUser, loading: authLoading } = useAuth()
-  const [kpis, setKpis] = useState<KPI[]>([])
-  const [filteredKpis, setFilteredKpis] = useState<KPI[]>([])
-  const [loading, setLoading] = useState(true)
-  const [uploading, setUploading] = useState(false)
-  const [parsedData, setParsedData] = useState<ParsedKPI[]>([])
-  const [showPreview, setShowPreview] = useState(false)
-  const [companyId, setCompanyId] = useState<string>("")
+const router = useRouter()
+const { user,loading:authLoading } = useAuth()
+const [kpis, setKpis] = useState<KPI[]>([])
+const [filteredKpis, setFilteredKpis] = useState<KPI[]>([])
+const [loading, setLoading] = useState(true)
+const [uploading, setUploading] = useState(false)
+const [parsedData, setParsedData] = useState<ParsedKPI[]>([])
+const [showPreview, setShowPreview] = useState(false)
+const [companyId, setCompanyId] = useState<string>("")
 
   // Filter data from database
   const [functions, setFunctions] = useState<FunctionData[]>([])
   const [subFunctions, setSubFunctions] = useState<SubFunctionData[]>([])
   const [titles, setTitles] = useState<TitleData[]>([])
-
+  
   // Filters
   const [functionFilter, setFunctionFilter] = useState("All")
   const [subFunctionFilter, setSubFunctionFilter] = useState("All")
@@ -245,20 +258,23 @@ export default function KPIConfigurationPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [admin, setAdmin] = useState<Admin | null>(null);
   useEffect(() => {
-    if (!authLoading) {
-      if (!user) router.push("/login");
-      else fetchAdminId();
-
-    }
-  }, [user, authLoading, router]);
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else fetchAdminId();
+          
+        }
+      }, [user, authLoading, router]);
 
   const fetchAdminId = async () => {
     try {
-      if (!user?.email || !internalUser) return;
-      const employeeData = internalUser;
+      if (!user?.email) return;
+      const employeeData = await fetchUserByEmail(user.email);
+      if (!employeeData){
+        throw new Error("Admin user not found.")
+      }
 
-      fetchCompanyAndKPIs()
-      fetchFilterData()
+    fetchCompanyAndKPIs()
+    fetchFilterData()
 
     } catch (error) {
       console.error("Error fetching admin data:", error)
@@ -304,21 +320,21 @@ export default function KPIConfigurationPage() {
   const fetchCompanyAndKPIs = async () => {
     try {
       setLoading(true)
-
+      
       // Fetch user's company
-      if (!user?.email || !internalUser) {
+      if(!user?.email) {
         setLoading(false);
         return;
       }
-
-      const employeeData = internalUser;
+        
+      const employeeData = await fetchUserByEmail(user.email);
       if (!employeeData?.company_id) {
         setLoading(false);
         return;
       }
 
       setCompanyId(employeeData.company_id)
-
+      
       // Fetch KPIs for the company with related data
       const { data: kpiData, error: kpiError } = await supabase
         .from("kpis")
@@ -332,7 +348,7 @@ export default function KPIConfigurationPage() {
         .order("created_at", { ascending: false })
 
       if (kpiError) throw kpiError
-
+      
       setKpis(kpiData || [])
       setFilteredKpis(kpiData || [])
     } catch (error) {
@@ -425,10 +441,10 @@ export default function KPIConfigurationPage() {
       // Create new sub_function
       const { data: newSubFunction, error: createError } = await supabase
         .from("sub_function")
-        .insert({
-          sub_function_name: subFunctionName,
+        .insert({ 
+          sub_function_name: subFunctionName, 
           function_id: functionId,
-          is_active: true
+          is_active: true 
         })
         .select("sub_function_id")
         .single()
@@ -460,10 +476,10 @@ export default function KPIConfigurationPage() {
       // Create new title
       const { data: newTitle, error: createError } = await supabase
         .from("titles")
-        .insert({
-          title_name: titleName,
+        .insert({ 
+          title_name: titleName, 
           sub_function_id: subFunctionId,
-          is_active: true
+          is_active: true 
         })
         .select("title_id")
         .single()
@@ -481,7 +497,7 @@ export default function KPIConfigurationPage() {
 
     try {
       setUploading(true)
-
+      
       const kpisToInsert = []
 
       for (const kpi of parsedData) {
@@ -561,15 +577,15 @@ export default function KPIConfigurationPage() {
       '#': index + 1,
       'KPI Name': kpi.name,
       'Definition': kpi.description?.split('\n\n')[0] || '',
-      'Formula': kpi.description?.includes('Formula:')
-        ? kpi.description.split('Formula:')[1]?.trim()
+      'Formula': kpi.description?.includes('Formula:') 
+        ? kpi.description.split('Formula:')[1]?.trim() 
         : 'N/A',
       'Target': kpi.target || 0,
       'Weight %': kpi.weight || 0,
       'Function': kpi.function?.function_name || '-',
       'Sub Function': kpi.sub_function?.sub_function_name || '-',
       'Title': kpi.titles?.title_name || '-',
-      'Data Type': 'percentage',
+      'Data Type':  'percentage',
       'Created At': new Date().toLocaleDateString()
     }));
 
@@ -586,7 +602,7 @@ export default function KPIConfigurationPage() {
     XLSX.utils.book_append_sheet(wb, wsKPIs, 'KPIs');
     const wsSummary = XLSX.utils.json_to_sheet(summaryData);
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
-
+    
     // Generate filename
     const filename = `KPI_Configuration_Export_${new Date().toISOString().split('T')[0]}.xlsx`;
 
@@ -607,7 +623,7 @@ export default function KPIConfigurationPage() {
       filtered = filtered.filter(k => k.title_id === titleFilter)
     }
     if (searchTerm) {
-      filtered = filtered.filter(k =>
+      filtered = filtered.filter(k => 
         k.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         k.description?.toLowerCase().includes(searchTerm.toLowerCase())
       )
@@ -621,7 +637,7 @@ export default function KPIConfigurationPage() {
   }, [applyFilters])
 
   // Filter sub-functions based on selected function
-  const filteredSubFunctions = functionFilter !== "All"
+  const filteredSubFunctions = functionFilter !== "All" 
     ? subFunctions.filter(sf => sf.function_id === functionFilter)
     : subFunctions
 
@@ -633,7 +649,8 @@ export default function KPIConfigurationPage() {
   if (loading) {
     return (
       <div className="flex min-h-screen bg-gray-50">
-        <main className="flex-1 transition-all duration-300 p-8">
+        <EmployeeNavigation />
+        <main className="flex-1 lg:ml-72 transition-all duration-300 p-8">
           <div className="flex items-center justify-center h-full">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
           </div>
@@ -644,7 +661,8 @@ export default function KPIConfigurationPage() {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <main className="flex-1 transition-all duration-300 p-8">
+      <EmployeeNavigation />
+      <main className="flex-1 lg:ml-72 transition-all duration-300 p-8">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Header */}
           <div className="mb-8">
@@ -714,7 +732,7 @@ export default function KPIConfigurationPage() {
                       </div>
                       <span className="text-sm font-medium text-gray-700">Click to upload Excel file</span>
                       <span className="text-xs text-gray-500 mt-1">Supported: .xlsx, .xls</span>
-                      <span className="text-xs text-gray-500 mt-1 text-center">Refer to the predefined data fields in the<br /> template before uploading the data</span>
+                      <span className="text-xs text-gray-500 mt-1 text-center">Refer to the predefined data fields in the<br/> template before uploading the data</span>
                     </label>
                     <Input
                       id="file-upload"
@@ -871,7 +889,7 @@ export default function KPIConfigurationPage() {
                         </CardDescription>
                       </div>
                     </div>
-                    <Button
+                    <Button 
                       onClick={handleExportExcel}
                       disabled={filteredKpis.length === 0}
                       className="bg-green-600 hover:bg-green-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
@@ -911,8 +929,8 @@ export default function KPIConfigurationPage() {
                         <div className="w-2 h-2 rounded-full bg-purple-600"></div>
                         Sub-Function
                       </label>
-                      <Select
-                        value={subFunctionFilter}
+                      <Select 
+                        value={subFunctionFilter} 
                         onValueChange={(value) => {
                           setSubFunctionFilter(value)
                           setTitleFilter("All")
@@ -937,8 +955,8 @@ export default function KPIConfigurationPage() {
                         <div className="w-2 h-2 rounded-full bg-pink-600"></div>
                         Title
                       </label>
-                      <Select
-                        value={titleFilter}
+                      <Select 
+                        value={titleFilter} 
                         onValueChange={setTitleFilter}
                         disabled={subFunctionFilter === "All"}
                       >

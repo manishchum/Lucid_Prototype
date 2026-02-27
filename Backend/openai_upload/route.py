@@ -361,17 +361,8 @@ async def processAndStoreResults(moduleId: str, message: str):
             
             print(f"[processAndStoreResults] Processing module {i + 1}/{len(moduleMatches)}")
 
-            # titleMatch = re.search(r"^(?:\*\*|###)?\s*([A-Za-z0-9 .\-]+)(?:\*\*|:)?", block)
-            # title = titleMatch.group(1).strip() if titleMatch else f"Module {i + 1}"
-
-            titleMatch = re.search(r"^(?:\*\*|###|####)?\s*Module\s*\d+[:\-]\s*(.*)", block, re.I)
-            if titleMatch:
-                title = titleMatch.group(1).strip().strip('*').strip(':').strip('"')
-            else:
-                # Fallback: take the first line if regex fails
-                first_line = block.split('\n')[0]
-                title = re.sub(r"^(?:\*\*|###|####)?\s*Module\s*\d+[:\-]\s*", "", first_line).strip().strip('*')
-
+            titleMatch = re.search(r"^(?:\*\*|###)?\s*([A-Za-z0-9 .\-]+)(?:\*\*|:)?", block)
+            title = titleMatch.group(1).strip() if titleMatch else f"Module {i + 1}"
             
             print(f"[processAndStoreResults] Module title: {title}")
 

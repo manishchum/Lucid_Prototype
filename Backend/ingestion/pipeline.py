@@ -1,63 +1,36 @@
-
-
-from ingestion.parser import parse_pdf
-from ingestion.supabase_store import (
-    insert_chunks_to_supabase,
-    insert_image_to_supabase
-)
+from ingestion.config import CHUNK_SIZE, CHUNK_OVERLAP
+from ingestion.parser import parse_pdf_rich
+from ingestion.chunker import chunk_text
 from ingestion.embedder import embed_chunks
+from ingestion.faiss_store import create_index, save_index
+from ingestion.supabase_store import insert_chunks_to_supabase
 import os
-
-
 def ingest_pdf_for_rag(pdf_path: str, doc_id: str):
 
-    text_blocks, images = parse_pdf(pdf_path)
+    # 1. Parse document richly
+    text = parse_pdf_rich(pdf_path)
 
-    # 1 chunk per page
-    chunks = [block["content"] for block in text_blocks]
+    # 2. Chunk
+    chunks = chunk_text(text, CHUNK_SIZE, CHUNK_OVERLAP)
 
+    # 3. Embed
     embeddings = embed_chunks(chunks)
 
-    response = insert_chunks_to_supabase(
+
+    # 4. Store in Supabase
+    print (f"Storing {len(chunks)} chunks in Supabase for doc_id: {doc_id}")
+    insert_chunks_to_supabase(
         module_id=doc_id,
         chunks=chunks,
         embeddings=embeddings,
         source_file=os.path.basename(pdf_path)
-    )
 
-    inserted_rows = response.data
-
-    # Safe mapping: chunk_index == page order
-    for row in inserted_rows:
-
-        chunk_index = row["chunk_index"]
-        chunk_id = row["chunk_id"]
-
-        page_number = text_blocks[chunk_index]["page_number"]
-
-        images_for_page = [
-            img for img in images
-            if img["page_number"] == page_number
-        ]
-
-        for img in images_for_page:
-
-            # Convert bytes to PIL
-            from PIL import Image
-            import io
-
-            pil_image = Image.open(io.BytesIO(img["bytes"]))
-
-            insert_image_to_supabase(
-                module_id=doc_id,
-                chunk_id=chunk_id,
-                image=pil_image,
-                ocr_text=text_blocks[chunk_index]["content"]
-            )
+    )   
+    print(f"Supabase ingestion complete, total chunks: {len(chunks)}")
 
     return {
-        "module_id": doc_id,
-        "chunks_inserted": len(chunks),
-        "images_linked": len(images),
-        "status": "success"
+        "doc_id": doc_id,
+        "chunks": len(chunks),
+        "embedding_model": "bge-large-en-v1.5",
+        "status": "stored_in_supabase"
     }

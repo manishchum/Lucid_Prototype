@@ -6,8 +6,6 @@ import { AuthProvider } from "@/contexts/auth-context"
 import { Toaster as ShadcnToaster } from "@/components/ui/toaster"
 import ErrorReporterInit from '@/components/ErrorReporterInit'
 import LucidAssistant from '@/components/LucidAssistant'
-import SidebarWrapper from "@/components/SidebarWrapper"
-import { DataProvider } from "@/contexts/data-context"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -26,16 +24,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.className} antialiased bg-gradient-to-br from-blue-50 via-white to-purple-50`}>
+      <body className="antialiased bg-gradient-to-br from-blue-50 via-white to-purple-50">
         <AuthProvider>
-          <DataProvider>
-            <ErrorReporterInit />
-            <SidebarWrapper>
-              <LucidAssistant />
-              <ShadcnToaster />
-              {children}
-            </SidebarWrapper>
-          </DataProvider>
+          <ErrorReporterInit />
+          <LucidAssistant />
+          <ShadcnToaster />
+          {children}
         </AuthProvider>
       </body>
     </html>

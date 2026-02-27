@@ -8,7 +8,6 @@ import { supabase } from "@/lib/supabase"
 import { toast as shadcnToast } from '@/hooks/use-toast'
 import { AIAnalysisView } from "./ai-analysis-view"
 import { ProcessingStatusComponent } from "./processing-status"
-const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
 interface TrainingModule {
   module_id: string
@@ -62,26 +61,26 @@ export function UploadedFilesList({ modules, onModuleDeleted }: UploadedFilesLis
     }
 
     try {
-      // Get current user id from Supabase auth for backend header
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData?.user?.id || '';
+      // Extract file path from public URL
+      const urlParts = contentUrl.split("training-content/")
+      const filePath = urlParts.length > 1 ? `training-content/${urlParts[1]}` : null
 
-      // Call backend route to delete module (backend should remove storage + DB row)
-      const res = await fetch(`${API_BASE}/api/training-modules/${encodeURIComponent(moduleId)}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': userId
-        },
-        body: JSON.stringify({ content_url: contentUrl })
-      });
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        throw new Error(`Failed to delete module: ${res.status} ${txt}`);
+      if (!filePath) {
+        throw new Error("Could not determine file path from URL.")
       }
 
-      shadcnToast({ title: 'Module deleted successfully!', duration: 7000 })
+      // Delete from Supabase Storage
+      const { error: storageError } = await supabase.storage.from("training-content").remove([filePath])
+      if (storageError) {
+        // Log error but don't block DB deletion if storage delete fails
+        console.error("Failed to delete file from storage:", storageError.message)
+      }
+
+      // Delete from training_modules table
+      const { error: dbError } = await supabase.from("training_modules").delete().eq("module_id", moduleId)
+      if (dbError) throw dbError
+
+  shadcnToast({ title: 'Module deleted successfully!', duration: 7000 })
       onModuleDeleted() // Notify parent to refresh list
     } catch (error: any) {
       shadcnToast({ title: `Failed to delete module`, description: error.message || '', duration: 7000 })

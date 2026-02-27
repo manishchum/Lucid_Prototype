@@ -116,8 +116,7 @@ async def get_assessment_by_filters(
             query = query.eq('type', assessment_type)
         if processed_module_id:
             query = query.eq('processed_module_id', processed_module_id)
-        # Only filter by original_module_id if it's provided and not empty
-        if original_module_id and original_module_id.strip():
+        if original_module_id:
             query = query.eq('original_module_id', original_module_id)
         if learning_style:
             query = query.eq('learning_style', learning_style)

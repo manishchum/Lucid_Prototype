@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ChevronDown, BookOpen } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-
+import EmployeeNavigation from "@/components/employee-navigation";
 import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import RolePlayReports from "@/components/roleplay/RolePlayReports";
@@ -14,7 +14,14 @@ import RolePlayReports from "@/components/roleplay/RolePlayReports";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-
+const fetchUserByEmail = async (email: string) => {
+  const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+  if (!res.ok) return null;
+  const payload = await res.json();
+  let u = payload?.user ?? payload;
+  if (Array.isArray(u)) u = u[0]; 
+  return u || null;
+};
 // Helper component to format question-specific feedback
 // Robust parsing of: JSON array, comma-separated quoted tokens, or free-form sections
 const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { feedback: string; employeeName: string; totalQuestions?: number }) => {
@@ -35,28 +42,28 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
             answers: arr.map((raw: string) => {
               if (typeof raw !== 'string') return { status: 'Unknown' };
               if (raw.startsWith('Correct')) return { status: 'Correct' };
-              if (raw.startsWith('Incorrect')) return { status: 'Incorrect', explanation: raw.replace(/^Incorrect\.\s*/, '').trim() };
+              if (raw.startsWith('Incorrect')) return { status: 'Incorrect', explanation: raw.replace(/^Incorrect\.\s*/,'').trim() };
               return { status: 'Unknown' };
             }),
             total: arr.length
           };
         }
-      } catch { }
+      } catch {}
     }
     // Case 2: Comma-separated quoted tokens
     if (processedFeedback.includes('Correct') && processedFeedback.includes('"')) {
       // Normalize: ensure wrapped in quotes groups separated by ","
       const raw = processedFeedback
-        .replace(/\r/g, '')
-        .replace(/\n/g, '')
+        .replace(/\r/g,'')
+        .replace(/\n/g,'')
         .trim();
       // Wrap in brackets if missing for easier JSON parse attempt
       const tentative = raw.startsWith('[') ? raw : `[${raw}]`;
       try {
         // Replace a pattern of duplicated quotes at ends
         const jsonReady = tentative
-          .replace(/([^\\])""/g, '$1"')
-          .replace(/,\s*$/, '');
+          .replace(/([^\\])""/g,'$1"')
+          .replace(/,\s*$/,'');
         const arr = JSON.parse(jsonReady);
         if (Array.isArray(arr)) {
           return {
@@ -64,7 +71,7 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
               if (typeof token !== 'string') return { status: 'Unknown' };
               const clean = token.trim();
               if (clean.startsWith('Correct')) return { status: 'Correct' };
-              if (clean.startsWith('Incorrect')) return { status: 'Incorrect', explanation: clean.replace(/^Incorrect\.\s*/, '').trim() };
+              if (clean.startsWith('Incorrect')) return { status: 'Incorrect', explanation: clean.replace(/^Incorrect\.\s*/,'').trim() };
               return { status: 'Unknown' };
             }),
             total: totalQuestions || arr.length
@@ -72,12 +79,12 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
         }
       } catch {
         // Manual split fallback
-        const parts = raw.split(/","/).map(p => p.replace(/^"|"$/g, '').trim()).filter(Boolean);
+        const parts = raw.split(/","/).map(p => p.replace(/^"|"$/g,'').trim()).filter(Boolean);
         if (parts.length) {
           return {
             answers: parts.map(p => {
               if (p.startsWith('Correct')) return { status: 'Correct' };
-              if (p.startsWith('Incorrect')) return { status: 'Incorrect', explanation: p.replace(/^Incorrect\.\s*/, '').trim() };
+              if (p.startsWith('Incorrect')) return { status: 'Incorrect', explanation: p.replace(/^Incorrect\.\s*/,'').trim() };
               return { status: 'Unknown' };
             }),
             total: totalQuestions || parts.length
@@ -167,23 +174,23 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
   // If not parsed as structured Q&A, split into sections for structured feedback
   const lines = processedFeedback.split('\n').filter(line => line.trim());
   const sections: { title?: string; content: string }[] = [];
-
+  
   let currentSection: { title?: string; content: string } = { content: '' };
-
+  
   for (const line of lines) {
     const trimmed = line.trim();
-
+    
     // Check if it's a header (like "Question 1:", "Incorrect.", etc.)
     if (trimmed.match(/^(Question \d+|Incorrect|Correct|Explanation):/i) || trimmed.match(/^\d+\./)) {
       // Save previous section
       if (currentSection.content) {
         sections.push({ ...currentSection });
       }
-
+      
       // Start new section
       if (trimmed.includes(':')) {
         const [title, ...rest] = trimmed.split(':');
-        currentSection = {
+        currentSection = { 
           title: title.trim(),
           content: rest.join(':').trim()
         };
@@ -195,12 +202,12 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
       currentSection.content += (currentSection.content ? ' ' : '') + trimmed;
     }
   }
-
+  
   // Add the last section
   if (currentSection.content) {
     sections.push({ ...currentSection });
   }
-
+  
   if (sections.length <= 1) {
     // Simple feedback, just format with paragraphs
     return (
@@ -215,27 +222,30 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
       </div>
     );
   }
-
+  
   // Structured feedback with sections
   return (
     <div className="space-y-4">
       {sections.map((section, index) => (
-        <div key={index} className={`rounded-lg p-4 border-l-4 ${section.title?.toLowerCase().includes('incorrect') ? 'bg-red-50 border-red-400' :
+        <div key={index} className={`rounded-lg p-4 border-l-4 ${
+          section.title?.toLowerCase().includes('incorrect') ? 'bg-red-50 border-red-400' :
           section.title?.toLowerCase().includes('correct') ? 'bg-green-50 border-green-400' :
-            'bg-yellow-50 border-yellow-400'
-          }`}>
+          'bg-yellow-50 border-yellow-400'
+        }`}>
           {section.title && (
-            <div className={`font-semibold mb-2 ${section.title.toLowerCase().includes('incorrect') ? 'text-red-800' :
+            <div className={`font-semibold mb-2 ${
+              section.title.toLowerCase().includes('incorrect') ? 'text-red-800' :
               section.title.toLowerCase().includes('correct') ? 'text-green-800' :
-                'text-yellow-800'
-              }`}>
+              'text-yellow-800'
+            }`}>
               {section.title}
             </div>
           )}
-          <div className={`leading-relaxed ${section.title?.toLowerCase().includes('incorrect') ? 'text-red-700' :
+          <div className={`leading-relaxed ${
+            section.title?.toLowerCase().includes('incorrect') ? 'text-red-700' :
             section.title?.toLowerCase().includes('correct') ? 'text-green-700' :
-              'text-gray-700'
-            }`}>
+            'text-gray-700'
+          }`}>
             {section.content}
           </div>
         </div>
@@ -245,7 +255,7 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
 };
 
 export default function ScoreHistoryPage() {
-  const { user, internalUser, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [employeeName, setEmployeeName] = useState<string>("");
   const [scoreHistory, setScoreHistory] = useState<any[]>([]);
@@ -260,35 +270,42 @@ export default function ScoreHistoryPage() {
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   const router = useRouter();
 
-  useEffect(() => {
-    if (!authLoading) {
-      if (!user) {
-        router.push("/login");
-      } else if (internalUser) {
-        fetchHistory(internalUser);
-      }
-    }
-  }, [user, authLoading, internalUser, router]);
+   useEffect(() => {
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else fetchEmployeeAndHistory();
+          
+        }
+      }, [user, authLoading, router]);
 
-  const fetchHistory = async (employeeData: any) => {
+  const fetchEmployeeAndHistory = async () => {
     setLoading(true);
     try {
+      const email: string = user?.email ?? '';
+      // First, get employee data including name and company_id
+      const employeeData = await fetchUserByEmail(email);
+      
+      if (!employeeData?.user_id) {
+        setLoading(false);
+        return;
+      }
+      
       setEmployeeId(employeeData.user_id);
       setEmployeeName(employeeData.name || "");
 
       // Fetch company's learning_style setting
       if (employeeData.company_id) {
-        try {
+        try{
           const compRes = await fetch(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`);
           if (compRes.ok) {
             const compPayload = await compRes.json().catch(() => null);
             const companyData = compPayload?.company ?? compPayload;
             setCompanyUsesLearningStyle(Boolean(companyData?.learning_style));
-          }
-        } catch (e) {
-          console.warn("Error fetching company data:", e);
         }
+      } catch (e) {
+        console.warn("Error fetching company data:", e);
       }
+    }
 
       // Fetch assessment history
       const { data: assessments } = await supabase
@@ -297,24 +314,17 @@ export default function ScoreHistoryPage() {
         .eq("user_id", employeeData.user_id)
         .order("employee_assessment_id", { ascending: false });
 
-      // Enrich with module titles
+      // Enrich with module titles for non-baseline assessments
       let enriched = assessments || [];
-      const moduleIds = (enriched || [])
-        .filter((a: any) => a?.assessments?.type === 'module' && a.assessments?.processed_module_id)
-        .map((a: any) => String(a.assessments.processed_module_id));
-      if (moduleIds.length) {
-        // Fetch processed_modules via backend batch endpoint instead of direct Supabase call
-        try {
-          const pmRes = await fetch(`${API_BASE}/api/processed-modules/batch`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(employeeData?.user_id ? { 'X-User-ID': employeeData.user_id } : {})
-            },
-            body: JSON.stringify({ processed_module_ids: moduleIds })
-          });
-          const pmPayload = await pmRes.json().catch(() => ({}));
-          const mods = Array.isArray(pmPayload?.data) ? pmPayload.data : [];
+      try {
+        const moduleIds = (enriched || [])
+          .filter((a: any) => a?.assessments?.type === 'module' && a.assessments?.processed_module_id)
+          .map((a: any) => String(a.assessments.processed_module_id));
+        if (moduleIds.length) {
+          const { data: mods } = await supabase
+            .from('processed_modules')
+            .select('processed_module_id, title')
+            .in('processed_module_id', moduleIds);
           const titleMap = new Map<string, string>();
           (mods || []).forEach((m: any) => {
             if (m?.processed_module_id && m?.title) {
@@ -329,11 +339,11 @@ export default function ScoreHistoryPage() {
             }
             return a;
           });
-        } catch (e) {
-          console.warn('[score-history] failed to fetch processed module titles via backend', e);
         }
+      } catch (e) {
+        // console.log('[score-history] module title enrich error', e);
       }
-      
+
       setScoreHistory(enriched);
 
       // Fetch learning style data
@@ -342,13 +352,14 @@ export default function ScoreHistoryPage() {
         .select("user_id, answers, learning_style, gpt_analysis, created_at, updated_at")
         .eq("user_id", employeeData.user_id)
         .single();
-
+      
       if (learningStyleError) {
+        console.warn("Learning style fetch error:", learningStyleError);
         setLearningStyleData(null);
       } else {
         setLearningStyleData(learningStyle);
       }
-
+      
     } catch (err) {
       console.error("Error fetching data:", err);
     } finally {
@@ -366,12 +377,15 @@ export default function ScoreHistoryPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-
-
+      <EmployeeNavigation showForward={false} />
+      
       {/* Main content area that adapts to sidebar */}
-      <main className="transition-all duration-300 ease-in-out pt-8 pb-12">
+      <main 
+        className="transition-all duration-300 ease-in-out pt-8 pb-12"
+        style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
+      >
         <div className="max-w-6xl mx-auto px-6 lg:px-8">
-
+          
           {/* Dashboard Header */}
           <div className="flex items-center gap-4 mb-10">
             <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100">
@@ -389,253 +403,257 @@ export default function ScoreHistoryPage() {
           <div className="flex gap-2 mb-8">
             <button
               onClick={() => setActiveTab('assessments')}
-              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${activeTab === 'assessments'
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
-                : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-                }`}
+              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
+                activeTab === 'assessments'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              }`}
             >
               📚 Assessments
             </button>
             <button
               onClick={() => setActiveTab('roleplay')}
-              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${activeTab === 'roleplay'
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
-                : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-                }`}
+              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
+                activeTab === 'roleplay'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              }`}
             >
               🎭 Role-Play Sessions
             </button>
           </div>
-
-          {activeTab === 'assessments' && (
-            <div className="grid gap-8">
-              {/* Learning Style Section - Only show if company uses learning styles */}
-              {companyUsesLearningStyle && learningStyleData ? (
-                <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-                  <CardContent className="p-8">
-                    <div className="border-b pb-6 mb-6">
-                      <div className="flex items-center justify-between cursor-pointer" onClick={() => setLearningStyleExpanded(!learningStyleExpanded)}>
-                        <div className="flex items-center gap-6">
-                          <div className="w-20 h-20 rounded-full bg-blue-600 text-white flex items-center justify-center text-center leading-tight text-sm font-black shadow-xl shadow-blue-100">
-                            {/* {learningStyleData.learning_style} */}
-                            Primary Style
-                          </div>
-                          <div>
-                            {/* <span className="text-xs font-bold tracking-wide text-blue-600 uppercase">Primary Style</span> */}
-                            <div className="text-lg font-bold text-slate-900 mt-1">
-                              {getLearningStyleInfo(learningStyleData.learning_style).label}
-                            </div>
-                            <span className="text-sm text-slate-500">
-                              Completed: {new Date(learningStyleData.updated_at || learningStyleData.created_at).toLocaleDateString()}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <button
-                            aria-label={learningStyleExpanded ? 'Collapse details' : 'Expand details'}
-                            className="focus:outline-none p-2 rounded-full hover:bg-slate-100 transition-colors"
-                            tabIndex={-1}
-                            type="button"
-                          >
-                            <ChevronDown className={`w-6 h-6 text-slate-600 transition-transform ${learningStyleExpanded ? 'rotate-180' : ''}`} />
-                          </button>
-                        </div>
+        
+        {activeTab === 'assessments' && (
+        <div className="grid gap-8">
+        {/* Learning Style Section - Only show if company uses learning styles */}
+        {companyUsesLearningStyle && learningStyleData ? (
+          <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+            <CardContent className="p-8">
+              <div className="border-b pb-6 mb-6">
+                <div className="flex items-center justify-between cursor-pointer" onClick={() => setLearningStyleExpanded(!learningStyleExpanded)}>
+                  <div className="flex items-center gap-6">
+                    <div className="w-20 h-20 rounded-full bg-blue-600 text-white flex items-center justify-center text-center leading-tight text-sm font-black shadow-xl shadow-blue-100">
+                      {/* {learningStyleData.learning_style} */}
+                      Primary Style
+                    </div>
+                    <div>
+                      {/* <span className="text-xs font-bold tracking-wide text-blue-600 uppercase">Primary Style</span> */}
+                      <div className="text-lg font-bold text-slate-900 mt-1">
+                        {getLearningStyleInfo(learningStyleData.learning_style).label}
                       </div>
-                      {learningStyleExpanded && (
-                        <div className="mt-8 space-y-4">
-                          <h3 className="text-xl font-bold text-slate-900">Your Learning Insights</h3>
-                          {buildLearningSections(learningStyleData.gpt_analysis || '', getLearningStyleInfo(learningStyleData.learning_style).description).filter(section => section.id !== 'checklist').map(section => {
-                            const isOpen = reportOpenSections.includes(section.id)
-                            const toggle = () => {
-                              setReportOpenSections(prev => (
-                                prev.includes(section.id)
-                                  ? prev.filter(id => id !== section.id)
-                                  : [...prev, section.id]
-                              ))
-                            }
-                            return (
-                              <Card key={section.id} className={`bg-gradient-to-br ${section.accent} border-2 shadow-sm rounded-xl`}>
-                                <CardHeader className="cursor-pointer" onClick={toggle}>
-                                  <CardTitle className="flex items-center justify-between text-lg font-semibold text-gray-900">
-                                    <span>{section.title}</span>
-                                    <ChevronDown className={`w-5 h-5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-                                  </CardTitle>
-                                </CardHeader>
-                                {isOpen && (
-                                  <CardContent className="space-y-4">
-                                    {section.paragraphs.map((para, idx) => (
-                                      <p key={idx} className="text-gray-800 leading-relaxed text-sm">
-                                        {para}
-                                      </p>
-                                    ))}
-                                    {section.bullets && section.bullets.length > 0 && (
-                                      <ul className="list-disc list-inside space-y-1 text-gray-800 text-sm pl-1">
-                                        {section.bullets.map((item, bIdx) => (
-                                          <li key={bIdx}>{item}</li>
+                      <span className="text-sm text-slate-500">
+                        Completed: {new Date(learningStyleData.updated_at || learningStyleData.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <button
+                      aria-label={learningStyleExpanded ? 'Collapse details' : 'Expand details'}
+                      className="focus:outline-none p-2 rounded-full hover:bg-slate-100 transition-colors"
+                      tabIndex={-1}
+                      type="button"
+                    >
+                      <ChevronDown className={`w-6 h-6 text-slate-600 transition-transform ${learningStyleExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+                {learningStyleExpanded && (
+                  <div className="mt-8 space-y-4">
+                    <h3 className="text-xl font-bold text-slate-900">Your Learning Insights</h3>
+                    {buildLearningSections(learningStyleData.gpt_analysis || '', getLearningStyleInfo(learningStyleData.learning_style).description).filter(section => section.id !== 'checklist').map(section => {
+                      const isOpen = reportOpenSections.includes(section.id)
+                      const toggle = () => {
+                        setReportOpenSections(prev => (
+                          prev.includes(section.id)
+                            ? prev.filter(id => id !== section.id)
+                            : [...prev, section.id]
+                        ))
+                      }
+                      return (
+                        <Card key={section.id} className={`bg-gradient-to-br ${section.accent} border-2 shadow-sm rounded-xl`}>
+                          <CardHeader className="cursor-pointer" onClick={toggle}>
+                            <CardTitle className="flex items-center justify-between text-lg font-semibold text-gray-900">
+                              <span>{section.title}</span>
+                              <ChevronDown className={`w-5 h-5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                            </CardTitle>
+                          </CardHeader>
+                          {isOpen && (
+                            <CardContent className="space-y-4">
+                              {section.paragraphs.map((para, idx) => (
+                                <p key={idx} className="text-gray-800 leading-relaxed text-sm">
+                                  {para}
+                                </p>
+                              ))}
+                              {section.bullets && section.bullets.length > 0 && (
+                                <ul className="list-disc list-inside space-y-1 text-gray-800 text-sm pl-1">
+                                  {section.bullets.map((item, bIdx) => (
+                                    <li key={bIdx}>{item}</li>
+                                  ))}
+                                </ul>
+                              )}
+                              {section.subsections.length > 0 && (
+                                <div className="space-y-4">
+                                  {section.subsections.map((sub, subIdx) => (
+                                    <div key={subIdx}>
+                                      <h4 className="font-bold text-gray-900 mb-2 text-sm">{sub.subtitle}</h4>
+                                      <ul className="space-y-1 ml-2">
+                                        {sub.items.map((item, itemIdx) => (
+                                          <li key={itemIdx} className="flex gap-2 text-gray-800 leading-relaxed text-sm">
+                                            <span className="text-blue-600 font-semibold mt-0.5 flex-shrink-0">•</span>
+                                            <span>{item}</span>
+                                          </li>
                                         ))}
                                       </ul>
-                                    )}
-                                    {section.subsections.length > 0 && (
-                                      <div className="space-y-4">
-                                        {section.subsections.map((sub, subIdx) => (
-                                          <div key={subIdx}>
-                                            <h4 className="font-bold text-gray-900 mb-2 text-sm">{sub.subtitle}</h4>
-                                            <ul className="space-y-1 ml-2">
-                                              {sub.items.map((item, itemIdx) => (
-                                                <li key={itemIdx} className="flex gap-2 text-gray-800 leading-relaxed text-sm">
-                                                  <span className="text-blue-600 font-semibold mt-0.5 flex-shrink-0">•</span>
-                                                  <span>{item}</span>
-                                                </li>
-                                              ))}
-                                            </ul>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </CardContent>
-                                )}
-                              </Card>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : companyUsesLearningStyle ? (
-                <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-                  <CardContent className="p-8">
-                    <div className="text-center py-8">
-                      <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-4 mx-auto">
-                        <BookOpen size={32} />
-                      </div>
-                      <h4 className="text-lg font-bold text-slate-900 mb-2">Discover Your Performance Sprint</h4>
-                      <p className="text-slate-500 mb-6">
-                        Complete your Performance Sprint assessment to see personalized recommendations
-                      </p>
-                      <button
-                        onClick={() => router.push("/employee/learning-style")}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        Take Performance Sprint Assessment
-                      </button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : null}
-
-              {/* Assessment History Section */}
-              <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-                <CardContent className="p-8">
-                  <div className="border-b pb-6 mb-6">
-                    <h2 className="text-2xl font-bold text-slate-900">Your Growth Record</h2>
-                    <p className="text-slate-500 text-sm mt-1">Review your scores & track growth</p>
-                  </div>
-
-                  {scoreHistory.length === 0 && (
-                    <div className="text-center py-12">
-                      <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-4 mx-auto">
-                        <BookOpen size={32} />
-                      </div>
-                      <div className="text-slate-600 text-base font-medium mb-2">No assessments taken yet</div>
-                      <p className="text-slate-400 text-sm">Complete your first assessment to see detailed feedback and insights here</p>
-                    </div>
-                  )}
-
-                  {scoreHistory.length > 0 && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {scoreHistory.map((item, idx) => {
-                        const isExpanded = expanded[idx] || false;
-                        const isBaseline = item.assessments?.type === 'baseline';
-                        const percentage = Math.round((item.score / (item.max_score || 1)) * 100);
-
-                        // Expanded tile
-                        if (isExpanded) {
-                          return (
-                            <div key={idx} className="col-span-1 sm:col-span-2 lg:col-span-3 border border-slate-200 rounded-xl p-8 bg-gradient-to-br from-slate-50 to-white shadow-sm hover:shadow-md transition-all">
-                              <div className="flex items-center justify-between mb-6 cursor-pointer" onClick={() => toggleExpand(idx)}>
-                                <div className="flex flex-col gap-3 flex-1">
-                                  <span className="text-xl font-bold text-slate-900">
-                                    {isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}
-                                  </span>
-                                  <div className="flex items-center gap-4 mt-2">
-                                    <span className="text-slate-500 font-medium">Score:</span>
-                                    <span className="font-bold text-slate-900 text-lg">{item.score} / {item.max_score ?? '?'}</span>
-                                    <div className={`px-3 py-1.5 rounded-lg text-sm font-bold ${percentage >= 80 ? 'bg-green-100 text-green-700' :
-                                      percentage >= 60 ? 'bg-blue-100 text-blue-700' :
-                                        'bg-slate-100 text-slate-700'
-                                      }`}>
-                                      {percentage}%
                                     </div>
-                                  </div>
+                                  ))}
                                 </div>
-                                <button
-                                  aria-label="Collapse details"
-                                  className="focus:outline-none p-3 rounded-full hover:bg-slate-100 transition-colors"
-                                  tabIndex={-1}
-                                  type="button"
-                                >
-                                  <ChevronDown className="w-6 h-6 text-slate-600 rotate-180" />
-                                </button>
-                              </div>
-
-                              <div className="mt-8 space-y-8">
-                                <div>
-                                  <h3 className="text-lg font-bold text-slate-900 mb-4">AI Feedback Summary</h3>
-                                  <AIFeedbackSections feedback={item.feedback?.replace('[Your Name]', 'Lucid').replace('Dear Employee', `Dear ${employeeName || 'Employee'}`) || 'No feedback available.'} />
-                                </div>
-                                {item.question_feedback && (
-                                  <div>
-                                    <h3 className="text-lg font-bold text-slate-900 mb-4">Question-Specific Feedback</h3>
-                                    <QuestionFeedbackDisplay
-                                      feedback={item.question_feedback}
-                                      employeeName={employeeName}
-                                      totalQuestions={item.max_score}
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        }
-
-                        // Collapsed tile
-                        return (
-                          <div
-                            key={idx}
-                            className="border border-slate-200 rounded-xl p-5 bg-white hover:shadow-md transition-all cursor-pointer group"
-                            onClick={() => toggleExpand(idx)}
-                          >
-                            <span className="text-base font-bold text-slate-900 block mb-3">
+                              )}
+                            </CardContent>
+                          )}
+                        </Card>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ) : companyUsesLearningStyle ? (
+          <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+            <CardContent className="p-8">
+              <div className="text-center py-8">
+                <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-4 mx-auto">
+                  <BookOpen size={32} />
+                </div>
+                <h4 className="text-lg font-bold text-slate-900 mb-2">Discover Your Performance Sprint</h4>
+                <p className="text-slate-500 mb-6">
+                  Complete your Performance Sprint assessment to see personalized recommendations
+                </p>
+                <button 
+                  onClick={() => router.push("/employee/learning-style")}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Take Performance Sprint Assessment
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+        
+        {/* Assessment History Section */}
+        <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+          <CardContent className="p-8">
+            <div className="border-b pb-6 mb-6">
+              <h2 className="text-2xl font-bold text-slate-900">Your Growth Record</h2>
+              <p className="text-slate-500 text-sm mt-1">Review your scores & track growth</p>
+            </div>
+            
+            {scoreHistory.length === 0 && (
+              <div className="text-center py-12">
+                <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-4 mx-auto">
+                  <BookOpen size={32} />
+                </div>
+                <div className="text-slate-600 text-base font-medium mb-2">No assessments taken yet</div>
+                <p className="text-slate-400 text-sm">Complete your first assessment to see detailed feedback and insights here</p>
+              </div>
+            )}
+            
+            {scoreHistory.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {scoreHistory.map((item, idx) => {
+                  const isExpanded = expanded[idx] || false;
+                  const isBaseline = item.assessments?.type === 'baseline';
+                  const percentage = Math.round((item.score / (item.max_score || 1)) * 100);
+                  
+                  // Expanded tile
+                  if (isExpanded) {
+                    return (
+                      <div key={idx} className="col-span-1 sm:col-span-2 lg:col-span-3 border border-slate-200 rounded-xl p-8 bg-gradient-to-br from-slate-50 to-white shadow-sm hover:shadow-md transition-all">
+                        <div className="flex items-center justify-between mb-6 cursor-pointer" onClick={() => toggleExpand(idx)}>
+                          <div className="flex flex-col gap-3 flex-1">
+                            <span className="text-xl font-bold text-slate-900">
                               {isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}
                             </span>
-                            <div className="flex items-center gap-3 mb-4">
-                              <span className="text-slate-500 text-sm font-medium">Score:</span>
-                              <span className="font-bold text-slate-900">{item.score} / {item.max_score ?? '?'}</span>
-                              <div className={`px-2 py-1 rounded-md text-xs font-bold ${percentage >= 80 ? 'bg-green-100 text-green-700' :
+                            <div className="flex items-center gap-4 mt-2">
+                              <span className="text-slate-500 font-medium">Score:</span>
+                              <span className="font-bold text-slate-900 text-lg">{item.score} / {item.max_score ?? '?'}</span>
+                              <div className={`px-3 py-1.5 rounded-lg text-sm font-bold ${
+                                percentage >= 80 ? 'bg-green-100 text-green-700' :
                                 percentage >= 60 ? 'bg-blue-100 text-blue-700' :
-                                  'bg-slate-100 text-slate-700'
-                                }`}>
+                                'bg-slate-100 text-slate-700'
+                              }`}>
                                 {percentage}%
                               </div>
                             </div>
-                            <div className="flex justify-end">
-                              <ChevronDown className="w-5 h-5 text-slate-400 group-hover:text-slate-600 transition-colors" />
-                            </div>
                           </div>
-                        );
-                      })}
+                          <button
+                            aria-label="Collapse details"
+                            className="focus:outline-none p-3 rounded-full hover:bg-slate-100 transition-colors"
+                            tabIndex={-1}
+                            type="button"
+                          >
+                            <ChevronDown className="w-6 h-6 text-slate-600 rotate-180" />
+                          </button>
+                        </div>
+                        
+                        <div className="mt-8 space-y-8">
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-900 mb-4">AI Feedback Summary</h3>
+                            <AIFeedbackSections feedback={item.feedback?.replace('[Your Name]', 'Lucid').replace('Dear Employee', `Dear ${employeeName || 'Employee'}`) || 'No feedback available.'} />
+                          </div>
+                          {item.question_feedback && (
+                            <div>
+                              <h3 className="text-lg font-bold text-slate-900 mb-4">Question-Specific Feedback</h3>
+                              <QuestionFeedbackDisplay 
+                                feedback={item.question_feedback} 
+                                employeeName={employeeName} 
+                                totalQuestions={item.max_score}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  // Collapsed tile
+                  return (
+                    <div 
+                      key={idx} 
+                      className="border border-slate-200 rounded-xl p-5 bg-white hover:shadow-md transition-all cursor-pointer group"
+                      onClick={() => toggleExpand(idx)}
+                    >
+                      <span className="text-base font-bold text-slate-900 block mb-3">
+                        {isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}
+                      </span>
+                      <div className="flex items-center gap-3 mb-4">
+                        <span className="text-slate-500 text-sm font-medium">Score:</span>
+                        <span className="font-bold text-slate-900">{item.score} / {item.max_score ?? '?'}</span>
+                        <div className={`px-2 py-1 rounded-md text-xs font-bold ${
+                          percentage >= 80 ? 'bg-green-100 text-green-700' :
+                          percentage >= 60 ? 'bg-blue-100 text-blue-700' :
+                          'bg-slate-100 text-slate-700'
+                        }`}>
+                          {percentage}%
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
+                        <ChevronDown className="w-5 h-5 text-slate-400 group-hover:text-slate-600 transition-colors" />
+                      </div>
                     </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        </div>
+        )}
 
-          {/* Role-Play Sessions Tab */}
-          {activeTab === 'roleplay' && employeeId && (
-            <RolePlayReports employeeId={employeeId} />
-          )}
+        {/* Role-Play Sessions Tab */}
+        {activeTab === 'roleplay' && employeeId && (
+          <RolePlayReports employeeId={employeeId} />
+        )}
 
         </div>
       </main>
@@ -646,17 +664,17 @@ export default function ScoreHistoryPage() {
 // Helper to safely extract and parse scores from raw data
 const parseScoresFromData = (data: any): Record<string, number> | null => {
   if (!data) return null
-
+  
   // If scores already exist as object, return them
   if (data.scores && typeof data.scores === 'object') {
     return data.scores
   }
-
+  
   // Try to parse from gpt_analysis string if it contains JSON
   if (data.gpt_analysis && typeof data.gpt_analysis === 'string') {
     try {
-      const jsonMatch = data.gpt_analysis.match(/```json\s*([\s\S]*?)```/) ||
-        data.gpt_analysis.match(/\{[\s\S]*?"scores"[\s\S]*?\}/)
+      const jsonMatch = data.gpt_analysis.match(/```json\s*([\s\S]*?)```/) || 
+                       data.gpt_analysis.match(/\{[\s\S]*?"scores"[\s\S]*?\}/)
       if (jsonMatch) {
         const jsonStr = jsonMatch[1] || jsonMatch[0]
         const parsed = JSON.parse(jsonStr)
@@ -666,18 +684,18 @@ const parseScoresFromData = (data: any): Record<string, number> | null => {
       // Ignore parse errors
     }
   }
-
+  
   return null
 }
 
 // Helper to extract clean report text from gpt_analysis
 const getCleanReportText = (gptAnalysis: string): string => {
   if (!gptAnalysis) return ''
-
+  
   try {
     // Try to extract JSON
-    const jsonMatch = gptAnalysis.match(/```json\s*([\s\S]*?)```/) ||
-      gptAnalysis.match(/\{[\s\S]*?"report"[\s\S]*?\}/)
+    const jsonMatch = gptAnalysis.match(/```json\s*([\s\S]*?)```/) || 
+                     gptAnalysis.match(/\{[\s\S]*?"report"[\s\S]*?\}/)
     if (jsonMatch) {
       const jsonStr = jsonMatch[1] || jsonMatch[0]
       const parsed = JSON.parse(jsonStr)
@@ -689,12 +707,12 @@ const getCleanReportText = (gptAnalysis: string): string => {
   } catch (e) {
     // Fall through to direct text
   }
-
+  
   // If it's plain text starting with "Title:", return as-is (with newline conversion)
   if (gptAnalysis.includes('Title:') || gptAnalysis.includes('Your')) {
     return gptAnalysis.replace(/\\n/g, '\n')
   }
-
+  
   return gptAnalysis
 }
 
@@ -706,7 +724,7 @@ const getLearningStyleInfo = (styleCode: string) => {
       description: "Prefers structure, clear steps, and hands-on practice. Learning emphasizes checklists, examples, and measurable milestones."
     },
     AS: {
-      label: "The Analyst",
+      label: "The Analyst", 
       description: "Thinks analytically and values logic. Learning focuses on theory, frameworks, and evidence-based decision making."
     },
     AR: {
@@ -718,7 +736,7 @@ const getLearningStyleInfo = (styleCode: string) => {
       description: "Enjoys experimentation and rapid iteration. Learning leans into challenges, scenarios, and creative problem solving."
     }
   };
-
+  
   return styleMap[styleCode] || { label: styleCode, description: "Unknown learning style" };
 };
 
@@ -733,7 +751,7 @@ const extractReportFromJson = (analysis: string) => {
       const parsed = JSON.parse(jsonStr)
       if (parsed.report) return parsed.report.replace(/\\n/g, '\n')
     }
-  } catch (e) { }
+  } catch (e) {}
 
   const reportStart = analysis.indexOf('Here is your personalized learning style report:')
   if (reportStart !== -1) {

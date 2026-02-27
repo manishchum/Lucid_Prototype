@@ -1,80 +1,135 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleAuth } from "google-auth-library";
+import os from 'os';
+import fs from 'fs';
+const base64Key = process.env.GOOGLE_STT_JSON;
+let credentialsPath: string | undefined;
+let serviceAccountCredentials: any = null;
 
-const credentials = process.env.GOOGLE_STT_JSON
-  ? JSON.parse(Buffer.from(process.env.GOOGLE_STT_JSON, "base64").toString())
-  : null;
+if (base64Key) {
+  try {
+    const decoded = Buffer.from(base64Key, 'base64').toString('utf8');
+    serviceAccountCredentials = JSON.parse(decoded);
+    const tempPath = os.tmpdir() + `/google-credentials-${Date.now()}.json`;
+    fs.writeFileSync(tempPath, decoded, { encoding: 'utf8' });
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = tempPath;
+    credentialsPath = tempPath;
+    console.log('[STT API] Decoded Google credentials from GOOGLE_STT_JSON and set GOOGLE_APPLICATION_CREDENTIALS');
+  } catch (e) {
+    console.error('[STT API] Failed to decode/write Google credentials:', e);
+  }
+} else {
+  console.warn('[STT API] GOOGLE_STT_JSON not set.');
+}
 
+// Helper function to get OAuth2 access token
 async function getAccessToken() {
-  if (!credentials) throw new Error("Credentials missing");
+  if (!serviceAccountCredentials) {
+    throw new Error('Service account credentials not loaded');
+  }
 
+  const { GoogleAuth } = await import('google-auth-library');
   const auth = new GoogleAuth({
-    credentials,
-    scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+    credentials: serviceAccountCredentials,
+    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
   });
 
   const client = await auth.getClient();
-  const token = await client.getAccessToken();
-  if (!token.token) throw new Error("Failed to obtain token");
+  const accessToken = await client.getAccessToken();
+  
+  if (!accessToken.token) {
+    throw new Error('Failed to get access token');
+  }
 
-  return token.token;
+  return accessToken.token;
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    if (!credentials)
+    if (!serviceAccountCredentials) {
       return NextResponse.json(
-        { error: "STT credentials missing" },
+        { error: "Google Speech-to-Text credentials not configured" },
         { status: 500 }
       );
+    }
 
-    const formData = await req.formData();
-    const audio = formData.get("audio") as File;
+    const formData = await request.formData();
+    const audioFile = formData.get("audio") as File;
 
-    if (!audio)
-      return NextResponse.json({ error: "No audio provided" }, { status: 400 });
+    if (!audioFile) {
+      return NextResponse.json(
+        { error: "No audio file provided" },
+        { status: 400 }
+      );
+    }
 
-    const buffer = Buffer.from(await audio.arrayBuffer());
+    // Convert audio to base64
+    const buffer = Buffer.from(await audioFile.arrayBuffer());
     const base64Audio = buffer.toString("base64");
 
-    const token = await getAccessToken();
+    console.log("[Speech-to-Text] Sending request to Google Speech API...");
+    console.log("[Speech-to-Text] Audio size:", buffer.length, "bytes");
 
-    const response = await fetch(
-      "https://speech.googleapis.com/v1/speech:recognize",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+    // Get OAuth2 access token
+    const accessToken = await getAccessToken();
+
+    // Use Google Cloud Speech-to-Text REST API with OAuth2 authentication
+    const apiUrl = `https://speech.googleapis.com/v1/speech:recognize`;
+    
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        config: {
+          encoding: "WEBM_OPUS",
+          sampleRateHertz: 48000,
+          languageCode: "en-US",
+          enableAutomaticPunctuation: true,
         },
-        body: JSON.stringify({
-          config: {
-            encoding: "WEBM_OPUS",
-            sampleRateHertz: 48000,
-            languageCode: "en-US",
-            enableAutomaticPunctuation: true,
-          },
-          audio: { content: base64Audio },
-        }),
+        audio: {
+          content: base64Audio,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[Speech-to-Text] API error response:", response.status, errorText);
+      
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { message: errorText };
       }
-    );
+      
+      throw new Error(
+        errorData.error?.message || 
+        errorData.message || 
+        `API returned ${response.status}`
+      );
+    }
 
     const data = await response.json();
+    console.log("[Speech-to-Text] API response:", JSON.stringify(data, null, 2));
 
-    const transcript =
-      data.results?.[0]?.alternatives?.[0]?.transcript || "";
+    // Extract transcript from response
+    const transcript = data.results?.[0]?.alternatives?.[0]?.transcript;
 
-    if (!transcript)
+    if (!transcript) {
       return NextResponse.json(
         { error: "No speech detected" },
         { status: 400 }
       );
+    }
 
-    return NextResponse.json({ text: transcript.trim() });
-
+    return NextResponse.json({ text: transcript });
   } catch (err: any) {
+    console.error("Speech-to-text error:", err);
     return NextResponse.json(
-      { error: err.message || "STT failed" },
+      { error: err.message || "Speech-to-text failed" },
       { status: 500 }
     );
   }
