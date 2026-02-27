@@ -111,30 +111,12 @@ function ContentUpload({
   const isMediaFile = (type: string) => type.includes('video/') || type.includes('audio/') || type.match(/\.(mp4|mp3|wav|mov|avi|m4a)$/i);
 
   const triggerAIProcessing = async (file: File, moduleId: string, fileUrl: string) => {
-    // Validate moduleId before processing
-    if (!moduleId || moduleId === 'undefined') {
-      console.error('[AI] Invalid moduleId:', moduleId);
-      alert('Cannot process module: Invalid module ID');
-      return;
-    }
-    
     try {
       console.log(`[AI] Starting processing for module: ${moduleId}`);
 
-      // Update status to transcribing/summarizing immediately via backend API
+      // Update status to transcribing/summarizing immediately
       const initialStatus = isMediaFile(file.type) ? 'transcribing' : 'summarizing';
-      const statusRes = await fetch(`${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': adminId
-        },
-        body: JSON.stringify({ processing_status: initialStatus })
-      });
-      if (!statusRes.ok) {
-        const errorText = await statusRes.text().catch(() => '');
-        console.error('Failed to update processing status:', errorText);
-      }
+      await supabase.from('training_modules').update({ processing_status: initialStatus }).eq('module_id', moduleId);
       onUploadComplete(); // Refresh UI to show status change
 
       if (isMediaFile(file.type)) {
@@ -172,18 +154,7 @@ function ContentUpload({
       onUploadComplete(); // Final refresh
     } catch (err) {
       console.error('[AI] Pipeline failed:', err);
-      // Update status to failed via backend API
-      const failRes = await fetch(`${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': adminId
-        },
-        body: JSON.stringify({ processing_status: 'failed' })
-      });
-      if (!failRes.ok) {
-        console.error('Failed to update failed status:', await failRes.text().catch(() => ''));
-      }
+      await supabase.from('training_modules').update({ processing_status: 'failed' }).eq('module_id', moduleId);
       onUploadComplete();
     }
   };
@@ -218,59 +189,28 @@ function ContentUpload({
       const uploadedFile = (result.inserted?.[0]?.module).replace("/object/sign","/object/public");
       console.log(uploadedFile)
       if (uploadedFile) {
-        // Create training module via backend API
-        const createRes = await fetch(`${API_URL}/api/training-modules/`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-ID': adminId
-          },
-          body: JSON.stringify({
+        const { data: moduleData, error: tmError } = await supabase
+          .from('training_modules')
+          .insert({
             company_id: companyId,
             title: title,
             description: description,
             content_url: uploadedFile,
             content_type: file.type,
             processing_status: 'pending',
-            threshold_value: thresholdValue,
-            reviewer_id: retrievedReviewerId,
+            uploaded_by:adminId,
+            threshold_value:thresholdValue,
+            reviewer_id:retrievedReviewerId,
             additional_readings: additionalLinks.length > 0 ? additionalLinks : null
           })
-        });
+          .select()
+          .single();
 
-        if (!createRes.ok) {
-          const errorText = await createRes.text().catch(() => '');
-          console.error('Failed to create training module entry:', errorText);
-          alert('Failed to create training module: ' + errorText);
-        } else {
-          const createPayload = await createRes.json().catch(() => ({}));
-          console.log('[Upload] Backend response:', createPayload);
-          
-          // Backend returns {message: "...", module: [{...}]}
-          // The module is an array from Supabase insert
-          let moduleData = null;
-          if (createPayload.module) {
-            if (Array.isArray(createPayload.module)) {
-              moduleData = createPayload.module[0];
-            } else {
-              moduleData = createPayload.module;
-            }
-          }
-          
-          console.log('[Upload] Extracted moduleData:', moduleData);
-          
-          if (moduleData && moduleData.module_id) {
-            console.log('[Upload] Created module with ID:', moduleData.module_id);
-            
-            // Refresh UI immediately to show the new module card
-            onUploadComplete();
-            
-            // Trigger AI background processing
-            await triggerAIProcessing(file, moduleData.module_id, uploadedFile);
-          } else {
-            console.error('[Upload] No module_id in response. Full payload:', createPayload);
-            alert('Module created but ID not found in response');
-          }
+        if (tmError) {
+          console.error('Failed to create training module entry:', tmError);
+        } else if (moduleData) {
+          // Trigger AI background processing
+          triggerAIProcessing(file, moduleData.module_id, uploadedFile.module);
         }
       }
 
@@ -280,8 +220,6 @@ function ContentUpload({
       setAdditionalLinks([]);
       setLinkTitle('');
       setLinkUrl('');
-      
-      // Final refresh and notification
       onUploadComplete();
       alert('Content uploaded! AI analysis is running in the background.');
     } catch (error: any) {
@@ -606,18 +544,13 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
   const loadTrainingModules = async () => {
     try {
-      // Fetch training modules via backend API
-      const modulesRes = await fetch(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
-        headers: { 'X-User-ID': adminId }
-      });
+      const { data, error } = await supabase
+        .from('training_modules')
+        .select('*')
+        .eq('company_id', companyId)
+        .order('created_at', { ascending: false });
 
-      if (!modulesRes.ok) {
-        const errorText = await modulesRes.text().catch(() => '');
-        throw new Error(`Failed to fetch modules: ${modulesRes.status} ${errorText}`);
-      }
-
-      const modulesPayload = await modulesRes.json().catch(() => ({}));
-      const data = modulesPayload.modules || [];
+      if (error) throw error;
 
       // Fetch ALL content jobs in ONE batch call (much faster than per-module)
       let jobsMap = new Map<string, any>();
@@ -662,16 +595,12 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           finalStatus = finalStatus || 'processing';
         }
 
-        // Update module status in database if it changed (fire and forget via backend API)
+        // Update module status in database if it changed (fire and forget)
         if (finalStatus !== module.processing_status) {
-          fetch(`${API_URL}/api/training-modules/${encodeURIComponent(module.module_id)}/processing-status`, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-User-ID': adminId
-            },
-            body: JSON.stringify({ processing_status: finalStatus })
-          })
+          supabase
+            .from('training_modules')
+            .update({ processing_status: finalStatus })
+            .eq('module_id', module.module_id)
             .then(() => {})
             .catch((err) => console.warn('[uploads] Failed to update module status:', err));
         }
@@ -787,19 +716,12 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     if (!confirm("Are you sure you want to delete this training module?")) return;
 
     try {
-      // Delete module via backend API
-      const deleteRes = await fetch(`${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': adminId
-        }
-      });
+      const { error } = await supabase
+        .from('training_modules')
+        .delete()
+        .eq('module_id', moduleId);
 
-      if (!deleteRes.ok) {
-        const errorText = await deleteRes.text().catch(() => '');
-        throw new Error(`Failed to delete module: ${deleteRes.status} ${errorText}`);
-      }
+      if (error) throw error;
 
       // Reload modules
       loadTrainingModules();

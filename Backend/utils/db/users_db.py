@@ -216,23 +216,3 @@ async def delete_user(
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
-
-async def get_users_by_filter(filters: dict):
-    try:
-        query = supabase.table("users").select("*")
-
-        if "function_id" in filters:
-            query = query.eq("function_id", filters["function_id"])
-        if "sub_function_id" in filters:
-            query = query.eq("sub_function_id", filters["sub_function_id"])
-        if "title_id" in filters:
-            query = query.eq("title_id", filters["title_id"])
-        if "is_active" in filters:
-            query = query.eq("is_active", filters["is_active"])
-        if "employment_status" in filters:
-            query = query.eq("employment_status", filters["employment_status"])
-
-        result = query.execute()
-        return {"data": result.data, "error": None}
-    except Exception as e:
-        return {"data": None, "error": str(e)}

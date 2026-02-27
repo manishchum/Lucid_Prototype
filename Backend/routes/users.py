@@ -8,8 +8,7 @@ from utils.db.users_db import (
     get_user_by_id,
     create_user,
     update_user,
-    delete_user,
-    get_users_by_filter
+    delete_user
 )
 
 from utils.db.roles_db import (
@@ -56,33 +55,6 @@ class AssignRoleRequest(BaseModel):
     scope_id: str
     expires_at: Optional[str] = None
     notes: Optional[str] = None
-
-
-@router.get("/")
-async def list_users_by_filter(
-    function_id: Optional[str] = Query(None),
-    sub_function_id: Optional[str] = Query(None),
-    title_id: Optional[str] = Query(None),
-    is_active: Optional[bool] = Query(None),
-    employment_status: Optional[str] = Query(None),
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
-):
-    filters = {}
-    if function_id:
-        filters["function_id"] = function_id
-    if sub_function_id:
-        filters["sub_function_id"] = sub_function_id
-    if title_id:
-        filters["title_id"] = title_id
-    if is_active is not None:
-        filters["is_active"] = is_active
-    if employment_status:
-        filters["employment_status"] = employment_status
-
-    result = await get_users_by_filter(filters)
-    if result["error"]:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return {"users": result["data"] or [], "count": len(result["data"] or [])}
 
 
 @router.get("/company/{company_id}")

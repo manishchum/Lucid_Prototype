@@ -469,7 +469,6 @@ Objectives: {json.dumps([moduleContent])}"""
                     "assessment_id": stableId,
                     "type": "module",
                     "processed_module_id": processedModuleId,
-                    "original_module_id": str(moduleId),
                     "questions": json.dumps(quiz),
                     "learning_style": learningStyle,
                     "company_id": body.get("companyId") or None
@@ -647,7 +646,7 @@ Objectives: {json.dumps([moduleContent])}"""
     existingEmployeeAssessmentsRes = (
         supabase
         .table("employee_assessments")
-        .select("assessment_id, assessments(assessment_id, original_module_id, company_id, type)")
+        .select("assessment_id, assessments(assessment_id, processed_module_id, company_id, type)")
         .execute()
     )
     existingEmployeeAssessments = getattr(existingEmployeeAssessmentsRes, "data", None)
@@ -663,7 +662,7 @@ Objectives: {json.dumps([moduleContent])}"""
             if isinstance(rel, list) and len(rel) > 0:
                 rel = rel[0]
             if isinstance(rel, dict):
-                if rel.get("type") == "baseline" and str(rel.get("original_module_id")) in set(map(str, moduleIds)):
+                if rel.get("type") == "baseline" and str(rel.get("processed_module_id")) in set(map(str, processedIds)):
                     matched.append(r)
 
     if len(matched) > 0:
@@ -673,16 +672,16 @@ Objectives: {json.dumps([moduleContent])}"""
             if isinstance(rel, list) and len(rel) > 0:
                 rel = rel[0]
             aid = rel.get("assessment_id") if isinstance(rel, dict) else None
-            omid = rel.get("original_module_id") if isinstance(rel, dict) else None
+            pmid = rel.get("processed_module_id") if isinstance(rel, dict) else None
             if aid:
-                templateMap[str(aid)] = str(omid) if omid else None
+                templateMap[str(aid)] = str(pmid) if pmid else None
 
         templateIds = list(templateMap.keys())
 
         assessmentsRowsRes = (
             supabase
             .table("assessments")
-            .select("assessment_id, questions, original_module_id")
+            .select("assessment_id, questions, processed_module_id")
             .in_("assessment_id", templateIds)
             .execute()
         )
@@ -700,12 +699,16 @@ Objectives: {json.dumps([moduleContent])}"""
             except Exception:
                 pass
 
-            origId = (a.get("original_module_id") if isinstance(a, dict) else None) or templateMap.get(str(a.get("assessment_id")))
-            
-            # For baseline quizzes, we often return questions organized by module.
+            procId = (a.get("processed_module_id") if isinstance(a, dict) else None) or templateMap.get(str(a.get("assessment_id")))
+            moduleIdFound = None
+            for k, v in processedMap.items():
+                if str(v) == str(procId):
+                    moduleIdFound = k
+                    break
+
             resultMap.append({
-                "module_id": origId,
-                "original_module_id": origId,
+                "module_id": moduleIdFound,
+                "processed_module_id": procId,
                 "assessment_id": a.get("assessment_id"),
                 "questions": questions
             })
@@ -808,14 +811,14 @@ Objectives: {json.dumps([moduleContent])}"""
 
     normalizedSnapshot = json.dumps(normalizeModules(currentModules))
 
-    # 5) Check existing assessment with snapshot for ANY of moduleIds
+    # 5) Check existing assessment with snapshot for ANY of processedIds
     existingAssessmentRes = (
         supabase
         .table("assessments")
-        .select("assessment_id, questions, company_id, modules_snapshot, original_module_id")
+        .select("assessment_id, questions, company_id, modules_snapshot, processed_module_id")
         .eq("type", "baseline")
         .eq("company_id", companyId)
-        .in_("original_module_id", moduleIds)
+        .in_("processed_module_id", processedIds)
         .order("created_at", desc=True)
         .limit(1)
         .maybe_single()
@@ -895,7 +898,7 @@ Objectives: {json.dumps([moduleContent])}"""
             "questions": json.dumps(quiz),
             "company_id": companyId,
             "modules_snapshot": normalizedSnapshot,
-            "original_module_id": str(mId),
+            "processed_module_id": processedId,
             "learning_style": userLearningStyle or None
         })
 

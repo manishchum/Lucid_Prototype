@@ -6,15 +6,12 @@ import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
-import LoadingProgress from "@/components/shared/LoadingProgress";
-import { useLoadingProgress } from "@/hooks/useLoadingProgress";
-import { useDataCache } from "@/contexts/data-context";
-
+import EmployeeNavigation from "@/components/employee-navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 const fetchUserByEmail = async (email: string) => {
-  if (!email) return null;
+  if(!email) return null;
   try {
     const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
     if (!res.ok) return null;
@@ -29,26 +26,10 @@ const fetchUserByEmail = async (email: string) => {
 };
 
 export default function ModuleQuizPage({ params }: { params: { module_id: string } }) {
-  const [originalModuleId, setOriginalModuleId] = useState<string | null>(null);
+  const [originalModuleId, setOriginalModuleId] = useState<string>(params.module_id);
 
   const { user, loading: authLoading } = useAuth();
-  const { getCacheData, setCacheData } = useDataCache();
-
-  // Check cache on mount
-  useEffect(() => {
-    const cachedData = getCacheData(`quiz_data_${params.module_id}`);
-    if (cachedData) {
-      setQuiz(cachedData.quiz);
-      setAssessmentId(cachedData.assessmentId);
-      setModuleName(cachedData.moduleTitle);
-      if (cachedData.learningStyle) setLearningStyle(cachedData.learningStyle);
-      if (cachedData.userId) setUserId(cachedData.userId);
-      if (cachedData.companyId) setCompanyId(cachedData.companyId);
-      if (cachedData.employee) setEmployee(cachedData.employee);
-      setLoading(false);
-    }
-  }, [getCacheData, params.module_id]);
-
+  
   // Handler for navigation
   const handleNext = () => {
     if (currentPage < totalPages - 1) {
@@ -69,7 +50,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     // console.log("It is submitting")
     // console.log(quiz)
     // console.log(!Array.isArray(quiz))
-    if (!quiz) return;
+    if (!quiz ) return;
     // Ensure assessmentId is set before submission
     if (!assessmentId) {
       // console.log("Inside thse !assessmentId block")
@@ -95,31 +76,28 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
 
     // console.log('[QUIZ] Raw answers:', answers);
     // console.log('[QUIZ] Converted userAnswers:', userAnswers);
-    // Use existing state if available, else fallback to fetch
-    let activeEmployeeId = userId;
-    let activeEmployeeName = (user as any)?.displayName || user?.email || null;
-
-    if (!activeEmployeeId && !authLoading && user?.email) {
+    // Always fetch user info before API call
+    let employeeId: string | null = null;
+    let employeeName: string | null = null;
+    if (!authLoading && user?.email) {
       try {
         const emp = await fetchUserByEmail(user.email);
-        activeEmployeeId = emp?.user_id || null;
+        employeeId = emp?.user_id || null;
+        employeeName = (user as any)?.displayName || user.email || null;
       } catch (err) {
-        console.error('[QUIZ] Error fetching employee record in submit:', err);
+        // console.log('[QUIZ] Error fetching employee record:', err);
       }
     }
-
-    if (!activeEmployeeId) {
+    if (!employeeId) {
       setFeedback("Error: Could not identify employee. Please refresh and try again.");
-      setIsSubmitting(false);
       return;
     }
-
     const payload = {
       quiz,
       userAnswers,
       // Let the API score module quizzes using Gemini
-      user_id: activeEmployeeId,
-      employee_name: activeEmployeeName,
+      user_id: employeeId,
+      employee_name: employeeName,
       assessment_id: assessmentId,
       modules: [{ module_id: moduleId }],
     };
@@ -140,11 +118,11 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       // Log quiz taken into module_progress
       try {
         // console.log(result);
-        await fetch(`${API_BASE}/api/module-progress`, {
+        await fetch('/api/module-progress', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            user_id: activeEmployeeId,
+            user_id: employeeId,
             processed_module_id: resolvedModuleId || moduleId,
             module_id: originalModuleId,
             quiz_score: typeof result.score === 'number' ? result.score : null,
@@ -164,7 +142,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     }
   };
 
-  let moduleId = params.module_id;
+  const moduleId = params.module_id;
   const [quiz, setQuiz] = useState<any[] | null>(null);
   const [moduleName, setModuleName] = useState<string>("Module Quiz");
   const [loading, setLoading] = useState(true);
@@ -179,12 +157,9 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   const [currentPage, setCurrentPage] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resolvedModuleId, setResolvedModuleId] = useState<string | null>(null);
-  const [learningStyle, setLearningStyle] = useState<string | null>(null);
-  const [employee, setEmployee] = useState<any>(null);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [companyId, setCompanyId] = useState<string | null>(null);
-
   const router = useRouter();
+  let  userId:any = null;
+  let companyId:any = null;
   const questionsPerPage = 10;
   const totalPages = quiz ? Math.ceil(quiz.length / questionsPerPage) : 0;
   const currentQuestions = quiz ? quiz.slice(currentPage * questionsPerPage, (currentPage + 1) * questionsPerPage) : [];
@@ -226,124 +201,58 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       return;
     }
     const fetchOrGenerateQuiz = async () => {
-      // ONLY set loading true if we don't have cached data already
-      if (!getCacheData(`quiz_data_${moduleId}`)) {
-        setLoading(true);
-      }
+      setLoading(true);
       setError(null);
       
-      let activeLearningStyle = learningStyle;
-      let activeUserId = userId;
-      let activeCompanyId = companyId;
+      // Fetch module metadata and resolve canonical processed_module_id
+      try {
+        let moduleData: any = null;
+        const byProcessed = await supabase
+          .from('processed_modules')
+          .select('processed_module_id, original_module_id, title')
+          .eq('processed_module_id', moduleId)
+          .maybeSingle();
+        moduleData = byProcessed?.data || null;
 
-      if (!activeUserId && !authLoading && user?.email) {
-      // Fetch employee data first to get userId for API calls
+        if (!moduleData) {
+          const byOriginal = await supabase
+            .from('processed_modules')
+            .select('processed_module_id, original_module_id, title')
+            .eq('original_module_id', moduleId)
+            .maybeSingle();
+          moduleData = byOriginal?.data || null;
+        }
+
+        if (moduleData) {
+          if (moduleData.title) setModuleName(moduleData.title);
+          if(moduleData.original_module_id) setOriginalModuleId(String(moduleData.original_module_id));
+          if (moduleData.processed_module_id) setResolvedModuleId(String(moduleData.processed_module_id));
+          console.log('Value of originalModuleId:', originalModuleId);
+        }
+      } catch (e) {
+        // console.log('[quiz] module metadata fetch error', e);
+      }
+      
       let learningStyle: string | null = null;
       if (!authLoading && user?.email) {
         // console.log("Inside the quiz tab")
         // console.log(user.email)
         try {
           const emp = await fetchUserByEmail(user.email);
+          userId = emp?.user_id || null;
+          companyId = emp?.company_id || null;
           if (emp?.user_id) {
-            setUserId(emp.user_id);
-            activeUserId = emp.user_id;
-            setCompanyId(emp.company_id || null);
-            activeCompanyId = emp.company_id || null;
-            setEmployee(emp);
-
-            // Fetch company settings to see if learning style is enabled
-            let learningStyleEnabled = true;
-            try {
-              const compRes = await fetch(`${API_BASE}/api/companies/${encodeURIComponent(emp.company_id)}`);
-              if (compRes.ok) {
-                const compPayload = await compRes.json().catch(() => null);
-                const compSettings = compPayload?.company ?? compPayload;
-                learningStyleEnabled = Boolean(compSettings?.learning_style);
-              }
-            } catch (e) {
-              console.warn('[quiz] error fetching company settings:', e);
-            }
-
-            if (learningStyleEnabled) {
-              const { data: styleData, error: styleError } = await supabase
-                .from('employee_learning_style')
-                .select('learning_style')
-                .eq('user_id', emp.user_id)
-                .maybeSingle();
-
-              if (styleError) {
-                console.error('[quiz] Error fetching learning style:', styleError);
-              }
-
-              if (styleData?.learning_style) {
-                activeLearningStyle = styleData.learning_style;
-                setLearningStyle(styleData.learning_style);
-              } else {
-                // If company requires it but user hasn't taken it, default to 'default'
-                // per user's requirement "by default, user's leaning style value is 'default'"
-                activeLearningStyle = 'default';
-                setLearningStyle('default');
-              }
-            } else {
-              // Company does not have learning style enabled
-              activeLearningStyle = 'default';
-              setLearningStyle('default');
+            const {data: styleData} = await supabase
+              .from('employee_learning_style')
+              .select('learning_style')
+              .eq('user_id', emp.user_id)
+              .maybeSingle();
+            if (styleData?.learning_style) {
+              learningStyle = styleData.learning_style;
             }
           }
         } catch (e) {
-          console.error('[quiz] employee fetch error:', e);
-        }
-      }
-      
-      // Fetch module metadata and resolve canonical processed_module_id
-      if (userId) {
-        try {
-          let moduleData: any = null;
-          
-          // First try: fetch by processed_module_id
-          try {
-            const res = await fetch(`${API_BASE}/api/processed-modules/${moduleId}`, {
-              headers: {
-                'X-User-ID': userId
-              }
-            });
-
-            if (res.ok) {
-              const payload = await res.json();
-              moduleData = payload?.data || payload;
-            }
-          } catch (error) {
-            console.error('[quiz] Error fetching by processed_module_id:', error);
-          }
-
-          // Second try: if not found, fetch by original_module_id
-          if (!moduleData) {
-            try {
-              const res = await fetch(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
-                headers: {
-                  'X-User-ID': userId
-                }
-              });
-
-              if (res.ok) {
-                const payload = await res.json();
-                const modules = payload?.data || payload || [];
-                // Take the first match
-                moduleData = modules[0] || null;
-              }
-            } catch (error) {
-              console.error('[quiz] Error fetching by original_module_id:', error);
-            }
-          }
-
-          if (moduleData) {
-            if (moduleData.title) setModuleName(moduleData.title);
-            if(moduleData.original_module_id) setOriginalModuleId(String(moduleData.original_module_id));
-            if (moduleData.processed_module_id) setResolvedModuleId(String(moduleData.processed_module_id));
-            console.log('Value of originalModuleId:', originalModuleId);
-          }
-        } catch (e) {
-          // console.log('[quiz] module metadata fetch error', e);
+          // console.log('[quiz] employee fetch error', e);
         }
       }
       if (!learningStyle) {
@@ -351,109 +260,213 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         setLoading(false);
         return;
       }
-
-      // 1. Try to fetch existing quiz for this module and learning style
-      let assessmentResult = null;
+      // 1. Try to fetch existing quiz for this module and Performance Sprint
+      let assessment = null;
       try {
-        // Search by processed_module_id AND learning_style
         const res = await fetch(
-          `${API_BASE}/api/assessments/filter/search?type=module&processed_module_id=${moduleId}&learning_style=${encodeURIComponent(activeLearningStyle)}&user_id_filter=${activeUserId}`,
+          `${API_BASE}/api/assessments/filter/search?type=module&original_module_id=${moduleId}&learning_style=${encodeURIComponent(learningStyle)}&user_id_filter=${userId}`,
           {
-            headers: { 'X-User-ID': activeUserId || '' }
+            headers: { 'X-User-ID': userId }
           }
         );
         if (res.ok) {
           const data = await res.json();
-          assessmentResult = data.assessments && data.assessments.length > 0 ? data.assessments[0] : null;
+          assessment = data.assessments && data.assessments.length > 0 ? data.assessments[0] : null;
         }
       } catch (e) {
         console.error('[QUIZ] Error fetching assessment:', e);
       }
-
-      if (assessmentResult && assessmentResult.questions) {
+      // console.log('[QUIZ DEBUG] Assessment fetch result:', assessment);
+      // console.log(moduleId, learningStyle);
+      if (assessment && assessment.questions) {
         try {
-          const quizData = Array.isArray(assessmentResult.questions) ? assessmentResult.questions : JSON.parse(assessmentResult.questions);
+          const quizData = Array.isArray(assessment.questions) ? assessment.questions : JSON.parse(assessment.questions);
+          // console.log('[QUIZ DEBUG] Parsed quizData from assessment:', quizData);
           setQuiz(quizData);
           setAnswers(new Array(quizData.length).fill(-1));
-          setAssessmentId(assessmentResult.assessment_id);
-
-          setCacheData(`quiz_data_${moduleId}`, {
-            quiz: quizData,
-            assessmentId: assessmentResult.assessment_id,
-            moduleTitle: moduleName,
-            learningStyle: activeLearningStyle,
-            userId: activeUserId,
-            companyId: activeCompanyId,
-          });
+          setAssessmentId(assessment.assessment_id);
         } catch (e) {
-          console.error('[QUIZ] Failed to parse quiz data:', e);
+          // console.log('[QUIZ DEBUG] Failed to parse quiz data:', e, assessment.questions);
+          setQuiz(null);
           setError("Failed to parse quiz data.");
         }
         setLoading(false);
         return;
       }
-
-      // 2. Generate new quiz if none found
       try {
         const res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ moduleId, learningStyle: activeLearningStyle, userId: activeUserId, companyId: activeCompanyId }),
+          body: JSON.stringify({ moduleId, learningStyle, userId,companyId }),
         });
         const result = await res.json();
+        // console.log('[QUIZ DEBUG] /api/gpt-mcq-quiz result:', result);
         if (result.quiz) {
           setQuiz(result.quiz);
           setAnswers(new Array(result.quiz.length).fill(-1));
-
-          // Fetch the newly created assessment ID
+          
+          // Fetch the newly created assessment from backend
           try {
             const assessmentRes = await fetch(
-              `${API_BASE}/api/assessments/filter/search?type=module&processed_module_id=${moduleId}&learning_style=${encodeURIComponent(activeLearningStyle)}`,
+              `${API_BASE}/api/assessments/filter/search?type=module&processed_module_id=${moduleId}&learning_style=${encodeURIComponent(learningStyle)}`,
               {
-                headers: { 'X-User-ID': activeUserId || '' }
+                headers: { 'X-User-ID': userId }
               }
             );
             if (assessmentRes.ok) {
               const assessmentData = await assessmentRes.json();
-              const newAssessment = assessmentData.assessments && assessmentData.assessments.length > 0
-                ? assessmentData.assessments[0]
+              const newAssessment = assessmentData.assessments && assessmentData.assessments.length > 0 
+                ? assessmentData.assessments[0] 
                 : null;
-              if (newAssessment && newAssessment.assessment_id) {
-                setAssessmentId(newAssessment.assessment_id);
-                setCacheData(`quiz_data_${moduleId}`, {
-                  quiz: result.quiz,
-                  assessmentId: newAssessment.assessment_id,
-                  moduleTitle: moduleName,
-                  learningStyle: activeLearningStyle,
-                  userId: activeUserId,
-                  companyId: activeCompanyId,
-                });
-              }
+              // console.log("This is the module id:", moduleId)
+              // console.log('[QUIZ DEBUG] New assessment after quiz generation:', newAssessment);
+              if (newAssessment && newAssessment.assessment_id) setAssessmentId(newAssessment.assessment_id);
             }
           } catch (e) {
             console.error('[QUIZ] Error fetching new assessment:', e);
           }
+       
+       
+       
         } else {
+          // console.log("Inside the else statment of result.quiz")
+          setQuiz(null);
           setError(result.error || "Quiz generation failed.");
         }
+
+
+
+        
       } catch (err) {
-        console.error('[QUIZ] Error during quiz generation:', err);
+        // console.log('[QUIZ DEBUG] Error during quiz generation:', err);
+        setQuiz(null);
         setError("Quiz generation failed.");
       }
       setLoading(false);
     };
-    if (!authLoading && user?.email && moduleId && moduleId !== 'undefined' && moduleId !== 'null') fetchOrGenerateQuiz();
-  }
-}, [user, authLoading, moduleId]);
+  if (!authLoading && user?.email && moduleId && moduleId !== 'undefined' && moduleId !== 'null') fetchOrGenerateQuiz();
+  }, [user, authLoading, moduleId]);
 
 
-  // End of quiz logic
+
+  // const handleSubmit = async () => {
+   
+  //   if (!quiz ) return;
+  //   if (!assessmentId) {
+  //     setFeedback("Error: Could not identify assessment. Please refresh and try again.");
+  //     return;
+  //   }
+  //   setSubmitted(true);
+  //   setIsSubmitting(true);
+  //   const userAnswers = answers.map((ans, i) => {
+  //     const q = quiz[i];
+  //     if (typeof ans === 'number' && ans >= 0 && ans < q.options.length) {
+  //       return q.options[ans];
+  //     }
+  //     return '';
+  //   });
+
+  //   let employeeId: string | null = null;
+  //   let employeeName: string | null = null;
+  //   if (!authLoading && user?.email) {
+  //     try {
+  //       const { data: emp } = await supabase
+  //         .from('users')
+  //         .select('user_id')
+  //         .eq('email', user.email)
+  //         .single();
+  //       employeeId = emp?.user_id || null;
+  // employeeName = (user as any)?.displayName || user.email || null;
+  //     } catch (err) {
+  //       console.log('[QUIZ] Error fetching employee record:', err);
+  //     }
+  //   }
+  //   if (!employeeId) {
+  //     setFeedback("Error: Could not identify employee. Please refresh and try again.");
+  //     return;
+  //   }
+  //   const payload = {
+  //     quiz,
+  //     userAnswers,
+  //     user_id: employeeId,
+  //     employee_name: employeeName,
+  //     assessment_id: assessmentId,
+  //     modules: [{ module_id: moduleId }],
+  //   };
+  //   let feedbackText = "";
+  //   try {
+  //     const res = await fetch("/api/gpt-feedback", {
+  //       method: "POST",
+  //       headers: { "Content-Type": "application/json" },
+  //       body: JSON.stringify(payload),
+  //     });
+  //     console.log("Inside the quiz page and the data is this",moduleId)
+  //     console.log(payload);
+  //     // console.log(res);
+  //     const result = await res.json();
+  //     feedbackText = result.feedback || "";
+  //     if (typeof result.score === 'number') setScore(result.score);
+  //     if (typeof result.maxScore === 'number') setMaxScore(result.maxScore);
+  //     setFeedback(feedbackText);
+
+  //     // Log quiz taken into module_progress
+  //     try {
+  //       const{data:originalModuleIID} = await supabase
+  //       .from('processed_modules')
+  //       .select('original_module_id')
+  //       .eq('processed_module_id', moduleId);
 
 
-  const { progress: loadingProgress, show: showLoadingProgress } = useLoadingProgress(authLoading || loading || isSubmitting);
+  //       // .maybeSingle();
+  //       console.log(moduleId)
+  //       console.log("Original Module ID Query Result:", originalModuleIID);
 
-  if (showLoadingProgress) {
-    return <LoadingProgress label="Loading quiz" progress={loadingProgress} />;
+  //       originalModuleId = originalModuleIID[0]?.original_module_id;
+  //       console.log("Inside the module progress log")
+  //       console.log(moduleId)
+
+  //       console.log(originalModuleId)
+  //       // console.log(result);
+  //       await fetch('/api/module-progress', {
+  //         method: 'POST',
+  //         headers: { 'Content-Type': 'application/json' },
+  //         body: JSON.stringify({
+  //           user_id: employeeId,
+  //           processed_module_id: resolvedModuleId || moduleId,
+  //           quiz_score: typeof result.score === 'number' ? result.score : null,
+  //           max_score: typeof result.maxScore === 'number' ? result.maxScore : quiz.length,
+  //           quiz_feedback: feedbackText,
+  //           completed_at: new Date().toISOString(),
+  //           viewOnly: false,
+  //           module_id: originalModuleId,
+  //         }),
+
+  //       });
+
+  //       console.log("Inside the try and it is successfull")
+  //     } catch (e) {
+  //       console.log('[QUIZ] progress log error', e);
+  //     }
+  //   } catch (err) {
+  //     feedbackText = "Could not generate feedback.";
+  //     setFeedback(feedbackText);
+  //   } finally {
+  //     setIsSubmitting(false);
+  //   }
+  // };
+
+
+
+
+  if (authLoading || loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading quiz...</p>
+        </div>
+      </div>
+    );
   }
 
   if (error) {
@@ -461,12 +474,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="text-red-600 font-semibold mb-2">{error}</div>
-          <Button variant="outline" onClick={() => {
-            const backUrl = originalModuleId || params.module_id
-              ? `/employee/training-plan?module_id=${originalModuleId || params.module_id}`
-              : '/employee/training-plan';
-            router.push(backUrl);
-          }}>
+          <Button variant="outline" onClick={() => router.back()}>
             Back
           </Button>
         </div>
@@ -476,209 +484,219 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-
+      <EmployeeNavigation 
+        customBackPath={`/employee/module/${params.module_id}`}
+        showForward={false}
+      />
+      
       {/* Main content area that adapts to sidebar */}
-      <div
+      <div 
         className="transition-all duration-300 ease-in-out px-4 py-8"
+        style={{ 
+          marginLeft: 'var(--sidebar-width, 0px)',
+        }}
       >
         <div className="max-w-7xl mx-auto">
           {/* Back Button */}
           <button
-            onClick={() => {
-              const backUrl = originalModuleId || params.module_id
-                ? `/employee/training-plan?module_id=${originalModuleId || params.module_id}`
-                : '/employee/training-plan';
-              router.push(backUrl);
-            }}
+            onClick={() => router.back()}
             className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium mb-6 transition-colors"
           >
             <ChevronLeft className="w-5 h-5" />
             Back
           </button>
-
-          {!submitted ? (
-            <>
-              {/* Progress Header */}
-              <Card className="mb-6 shadow-lg border-t-4 border-t-transparent">
-                <CardHeader className="bg-gradient-to-r from-blue-50 via-white to-purple-50">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <CardTitle className="text-2xl font-bold text-gray-800">Test your Understanding: {moduleName}</CardTitle>
-                      {/* <CardDescription className="text-lg text-gray-600">
+        
+        {!submitted ? (
+          <>
+            {/* Progress Header */}
+            <Card className="mb-6 shadow-lg border-t-4 border-t-transparent">
+              <CardHeader className="bg-gradient-to-r from-blue-50 via-white to-purple-50">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <CardTitle className="text-2xl font-bold text-gray-800">Test your Understanding: {moduleName}</CardTitle>
+                    {/* <CardDescription className="text-lg text-gray-600">
                       Test your knowledge on this module content
                     </CardDescription> */}
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm text-gray-500 mb-1">Progress</div>
-                      <div className="text-2xl font-bold text-blue-600">
-                        {answeredQuestions}/{quiz?.length || 0}
-                      </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm text-gray-500 mb-1">Progress</div>
+                    <div className="text-2xl font-bold text-blue-600">
+                      {answeredQuestions}/{quiz?.length || 0}
                     </div>
                   </div>
-
-                  {/* Progress Bar */}
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm text-gray-600">
-                      <span>Questions Answered</span>
-                      <span>{Math.round(progressPercentage)}% Complete</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-3 shadow-inner">
-                      <div
-                        className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-500 shadow-sm"
-                        style={{ width: `${progressPercentage}%` }}
-                      ></div>
-                    </div>
+                </div>
+                
+                {/* Progress Bar */}
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>Questions Answered</span>
+                    <span>{Math.round(progressPercentage)}% Complete</span>
                   </div>
-
-                  {/* Page Indicator */}
-                  {totalPages > 1 && (
-                    <div className="flex justify-center mt-4">
-                      <div className="flex space-x-2">
-                        {Array.from({ length: totalPages }).map((_, idx) => (
-                          <div
-                            key={idx}
-                            className={`w-3 h-3 rounded-full transition-colors ${idx === currentPage
-                              ? 'bg-blue-500'
-                              : idx < currentPage
-                                ? 'bg-green-400'
-                                : 'bg-gray-300'
-                              }`}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </CardHeader>
-              </Card>
-
-              {/* Individual Question Cards */}
-              <div className="space-y-8">
-                {currentQuestions.map((q, idx) => {
-                  const globalIdx = currentPage * questionsPerPage + idx;
-                  const isAnswered = answers[globalIdx] !== -1 && answers[globalIdx] !== '';
-
-                  return (
-                    <Card key={globalIdx} className="shadow-lg">
-                      <CardContent className="p-6">
-                        <div className="font-medium text-base sm:text-lg mb-3">
-                          {globalIdx + 1}. {q.question}
-                        </div>
-
-                        {/* Answer Options */}
-                        {(Array.isArray(q.options) && q.options.length > 0) ? (
-                          <div className="space-y-2 mt-3">
-                            {q.options.map((opt: string, oIdx: number) => (
-                              <button
-                                key={oIdx}
-                                onClick={() => handleSelect(globalIdx, oIdx)}
-                                disabled={submitted}
-                                className={`w-full p-4 text-left border-2 rounded-lg transition-all duration-200 hover:shadow-md ${answers[globalIdx] === oIdx
-                                  ? "border-blue-500 bg-blue-50 shadow-sm"
-                                  : "border-gray-200 hover:border-gray-300"
-                                  } ${submitted ? "cursor-not-allowed" : "cursor-pointer"}`}
-                              >
-                                <div className="flex items-center gap-3">
-                                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${answers[globalIdx] === oIdx
-                                    ? "border-blue-500 bg-blue-500"
-                                    : "border-gray-300"
-                                    }`}>
-                                    {answers[globalIdx] === oIdx && (
-                                      <div className="w-2 h-2 rounded-full bg-white"></div>
-                                    )}
-                                  </div>
-                                  <span className="text-sm sm:text-base">{opt}</span>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="text-red-600 text-sm bg-red-50 p-3 rounded">
-                            No options available for this question.
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-
-              {/* Navigation */}
-              <div className="flex justify-between items-center mt-6">
-                <Button
-                  variant="outline"
-                  onClick={handlePrevious}
-                  disabled={currentPage === 0}
-                  className="px-6 py-3"
-                >
-                  Previous
-                </Button>
-
-                <div className="text-sm text-gray-500">
-                  {totalPages > 1 && `Page ${currentPage + 1} of ${totalPages}`}
+                  <div className="w-full bg-gray-200 rounded-full h-3 shadow-inner">
+                    <div 
+                      className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-500 shadow-sm"
+                      style={{ width: `${progressPercentage}%` }}
+                    ></div>
+                  </div>
                 </div>
 
-                {currentPage === totalPages - 1 ? (
-                  <Button
-                    onClick={handleSubmit}
-                    disabled={answers.some(a => a === -1 || a === '') || isSubmitting}
-                    className="px-8 py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
-                  >
-                    {isSubmitting ? (
-                      <div className="flex items-center gap-2">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        Submitting...
+                {/* Page Indicator */}
+                {totalPages > 1 && (
+                  <div className="flex justify-center mt-4">
+                    <div className="flex space-x-2">
+                      {Array.from({ length: totalPages }).map((_, idx) => (
+                        <div
+                          key={idx}
+                          className={`w-3 h-3 rounded-full transition-colors ${
+                            idx === currentPage 
+                              ? 'bg-blue-500' 
+                              : idx < currentPage 
+                                ? 'bg-green-400' 
+                                : 'bg-gray-300'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardHeader>
+            </Card>
+
+            {/* Individual Question Cards */}
+            <div className="space-y-8">
+              {currentQuestions.map((q, idx) => {
+                const globalIdx = currentPage * questionsPerPage + idx;
+                const isAnswered = answers[globalIdx] !== -1 && answers[globalIdx] !== '';
+                
+                return (
+                  <Card key={globalIdx} className="shadow-lg">
+                    <CardContent className="p-6">
+                      <div className="font-medium text-base sm:text-lg mb-3">
+                        {globalIdx + 1}. {q.question}
                       </div>
-                    ) : (
-                      'Submit Quiz'
-                    )}
-                  </Button>
-                ) : (
+                      
+                      {/* Answer Options */}
+                      {(Array.isArray(q.options) && q.options.length > 0) ? (
+                        <div className="space-y-2 mt-3">
+                          {q.options.map((opt: string, oIdx: number) => (
+                            <button
+                              key={oIdx}
+                              onClick={() => handleSelect(globalIdx, oIdx)}
+                              disabled={submitted}
+                              className={`w-full p-4 text-left border-2 rounded-lg transition-all duration-200 hover:shadow-md ${
+                                answers[globalIdx] === oIdx
+                                  ? "border-blue-500 bg-blue-50 shadow-sm"
+                                  : "border-gray-200 hover:border-gray-300"
+                              } ${submitted ? "cursor-not-allowed" : "cursor-pointer"}`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                  answers[globalIdx] === oIdx
+                                    ? "border-blue-500 bg-blue-500"
+                                    : "border-gray-300"
+                                }`}>
+                                  {answers[globalIdx] === oIdx && (
+                                    <div className="w-2 h-2 rounded-full bg-white"></div>
+                                  )}
+                                </div>
+                                <span className="text-sm sm:text-base">{opt}</span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-red-600 text-sm bg-red-50 p-3 rounded">
+                          No options available for this question.
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+
+            {/* Navigation */}
+            <div className="flex justify-between items-center mt-6">
+              <Button
+                variant="outline"
+                onClick={handlePrevious}
+                disabled={currentPage === 0}
+                className="px-6 py-3"
+              >
+                Previous
+              </Button>
+              
+              <div className="text-sm text-gray-500">
+                {totalPages > 1 && `Page ${currentPage + 1} of ${totalPages}`}
+              </div>
+              
+              {currentPage === totalPages - 1 ? (
+                <Button
+                  onClick={handleSubmit}
+                  disabled={answers.some(a => a === -1 || a === '') || isSubmitting}
+                  className="px-8 py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
+                >
+                  {isSubmitting ? (
+                    <div className="flex items-center gap-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Submitting...
+                    </div>
+                  ) : (
+                    'Submit Quiz'
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleNext}
+                  disabled={currentQuestions.some((_, idx) => {
+                    const globalIdx = currentPage * questionsPerPage + idx;
+                    return answers[globalIdx] === -1 || answers[globalIdx] === '';
+                  })}
+                  className="px-6 py-3"
+                >
+                  Next
+                </Button>
+              )}
+            </div>
+          </>
+        ) : (
+          /* Results Card */
+          <Card className="shadow-2xl border-t-4 border-t-green-500">
+            <CardHeader className="bg-gradient-to-r from-green-50 to-blue-50 text-center">
+              <CardTitle className="text-3xl font-bold text-gray-800 mb-2">
+                Quiz Complete! 🎉
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-8">
+              <div className="text-center mb-8">
+                <div className="text-6xl font-bold text-green-600 mb-2">
+                  {score !== null && maxScore !== null ? (
+                    `${Math.round((score / maxScore) * 100)}%`
+                  ) : (
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                      <span className="text-2xl">Grading...</span>
+                    </div>
+                  )}
+                </div>
+                {score !== null && maxScore !== null && (
+                  <div className="text-xl text-gray-600 mb-6">
+                    You scored {score} out of {maxScore} questions correctly
+                  </div>
+                )}
+                
+                {feedback && (
                   <Button
-                    onClick={handleNext}
-                    className="px-6 py-3"
+                    onClick={() => router.push('/employee/score-history')}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 text-lg font-semibold rounded-lg shadow-lg transition-all"
                   >
-                    Next
+                    View Full Report
                   </Button>
                 )}
               </div>
-            </>
-          ) : (
-            /* Results Card */
-            <Card className="shadow-2xl border-t-4 border-t-green-500">
-              <CardHeader className="bg-gradient-to-r from-green-50 to-blue-50 text-center">
-                <CardTitle className="text-3xl font-bold text-gray-800 mb-2">
-                  Quiz Complete! 🎉
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-8">
-                <div className="text-center mb-8">
-                  <div className="text-6xl font-bold text-green-600 mb-2">
-                    {score !== null && maxScore !== null ? (
-                      `${Math.round((score / maxScore) * 100)}%`
-                    ) : (
-                      <div className="py-8">
-                        <LoadingProgress label="Grading Assessment" progress={loadingProgress} />
-                      </div>
-                    )}
-                  </div>
-                  {score !== null && maxScore !== null && (
-                    <div className="text-xl text-gray-600 mb-6">
-                      You scored {score} out of {maxScore} questions correctly
-                    </div>
-                  )}
-
-                  {feedback && (
-                    <Button
-                      onClick={() => router.push('/employee/score-history')}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 text-lg font-semibold rounded-lg shadow-lg transition-all"
-                    >
-                      View Full Report
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+            </CardContent>
+          </Card>
+        )}
         </div>
       </div>
     </div>

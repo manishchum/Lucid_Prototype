@@ -64,21 +64,14 @@ const fetchCompanyUsers = async (companyId: string, adminUserId?: string) => {
   }
 };
 
-const loadModules = async (companyId: string, adminUserId?: string) => {
-  try {
-    const res = await fetch(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
-      headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
-    });
-    if (!res.ok) {
-      console.warn('[loadModules] backend returned', res.status);
-      return [];
-    }
-    const payload = await res.json().catch(() => ({}));
-    return payload?.modules || [];
-  } catch (e) {
-    console.error('[loadModules] error', e);
-    return [];
-  }
+const loadModules = async (companyId: string) => {
+  const { data: moduleData } = await supabase
+    .from('training_modules')
+    .select('module_id, title, processing_status, created_at')
+    .eq('company_id', companyId)
+    .order('title');
+  
+  return moduleData || [];
 };
 
 // Update ProgressAnalytics to accept adminUserId so it can call backend safely
@@ -133,10 +126,8 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
         setCompanyLearningStyleEnabled(false);
       }
 
-      // Load modules from backend then other analytics (other loaders may depend on modules/state)
-      const mods = await loadModules(companyId, adminUserId);
-      setModules(mods);
       await Promise.all([
+        loadModules(),
         loadLearningPlanData(),
         loadAssessmentData(),
         loadLearningStyleData(),
@@ -161,28 +152,26 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
         return;
       }
 
-      // Query learning_plan for users in this company via backend API
-      const lpRes = await fetch(
-        `${API_URL}/api/learning-plans/?limit=5000`,
-        { headers: { 'X-User-ID': userId || '' } }
-      );
-
-      if (!lpRes.ok) {
-        console.error('[analytics] Error fetching learning plans');
-        setProgressData([]);
-        setModules([]);
-        return;
-      }
-
-      const lpData = await lpRes.json();
-      let allPlans = lpData?.plans || [];
-      
-      // Filter by company users
-      let learningPlans = allPlans.filter((lp: any) => companyUserIds.includes(lp.user_id));
+      // Query learning_plan for users in this company
+      let query = supabase
+        .from('learning_plan')
+        .select(`
+          learning_plan_id,
+          status,
+          assigned_on,
+          started_at,
+          completed_at,
+          due_date,
+          baseline_assessment,
+          module_id,
+          user_id,
+          training_modules!inner(title, module_id, processing_status)
+        `)
+        .in('user_id', companyUserIds);
 
       // Apply module filter
       if (selectedModule !== 'all') {
-        learningPlans = learningPlans.filter((lp: any) => lp.module_id === selectedModule);
+        query = query.eq('module_id', selectedModule);
       }
 
       // Apply time range filter
@@ -202,96 +191,53 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
         // Get original module ids and processed modules as before
         const moduleIds = [...new Set(enrichedResults.map(r => r.module_id))];
 
-        // Fetch processed_modules via backend route per original_module_id (frontend should not query DB directly)
-        const processedModulesData: any[] = [];
-        for (const origId of moduleIds) {
-          try {
-            const pmRes = await fetch(`${API_URL}/api/processed-modules/original-module/${encodeURIComponent(origId)}`, {
-              headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
-            });
-            if (!pmRes.ok) {
-              const txt = await pmRes.text().catch(()=> '');
-              console.warn(`[analytics] failed to fetch processed modules for ${origId}:`, pmRes.status, txt);
-              continue;
-            }
-            const pmPayload = await pmRes.json().catch(()=> ({}));
-            const pms = pmPayload?.data || [];
-            (pms || []).forEach((pm: any) => {
-              processedModulesData.push({
-                processed_module_id: pm.processed_module_id,
-                original_module_id: pm.original_module_id
-              });
-            });
-          } catch (e) {
-            console.error('[analytics] error fetching processed modules for', origId, e);
+        const { data: processedModulesData } = await supabase
+          .from('processed_modules')
+          .select('processed_module_id, original_module_id')
+          .in('original_module_id', moduleIds);
+
+        const moduleIdToProcessedIds = new Map();
+        processedModulesData?.forEach(pm => {
+          if (!moduleIdToProcessedIds.has(pm.original_module_id)) {
+            moduleIdToProcessedIds.set(pm.original_module_id, []);
           }
-        }
- 
-         const moduleIdToProcessedIds = new Map();
-         processedModulesData?.forEach(pm => {
-           if (!moduleIdToProcessedIds.has(pm.original_module_id)) {
-             moduleIdToProcessedIds.set(pm.original_module_id, []);
-           }
-           moduleIdToProcessedIds.get(pm.original_module_id).push(pm.processed_module_id);
-         });
+          moduleIdToProcessedIds.get(pm.original_module_id).push(pm.processed_module_id);
+        });
 
-         const allProcessedModuleIds = Array.from(moduleIdToProcessedIds.values()).flat();
+        const allProcessedModuleIds = Array.from(moduleIdToProcessedIds.values()).flat();
 
-         const moduleProgressData : any[] = [];
-          for (const pmId of allProcessedModuleIds) {
-            try {
-              const mpRes = await fetch(`${API_URL}/api/module-progress/module/${encodeURIComponent(pmId)}`, {
-                headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
-              });
+        const { data: moduleProgressData } = await supabase
+          .from('module_progress')
+          .select('user_id, processed_module_id, completed_at')
+          .in('processed_module_id', allProcessedModuleIds);
 
-              if (!mpRes.ok) {
-                const txt = await mpRes.text().catch(()=> '');
-                console.warn(`[analytics] failed to fetch module progress for ${pmId}:`, mpRes.status, txt);
-                continue;
-              }
+        const progressMap = new Map();
+        moduleProgressData?.forEach(mp => {
+          const key = `${mp.user_id}-${mp.processed_module_id}`;
+          progressMap.set(key, mp);
+        });
 
-              const mpPayload = await mpRes.json().catch(()=> ({}));
-              const items = mpPayload?.progress || mpPayload || [];
-              (Array.isArray(items) ? items : [items]).forEach((rec: any) => {
-                if (rec.user_id && rec.processed_module_id) {
-                  moduleProgressData.push({
-                    user_id: rec.user_id,
-                    processed_module_id: rec.processed_module_id,
-                    completed_at: rec.completed_at
-                  });
-                }
-              });
-            } catch (e) {
-              console.error('[analytics] error fetching module progress for', pmId, e);
-            }
-          }
+        // Merge user info from companyUsers (avoid direct users table calls)
+        const userMap = new Map((companyUsers || []).map((u: any) => [u.user_id, u]));
 
-         const progressMap = new Map();
-         moduleProgressData.forEach(mp => {
-           const key = `${mp.user_id}-${mp.processed_module_id}`;
-           progressMap.set(key, mp);
-         });
-         // Merge user info from companyUsers (avoid direct users table calls)
-         const userMap = new Map((companyUsers || []).map((u: any) => [u.user_id, u]));
+        enrichedResults = enrichedResults.map(record => {
+          const processedModuleIds = moduleIdToProcessedIds.get(record.module_id) || [];
+          const completedProcessedModules = processedModuleIds.filter(pmId => {
+            const key = `${record.user_id}-${pmId}`;
+            return progressMap.has(key);
+          });
 
-         enrichedResults = enrichedResults.map(record => {
-           const processedModuleIds = moduleIdToProcessedIds.get(record.module_id) || [];
-           const completedProcessedModules = processedModuleIds.filter(pmId => {
-             const key = `${record.user_id}-${pmId}`;
-             return progressMap.has(key);
-           });
+          const user = userMap.get(record.user_id) || { name: 'Unknown', email: '', department_id: null };
 
-           const user = userMap.get(record.user_id) || { name: 'Unknown', email: '', department_id: null };
-
-           return {
-             ...record,
-             users: user,
-             status: (completedProcessedModules.length === 0) ? 'ASSIGNED' :
-                     (completedProcessedModules.length === processedModuleIds.length) ? 'COMPLETED' : 'IN_PROGRESS',
-             completedItems: completedProcessedModules.length,
-             totalItems: processedModuleIds.length
-           };
-         });
+          return {
+            ...record,
+            users: user,
+            status: (completedProcessedModules.length === 0) ? 'ASSIGNED' :
+                    (completedProcessedModules.length === processedModuleIds.length) ? 'COMPLETED' : 'IN_PROGRESS',
+            completedItems: completedProcessedModules.length,
+            totalItems: processedModuleIds.length
+          };
+        });
       }
 
       setProgressData(enrichedResults);
@@ -416,8 +362,12 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       const activeEmployees = companyUsers.filter(emp => emp.employment_status === 'ACTIVE').length;
 
       // Other stats remain the same (modules, assessments, kpIs, learning style counts)
-      const moduleList = await loadModules(companyId, adminUserId);
-      const totalModules = moduleList.length;
+      const { data: moduleData } = await supabase
+        .from('training_modules')
+        .select('module_id')
+        .eq('company_id', companyId);
+
+      const totalModules = moduleData?.length || 0;
 
       const { data: assessmentData } = await supabase
         .from('employee_assessments')

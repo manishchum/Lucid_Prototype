@@ -259,17 +259,13 @@ export default function EmployeesPage() {
 
   const loadTrainingModules = async (companyId: string) => {
     try {
-      const adminId = admin?.user_id || sessionStorage.getItem('lucid_admin_user_id') ||'';
-      const res = await fetch(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
-        headers: { 'X-User-ID': adminId || ''}
-      });
-      if (!res.ok) {
-        console.warn('[loadTrainingModules] Failed to fetch training modules:', res.status);
-        setTrainingModules([]);
-        return;
-      }
-      const payload = await res.json().catch(()=>({}));
-      setTrainingModules(payload.modules || []);
+      const { data, error } = await supabase
+        .from('training_modules')
+        .select('*')
+        .eq('company_id', companyId);
+
+      if (error) throw error;
+      setTrainingModules(data || []);
     } catch (error: any) {
       console.error('Failed to load training modules:', error.message);
     }
@@ -277,26 +273,17 @@ export default function EmployeesPage() {
 
   const loadLearningPlans = async (companyId: string) => {
     try {
-      // Fetch learning plans via backend API (will be filtered by company automatically)
-      const adminId = sessionStorage.getItem('lucid_admin_user_id');
-      if (!adminId) {
-        console.error('Admin user ID not found');
-        setLearningPlans([]);
-        return;
-      }
+      const { data, error } = await supabase
+        .from('learning_plan')
+        .select(`
+          *,
+          training_modules(title, description),
+          users(name, email)
+        `)
+        .eq('users.company_id', companyId);
 
-      const lpRes = await fetch(
-        `${API_URL}/api/learning-plans/?limit=5000`,
-        { headers: { 'X-User-ID': adminId } }
-      );
-
-      if (!lpRes.ok) {
-        const errorData = await lpRes.json();
-        throw new Error(errorData.detail || 'Failed to fetch learning plans');
-      }
-
-      const lpData = await lpRes.json();
-      setLearningPlans(lpData?.plans || []);
+      if (error) throw error;
+      setLearningPlans(data || []);
     } catch (error: any) {
       console.error('Failed to load learning plans:', error.message);
     }
@@ -2341,32 +2328,22 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         return;
       }
       
-      try{
-        const tmRes = await fetch(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
-          headers: { 'X-User-ID': adminId }
-        });
-        if(!tmRes.ok) {
-          console.warn('[Bulk-assign] Failed to fetch training modules:', tmRes.status);
-          setModules([]);
-          setModuleBaselineSettings({});
-          return;
-      }
-      const payload = await tmRes.json().catch(() => ({}));
-      const allModules = payload.modules || [];
-      const filtered = allModules.filter((m:any) => completedModuleIds.includes(m.module_id));
-      filtered.sort((a:any, b:any)=>(a.title).localeCompare(b.title));
-      setModules(filtered || []);
-    }catch(e){
-      console.error('[bulk-assign] Error loading modules:', e);
-      setModules([]);
-      setModuleBaselineSettings({});
-    }
+      // Now fetch only modules that have completed jobs
+      const { data, error: modulesError } = await supabase
+        .from('training_modules')
+        .select('*')
+        .eq('company_id', companyId)
+        .in('module_id', completedModuleIds)
+        .order('title');
+        
+      if (modulesError) throw modulesError;
+      setModules(data || []);
       
       // Initialize baseline settings for all modules (default to false)
-    const initialSettings: {[moduleId: string]: boolean} = {};
-    (modules || []).forEach(module => {
-      initialSettings[module.module_id] = false;
-    });
+      const initialSettings: {[moduleId: string]: boolean} = {};
+      (data || []).forEach(module => {
+        initialSettings[module.module_id] = false;
+      });
       setModuleBaselineSettings(initialSettings);
     } catch (error: any) {
       setError('Failed to load modules: ' + error.message);
@@ -2430,32 +2407,19 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
     setError('');
 
     try {
-      // First, check for existing assignments to prevent duplicates via backend API
-      if (!adminId) {
-        setError('Admin user ID not found');
-        setLoading(false);
-        return;
-      }
+      // First, check for existing assignments to prevent duplicates
+      const { data: existingAssignments, error: checkError } = await supabase
+        .from('learning_plan')
+        .select('user_id, module_id, users!inner(name, email), training_modules!inner(title)')
+        .in('user_id', selectedUsers)
+        .in('module_id', selectedModules);
 
-      const lpRes = await fetch(
-        `${API_URL}/api/learning-plans/?limit=5000`,
-        { headers: { 'X-User-ID': adminId } }
-      );
-
-      if (!lpRes.ok) {
-        console.error('Error checking existing assignments');
+      if (checkError) {
+        console.error('Error checking existing assignments:', checkError);
         setError('Failed to check existing assignments. Please try again.');
         setLoading(false);
         return;
       }
-
-      const lpData = await lpRes.json();
-      const allPlans = lpData?.plans || [];
-      
-      // Filter to find existing assignments
-      const existingAssignments = allPlans.filter((lp: any) =>
-        selectedUsers.includes(lp.user_id) && selectedModules.includes(lp.module_id)
-      );
 
       // If there are existing assignments, show the duplicate modal
       if (existingAssignments && existingAssignments.length > 0) {
@@ -2481,48 +2445,18 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         }
       }
 
-      // Create learning plans via backend API
-      if (!adminId) {
-        setError('Admin user ID not found');
-        setLoading(false);
-        return;
-      }
+      // Insert learning plans into database
+      const { error: insertError } = await supabase
+        .from('learning_plan')
+        .insert(learningPlans);
 
-      let successCount = 0;
-      let failCount = 0;
-
-      for (const plan of learningPlans) {
-        try {
-          const createRes = await fetch(`${API_URL}/api/learning-plans/`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-User-ID': adminId
-            },
-            body: JSON.stringify(plan)
-          });
-
-          if (createRes.ok) {
-            successCount++;
-          } else {
-            const errorData = await createRes.json();
-            if (errorData.detail?.includes('23505') || errorData.detail?.includes('duplicate')) {
-              // Handle duplicates silently or log
-              console.log('Duplicate assignment skipped:', plan);
-            } else {
-              failCount++;
-              console.error('Failed to create assignment:', errorData);
-            }
-          }
-        } catch (e) {
-          failCount++;
-          console.error('Error creating assignment:', e);
+      if (insertError) {
+        // Handle potential race condition duplicates
+        if (insertError.code === '23505') {
+          setError('Some assignments were created by another console while you were selecting. Please refresh and try again.');
+        } else {
+          throw insertError;
         }
-      }
-
-      if (failCount > 0) {
-        setError(`Created ${successCount} assignments, ${failCount} failed`);
-        setLoading(false);
         return;
       }
 

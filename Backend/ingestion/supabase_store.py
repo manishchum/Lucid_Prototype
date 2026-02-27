@@ -1,18 +1,15 @@
 # ingestion/supabase_store.py
-import io
 from supabase import create_client
 from typing import List
 import numpy as np
 import os
 import config
-from PIL import Image as PILImage
-import uuid
 
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-BUCKET = "module-assets"
+
 
 def fetch_module_details(module_id: str):
     res = (
@@ -72,44 +69,3 @@ def insert_chunks_to_supabase(
         import traceback
         print(f"[SUPABASE ERROR] Traceback:\n{traceback.format_exc()}")
         raise
-
-
-def insert_image_to_supabase(module_id, chunk_id, image, ocr_text):
-
-    if image is None:
-        print("Skipping None image")
-        return
-    image_bytes = io.BytesIO()
-    image.save(image_bytes, format='PNG')
-    image_bytes.seek(0)
-
-    file_path = f"{module_id}/images/{chunk_id}_{uuid.uuid4()}.png"
-    try:
-        supabase.storage.from_(BUCKET).upload(
-            file_path,
-            image_bytes.getvalue(),
-            {"content-type": "image/png"}
-        )
-        print(f"[SUPABASE] ✅ Uploaded image for chunk_id {chunk_id} to storage at {file_path}")
-    
-
-        public_url = supabase.storage.from_(BUCKET).get_public_url(file_path)
-        print(f"[SUPABASE] Public URL for image: {public_url}")
-
-        supabase.table("vectordb_images").insert({
-            "module_id":module_id,
-            "chunk_id": chunk_id,
-            "image_url": public_url,
-            "storage_path": file_path,
-            "caption": ocr_text,
-            "surrounding_text": ocr_text,
-            "embedding": None,
-            "metadata": {}
-        }).execute()
-        print(f"[SUPABASE] ✅ Inserted image metadata for chunk_id {chunk_id} into vectordb_images")
-    except Exception as e:
-        print(f"[SUPABASE ERROR] Failed to upload image for chunk_id {chunk_id}: {type(e).__name__}")
-
-
-
-

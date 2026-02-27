@@ -86,7 +86,6 @@ async function generateModuleContent({ moduleId = null } = {}) {
       if (Array.isArray(mod.training_modules)) {
         for (const tm of mod.training_modules) {
           if (Array.isArray(tm.ai_modules)) {
-            // console.log(typeof tm.ai_modules);
             console.log(`[EXTRACT] Checking ${tm.ai_modules.length} AI modules for match`);
             // const matched = tm.ai_modules.find(m =>
             //   m.title?.trim().toLowerCase() === mod.title?.trim().toLowerCase()
@@ -196,63 +195,6 @@ ${objectivesText}
       }
 
       // -------------------------------------
-      // STEP 2.5: Fetch Images for Top-K Chunks
-      // -------------------------------------
-
-      let matchedImages = [];
-
-      if (matchedChunks && matchedChunks.length > 0) {
-        const chunkIds = matchedChunks.map(c => c.chunk_id);
-
-        console.log(`[IMAGES] Fetching images for ${chunkIds.length} chunks`);
-
-        const { data: images, error: imageError } = await supabase
-          .from('vectordb_images')
-          .select(`
-            image_id,
-            image_url,
-            caption,
-            surrounding_text,
-            chunk_id
-          `)
-          .in('chunk_id', chunkIds);
-
-        if (imageError) {
-          console.error('[IMAGES] Error fetching images:', imageError);
-        } else {
-          matchedImages = images || [];
-          console.log(`[IMAGES] Found ${matchedImages.length} related images`);
-        }
-      }
-
-      // -------------------------------------
-      // STEP 2.6: Build Image Context
-      // -------------------------------------
-
-      const imageContext = matchedImages.length > 0
-        ? `
-      -----------------------------
-      RETRIEVED IMAGE CONTEXT (AUTHORITATIVE)
-      -----------------------------
-      The following images were extracted from the source document.
-      You MUST use them where contextually relevant.
-      Do NOT invent new images.
-
-      ${matchedImages.map((img, idx) => `
-      [IMAGE ${idx + 1}]
-      URL: ${img.image_url}
-      Caption: ${img.caption || 'No caption provided'}
-      Related Text: ${img.surrounding_text || 'N/A'}
-      Belongs to Chunk: ${img.chunk_id}
-      `).join('\n')}
-      `
-        : '';
-
-      console.log(`[IMAGES] Image context built: ${matchedImages.length}`);
-      matchedImages = matchedImages.slice(0, 3);
-      console.log("Limit images to top 3 most relevant");
-
-      // -------------------------------------
       // STEP 3: Build RAG context
       // -------------------------------------
       console.log(`[RAG] Building RAG context from matched chunks...`);
@@ -307,7 +249,6 @@ The following content is extracted verbatim from the source document.
 All entities present here are FACTUAL.
 
 ${documentContext}
-${imageContext}
 
 -----------------------------
 MODULE ISOLATION RULE (CRITICAL)
@@ -344,80 +285,6 @@ if any practices are present in the provided context, you MUST reuse it verbatim
 if any tools, vendors, platforms, or products are present in the provided context, you MUST reuse it verbatim.
 Use only domains present in the subject matter
 
-
-IMAGE USAGE POLICY (MANDATORY – NO EXCEPTIONS)
-
-1. You are provided with a fixed list of image URLs.
-2. You MUST use ONLY those exact image URLs.
-3. You are NOT allowed to:
-   - Invent image URLs
-   - Create placeholder images
-   - Use <img data-type="...">
-   - Generate generic or descriptive-only <img> tags
-   - Output <img> without a real src URL
-
-4. If a relevant image URL is not available:
-   - DO NOT generate any image.
-   - Do NOT create a placeholder.
-   - Do NOT simulate an infographic.
-   - Simply skip the image.
-
-5. Every image MUST:
-   - Use a valid provided URL.
-   - Be wrapped inside the required <figure> structure.
-   - Appear immediately under the correct section heading.
-
-6. Standalone <img> tags are STRICTLY FORBIDDEN.
-
-7. If you cannot match a provided image URL to the section concept:
-   - Do NOT include an image.
-   - It is better to have no image than a fake image.
-
-8. Before inserting an image, verify:
-   - Does this section concept clearly match one of the provided image URLs?
-   - If no exact match exists, skip image.
-
-CRITICAL VALIDATION STEP:
-If the image does not have a real working URL, DO NOT OUTPUT THE IMAGE.
-
------------------------------
-IMAGE STRUCTURE REQUIREMENT (CRITICAL)
------------------------------
-
-If images are provided:
-
-You MUST use the EXACT HTML structure below.
-Raw <img> tags are STRICTLY FORBIDDEN.
-
-Do NOT output standalone <img> tags.
-
-Every image MUST be wrapped inside a <figure> element.
-
-Use this EXACT template:
-
-<figure style="margin: 24px 0; text-align: center;">
-  <img 
-    src="IMAGE_URL"
-    alt="Descriptive alt text"
-    style="width:250px; max-width:100%; height:auto; display:block; margin-left:auto; margin-right:auto;"
-    loading="lazy"
-  />
-  <figcaption style="margin-top:8px; text-align:center;">
-    Image caption text here (if available)
-  </figcaption>
-</figure>
-
-Rules:
-• width MUST be 250px
-• max-width MUST be 100%
-• height MUST be auto
-• display MUST be block
-• margin MUST be 0 auto
-• loading="lazy" MUST be included
-• If no caption → remove <figcaption> but keep <figure>
-• No custom CSS classes
-• No div wrappers
-• No alternative structures allowed
 
 ------------------------------------------
 DOCUMENT FIDELITY REQUIREMENT (CRITICAL)
@@ -481,6 +348,9 @@ If no table exists in the document:
 → Only create a table if the document logically structures
    comparative or stepwise content.
 → Do NOT invent comparison categories.
+
+
+
 -----------------------------
 CONTROLLED EXPLANATION RULE
 -----------------------------
@@ -644,39 +514,10 @@ Module is fully self-contained
       console.log(`[GEMINI] Module: ${mod.title} (${mod.processed_module_id})`);
       console.log(`[GEMINI] Learning style: ${style}`);
       console.log(`[GEMINI] Prompt length: ${stylePrompt.length} chars`);
-
-      const geminiContents = [
-      {
-        role: "user",
-        parts: [
-          { text: stylePrompt }
-        ]
-      }
-    ];
-
-    function getMimeType(url) {
-      if (url.endsWith('.png')) return 'image/png';
-      if (url.endsWith('.webp')) return 'image/webp';
-      return 'image/jpeg';
-    }
-
-    // Attach images if available
-    if (matchedImages && matchedImages.length > 0) {
-      console.log(`[GEMINI] Attaching ${matchedImages.length} images to prompt`);
-
-      for (const img of matchedImages) {
-        geminiContents[0].parts.push({
-          fileData: {
-            fileUri: img.image_url, // must be public or signed URL
-            mimeType: getMimeType(img.image_url)
-          }
-        });
-      }
-    }
       
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
-        contents: geminiContents,
+        contents: stylePrompt,
         generationConfig: {
           maxOutputTokens: 6000,
           temperature: TEMPERATURE,
@@ -684,14 +525,7 @@ Module is fully self-contained
         }
       });
       
-      let aiContent = '';
-
-      if (response?.candidates?.length) {
-        aiContent = response.candidates[0].content.parts
-          .filter(p => p.text)
-          .map(p => p.text)
-          .join('');
-      }
+      let aiContent = response.text || '';
       
       console.log(`[CLEAN] Cleaning AI content...`);
       if (aiContent) {
@@ -713,7 +547,7 @@ Module is fully self-contained
       // Remove any learning style code references (CS, CR, AS, AR) from content
       console.log(`[CLEAN] Removing learning style references...`);
       aiContent = aiContent.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
-      
+      // aiContent = aiContent.replace(/\s*\((CS|CR|AS|AR|cs|cr|as|ar)[,\s]*\)/gi, '');
 
       aiContent = aiContent.replace(/\b(CS|CR|AS|AR)\b/g, '');
       

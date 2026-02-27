@@ -22,7 +22,7 @@ export default function LucidAssistant() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const sendButtonRef = useRef<HTMLButtonElement | null>(null);
   const STORAGE_KEY = 'lucid_assistant_messages_v1'
-  const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+  const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
