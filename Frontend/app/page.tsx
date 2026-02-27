@@ -156,7 +156,7 @@ export default function LandingPage() {
       </div>
 
       {/* Trust Footer - Slimmer version */}
-      {/* <footer className="shrink-0 py-6 px-8 border-t border-slate-50 max-w-7xl mx-auto w-full flex flex-row justify-between items-center gap-4">
+      <footer className="shrink-0 py-6 px-8 border-t border-slate-50 max-w-7xl mx-auto w-full flex flex-row justify-between items-center gap-4">
         <div className="flex gap-8">
            <div className="flex items-center gap-3">
              <div className="w-9 h-9 bg-slate-50 rounded-lg flex items-center justify-center text-slate-400">
@@ -175,7 +175,7 @@ export default function LandingPage() {
           <p className="text-[9px] text-slate-300 font-black uppercase tracking-widest">Powered By</p>
           <div className="px-4 py-2 bg-slate-50 rounded-full border border-slate-100 font-black text-[10px] text-[#0F172A]">Google Gemini</div>
         </div>
-      </footer> */}
+      </footer>
 
       {/* Mobile Menu Overlay */}
       {isMenuOpen && (
