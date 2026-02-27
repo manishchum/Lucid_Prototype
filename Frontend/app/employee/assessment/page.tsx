@@ -321,6 +321,10 @@ const AssessmentContent = () => {
           throw new Error('moduleId query param required to resolve baseline assessment');
         }
 
+        if (!urlModuleId) {
+          throw new Error('moduleId query param required to resolve baseline assessment');
+        }
+
         // Look up baseline assessment via backend API
         const q = new URLSearchParams({
           type: 'baseline',

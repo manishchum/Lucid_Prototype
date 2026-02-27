@@ -11,7 +11,6 @@ export interface AudioChunk {
   endTime: number;
   chunkIndex: number;
 }
-
 export interface ChunkingOptions {
   chunkDurationMs?: number;  // Duration of each chunk in milliseconds
   overlapMs?: number;         // Overlap between chunks to prevent speech cutoff
@@ -218,6 +217,27 @@ function writeString(view: DataView, offset: number, string: string) {
   for (let i = 0; i < string.length; i++) {
     view.setUint8(offset + i, string.charCodeAt(i));
   }
+}
+
+/**
+ * Convert any audio blob (webm, mp3, etc.) to WAV format
+ * This improves transcription quality with Google Speech-to-Text
+ */
+export async function convertToWav(audioBlob: Blob): Promise<Blob> {
+  console.log('[Audio Converter] Converting audio to WAV format...');
+  console.log('[Audio Converter] Original size:', audioBlob.size, 'bytes');
+  
+  const audioContext = new AudioContext();
+  const arrayBuffer = await audioBlob.arrayBuffer();
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+  
+  // Convert to WAV
+  const wavBlob = audioBufferToWav(audioBuffer);
+  
+  await audioContext.close();
+  
+  console.log('[Audio Converter] ✅ Converted to WAV, size:', wavBlob.size, 'bytes');
+  return wavBlob;
 }
 
 /**
