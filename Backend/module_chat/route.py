@@ -156,7 +156,7 @@ Module Title: {moduleData['title']}
 Module Content:
 {moduleData['content']}
 
-{"Previous conversation:\n" + historyContext if historyContext else ""}
+{"Previous conversation:" + chr(10) + historyContext if historyContext else ""}
 
 User's question: {user_message}
 

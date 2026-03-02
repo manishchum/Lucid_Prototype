@@ -12,8 +12,8 @@ const { migrateProcessedModules } = require(path.join(__dirname, 'api/migrate-pr
 // const { startContentGeneration } = require(path.join(__dirname, 'api/start-content-generation'));
 console.log('Loading generate-module-content...');
 const { generateModuleContent } = require(path.join(__dirname, 'api/generate-module-content'));
-console.log('Loading generate-module-video...');
-const { generateModuleVideo } = require(path.join(__dirname, 'api/generate-module-video'));
+// console.log('Loading generate-module-video...');
+// const { generateModuleVideo } = require(path.join(__dirname, 'api/generate-module-video'));
 console.log('All modules loaded successfully.');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
