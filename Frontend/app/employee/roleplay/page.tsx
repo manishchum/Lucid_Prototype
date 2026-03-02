@@ -494,7 +494,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       {currentScreen === 'rolePlay' && selectedScenario ? (
         <RolePlayConversation
           scenario={selectedScenario}
-          onEndSession={()=>handleEndSession([],selectedScenario.scenario_id)}
+          onEndSession={handleEndSession}
           moduleId={moduleId || undefined}
           voiceGender={roleplayConfig?.voiceGender || 'female'}
         />
