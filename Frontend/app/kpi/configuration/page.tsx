@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
-import EmployeeNavigation from "@/components/employee-navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -649,8 +648,7 @@ const [companyId, setCompanyId] = useState<string>("")
   if (loading) {
     return (
       <div className="flex min-h-screen bg-gray-50">
-        <EmployeeNavigation />
-        <main className="flex-1 lg:ml-72 transition-all duration-300 p-8">
+        <main className="flex-1 transition-all duration-300 p-8">
           <div className="flex items-center justify-center h-full">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
           </div>
@@ -661,8 +659,7 @@ const [companyId, setCompanyId] = useState<string>("")
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <EmployeeNavigation />
-      <main className="flex-1 lg:ml-72 transition-all duration-300 p-8">
+      <main className="flex-1 transition-all duration-300 p-8">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Header */}
           <div className="mb-8">

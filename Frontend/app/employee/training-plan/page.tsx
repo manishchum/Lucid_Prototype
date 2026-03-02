@@ -12,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import EmployeeNavigation from "@/components/employee-navigation";
 import { Users, ChevronLeft, CheckCircle2 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -663,13 +662,8 @@ function TrainingPlanContent() {
   // If baseline is required, show a clear CTA to take the baseline assessment
   if (baselineRequired) {
     return (
-      <div className="min-h-screen">
-        <EmployeeNavigation showForward={false} />
-        <div
-          className="transition-all duration-300 ease-in-out px-4 py-8"
-          style={{ marginLeft: "var(--sidebar-width, 0px)" }}
-        >
-          <div className="max-w-3xl mx-auto">
+      <div className="min-h-screen px-4 py-8">
+        <div className="max-w-3xl mx-auto">
             <div className="bg-white rounded-xl shadow-lg p-8 border">
               <h2 className="text-2xl font-semibold mb-2">
                 Baseline Assessment Required
@@ -709,7 +703,6 @@ function TrainingPlanContent() {
               </div>
             </div>
           </div>
-        </div>
       </div>
     );
   }
@@ -833,14 +826,6 @@ function TrainingPlanContent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <EmployeeNavigation showBack={false} showForward={false} />
-      {/* Main content area that adapts to sidebar */}
-      <div
-        className="transition-all duration-300 ease-in-out"
-        style={{
-          marginLeft: "var(--sidebar-width, 0px)",
-        }}
-      >
         {/* Header */}
         <div
           className="bg-white shadow-sm border-b"
@@ -860,16 +845,10 @@ function TrainingPlanContent() {
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Main content area that adapts to sidebar */}
-      <div
-        className="transition-all duration-300 ease-in-out px-4 py-8"
-        style={{
-          marginLeft: "var(--sidebar-width, 0px)",
-        }}
-      >
-        <div className="max-w-7xl mx-auto">
+        {/* Main content area */}
+        <div className="px-4 py-8">
+          <div className="max-w-7xl mx-auto">
           {/* Back Button */}
           <button
             onClick={() => router.back()}
@@ -1102,8 +1081,8 @@ function TrainingPlanContent() {
           )}
 
           <div className="mb-8"></div>
+          </div>
         </div>
-      </div>
     </div>
   );
 }

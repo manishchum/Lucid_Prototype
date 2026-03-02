@@ -6,7 +6,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ChevronDown, BookOpen } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import EmployeeNavigation from "@/components/employee-navigation";
 import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import RolePlayReports from "@/components/roleplay/RolePlayReports";
@@ -383,15 +382,8 @@ export default function ScoreHistoryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <EmployeeNavigation showForward={false} />
-      
-      {/* Main content area that adapts to sidebar */}
-      <main 
-        className="transition-all duration-300 ease-in-out pt-8 pb-12"
-        style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
-      >
-        <div className="max-w-6xl mx-auto px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 pt-8 pb-12">
+      <main className="max-w-6xl mx-auto px-6 lg:px-8">
           
           {/* Dashboard Header */}
           <div className="flex items-center gap-4 mb-10">
@@ -662,7 +654,6 @@ export default function ScoreHistoryPage() {
           <RolePlayReports employeeId={employeeId} />
         )}
 
-        </div>
       </main>
     </div>
   );

@@ -6,7 +6,6 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from "@/lib/supabase";
 import MCQQuiz from "./mcq-quiz";
 import { useAuth } from "@/contexts/auth-context";
-import EmployeeNavigation from "@/components/employee-navigation";
 import { ChevronLeft, CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 
 interface TrainingModule {
@@ -422,16 +421,8 @@ const AssessmentContent = () => {
   };
 
   return (
-    <div className="min-h-screen w-full">
-      <EmployeeNavigation showBack={true} showForward={false} />
-      
-      <div 
-        className="transition-all duration-300 ease-in-out py-10"
-        style={{ 
-          marginLeft: 'var(--sidebar-width, 0px)',
-        }}
-      >
-        <div className="max-w-8xl mx-auto px-4">
+    <div className="min-h-screen w-full py-10">
+      <div className="max-w-8xl mx-auto px-4">
           <button
             onClick={() => router.back()}
             className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium mb-6 transition-colors"
@@ -629,7 +620,6 @@ const AssessmentContent = () => {
             </div>
           )}
         </div>
-      </div>
     </div>
   );
 };

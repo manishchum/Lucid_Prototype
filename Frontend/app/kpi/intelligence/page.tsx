@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import EmployeeNavigation from '@/components/employee-navigation';
 import ModuleSuggestions from '@/components/module-suggestions';
 import { SuggestedModule } from '@/components/module-suggestions';
 import { generateKPIReport } from '@/lib/kpi-pdf-generator';
@@ -186,11 +185,8 @@ export default function KPIIntelligencePage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <EmployeeNavigation />
-      
-      <main className="flex-1 lg:ml-72 transition-all duration-300">
-        <div className="p-8">
+    <div className="min-h-screen bg-gray-50">
+      <main className="p-8">
           {/* Header Section */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900">KPI Intelligence</h1>
@@ -501,7 +497,6 @@ export default function KPIIntelligencePage() {
               </Card>
             </>
           )}
-        </div>
       </main>
     </div>
   );

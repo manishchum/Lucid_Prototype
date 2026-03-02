@@ -16,7 +16,6 @@ import {
   Sparkles,
   Filter
 } from 'lucide-react';
-import EmployeeNavigation from '@/components/employee-navigation';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
@@ -1069,10 +1068,8 @@ export default function KPITurbocharge() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      <EmployeeNavigation />
-     
-      <main className="flex-1 lg:ml-[280px] p-6 space-y-6">
+    <div className="min-h-screen bg-gray-50">
+      <main className="p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
