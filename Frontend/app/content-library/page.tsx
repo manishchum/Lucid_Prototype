@@ -2,8 +2,6 @@
 
 import React, { useEffect, useState } from 'react';
 import ContentLibrary from '@/components/content-library/ContentLibrary';
-import EmployeeNavigation from '@/components/employee-navigation';
-import EmployeeLayout from '@/components/employee-layout';
 import { useAuth } from '@/contexts/auth-context';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -83,11 +81,6 @@ export default function ContentLibraryPage() {
   // Allow all authenticated users to view the Content Library.
   // Only surface upload/create-folder controls to admins.
   return (
-    <>
-      <EmployeeNavigation />
-      <EmployeeLayout>
-        <ContentLibrary isAdmin={isAdmin} onNavigate={(s) => console.log('nav', s)} />
-      </EmployeeLayout>
-    </>
+    <ContentLibrary isAdmin={isAdmin} onNavigate={(s) => console.log('nav', s)} />
   );
 }

@@ -3,7 +3,6 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Save, Play, AlertCircle } from 'lucide-react';
-import EmployeeNavigation from '@/components/employee-navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Scenario } from '@/lib/roleplay/types';
@@ -398,14 +397,8 @@ const CreateRoleplayComponent = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <EmployeeNavigation />
-      
-      <main 
-        className="transition-all duration-300 ease-in-out pt-6 pb-12"
-        style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
-      >
-        <div className="container mx-auto px-4 py-6 max-w-7xl">
+    <div className="min-h-screen bg-slate-50 pt-6 pb-12">
+      <main className="container mx-auto px-4 py-6 max-w-7xl">
           {/* Header */}
           <div className="mb-6">
             <button
@@ -1163,7 +1156,6 @@ In this exercise, you will interact with a virtual character to practice and imp
               </Card>
             </div>
           </div>
-        </div>
       </main>
     </div>
   );
