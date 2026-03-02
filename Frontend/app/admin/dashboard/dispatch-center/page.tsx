@@ -16,6 +16,55 @@ interface Sprint {
   review_stage: string;
 }
 
+function useIllusionProgress(active: boolean) {
+  const [progress, setProgress] = useState(12);
+  const [show, setShow] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      const timeout = setTimeout(() => setShow(false), 180);
+      return () => clearTimeout(timeout);
+    }
+
+    setShow(true);
+    setProgress(Math.min(25, 10 + Math.round(Math.random() * 12)));
+
+    const id = setInterval(() => {
+      setProgress((prev) => {
+        const shouldHold = prev > 70 ? Math.random() < 0.45 : Math.random() < 0.25;
+        if (shouldHold) return prev;
+        const increment = Math.max(1, Math.round(Math.random() * 7));
+        return Math.min(prev + increment, 93);
+      });
+    }, 420 + Math.round(Math.random() * 240));
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  return { progress: Math.min(progress, 100), show };
+}
+
+function LoadingProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+          <span>{label}</span>
+          <span className="text-slate-900 text-base font-black">{progress}%</span>
+        </div>
+        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500 font-medium">Preparing dispatch center. This may take a moment.</p>
+      </div>
+    </div>
+  );
+}
+
 interface SubModule {
   processed_module_id: string;
   title: string;
@@ -73,6 +122,7 @@ export default function AdminDispatchCenterPage() {
   // Loading states
   const [loadingSprints, setLoadingSprints] = useState(false);
   const [loadingSubModules, setLoadingSubModules] = useState(false);
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || !currentUser);
 
   // ── Auth bootstrap ───────────────────────────────────────────
   useEffect(() => {
@@ -251,12 +301,16 @@ export default function AdminDispatchCenterPage() {
   // ── Loading state ────────────────────────────────────────────
   if (!currentUser) {
     return (
-      <div className="flex min-h-screen bg-[#FAFBFC]">
-        <EmployeeNavigation />
-        <main className="flex-1 lg:ml-[280px] p-8 flex items-center justify-center">
-          <div className="w-10 h-10 border-4 border-[#3B66F5]/20 border-t-[#3B66F5] rounded-full animate-spin" />
-        </main>
-      </div>
+      showLoadingProgress
+        ? <LoadingProgress label="Loading dispatch center..." progress={loadingProgress} />
+        : (
+          <div className="flex min-h-screen bg-[#FAFBFC]">
+            <EmployeeNavigation />
+            <main className="flex-1 lg:ml-[280px] p-8 flex items-center justify-center">
+              <div className="w-10 h-10 border-4 border-[#3B66F5]/20 border-t-[#3B66F5] rounded-full animate-spin" />
+            </main>
+          </div>
+        )
     );
   }
 

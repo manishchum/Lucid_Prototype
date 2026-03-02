@@ -1660,6 +1660,7 @@ export default function AnalyticsPage() {
   const [admin, setAdmin] = useState<Admin|null>(null);
   const [loading, setLoading] = useState(true);
   // const currentUserId = admin?.user_id || null;
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   useEffect(() => {
       if (!authLoading) {
         if (!user) router.push("/login");
@@ -1745,10 +1746,14 @@ export default function AnalyticsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        <span className="ml-2 text-gray-600">Loading...</span>
-      </div>
+      showLoadingProgress
+        ? <LoadingProgress label="Loading analytics..." progress={loadingProgress} />
+        : (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <span className="ml-2 text-gray-600">Loading...</span>
+          </div>
+        )
     );
   }
 
@@ -1768,6 +1773,55 @@ export default function AnalyticsPage() {
       </div>
       
       <ProgressAnalytics companyId={admin.company_id} adminUserId={admin?.user_id} />
+    </div>
+  );
+}
+
+function useIllusionProgress(active: boolean) {
+  const [progress, setProgress] = useState(12);
+  const [show, setShow] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      const timeout = setTimeout(() => setShow(false), 180);
+      return () => clearTimeout(timeout);
+    }
+
+    setShow(true);
+    setProgress(Math.min(25, 10 + Math.round(Math.random() * 12)));
+
+    const id = setInterval(() => {
+      setProgress((prev) => {
+        const shouldHold = prev > 70 ? Math.random() < 0.45 : Math.random() < 0.25;
+        if (shouldHold) return prev;
+        const increment = Math.max(1, Math.round(Math.random() * 7));
+        return Math.min(prev + increment, 93);
+      });
+    }, 420 + Math.round(Math.random() * 240));
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  return { progress: Math.min(progress, 100), show };
+}
+
+function LoadingProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+          <span>{label}</span>
+          <span className="text-slate-900 text-base font-black">{progress}%</span>
+        </div>
+        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500 font-medium">Preparing analytics. This may take a moment.</p>
+      </div>
     </div>
   );
 }
