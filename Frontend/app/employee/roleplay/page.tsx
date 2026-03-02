@@ -403,6 +403,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       }
 
       const assessment = await response.json();
+      console.log('📊 Assessment response:', response);
       console.log('✅ Assessment received:', assessment.overallScore);
       setAssessmentReport(assessment);
       setCurrentScreen('assessmentReport');
@@ -493,7 +494,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       {currentScreen === 'rolePlay' && selectedScenario ? (
         <RolePlayConversation
           scenario={selectedScenario}
-          onEndSession={handleEndSession}
+          onEndSession={()=>handleEndSession([],selectedScenario.scenario_id)}
           moduleId={moduleId || undefined}
           voiceGender={roleplayConfig?.voiceGender || 'female'}
         />
