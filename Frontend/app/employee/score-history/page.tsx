@@ -6,7 +6,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ChevronDown, BookOpen } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import EmployeeNavigation from "@/components/employee-navigation";
 import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import RolePlayReports from "@/components/roleplay/RolePlayReports";
@@ -316,15 +315,22 @@ export default function ScoreHistoryPage() {
 
       // Enrich with module titles for non-baseline assessments
       let enriched = assessments || [];
-      try {
-        const moduleIds = (enriched || [])
-          .filter((a: any) => a?.assessments?.type === 'module' && a.assessments?.processed_module_id)
-          .map((a: any) => String(a.assessments.processed_module_id));
-        if (moduleIds.length) {
-          const { data: mods } = await supabase
-            .from('processed_modules')
-            .select('processed_module_id, title')
-            .in('processed_module_id', moduleIds);
+      const moduleIds = (enriched || [])
+        .filter((a: any) => a?.assessments?.type === 'module' && a.assessments?.processed_module_id)
+        .map((a: any) => String(a.assessments.processed_module_id));
+      if (moduleIds.length) {
+        // Fetch processed_modules via backend batch endpoint instead of direct Supabase call
+        try {
+          const pmRes = await fetch(`${API_BASE}/api/processed-modules/batch`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(employeeData?.user_id ? { 'X-User-ID': employeeData.user_id } : {})
+            },
+            body: JSON.stringify({ processed_module_ids: moduleIds })
+          });
+          const pmPayload = await pmRes.json().catch(() => ({}));
+          const mods = Array.isArray(pmPayload?.data) ? pmPayload.data : [];
           const titleMap = new Map<string, string>();
           (mods || []).forEach((m: any) => {
             if (m?.processed_module_id && m?.title) {
@@ -339,11 +345,11 @@ export default function ScoreHistoryPage() {
             }
             return a;
           });
+        } catch (e) {
+          console.warn('[score-history] failed to fetch processed module titles via backend', e);
         }
-      } catch (e) {
-        // console.log('[score-history] module title enrich error', e);
       }
-
+      
       setScoreHistory(enriched);
 
       // Fetch learning style data
@@ -376,15 +382,8 @@ export default function ScoreHistoryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <EmployeeNavigation showForward={false} />
-      
-      {/* Main content area that adapts to sidebar */}
-      <main 
-        className="transition-all duration-300 ease-in-out pt-8 pb-12"
-        style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
-      >
-        <div className="max-w-6xl mx-auto px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 pt-8 pb-12">
+      <main className="max-w-6xl mx-auto px-6 lg:px-8">
           
           {/* Dashboard Header */}
           <div className="flex items-center gap-4 mb-10">
@@ -655,7 +654,6 @@ export default function ScoreHistoryPage() {
           <RolePlayReports employeeId={employeeId} />
         )}
 
-        </div>
       </main>
     </div>
   );

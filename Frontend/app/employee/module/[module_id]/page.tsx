@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import EmployeeNavigation from "@/components/employee-navigation";
 import ModuleSideNav from "@/components/ModuleSideNav";
 import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download } from "lucide-react";
 import FlashcardCards from '@/components/FlashcardCards'
@@ -100,35 +99,46 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       // console.log('[module] Attempting direct fetch by processed_module_id:', moduleId);
       // console.log(empObj);
 
+      let directData = null;
+      if (empObj?.user_id) {
+        try {
+          const res = await fetch(`${API_BASE}/api/processed-modules/${moduleId}`, {
+            headers: {
+              'X-User-ID': empObj.user_id
+            }
+          });
 
-      const { data: directData, error: directError } = await supabase
-        .from('processed_modules')
-        .select(selectCols)
-        .eq('processed_module_id', moduleId)
-        // .eq('user_id', empObj?.user_id || '')
-        .maybeSingle();
-
-      if (directError) {
-        console.error('[module] Error fetching by processed_module_id:', directError);
+          if (res.ok) {
+            const payload = await res.json();
+            directData = payload?.data || payload;
+          } else {
+            console.error('[module] Error fetching by processed_module_id:', await res.text());
+          }
+        } catch (error) {
+          console.error('[module] Error fetching by processed_module_id:', error);
+        }
       }
 
       if (directData) {
         data = directData;
-      } else {
-        const { data: origData, error: origError } = await supabase
-          .from('processed_modules')
-          .select(selectCols)
-          .eq('original_module_id', moduleId)
-          .eq('learning_style', style)
-          // .eq('user_id', empObj?.user_id || '')
-          .maybeSingle();
+      } else if (empObj?.user_id && style) {
+        try {
+          const res = await fetch(`${API_BASE}/api/processed-modules/original-module/${moduleId}?learning_style=${encodeURIComponent(style)}`, {
+            headers: {
+              'X-User-ID': empObj.user_id
+            }
+          });
 
-        if (origError) {
-          console.error('[module] Error fetching by original_module_id:', origError);
-        }
-
-        if (origData) {
-          data = origData;
+          if (res.ok) {
+            const payload = await res.json();
+            const modules = payload?.data || payload || [];
+            // Take the first match since we're filtering by learning_style
+            data = modules[0] || null;
+          } else {
+            console.error('[module] Error fetching by original_module_id:', await res.text());
+          }
+        } catch (error) {
+          console.error('[module] Error fetching by original_module_id:', error);
         }
       }
       if (data) {
@@ -144,11 +154,25 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             // });
             // if (genResponse.ok) {
               await new Promise(resolve => setTimeout(resolve, 2000));
-              const { data: refreshedData } = await supabase
-                .from('processed_modules')
-                .select(selectCols)
-                .eq('processed_module_id', moduleId)
-                .maybeSingle();
+              
+              let refreshedData = null;
+              if (empObj?.user_id) {
+                try {
+                  const res = await fetch(`${API_BASE}/api/processed-modules/${moduleId}`, {
+                    headers: {
+                      'X-User-ID': empObj.user_id
+                    }
+                  });
+
+                  if (res.ok) {
+                    const payload = await res.json();
+                    refreshedData = payload?.data || payload;
+                  }
+                } catch (error) {
+                  console.error('[module] Error refreshing module data:', error);
+                }
+              }
+
               if (refreshedData && refreshedData.content) {
                 data = refreshedData;
               // }
@@ -170,7 +194,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           if (empObj?.user_id) {
             console.log("Inside the module progress log 2")
             console.log(data)
-            await fetch('/api/module-progress', {
+            await fetch(`${API_BASE}/api/module-progress`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -230,7 +254,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   setChatLoading(true);
 
     try {
-      const response = await fetch('/api/module-chat', {
+      const response = await fetch(`${API_BASE}/api/module-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -308,8 +332,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
 
   return (
     <div className="min-h-screen">
-      <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} forceCollapsed={true} />
-      
       {/* Module Side Navigation */}
       {employee?.user_id && (
         <ModuleSideNav 
@@ -319,10 +341,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         />
       )}
 
-      <div 
-        className="transition-all duration-300 ease-in-out px-12 py-8" 
-        style={{ marginLeft: 'calc(var(--sidebar-width, 5rem) + 16rem)' }}
-      >
+      <div className="px-12 py-8" style={{ marginLeft: '16rem' }}>
         <div className="w-full mx-auto">
           <div>
             <main className="w-full">
@@ -1297,20 +1316,26 @@ function ContentTransformer({
                 if (res.ok && data && data.nodes && data.edges) {
                   setMindmapData(data);
                   
-                  // Save mindmap data to Supabase
+                  // Save mindmap data via backend API
                   try {
-                    const { error: updateError } = await supabase
-                      .from('processed_modules')
-                      .update({ mindmap_data: data })
-                      .eq('processed_module_id', module.processed_module_id);
-                    
-                    if (updateError) {
-                      console.error('[mindmap] Failed to save mindmap to database:', updateError);
-                    } else {
-                      console.log('[mindmap] Mindmap saved to database successfully');
-                      // Update local module state
-                      if (onModuleUpdate) {
-                        onModuleUpdate((prev: any) => ({ ...prev, mindmap_data: data }));
+                    if (employee?.user_id) {
+                      const updateRes = await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                        method: 'PATCH',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'X-User-ID': employee.user_id
+                        },
+                        body: JSON.stringify({ mindmap_data: data })
+                      });
+                      
+                      if (!updateRes.ok) {
+                        console.error('[mindmap] Failed to save mindmap to database:', await updateRes.text());
+                      } else {
+                        console.log('[mindmap] Mindmap saved to database successfully');
+                        // Update local module state
+                        if (onModuleUpdate) {
+                          onModuleUpdate((prev: any) => ({ ...prev, mindmap_data: data }));
+                        }
                       }
                     }
                   } catch (saveError) {
@@ -1400,20 +1425,26 @@ function ContentTransformer({
                   if (Array.isArray(data)) {
                     setFlashcardSections(data);
                     
-                    // Save flashcard data to Supabase
+                    // Save flashcard data via backend API
                     try {
-                      const { error: updateError } = await supabase
-                        .from('processed_modules')
-                        .update({ flashcard_data: data })
-                        .eq('processed_module_id', module.processed_module_id);
-                      
-                      if (updateError) {
-                        console.error('[flashcards] Failed to save flashcards to database:', updateError);
-                      } else {
-                        console.log('[flashcards] Flashcards saved to database successfully');
-                        // Update local module state
-                        if (onModuleUpdate) {
-                          onModuleUpdate((prev: any) => ({ ...prev, flashcard_data: data }));
+                      if (employee?.user_id) {
+                        const updateRes = await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                          method: 'PATCH',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'X-User-ID': employee.user_id
+                          },
+                          body: JSON.stringify({ flashcard_data: data })
+                        });
+                        
+                        if (!updateRes.ok) {
+                          console.error('[flashcards] Failed to save flashcards to database:', await updateRes.text());
+                        } else {
+                          console.log('[flashcards] Flashcards saved to database successfully');
+                          // Update local module state
+                          if (onModuleUpdate) {
+                            onModuleUpdate((prev: any) => ({ ...prev, flashcard_data: data }));
+                          }
                         }
                       }
                     } catch (saveError) {

@@ -335,25 +335,18 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
             setTimeout(() => {
               setIsListening(true);
               
-              // Set 5-second timeout - if user doesn't speak, AI continues
+              // Set 10-second timeout - if user doesn't speak, show a gentle prompt
               userResponseTimeoutRef.current = setTimeout(() => {
                 // Only proceed if not already processing AND conversation is still active
                 if (!isProcessingRef.current && conversationActiveRef.current) {
-                  console.log('⏱️ 5-second timeout - User did not speak, prompting...');
-                  setIsListening(false);
-                  
-                  // Instead of continuing, prompt the user or wait a bit more
-                  // Let's just re-enable listening after a short pause
-                  setTimeout(() => {
-                    if (conversationActiveRef.current && !isProcessingRef.current) {
-                      console.log('🎤 Re-enabling microphone after pause');
-                      setIsListening(true);
-                    }
-                  }, 1000);
+                  console.log('⏱️ 10-second timeout - Gentle nudge to user');
+                  // Don't stop listening, just let it continue
+                  // The VoiceInput component will handle silence detection
+                  // This timeout is just for showing a visual prompt if needed
                 } else {
-                  console.log('⚠️ 5-second timeout fired but processing or conversation ended, ignoring');
+                  console.log('⚠️ 10-second timeout fired but processing or conversation ended, ignoring');
                 }
-              }, 5000);
+              }, 10000);
             }, 300); // 300ms delay for smooth transition
           } else {
             console.warn('❌ Conversation not active - not activating microphone');
@@ -948,7 +941,6 @@ export default function RolePlayConversation({ scenario, onEndSession, moduleId,
       {conversationActive && isListening && !isSpeaking && !isLoading && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50">
           <VoiceInput
-            key={`voice-input-${sessionId}-${isListening}`}
             onTranscription={handleVoiceTranscription}
             disabled={isLoading || isSpeaking}
             autoStart={true}

@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { ArrowLeft, User, Mail, Calendar, Building, Save, Edit3, Lock, Eye, EyeOff, X, CheckCircle } from "lucide-react";
-import EmployeeNavigation from "@/components/employee-navigation";
 
 interface Employee {
   user_id: string;
@@ -187,22 +186,24 @@ export default function AccountPage() {
     setPasswordLoading(true);
     setPasswordError("");
     try {
-      const res = await fetch("/api/change-password", {
+      const res = await fetch(`${API_URL}/api/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           user_id: employee?.user_id,
           current_password: currentPassword,
-          new_password: newPassword,
+          new_password: "", // Empty for validation step
         }),
       });
-      console.log(res);
       const data = await res.json();
-      if (res.status === 401) {
-        setPasswordError("Current password is incorrect");
-      } else {
+      if (res.ok) {
+        // Current password is correct
         setPasswordStep("new");
         setPasswordError("");
+      } else if (res.status === 401) {
+        setPasswordError("Current password is incorrect");
+      } else {
+        setPasswordError(data.error || "Failed to validate password");
       }
     } catch {
       setPasswordError("Something went wrong. Please try again.");
@@ -227,7 +228,7 @@ export default function AccountPage() {
     setPasswordLoading(true);
     setPasswordError("");
     try {
-      const res = await fetch("/api/change-password", {
+      const res = await fetch(`${API_URL}/api/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -262,14 +263,6 @@ export default function AccountPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
-      <EmployeeNavigation showBack={true} showForward={false} />
-      
-      <div 
-        className="transition-all duration-300 ease-in-out"
-        style={{ 
-          marginLeft: 'var(--sidebar-width, 0px)',
-        }}
-      >
         <div className="bg-white shadow-sm border-b">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center py-4">
@@ -435,7 +428,6 @@ export default function AccountPage() {
           </Card>
         </div>
         </div>
-      </div>
 
       {showPasswordModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

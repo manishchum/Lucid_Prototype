@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
-import EmployeeNavigation from '@/components/employee-navigation';
 import { Search, Filter, FileText, Clock, AlertCircle, Upload, UserCheck } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -280,22 +279,15 @@ export default function HumanInTheLoopPage() {
 
   if (!currentUserId) {
     return (
-      <div className="flex min-h-screen bg-[#FAFBFC]">
-        <EmployeeNavigation />
-        <main className="flex-1 lg:ml-[280px] p-8">
-          <div className="flex items-center justify-center h-screen">
-            <div className="w-10 h-10 border-4 border-[#3B66F5]/20 border-t-[#3B66F5] rounded-full animate-spin"></div>
-          </div>
-        </main>
+      <div className="flex min-h-screen bg-[#FAFBFC] items-center justify-center">
+          <div className="w-10 h-10 border-4 border-[#3B66F5]/20 border-t-[#3B66F5] rounded-full animate-spin"></div>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen bg-[#FAFBFC]">
-      <EmployeeNavigation />
-      
-      <main className="flex-1 p-8">
+    <div className="min-h-screen bg-[#FAFBFC]">
+      <main className="p-8">
         <div className="max-w-[2000px] mx-auto">
           {/* Header */}
           <div className="mb-8">

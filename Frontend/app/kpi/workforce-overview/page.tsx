@@ -14,7 +14,6 @@ import {
   BarChart3,
   Filter
 } from 'lucide-react';
-import EmployeeNavigation from '@/components/employee-navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
@@ -111,6 +110,8 @@ export default function WorkforceOverview() {
   const [selectedTitleId, setSelectedTitleId] = useState<string>('');
   
   const [loading, setLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string>('');
+  const [userData, setUserData] = useState<any>(null);
   const [activeEmployees, setActiveEmployees] = useState({ count: 0, region: 'All Regions' });
   const [moduleAssignments, setModuleAssignments] = useState<ModuleAssignment[]>([]);
   const [kpiMappings, setKpiMappings] = useState<KPIMapping[]>([]);
@@ -118,10 +119,31 @@ export default function WorkforceOverview() {
   useEffect(() => {
           if (!authLoading) {
             if (!user) router.push("/login");
-            else loadFilters();
-            
+            else fetchCurrentUser();
           }
         }, [user, authLoading, router]);
+
+  const fetchCurrentUser = async () => {
+    if (!user?.email) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(user.email)}`);
+      if (!res.ok) {
+        console.error('Error fetching current user');
+        return;
+      }
+      const payload = await res.json();
+      let userData = payload?.user ?? payload;
+      if (Array.isArray(userData)) userData = userData[0];
+      
+      if (userData && userData.user_id) {
+        setCurrentUserId(userData.user_id);
+        setUserData(userData);
+        loadFilters();
+      }
+    } catch (error) {
+      console.error('Error fetching current user:', error);
+    }
+  };
 
   useEffect(() => {
     if (selectedFunctionId) {
@@ -262,11 +284,26 @@ export default function WorkforceOverview() {
         return;
       }
 
-      const { data: learningPlans } = await supabase
-        .from('learning_plan')
-        .select('module_id, user_id, status')
-        .in('user_id', userIds)
-        .in('status', ['ASSIGNED', 'IN_PROGRESS']);
+      // Fetch learning plans via backend API (filter by IN_PROGRESS status on frontend)
+      const lpRes = await fetch(
+        `${API_BASE}/api/learning-plans/?limit=1000`,
+        { headers: { 'X-User-ID': currentUserId } }
+      );
+
+      if (!lpRes.ok) {
+        console.error('[workforce-overview] Error fetching learning plans');
+        setModuleAssignments([]);
+        return;
+      }
+
+      const lpData = await lpRes.json();
+      const allPlans = lpData?.plans || [];
+      
+      // Filter to only users in userIds and status ASSIGNED or IN_PROGRESS
+      const learningPlans = allPlans.filter((lp: any) =>
+        userIds.includes(lp.user_id) &&
+        ['ASSIGNED', 'IN_PROGRESS'].includes(lp.status)
+      );
 
       if (!learningPlans || learningPlans.length === 0) {
         setModuleAssignments([]);
@@ -274,10 +311,23 @@ export default function WorkforceOverview() {
       }
 
       const moduleIds = [...new Set(learningPlans.map(lp => lp.module_id))];
-      const { data: modules } = await supabase
-        .from('training_modules')
-        .select('module_id, title')
-        .in('module_id', moduleIds);
+      
+      // Fetch modules from backend API
+      let modules: any[] = [];
+      if (userData?.company_id && moduleIds.length > 0) {
+        const res = await fetch(`${API_BASE}/api/training-modules/company/${userData.company_id}`, {
+          headers: {
+            'X-User-ID': currentUserId
+          }
+        });
+
+        if (res.ok) {
+          const payload = await res.json();
+          const allModules = payload?.data || payload || [];
+          // Filter to only the modules we need
+          modules = allModules.filter((m: any) => moduleIds.includes(m.module_id));
+        }
+      }
 
       const moduleCounts = learningPlans.reduce((acc: any, lp) => {
         const moduleId = lp.module_id;
@@ -327,10 +377,20 @@ export default function WorkforceOverview() {
         return;
       }
 
-      const { data: modules } = await supabase
-        .from('training_modules')
-        .select('module_id, title, content_type')
-        .limit(20);
+      // Fetch modules from backend API
+      let modules: any[] = [];
+      if (userData?.company_id) {
+        const res = await fetch(`${API_BASE}/api/training-modules/company/${userData.company_id}`, {
+          headers: {
+            'X-User-ID': currentUserId
+          }
+        });
+
+        if (res.ok) {
+          const payload = await res.json();
+          modules = (payload?.data || payload || []).slice(0, 20);
+        }
+      }
 
       const mappings: KPIMapping[] = kpis.map(kpi => {
         const relatedModules = (modules || [])
@@ -390,10 +450,8 @@ export default function WorkforceOverview() {
   const maxCount = moduleAssignments.length > 0 ? Math.max(...moduleAssignments.map(m => m.count)) : 1;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      <EmployeeNavigation />
-      
-      <main className="flex-1 lg:ml-[280px] p-6 space-y-6">
+    <div className="min-h-screen bg-gray-50">
+      <main className="p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>

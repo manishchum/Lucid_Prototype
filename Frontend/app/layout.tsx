@@ -6,6 +6,7 @@ import { AuthProvider } from "@/contexts/auth-context"
 import { Toaster as ShadcnToaster } from "@/components/ui/toaster"
 import ErrorReporterInit from '@/components/ErrorReporterInit'
 import LucidAssistant from '@/components/LucidAssistant'
+import LayoutWithNavigation from '@/components/layout-with-navigation'
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -29,7 +30,9 @@ export default function RootLayout({
           <ErrorReporterInit />
           <LucidAssistant />
           <ShadcnToaster />
-          {children}
+          <LayoutWithNavigation>
+            {children}
+          </LayoutWithNavigation>
         </AuthProvider>
       </body>
     </html>

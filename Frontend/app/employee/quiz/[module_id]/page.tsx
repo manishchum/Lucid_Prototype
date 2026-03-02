@@ -6,7 +6,6 @@ import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
-import EmployeeNavigation from "@/components/employee-navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -118,7 +117,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       // Log quiz taken into module_progress
       try {
         // console.log(result);
-        await fetch('/api/module-progress', {
+        await fetch(`${API_BASE}/api/module-progress`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -204,35 +203,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       setLoading(true);
       setError(null);
       
-      // Fetch module metadata and resolve canonical processed_module_id
-      try {
-        let moduleData: any = null;
-        const byProcessed = await supabase
-          .from('processed_modules')
-          .select('processed_module_id, original_module_id, title')
-          .eq('processed_module_id', moduleId)
-          .maybeSingle();
-        moduleData = byProcessed?.data || null;
-
-        if (!moduleData) {
-          const byOriginal = await supabase
-            .from('processed_modules')
-            .select('processed_module_id, original_module_id, title')
-            .eq('original_module_id', moduleId)
-            .maybeSingle();
-          moduleData = byOriginal?.data || null;
-        }
-
-        if (moduleData) {
-          if (moduleData.title) setModuleName(moduleData.title);
-          if(moduleData.original_module_id) setOriginalModuleId(String(moduleData.original_module_id));
-          if (moduleData.processed_module_id) setResolvedModuleId(String(moduleData.processed_module_id));
-          console.log('Value of originalModuleId:', originalModuleId);
-        }
-      } catch (e) {
-        // console.log('[quiz] module metadata fetch error', e);
-      }
-      
+      // Fetch employee data first to get userId for API calls
       let learningStyle: string | null = null;
       if (!authLoading && user?.email) {
         // console.log("Inside the quiz tab")
@@ -253,6 +224,58 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           }
         } catch (e) {
           // console.log('[quiz] employee fetch error', e);
+        }
+      }
+      
+      // Fetch module metadata and resolve canonical processed_module_id
+      if (userId) {
+        try {
+          let moduleData: any = null;
+          
+          // First try: fetch by processed_module_id
+          try {
+            const res = await fetch(`${API_BASE}/api/processed-modules/${moduleId}`, {
+              headers: {
+                'X-User-ID': userId
+              }
+            });
+
+            if (res.ok) {
+              const payload = await res.json();
+              moduleData = payload?.data || payload;
+            }
+          } catch (error) {
+            console.error('[quiz] Error fetching by processed_module_id:', error);
+          }
+
+          // Second try: if not found, fetch by original_module_id
+          if (!moduleData) {
+            try {
+              const res = await fetch(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
+                headers: {
+                  'X-User-ID': userId
+                }
+              });
+
+              if (res.ok) {
+                const payload = await res.json();
+                const modules = payload?.data || payload || [];
+                // Take the first match
+                moduleData = modules[0] || null;
+              }
+            } catch (error) {
+              console.error('[quiz] Error fetching by original_module_id:', error);
+            }
+          }
+
+          if (moduleData) {
+            if (moduleData.title) setModuleName(moduleData.title);
+            if(moduleData.original_module_id) setOriginalModuleId(String(moduleData.original_module_id));
+            if (moduleData.processed_module_id) setResolvedModuleId(String(moduleData.processed_module_id));
+            console.log('Value of originalModuleId:', originalModuleId);
+          }
+        } catch (e) {
+          // console.log('[quiz] module metadata fetch error', e);
         }
       }
       if (!learningStyle) {
@@ -483,20 +506,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <EmployeeNavigation 
-        customBackPath={`/employee/module/${params.module_id}`}
-        showForward={false}
-      />
-      
-      {/* Main content area that adapts to sidebar */}
-      <div 
-        className="transition-all duration-300 ease-in-out px-4 py-8"
-        style={{ 
-          marginLeft: 'var(--sidebar-width, 0px)',
-        }}
-      >
-        <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 px-4 py-8">
+      <div className="max-w-7xl mx-auto">
           {/* Back Button */}
           <button
             onClick={() => router.back()}
@@ -697,7 +708,6 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             </CardContent>
           </Card>
         )}
-        </div>
       </div>
     </div>
   );
