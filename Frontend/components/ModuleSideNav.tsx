@@ -64,6 +64,14 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
           setLoading(false);
           return;
         }
+
+        if (!currentModule?.original_module_id) {
+          console.log("[ModuleSideNav] No original_module_id found for current module");
+          setLoading(false);
+          return;
+        }
+
+        originalModuleId = currentModule.original_module_id;
       }
 
       if (!originalModuleId) {

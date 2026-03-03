@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
-import EmployeeNavigation from '@/components/employee-navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
 import { fetchScenariosForUser, deleteCustomScenario, assignScenario, getScenarioAssignments } from '@/lib/roleplayDatabase';
@@ -404,6 +403,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       }
 
       const assessment = await response.json();
+      console.log('📊 Assessment response:', response);
       console.log('✅ Assessment received:', assessment.overallScore);
       setAssessmentReport(assessment);
       setCurrentScreen('assessmentReport');
@@ -491,8 +491,6 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {currentScreen !== 'rolePlay' && <EmployeeNavigation />}
-      
       {currentScreen === 'rolePlay' && selectedScenario ? (
         <RolePlayConversation
           scenario={selectedScenario}
@@ -501,10 +499,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
           voiceGender={roleplayConfig?.voiceGender || 'female'}
         />
       ) : (
-        <main 
-          className="transition-all duration-300 ease-in-out pt-2 pb-12"
-          style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
-        >
+        <main className="pt-2 pb-12">
           <div className="container mx-auto px-4 py-2 max-w-6xl">
 
         {/* Error Display */}

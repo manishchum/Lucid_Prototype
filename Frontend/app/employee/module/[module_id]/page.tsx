@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import EmployeeNavigation from "@/components/employee-navigation";
 import ModuleSideNav from "@/components/ModuleSideNav";
 import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download } from "lucide-react";
 import FlashcardCards from '@/components/FlashcardCards'
@@ -333,8 +332,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
 
   return (
     <div className="min-h-screen">
-      <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} forceCollapsed={true} />
-      
       {/* Module Side Navigation */}
       {employee?.user_id && (
         <ModuleSideNav 
@@ -344,10 +341,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         />
       )}
 
-      <div 
-        className="transition-all duration-300 ease-in-out px-12 py-8" 
-        style={{ marginLeft: 'calc(var(--sidebar-width, 5rem) + 16rem)' }}
-      >
+      <div className="px-12 py-8" style={{ marginLeft: '16rem' }}>
         <div className="w-full mx-auto">
           <div>
             <main className="w-full">

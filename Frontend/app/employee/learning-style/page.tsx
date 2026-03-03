@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import EmployeeNavigation from "@/components/employee-navigation"
 import { BookOpen, Smile, Meh, Frown, ChevronLeft, ChevronRight, CheckCircle, Star, Target, Lightbulb, Trophy, ChevronDown } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
@@ -480,17 +479,8 @@ export default function LearningStyleSurvey() {
   // Intro page
   if (page === 'intro') {
     return (
-      <div className="min-h-screen">
-        <EmployeeNavigation showForward={false} />
-        
-        {/* Main content area that adapts to sidebar */}
-        <div 
-          className="transition-all duration-300 ease-in-out py-10"
-          style={{ 
-            marginLeft: 'var(--sidebar-width, 0px)',
-          }}
-        >
-          <div className="max-w-4xl mx-auto px-4 flex flex-col items-center">
+      <div className="min-h-screen py-10">
+        <div className="max-w-4xl mx-auto px-4 flex flex-col items-center">
         <BookOpen className="w-20 h-20 text-blue-500 mb-4" />
         <h1 className="text-3xl font-bold mb-6">Performance Sprint Survey</h1>
         
@@ -633,7 +623,6 @@ export default function LearningStyleSurvey() {
         
         <Button className="mt-8 px-8 py-3 text-lg" onClick={() => setPage('survey')}>Start Survey</Button>
         </div>
-      </div>
     </div>
     )
   }
@@ -648,19 +637,10 @@ export default function LearningStyleSurvey() {
     console.log('[Learning Style] Accordion Sections:', accordionSections)
     
     return (
-      <div className="min-h-screen">
-        <EmployeeNavigation showForward={false} />
+      <div className="min-h-screen py-10">
+        <div className="max-w-4xl mx-auto px-4">
         
-        {/* Main content area that adapts to sidebar */}
-        <div 
-          className="transition-all duration-300 ease-in-out py-10"
-          style={{ 
-            marginLeft: 'var(--sidebar-width, 0px)',
-          }}
-        >
-          <div className="max-w-4xl mx-auto px-4">
-        
-        {/* Header Section */}
+        {/* Header Section */}}
         <div className="text-center mb-8">
           {/* <CheckCircle className="w-20 h-20 text-green-500 mx-auto mb-4" /> */}
           <h1 className="text-3xl font-bold mb-2">Survey Complete!</h1>
@@ -746,7 +726,6 @@ export default function LearningStyleSurvey() {
           </Button>
         </div>
         </div>
-      </div>
     </div>
     )
   }
@@ -761,13 +740,7 @@ export default function LearningStyleSurvey() {
 
   if (page === 'survey') {
     return (
-      <div className="min-h-screen">
-        <EmployeeNavigation showForward={false} />
-        {/* Main content area that adapts to sidebar */}
-        <div 
-          className="transition-all duration-300 ease-in-out py-10"
-          style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
-        >
+      <div className="min-h-screen py-10">
           <div className="max-w-4xl mx-auto px-4">
         {/* Progress Bar */}
         <Card className="shadow-sm mb-6">
@@ -867,7 +840,6 @@ export default function LearningStyleSurvey() {
          </div>
           </div>
         </div>
-      </div>
     )
   }
 }

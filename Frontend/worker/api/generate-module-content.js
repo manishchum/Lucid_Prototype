@@ -249,8 +249,8 @@ ${objectivesText}
         : '';
 
       console.log(`[IMAGES] Image context built: ${matchedImages.length}`);
-      matchedImages = matchedImages.slice(0, 3);
-      console.log("Limit images to top 3 most relevant");
+      matchedImages = matchedImages.slice(0, 5);
+      console.log("Limit images to top 5 most relevant");
 
       // -------------------------------------
       // STEP 3: Build RAG context
@@ -376,6 +376,36 @@ IMAGE USAGE POLICY (MANDATORY – NO EXCEPTIONS)
 8. Before inserting an image, verify:
    - Does this section concept clearly match one of the provided image URLs?
    - If no exact match exists, skip image.
+
+10. FULL-PAGE IMAGE REJECTION RULE (MANDATORY)
+
+Some extracted images may represent an entire scanned PDF page 
+(e.g., a full page screenshot of text, headers, footers, margins).
+
+These are NOT considered instructional images.
+
+You MUST NOT use:
+- Full-page scans
+- Entire document pages
+- Images that contain mostly paragraph text
+- Images that replicate full sections of written content
+- Images that look like a full A4/letter page
+- Images that include page numbers, headers, or large text blocks
+
+You may ONLY use:
+- Diagrams
+- Charts
+- Tables
+- Process visuals
+- Infographics
+- Product visuals
+- Visual illustrations that support learning
+
+If an image appears to be a full page of text:
+→ DO NOT include it.
+→ Skip it completely.
+
+Under no circumstances should a full document page image be inserted into the module.
 
 CRITICAL VALIDATION STEP:
 If the image does not have a real working URL, DO NOT OUTPUT THE IMAGE.

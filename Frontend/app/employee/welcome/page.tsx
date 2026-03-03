@@ -12,7 +12,6 @@ import {
   Trophy, Target, TrendingUp, Zap, LayoutGrid,
   ShieldCheck, ArrowRight, CheckCircle2, LogOut
 } from "lucide-react";
-import EmployeeNavigation from "@/components/employee-navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -472,8 +471,6 @@ export default function EmployeeWelcome() {
 
    return (
      <div className="min-h-screen">
-       <EmployeeNavigation showBack={false} showForward={false} />
-
        {/* Login Success Toast */}
        {showLoginToast && (
          <div className="fixed top-6 right-6 z-[100] animate-in slide-in-from-right fade-in duration-500">
@@ -490,10 +487,7 @@ export default function EmployeeWelcome() {
          </div>
        )}
 
-       <main 
-         className="transition-all duration-300 ease-in-out pt-8 pb-12"
-         style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
-       >
+       <main className="pt-8 pb-12">
          <div className="max-w-6xl mx-auto px-6 lg:px-8">
           
            {/* Dashboard Header */}
