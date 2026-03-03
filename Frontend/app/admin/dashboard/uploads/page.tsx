@@ -39,7 +39,7 @@ function ContentUpload({
   adminId: string;
   onUploadComplete: () => void;
 }) {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<any>(null);
   const [thresholdValue, setThresholdValue] = useState<number>(70);
@@ -110,91 +110,206 @@ function ContentUpload({
   
   const isMediaFile = (type: string) => type.includes('video/') || type.includes('audio/') || type.match(/\.(mp4|mp3|wav|mov|avi|m4a)$/i);
 
-  const triggerAIProcessing = async (file: File, moduleId: string, fileUrl: string) => {
-    // Validate moduleId before processing
-    if (!moduleId || moduleId === 'undefined') {
-      console.error('[AI] Invalid moduleId:', moduleId);
-      alert('Cannot process module: Invalid module ID');
+  // const triggerAIProcessing = async ( moduleId: string, files: File[], contentUrl?: string) => {
+  //   // Validate moduleId before processing
+  //   if (!moduleId || moduleId === 'undefined') {
+  //     console.error('[AI] Invalid moduleId:', moduleId);
+  //     alert('Cannot process module: Invalid module ID');
+  //     return;
+  //   }
+    
+  //   try {
+  //     console.log(`[AI] Starting processing for module: ${moduleId}`);
+
+  //     // Update status to transcribing/summarizing immediately via backend API
+  //     const firstFile = files[0];
+  //     const initialStatus = isMediaFile(firstFile?.type || '') ? 'transcribing' : 'summarizing';
+  //     const statusRes = await fetch(`${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`, {
+  //       method: 'PATCH',
+  //       headers: {
+  //         'Content-Type': 'application/json',
+  //         'X-User-ID': adminId
+  //       },
+  //       body: JSON.stringify({ processing_status: initialStatus })
+  //     });
+  //     if (!statusRes.ok) {
+  //       const errorText = await statusRes.text().catch(() => '');
+  //       console.error('Failed to update processing status:', errorText);
+  //     }
+  //     onUploadComplete(); // Refresh UI to show status change
+
+  //     if (isMediaFile(firstFile?.type || '')) {
+  //       // Step 1: Extract/Transcribe
+  //       const extractRes = await fetch('/api/extract-and-analyze', {
+  //         method: 'POST',
+  //         headers: { 'Content-Type': 'application/json' },
+  //         body: JSON.stringify({ fileUrl, fileType: firstFile?.type , moduleId })
+  //       });
+
+  //       if (!extractRes.ok) throw new Error('Transcription failed');
+  //       const { extractedText } = await extractRes.json();
+
+  //       // Step 2: Process text with GPT - Now calling backend API
+  //       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+  //       await fetch(`${backendUrl}/api/openai-upload`, {
+  //         method: 'POST',
+  //         headers: { 'Content-Type': 'application/json' },
+  //         body: JSON.stringify({ text: extractedText, moduleId })
+  //       });
+  //     } else {
+  //       // Direct file upload for documents/spreadsheets
+  //       const formData = new FormData();
+  //       files.forEach((f) => {
+  //         formData.append("files", f);
+  //       });
+
+  //       formData.append("moduleId", moduleId);
+
+  //       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+  //       await fetch(`${backendUrl}/api/openai-upload`, {
+  //         method: 'POST',
+  //         body: formData
+  //       });
+  //     }
+
+  //     console.log(`[AI] Processing triggered successfully for module: ${moduleId}`);
+  //     onUploadComplete(); // Final refresh
+  //   } catch (err) {
+  //     console.error('[AI] Pipeline failed:', err);
+  //     // Update status to failed via backend API
+  //     const failRes = await fetch(`${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`, {
+  //       method: 'PATCH',
+  //       headers: {
+  //         'Content-Type': 'application/json',
+  //         'X-User-ID': adminId
+  //       },
+  //       body: JSON.stringify({ processing_status: 'failed' })
+  //     });
+  //     if (!failRes.ok) {
+  //       console.error('Failed to update failed status:', await failRes.text().catch(() => ''));
+  //     }
+  //     onUploadComplete();
+  //   }
+  // };
+
+  const triggerAIProcessing = async (moduleId: string, uploadFiles: File[], contentUrl?: string) => {
+    if (!moduleId || moduleId === "undefined") {
+      console.error("[AI] Invalid moduleId:", moduleId);
+      alert("Cannot process module: Invalid module ID");
       return;
     }
-    
+
+    if (!uploadFiles || uploadFiles.length === 0) {
+      console.error("[AI] No files passed to triggerAIProcessing");
+      alert("Cannot process module: No files selected");
+      return;
+    }
+
     try {
       console.log(`[AI] Starting processing for module: ${moduleId}`);
 
-      // Update status to transcribing/summarizing immediately via backend API
-      const initialStatus = isMediaFile(file.type) ? 'transcribing' : 'summarizing';
-      const statusRes = await fetch(`${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': adminId
-        },
-        body: JSON.stringify({ processing_status: initialStatus })
-      });
-      if (!statusRes.ok) {
-        const errorText = await statusRes.text().catch(() => '');
-        console.error('Failed to update processing status:', errorText);
-      }
-      onUploadComplete(); // Refresh UI to show status change
+      const firstFile = uploadFiles[0];
+      const initialStatus = isMediaFile(firstFile?.type || "") ? "transcribing" : "summarizing";
 
-      if (isMediaFile(file.type)) {
-        // Step 1: Extract/Transcribe
-        const extractRes = await fetch('/api/extract-and-analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileUrl, fileType: file.type, moduleId })
+      const statusRes = await fetch(
+        `${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-ID": adminId,
+          },
+          body: JSON.stringify({ processing_status: initialStatus }),
+        }
+      );
+
+      if (!statusRes.ok) {
+        const errorText = await statusRes.text().catch(() => "");
+        console.error("Failed to update processing status:", errorText);
+      }
+
+      onUploadComplete();
+
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+
+      // MEDIA: only if you enable media uploads later
+      if (isMediaFile(firstFile?.type || "")) {
+        if (!contentUrl) {
+          throw new Error("Missing contentUrl for media extraction");
+        }
+
+        const extractRes = await fetch("/api/extract-and-analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileUrl: contentUrl, fileType: firstFile?.type, moduleId }),
         });
 
-        if (!extractRes.ok) throw new Error('Transcription failed');
+        if (!extractRes.ok) throw new Error("Transcription failed");
         const { extractedText } = await extractRes.json();
 
-        // Step 2: Process text with GPT - Now calling backend API
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
-        await fetch(`${backendUrl}/api/openai-upload`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: extractedText, moduleId })
+        await fetch(`${backendUrl}/api/openai-upload/text`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: extractedText, moduleId }),
         });
-      } else {
-        // Direct file upload for documents/spreadsheets
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('moduleId', moduleId);
 
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
-        await fetch(`${backendUrl}/api/openai-upload`, {
-          method: 'POST',
-          body: formData
+      } else {
+        // DOC/PDF: send actual File objects
+        const formData = new FormData();
+        uploadFiles.forEach((f) => formData.append("files", f));
+        if (!moduleId || moduleId === "undefined") {
+          throw new Error("Invalid moduleId passed to AI processing");
+        }
+        formData.append("moduleId", String(moduleId));
+
+        const aiRes = await fetch(`${backendUrl}/api/openai-upload/file`, {
+          method: "POST",
+          body: formData,
         });
+
+        // IMPORTANT: surface backend error text instead of silently failing
+        if (!aiRes.ok) {
+          const errText = await aiRes.text().catch(() => "");
+          throw new Error(errText || "AI processing failed");
+        }
       }
 
       console.log(`[AI] Processing triggered successfully for module: ${moduleId}`);
-      onUploadComplete(); // Final refresh
-    } catch (err) {
-      console.error('[AI] Pipeline failed:', err);
-      // Update status to failed via backend API
-      const failRes = await fetch(`${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': adminId
-        },
-        body: JSON.stringify({ processing_status: 'failed' })
-      });
-      if (!failRes.ok) {
-        console.error('Failed to update failed status:', await failRes.text().catch(() => ''));
-      }
       onUploadComplete();
+    } catch (err) {
+      console.error("[AI] Pipeline failed:", err);
+
+      const failRes = await fetch(
+        `${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-ID": adminId,
+          },
+          body: JSON.stringify({ processing_status: "failed" }),
+        }
+      );
+
+      if (!failRes.ok) {
+        console.error("Failed to update failed status:", await failRes.text().catch(() => ""));
+      }
+
+      onUploadComplete();
+      alert(`AI processing failed: ${(err as any)?.message || err}`);
     }
   };
 
   const handleUpload = async () => {
-    if (!file || !title) return;
+    if (files.length === 0  || !title) return;
 
     setUploading(true);
+    const uploadFiles = [...files];
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      files.forEach((file) => {
+        formData.append('file', file);
+      });
       formData.append('title', title);
       formData.append('description', description);
 
@@ -215,8 +330,13 @@ function ContentUpload({
       const result = await response.json();
       console.log('Upload successful:', result);
 
-      const uploadedFile = (result.inserted?.[0]?.module).replace("/object/sign","/object/public");
-      console.log(uploadedFile)
+      const uploadedFileRaw = result.inserted?.[0]?.module;
+
+      if (!uploadedFileRaw) {
+        throw new Error("Upload succeeded but no file URL returned from API");
+      }
+
+      const uploadedFile = uploadedFileRaw.replace("/object/sign","/object/public");
       if (uploadedFile) {
         // Create training module via backend API
         const createRes = await fetch(`${API_URL}/api/training-modules/`, {
@@ -230,7 +350,7 @@ function ContentUpload({
             title: title,
             description: description,
             content_url: uploadedFile,
-            content_type: file.type,
+            content_type: files[0]?.type || "application/pdf",
             processing_status: 'pending',
             threshold_value: thresholdValue,
             reviewer_id: retrievedReviewerId,
@@ -266,7 +386,11 @@ function ContentUpload({
             onUploadComplete();
             
             // Trigger AI background processing
-            await triggerAIProcessing(file, moduleData.module_id, uploadedFile);
+            await triggerAIProcessing( moduleData.module_id, uploadFiles, uploadedFile);
+            console.log("Triggering AI with:");
+            console.log("moduleId:", moduleData.module_id);
+            console.log("files count:", uploadFiles.length);
+            console.log("file names:", uploadFiles.map(f => f.name));
           } else {
             console.error('[Upload] No module_id in response. Full payload:', createPayload);
             alert('Module created but ID not found in response');
@@ -274,7 +398,7 @@ function ContentUpload({
         }
       }
 
-      setFile(null);
+      setFiles([]);
       setTitle('');
       setDescription('');
       setAdditionalLinks([]);
@@ -398,12 +522,44 @@ function ContentUpload({
         <Input
           id="file"
           type="file"
-          accept=".pdf,.mp4,.docx,.pptx"
-          onChange={(e) => setFile(e.target.files?.[0] || null)}
+          multiple
+          accept=".pdf,.docx,.doc"
+          onChange={(e) => {
+            if(!e.target.files) return;
+            setFiles(Array.from(e.target.files || []));
+          }}
         />
       </div>
 
-      <Button onClick={handleUpload} disabled={!file || !title || uploading}>
+      {/* Selected Files List */}
+      {files.length > 0 && (
+        <div className="mt-3 space-y-2">
+          <Label>Selected Files:</Label>
+
+          {files.map((file, index) => (
+            <div
+              key={index}
+              className="flex items-center justify-between bg-gray-50 border rounded p-2 text-sm"
+            >
+              <span className="truncate">{file.name}</span>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setFiles(files.filter((_, i) => i !== index));
+                }}
+                className="text-red-600"
+              >
+                <Trash2 className="w-4 h-4 mr-1" />
+                Remove
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Button onClick={handleUpload} disabled={files.length === 0 || !title || uploading}>
         {uploading ? 'Uploading...' : 'Upload Content'}
       </Button>
     </div>
@@ -487,7 +643,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
         setPreview(rows.slice(0, 10));
       } else if (f.name.endsWith(".xlsx")) {
         const xlsx = await import("xlsx");
-        const workbook = xlsx.read(arrayBuffer, { type: "array" });
+        const workbook = xlsx.read(arrayBuffer, { type: "array" }); 
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const rows = xlsx.utils.sheet_to_json(sheet, { header: 1 });
         setPreview((rows as string[][]).slice(0, 10));
@@ -508,7 +664,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
     setError("");
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("files", file);
       const res = await fetch("/api/admin/kpi/upload-scores", {
         method: "POST",
         body: formData,
