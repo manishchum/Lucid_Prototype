@@ -6,13 +6,14 @@ import shutil
 import asyncio
 import platform
 from typing import Any, Dict, List, Optional, Union
-
+from PyPDF2 import PdfMerger
 import httpx
 import pandas as pd
 from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import JSONResponse
 from ingestion import ingest_from_upload
-
+from fastapi import UploadFile, File, Form
+import tempfile
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
 
@@ -452,6 +453,11 @@ async def processAndStoreResults(moduleId: str, message: str):
     if not ai_modules or len(ai_modules) == 0:
         error_msg = f"[processAndStoreResults] ERROR: ai_modules is empty for moduleId: {moduleId}"
         print(error_msg)
+
+        supabase.table("training_modules").update({
+            "processing_status": "failed"
+        }).eq("module_id", moduleId).execute()
+
         return {"error": "ai_modules is empty - parsing may have failed", "moduleId": moduleId}
 
     if not ai_topics or len(ai_topics) == 0:
@@ -471,9 +477,11 @@ async def processAndStoreResults(moduleId: str, message: str):
     print(f"[processAndStoreResults] - ai_objectives: {len(ai_objectives)} objectives")
 
     # First, verify the row exists
+    print("Insetion se phle tkk sab theek hai")
     check_res = supabase.table("training_modules").select("module_id, processing_status").eq("module_id", moduleId).execute()
     check_data = getattr(check_res, "data", None)
     check_error = getattr(check_res, "error", None)
+    print("Insertion ke baad bhi theek hai")
     
     if check_error:
         print(f"[processAndStoreResults] Error checking row existence: {check_error}")
@@ -577,152 +585,156 @@ async def processTextContent(text: str, moduleId: str):
     return JSONResponse(content=results)
 
 
-async def handleTextUpload(req: Request):
-    body = await req.json()
-    text = body.get("text")
-    moduleId = body.get("moduleId")
+from fastapi import Body
+
+@router.post("/openai-upload/text")
+async def openai_upload_text(payload: dict = Body(...)):
+    text = payload.get("text")
+    moduleId = payload.get("moduleId")
 
     if not text or not moduleId:
         return JSONResponse(content={"error": "Missing text or moduleId"}, status_code=400)
 
     return await processTextContent(text, moduleId)
 
-
-async def handleFileUpload(req: Request):
-    tempFilePath: Optional[str] = None
+@router.post("/openai-upload/file")
+async def openai_upload_file(
+    files: List[UploadFile] = File(...),
+    moduleId: str = Form(...)
+):
+    temp_files = []
+    pdf_files = []
+    merged_pdf_path = None
 
     try:
-        form = await req.form()
-        file: UploadFile = form.get("file")
-        moduleId = form.get("moduleId")
+        print("FILES RECEIVED COUNT:", len(files))
+        print("MODULE ID:", moduleId)
 
-        if not file or not file.filename or not moduleId or moduleId == "null":
-            return JSONResponse(content={"error": "Missing file or moduleId"}, status_code=400)
+        if not files or not moduleId:
+            return JSONResponse(content={"error": "No files provided"}, status_code=400)
 
-        tempDir = os.getenv("TEMP", "C:\\Windows\\Temp") if platform.system().lower().startswith("win") else "/tmp"
-        tempFilePath = os.path.join(tempDir, f"{uuid.uuid4()}_{file.filename}")
+        tempDir = tempfile.gettempdir()
 
-        with open(tempFilePath, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+        for file in files:
+            safe_name = file.filename.replace(" ", "_")
+            temp_path = os.path.join(tempDir, f"{uuid.uuid4()}_{safe_name}")
 
-        isDocx = re.search(r"\.docx$", file.filename, re.I)
-        isDoc = re.search(r"\.doc$", file.filename, re.I)
-        isSpreadsheet = re.search(r"\.(xlsx|xls|csv)$", file.filename, re.I)
+            with open(temp_path, "wb") as f:
+                shutil.copyfileobj(file.file, f)
 
-        # Convert doc/docx to PDF via CloudConvert
-        if isDocx or isDoc:
-            try:
-                pdfPath = re.sub(r"\.docx?$", ".pdf", tempFilePath, flags=re.I)
-                await convertDocToPdf(tempFilePath, pdfPath)
-                try:
-                    os.unlink(tempFilePath)
-                except Exception:
-                    pass
-                tempFilePath = pdfPath
-                print(f"Converted {file.filename} to PDF for processing via CloudConvert")
-            except Exception as conversionError:
-                print("CloudConvert conversion failed:", conversionError)
-                raise Exception("Failed to convert document to PDF via CloudConvert.")
+            temp_files.append(temp_path)
 
-        if isSpreadsheet:
-            extractedText = f"Spreadsheet Analysis: {file.filename}\n\n"
+            filename_lower = file.filename.lower()
 
-            if re.search(r"\.csv$", file.filename, re.I):
-                df = pd.read_csv(tempFilePath)
-                extractedText += df.to_string(index=False)
+            if filename_lower.endswith(".doc") or filename_lower.endswith(".docx"):
+                converted_pdf = temp_path.rsplit(".", 1)[0] + ".pdf"
+                await convertDocToPdf(temp_path, converted_pdf)
+                pdf_files.append(converted_pdf)
+            elif filename_lower.endswith(".pdf"):
+                pdf_files.append(temp_path)
             else:
-                xls = pd.ExcelFile(tempFilePath)
-                for sheetName in xls.sheet_names:
-                    extractedText += f"\n=== Sheet: {sheetName} ===\n"
-                    df = pd.read_excel(tempFilePath, sheet_name=sheetName, header=None).fillna("")
-                    for idx, row in df.iterrows():
-                        row_values = [str(x) for x in row.values.tolist()]
-                        if len(row_values) > 0:
-                            extractedText += f"Row {idx + 1}: {' | '.join(row_values)}\n"
+                raise Exception(f"Unsupported file type: {file.filename}")
 
+        merged_pdf_path = os.path.join(tempDir, f"{moduleId}_combined.pdf")
 
-        
+        merger = PdfMerger()
+        for pdf in pdf_files:
+            merger.append(pdf)
 
-            try:
-                os.unlink(tempFilePath)
-            except Exception:
-                pass
+        merger.write(merged_pdf_path)
+        merger.close()
 
-            return await processTextContent(extractedText, moduleId)
-        
-        documents_dir = os.path.join(
-            os.path.dirname(__file__),
-            "..",
-            "storage","documents"
+        # Upload merged PDF to SAME bucket
+        with open(merged_pdf_path, "rb") as f:
+            combined_bytes = f.read()
+
+        storage_path = f"uploads/{moduleId}_combined.pdf"
+        supabase.storage.from_("content library").remove([storage_path])
+        upload_res = supabase.storage.from_("content library").upload(
+            storage_path,
+            combined_bytes,
+            {"content-type": "application/pdf"}
         )
+        if hasattr(upload_res, "error") and upload_res.error:
+            raise Exception(f"Failed to upload merged PDF: {upload_res.error}")
+
+        # Correct public URL extraction
+        url_res = supabase.storage.from_("content library").get_public_url(storage_path)
+        print("Public URL response:", url_res)
         
-        documents_dir = os.path.abspath(documents_dir)
-        os.makedirs(documents_dir, exist_ok=True)
-        final_pdf_path = os.path.join(documents_dir, f"{moduleId}.pdf")
-        shutil.copyfile(tempFilePath, final_pdf_path)
-        print(f"Copied file to {final_pdf_path} for RAG ingestion.")
 
-        # ------------------------------------------------------------------
-        # ✅ GEMINI FILE UPLOAD + PROCESSING (replaces OpenAI Assistants)
-        # ------------------------------------------------------------------
-        # Keep variable names same:
-        # - openaiFile -> geminiFile (but we keep openaiFile variable name for flow parity)
-        # - assistantId remains unused (but not needed)
-        # - messages parsing becomes direct response.text extraction
-        # ------------------------------------------------------------------
+        # Handle both possible return types
+        if isinstance(url_res, str):
+            combined_url = url_res
+        elif isinstance(url_res, dict):
+            combined_url = url_res.get("publicUrl") or url_res.get("public_url")
+        else:
+            combined_url = None
 
-        # Upload to Gemini Files API
-        with open(tempFilePath, "rb") as f:
-            # Gemini SDK expects a path OR file=...
-            # Use the official upload method as per spec.
-            openaiFile = gemini_client.files.upload(file=tempFilePath)
+        if not combined_url:
+            raise Exception("Failed to generate public URL for merged PDF")
 
-        # Generate content using uploaded file
-        response = gemini_client.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=[
-                INSTRUCTION_PROMPT,
-                openaiFile  # Pass file object directly, same flow as SDK doc
-            ],
+    
+
+        # Update training_modules to point to merged file
+        supabase.table("training_modules").update({
+            "content_url": combined_url
+        }).eq("module_id", moduleId).execute()
+
+        supabase.table("training_modules").update({
+            "processing_status": "summarizing"
+        }).eq("module_id", moduleId).execute()
+
+        geminiFile = gemini_client.files.upload(file=merged_pdf_path)
+
+        response = await asyncio.to_thread(
+            lambda: gemini_client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=[INSTRUCTION_PROMPT, geminiFile],
+            )
         )
 
         message = getattr(response, "text", "") or ""
 
-        try:
-            os.unlink(tempFilePath)
-        except Exception:
-            pass
-
-        results = await processAndStoreResults(moduleId, message.strip())
-        return JSONResponse(content=results)
+        return await processAndStoreResults(moduleId, message.strip())
 
     except Exception as err:
-        if tempFilePath:
-            try:
-                os.unlink(tempFilePath)
-            except Exception:
-                pass
-        raise err
+        print("Upload error:", err)
 
+        supabase.table("training_modules").update({
+            "processing_status": "failed"
+        }).eq("module_id", moduleId).execute()
+
+        return JSONResponse(content={"error": str(err)}, status_code=500)
+
+    finally:
+        for path in temp_files:
+            if os.path.exists(path):
+                os.unlink(path)
+
+        if merged_pdf_path and os.path.exists(merged_pdf_path):
+            os.unlink(merged_pdf_path)
 
 # -------------------------
 # Main POST route (equivalent export async function POST)
 # -------------------------
-@router.post("/openai-upload")
-async def POST(req: Request):
-    try:
-        contentType = req.headers.get("content-type")
+# @router.post("/openai-upload")
+# async def POST(req: Request):
+#     try:
+#         contentType = (req.headers.get("content-type") or"").lower()
 
-        if contentType and "multipart/form-data" in contentType:
-            return await handleFileUpload(req)
-        elif contentType and "application/json" in contentType:
-            return await handleTextUpload(req)
-        else:
-            return JSONResponse(content={"error": "Unsupported content type"}, status_code=400)
+#         if "multipart/form-data" in contentType:
+#             return await handleFileUpload(req)
+#         elif contentType and "application/json" in contentType:
+#             return await handleTextUpload(req)
+#         else:
+#             return JSONResponse(content={"error": "Unsupported content type"}, status_code=400)
 
-    except Exception as error:
-        print("❌ Fatal Error:", error)
-        return JSONResponse(
-            content={"error": "Internal server error", "detail": str(error)},
-            status_code=500
-        )
+#     except Exception as error:
+#         print("❌ Fatal Error:", error)
+#         return JSONResponse(
+#             content={"error": "Internal server error", "detail": str(error)},
+#             status_code=500
+#         )
+
+
