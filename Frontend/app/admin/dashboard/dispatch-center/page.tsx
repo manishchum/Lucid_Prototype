@@ -61,6 +61,10 @@ export default function AdminDispatchCenterPage() {
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('09:00');
 
+  // Sprint image
+  const [sprintImageUrl, setSprintImageUrl] = useState('');
+  const [loadingImage, setLoadingImage] = useState(false);
+
   // Email draft state
   const [draftedEmail, setDraftedEmail] = useState<{ subject: string; body: string } | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -117,19 +121,24 @@ export default function AdminDispatchCenterPage() {
       setAssignedUsers([]);
       setDraftedEmail(null);
       setSendResult(null);
+      setSprintImageUrl('');
       return;
     }
 
     const fetchData = async () => {
       setLoadingSubModules(true);
+      setLoadingImage(true);
       setDraftedEmail(null);
       setSendResult(null);
       try {
-        const [subRes, usersRes] = await Promise.all([
+        const [subRes, usersRes, imageRes] = await Promise.all([
           fetch(`${API_BASE}/api/dispatch/sub-modules/${selectedSprintId}`, {
             headers: { 'X-User-ID': currentUser.user_id },
           }),
           fetch(`${API_BASE}/api/dispatch/assigned-users/${selectedSprintId}`, {
+            headers: { 'X-User-ID': currentUser.user_id },
+          }),
+          fetch(`${API_BASE}/api/dispatch/sprint-image/${selectedSprintId}`, {
             headers: { 'X-User-ID': currentUser.user_id },
           }),
         ]);
@@ -141,10 +150,15 @@ export default function AdminDispatchCenterPage() {
           const usersData = await usersRes.json();
           setAssignedUsers(usersData.users || []);
         }
+        if (imageRes.ok) {
+          const imageData = await imageRes.json();
+          setSprintImageUrl(imageData.image_url || '');
+        }
       } catch (e) {
-        console.error('Error fetching sub-modules / users:', e);
+        console.error('Error fetching sub-modules / users / image:', e);
       } finally {
         setLoadingSubModules(false);
+        setLoadingImage(false);
       }
     };
     fetchData();
@@ -195,6 +209,7 @@ export default function AdminDispatchCenterPage() {
           engagement_question: engagementQuestion || undefined,
           scheduled_date: scheduleEnabled ? scheduledDate : undefined,
           scheduled_time: scheduleEnabled ? scheduledTime : undefined,
+          sprint_image_url: sprintImageUrl || undefined,
         }),
       });
       if (res.ok) {
@@ -421,13 +436,62 @@ export default function AdminDispatchCenterPage() {
                 </div>
               )}
 
-              {/* 5. Dispatch Scheduling */}
+              {/* 5. Sprint Image */}
+              {selectedSprintId && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
+                    5. Sprint Image (for email hero)
+                  </label>
+                  <div className="space-y-3">
+                    {/* Auto-fetched preview or loading */}
+                    {loadingImage ? (
+                      <div className="flex items-center gap-2 text-sm text-slate-400">
+                        <Loader2 size={14} className="animate-spin" /> Looking for sprint image…
+                      </div>
+                    ) : sprintImageUrl ? (
+                      <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
+                        <img
+                          src={sprintImageUrl}
+                          alt="Sprint image preview"
+                          className="w-full h-36 object-cover"
+                        />
+                        <button
+                          onClick={() => { setSprintImageUrl(''); setDraftedEmail(null); }}
+                          className="absolute top-2 right-2 w-7 h-7 bg-white/90 hover:bg-white rounded-full flex items-center justify-center shadow text-slate-600 hover:text-red-500 transition-colors"
+                          title="Remove image"
+                        >
+                          <X size={14} />
+                        </button>
+                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/40 to-transparent px-3 py-2">
+                          <p className="text-[11px] text-white/90 font-medium truncate">
+                            {sprintImageUrl.length > 60 ? sprintImageUrl.slice(0, 60) + '…' : sprintImageUrl}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 text-sm">
+                        <span>🖼️</span> No image found for this sprint — paste a URL below.
+                      </div>
+                    )}
+                    {/* Manual URL override */}
+                    <input
+                      type="url"
+                      value={sprintImageUrl}
+                      onChange={(e) => { setSprintImageUrl(e.target.value); setDraftedEmail(null); }}
+                      placeholder="Paste an image URL to use in the email…"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-blue-400 text-slate-700"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 6. Dispatch Scheduling */}
               {selectedSprintId && (
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-2">
                       <Calendar size={14} />
-                      5. Dispatch Scheduling
+                      6. Dispatch Scheduling
                     </label>
                     <button
                       onClick={() => setScheduleEnabled(!scheduleEnabled)}
@@ -566,10 +630,13 @@ export default function AdminDispatchCenterPage() {
 
                     {/* Body */}
                     <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Body</label>
-                      <div
-                        className="bg-white rounded-lg border border-slate-200 p-4 max-h-[350px] overflow-y-auto text-sm text-slate-700 prose prose-sm max-w-none"
-                        dangerouslySetInnerHTML={{ __html: draftedEmail.body }}
+                      <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Body Preview</label>
+                      <iframe
+                        srcDoc={draftedEmail.body}
+                        className="w-full rounded-lg border border-slate-200 bg-white"
+                        style={{ height: '480px' }}
+                        sandbox="allow-same-origin"
+                        title="Email Preview"
                       />
                     </div>
 

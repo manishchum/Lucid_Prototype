@@ -11,6 +11,7 @@ from utils.db.dispatch_db import (
     get_sprints_by_company,
     get_sub_modules_by_sprint,
     get_assigned_users_for_sprint,
+    get_sprint_image,
 )
 
 router = APIRouter(prefix="/api/dispatch", tags=["dispatch"])
@@ -27,6 +28,7 @@ class GenerateEmailRequest(BaseModel):
     engagement_question: Optional[str] = None
     scheduled_date: Optional[str] = None
     scheduled_time: Optional[str] = None
+    sprint_image_url: Optional[str] = None
 
 
 class SendEmailRequest(BaseModel):
@@ -72,6 +74,18 @@ async def list_assigned_users(
     return {"users": result["data"] or [], "count": len(result["data"] or [])}
 
 
+@router.get("/sprint-image/{module_id}")
+async def get_sprint_image_url(
+    module_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """Return the first available image URL for a sprint from vectordb_images."""
+    result = await get_sprint_image(module_id)
+    if result["error"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return {"image_url": result["data"]}
+
+
 @router.post("/generate-email")
 async def generate_email(
     request: GenerateEmailRequest,
@@ -80,7 +94,9 @@ async def generate_email(
     """Use Gemini to draft a nudge / encouragement email."""
     sub_modules_text = "\n".join(f"  - {t}" for t in request.sub_module_titles)
 
-    prompt = f"""You are a corporate learning & development assistant. 
+    event_date = f"{request.scheduled_date} at {request.scheduled_time}" if request.scheduled_date and request.scheduled_time else "your scheduled training time"
+
+    prompt = f"""You are a corporate learning & development assistant.
 Draft a professional yet warm and encouraging nudge email for employees about their upcoming training content.
 
 Sprint: {request.sprint_title}
@@ -93,12 +109,158 @@ Sub-modules covered:
     if request.scheduled_date and request.scheduled_time:
         prompt += f"\nThe content is scheduled for {request.scheduled_date} at {request.scheduled_time}.\n"
 
-    prompt += """
+    # Build image block for hero card — two-column if image provided, single column otherwise
+    if request.sprint_image_url:
+        hero_image_block = f"""
+                  </td>
+
+                  <!-- Sprint Image -->
+                  <td style="vertical-align:bottom;text-align:right;width:40%;padding:0;">
+                    <img src="{request.sprint_image_url}"
+                      alt="{request.sprint_title}"
+                      width="200"
+                      style="display:block;margin-left:auto;border-radius:0 0 20px 0;object-fit:cover;max-height:240px;" />
+                  </td>"""
+        hero_td_width = "width:60%;"
+    else:
+        hero_image_block = """
+                  </td>"""
+        hero_td_width = "width:100%;"
+
+    prompt += f"""
 Requirements:
 1. Keep the tone motivating and professional.
 2. The email should encourage employees to complete the listed sub-modules.
 3. If an engagement question is provided, weave it into the email so it feels natural.
-4. Return ONLY a JSON object with two keys: "subject" (email subject line) and "body" (the full HTML email body with inline styles for a clean, modern look). Do not wrap the JSON in markdown code fences.
+4. Return ONLY a JSON object with two keys: "subject" (email subject line) and "body" (the full HTML email body). Do not wrap the JSON in markdown code fences.
+
+For the "body", you MUST output the following HTML template exactly, replacing only the placeholder tokens (wrapped in {{{{ }}}}) with appropriate generated content. Do not alter any HTML tags, inline styles, or structure outside the placeholder tokens.
+
+Template:
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Virtual Event Invite</title>
+</head>
+<body style="margin:0;padding:0;background-color:#dde6f5;font-family:'Segoe UI',Arial,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#dde6f5;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;">
+
+          <!-- LOGO HEADER -->
+          <tr>
+            <td style="padding:28px 36px 20px;">
+              <table cellpadding="0" cellspacing="0">
+                <tr>
+                  <td>
+                    <span style="font-size:26px;font-weight:800;color:#e91e8c;letter-spacing:-1px;">
+                      &#128022; <span style="color:#e91e8c;">Lucid</span><span style="color:#3a3a6e;">Learn</span>
+                    </span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- HERO CARD -->
+          <tr>
+            <td style="padding:0 24px 28px;">
+              <table width="100%" cellpadding="0" cellspacing="0"
+                style="background:linear-gradient(135deg,#eef1ff 0%,#dde4ff 100%);border-radius:20px;overflow:hidden;">
+                <tr>
+                  <td style="padding:32px 36px;vertical-align:top;{hero_td_width}">
+
+                    <!-- Badge -->
+                    <div style="display:inline-block;border:1.5px solid #aab0d0;border-radius:999px;padding:5px 16px;font-size:13px;color:#3a3a6e;margin-bottom:20px;">
+                      Learning Sprint
+                    </div>
+
+                    <!-- Sprint Title -->
+                    <h1 style="margin:0 0 6px;font-size:32px;font-weight:800;color:#1a1a4e;line-height:1.15;">
+                      {{{{SPRINT_TITLE}}}}
+                    </h1>
+
+                    <!-- Tagline -->
+                    <p style="margin:0 0 18px;font-size:15px;font-weight:600;color:#3a3a6e;">
+                      {{{{SPRINT_TAGLINE}}}}
+                    </p>
+
+                    <!-- Date -->
+                    <p style="margin:0 0 24px;font-size:15px;color:#3a3a6e;">
+                      &#128197;&nbsp; <strong>{{{{EVENT_DATE}}}}</strong>
+                    </p>
+
+                    <!-- CTA Button -->
+                    <a href="#"
+                      style="display:inline-block;background:#e91e8c;color:#ffffff;text-decoration:none;
+                             font-weight:700;font-size:15px;padding:13px 24px;border-radius:999px;">
+                      Start Learning &nbsp;&#10140;
+                    </a>
+{hero_image_block}
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- EMAIL BODY -->
+          <tr>
+            <td style="padding:0 36px 36px;color:#222;font-size:16px;line-height:1.7;">
+
+              <p>Hi there,</p>
+
+              <p>
+                {{{{EMAIL_INTRO}}}}
+              </p>
+
+              <p>
+                {{{{EMAIL_BODY}}}}
+              </p>
+
+              {{{{ENGAGEMENT_BLOCK}}}}
+
+              <!-- Secondary CTA -->
+              <p style="margin-top:28px;">
+                <a href="#"
+                  style="display:inline-block;background:#e91e8c;color:#ffffff;text-decoration:none;
+                         font-weight:700;font-size:15px;padding:13px 28px;border-radius:999px;">
+                  Start Learning &nbsp;&#10140;
+                </a>
+              </p>
+
+            </td>
+          </tr>
+
+          <!-- FOOTER -->
+          <tr>
+            <td style="padding:20px 36px;border-top:1px solid #eee;font-size:12px;color:#888;text-align:center;">
+              You're receiving this because you are enrolled in a training sprint on LucidLearn.<br/>
+              <a href="#" style="color:#e91e8c;text-decoration:none;">Unsubscribe</a>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>
+
+Placeholder instructions:
+- {{{{SPRINT_TITLE}}}}: Use "{request.sprint_title}"
+- {{{{SPRINT_TAGLINE}}}}: Write a short motivating subtitle for the sprint (e.g. "Your pathway to mastery starts here")
+- {{{{EVENT_DATE}}}}: Use "{event_date}"
+- {{{{EMAIL_INTRO}}}}: Write a warm 1-2 sentence opener referencing the sprint and the modules: {sub_modules_text}
+- {{{{EMAIL_BODY}}}}: Write 2-3 encouraging sentences about the sub-modules covered and why they matter
+- {{{{ENGAGEMENT_BLOCK}}}}: If an engagement question was provided, render it as a styled blockquote like:
+  <blockquote style="border-left:4px solid #e91e8c;margin:20px 0;padding:12px 20px;background:#fff0f7;border-radius:0 12px 12px 0;font-style:italic;color:#3a3a6e;">
+    💡 <strong>Thought for today:</strong> [the engagement question here]
+  </blockquote>
+  Otherwise leave {{{{ENGAGEMENT_BLOCK}}}} as an empty string.
 """
 
     try:
