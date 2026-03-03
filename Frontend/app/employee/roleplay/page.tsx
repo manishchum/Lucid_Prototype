@@ -101,6 +101,9 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   useEffect(() => {
     if (isCustom) {
       const customScenarioData = sessionStorage.getItem('customScenario');
+
+
+      console.log(customScenarioData)
       if (customScenarioData) {
         try {
           const scenario = JSON.parse(customScenarioData);
@@ -496,6 +499,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
           scenario={selectedScenario}
           onEndSession={handleEndSession}
           moduleId={moduleId || undefined}
+          employeeId={employeeId || undefined}
           voiceGender={roleplayConfig?.voiceGender || 'female'}
         />
       ) : (
