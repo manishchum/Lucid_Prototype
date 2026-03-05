@@ -176,22 +176,12 @@ Engagement question: {request.engagement_question or "none"}
     if event_date:
         date_row = f'<p style="margin:0 0 24px;font-size:14px;color:#3B66F5;font-weight:600;">&#128197;&nbsp; {event_date}</p>'
 
-    # Lucid "L" logo — CSS-only table cell approach (works in all email clients, no SVG needed)
+    # Lucid "L" logo — light blue rounded square with blue "L" (matches app icon)
     lucid_logo_html = (
-        '<div style="display:inline-block;background:#3B66F5;border-radius:8px;width:34px;height:34px;'
-        'vertical-align:middle;position:relative;">'
-        '<table cellpadding="0" cellspacing="0" style="width:100%;height:100%;">'
-        '<tr>'
-        # Vertical bar of the "L"
-        '<td style="width:10px;padding:6px 0 6px 8px;vertical-align:top;">'
-        '<div style="width:4px;height:22px;background:#ffffff;border-radius:2px;"></div>'
-        '</td>'
-        # Horizontal base of the "L"
-        '<td style="vertical-align:bottom;padding:0 6px 6px 2px;">'
-        '<div style="width:12px;height:4px;background:#ffffff;border-radius:2px;margin-bottom:0;"></div>'
-        '</td>'
-        '</tr>'
-        '</table>'
+        '<div style="display:inline-block;background:#EEF2FF;border-radius:14px;'
+        'width:44px;height:44px;text-align:center;vertical-align:middle;line-height:44px;">'
+        '<span style="font-size:26px;font-weight:900;color:#3B66F5;'
+        'font-family:Arial,Helvetica,sans-serif;line-height:44px;display:inline-block;vertical-align:middle;">L</span>'
         '</div>'
     )
 
@@ -210,7 +200,7 @@ Engagement question: {request.engagement_question or "none"}
 
           <!-- LOGO HEADER -->
           <tr>
-            <td style="padding:18px 36px 14px;border-bottom:1px solid #EFF6FF;">
+            <td style="padding:16px 36px 12px;border-bottom:1px solid #EFF6FF;">
               <table cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="vertical-align:middle;">
@@ -227,7 +217,7 @@ Engagement question: {request.engagement_question or "none"}
 
           <!-- HERO CARD -->
           <tr>
-            <td style="padding:14px 24px 24px;">
+            <td style="padding:8px 24px 24px;">
               <table width="100%" cellpadding="0" cellspacing="0"
                 style="background:linear-gradient(135deg,#3B66F5 0%,#1D4ED8 100%);border-radius:16px;overflow:hidden;">
                 <tr>
