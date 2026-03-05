@@ -14,11 +14,13 @@ import {
 import { Button } from "@/components/ui/button";
 import VoiceInput from "@/components/VoiceInput";
 import { Scenario, Message } from "@/lib/roleplay/types";
+import { createRolePlaySession, updateRolePlaySession } from "@/lib/roleplayDatabase";
 
 interface RolePlayConversationProps {
   scenario: Scenario;
-  onEndSession: (messages: Message[]) => void;
+  onEndSession: (messages: Message[], sessionId?: string) => void;
   moduleId?: string;
+  employeeId?: string;
   voiceGender?: "female" | "male";
 }
 
@@ -27,6 +29,8 @@ const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 export default function RolePlayConversation({
   scenario,
   onEndSession,
+  moduleId,
+  employeeId,
   voiceGender = "female",
 }: RolePlayConversationProps) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -46,10 +50,16 @@ export default function RolePlayConversation({
   const recordedChunksRef = useRef<Blob[]>([]);
   const isProcessingRef = useRef(false);
   const conversationActiveRef = useRef(false);
+  const messagesRef = useRef<Message[]>([]);
+  const sessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     conversationActiveRef.current = conversationActive;
   }, [conversationActive]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     return () => stopAllMedia();
@@ -74,6 +84,30 @@ export default function RolePlayConversation({
   /* ================= START ================= */
 
   const startConversation = async () => {
+    // Create a session in the database
+    if (employeeId) {
+      try {
+        const { data, error } = await createRolePlaySession(
+          employeeId,
+          scenario.scenario_id,
+          scenario.title,
+          scenario.role,
+          scenario.difficulty,
+          moduleId
+        );
+        if (data && !error) {
+          sessionIdRef.current = data.id;
+          console.log('✅ Roleplay session created:', data.id);
+        } else {
+          console.error('❌ Failed to create roleplay session:', error);
+        }
+      } catch (e) {
+        console.error('❌ Exception creating roleplay session:', e);
+      }
+    } else {
+      console.warn('⚠️ No employeeId provided, session will not be saved');
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
@@ -151,7 +185,7 @@ export default function RolePlayConversation({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
-          conversationHistory: [...messages, userMessage],
+          conversationHistory: [...messagesRef.current, userMessage],
           scenarioTitle: scenario.title,
           scenarioRole: scenario.role,
           initialPrompt: scenario.initialPrompt,
@@ -248,9 +282,20 @@ export default function RolePlayConversation({
 
   /* ================= END SESSION ================= */
 
-  const handleEndSession = () => {
+  const handleEndSession = async () => {
     stopConversation();
-    onEndSession(messages);
+
+    // Save conversation transcript to the database before ending
+    if (sessionIdRef.current && messagesRef.current.length > 0) {
+      try {
+        await updateRolePlaySession(sessionIdRef.current, messagesRef.current, true);
+        console.log('✅ Session transcript saved to database');
+      } catch (e) {
+        console.error('❌ Failed to save session transcript:', e);
+      }
+    }
+
+    onEndSession(messagesRef.current, sessionIdRef.current || undefined);
   };
 
   /* ================= UI (UNCHANGED) ================= */
