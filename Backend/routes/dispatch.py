@@ -176,12 +176,23 @@ Engagement question: {request.engagement_question or "none"}
     if event_date:
         date_row = f'<p style="margin:0 0 24px;font-size:14px;color:#3B66F5;font-weight:600;">&#128197;&nbsp; {event_date}</p>'
 
-    # Lucid "L" logo SVG (matches app branding — blue rect + base bar)
-    lucid_logo_svg = (
-        '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
-        '<rect x="6" y="4" width="3" height="14" fill="#3B66F5" rx="0.5"/>'
-        '<rect x="6" y="15" width="9" height="3" fill="#3B66F5" rx="0.5"/>'
-        '</svg>'
+    # Lucid "L" logo — CSS-only table cell approach (works in all email clients, no SVG needed)
+    lucid_logo_html = (
+        '<div style="display:inline-block;background:#3B66F5;border-radius:8px;width:34px;height:34px;'
+        'vertical-align:middle;position:relative;">'
+        '<table cellpadding="0" cellspacing="0" style="width:100%;height:100%;">'
+        '<tr>'
+        # Vertical bar of the "L"
+        '<td style="width:10px;padding:6px 0 6px 8px;vertical-align:top;">'
+        '<div style="width:4px;height:22px;background:#ffffff;border-radius:2px;"></div>'
+        '</td>'
+        # Horizontal base of the "L"
+        '<td style="vertical-align:bottom;padding:0 6px 6px 2px;">'
+        '<div style="width:12px;height:4px;background:#ffffff;border-radius:2px;margin-bottom:0;"></div>'
+        '</td>'
+        '</tr>'
+        '</table>'
+        '</div>'
     )
 
     html_body = f"""<!DOCTYPE html>
@@ -199,13 +210,11 @@ Engagement question: {request.engagement_question or "none"}
 
           <!-- LOGO HEADER -->
           <tr>
-            <td style="padding:24px 36px 20px;border-bottom:1px solid #EFF6FF;">
+            <td style="padding:18px 36px 14px;border-bottom:1px solid #EFF6FF;">
               <table cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="vertical-align:middle;">
-                    <div style="display:inline-block;background:#EEF2FF;border-radius:10px;padding:7px 9px;vertical-align:middle;">
-                      {lucid_logo_svg}
-                    </div>
+                    {lucid_logo_html}
                   </td>
                   <td style="vertical-align:middle;padding-left:10px;">
                     <span style="font-size:22px;font-weight:800;color:#1E293B;letter-spacing:-0.5px;">Lucid</span>
@@ -218,7 +227,7 @@ Engagement question: {request.engagement_question or "none"}
 
           <!-- HERO CARD -->
           <tr>
-            <td style="padding:28px 24px 24px;">
+            <td style="padding:14px 24px 24px;">
               <table width="100%" cellpadding="0" cellspacing="0"
                 style="background:linear-gradient(135deg,#3B66F5 0%,#1D4ED8 100%);border-radius:16px;overflow:hidden;">
                 <tr>
