@@ -9,7 +9,8 @@ from utils.db.companies_db import (
     list_all_companies,
     create_company,
     update_company,
-    delete_company
+    delete_company,
+    search_companies
 )
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
@@ -90,6 +91,29 @@ async def get_company_by_domain_route(
         status_code = 404 if result["error"] == "Company not found" else 500
         raise HTTPException(status_code=status_code, detail=result["error"])
     return {"company": result["data"]}
+
+
+@router.get("/search")
+async def search_companies_route(
+    q: str = Query(..., min_length=2, description="Search term (minimum 2 characters)"),
+    limit: int = Query(10, ge=1, le=50, description="Maximum number of results"),
+    user_id: Optional[str] = Header(None, alias="X-User-ID")
+):
+    """
+    Search companies by name (case-insensitive partial match).
+    Permission: Public access (for signup), requires minimum 2 characters for privacy.
+    
+    Query Parameters:
+        - q: Search term (minimum 2 characters)
+        - limit: Maximum number of results (default: 10, max: 50)
+    """
+    result = await search_companies(user_id, q, limit)
+    
+    if result["error"]:
+        status_code = 400 if "must be at least" in result["error"] else 500
+        raise HTTPException(status_code=status_code, detail=result["error"])
+    
+    return {"companies": result["data"], "count": len(result["data"] or [])}
 
 
 @router.post("/")

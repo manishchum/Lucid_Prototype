@@ -122,3 +122,29 @@ async def delete_company(requesting_user_id: str, company_id: str) -> Dict[str, 
         return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
+
+
+async def search_companies(requesting_user_id: Optional[str], search_term: str, limit: int = 10) -> Dict[str, Any]:
+    """
+    Search companies by name with a partial match (case-insensitive).
+    Permission: Public access (for signup), but requires minimum 2 characters for privacy.
+    
+    Args:
+        requesting_user_id: Optional user ID (can be None for public signup)
+        search_term: Search term (minimum 2 characters)
+        limit: Maximum number of results to return (default: 10)
+    
+    Returns:
+        Dictionary with matching companies data or error
+    """
+    # Validate minimum search term length for privacy
+    if not search_term or len(search_term.strip()) < 2:
+        return {"data": None, "error": "Search term must be at least 2 characters"}
+    
+    try:
+        # Use ilike for case-insensitive partial matching with wildcards
+        search_pattern = f"%{search_term.strip()}%"
+        resp = supabase.table('companies').select('company_id, name, domain').ilike('name', search_pattern).limit(limit).order('name').execute()
+        return {"data": resp.data, "error": None}
+    except Exception as e:
+        return {"data": None, "error": str(e)}
