@@ -3,9 +3,15 @@ from pydantic import BaseModel
 from typing import Optional, List
 import google.generativeai as genai
 import os
+import re
+import json
 import smtplib
+import uuid
+from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+
+from scheduler import scheduler
 
 from utils.db.dispatch_db import (
     get_sprints_by_company,
@@ -37,6 +43,14 @@ class SendEmailRequest(BaseModel):
     body: str
     scheduled_date: Optional[str] = None
     scheduled_time: Optional[str] = None
+
+
+class ScheduleEmailRequest(BaseModel):
+    module_id: str
+    subject: str
+    body: str
+    scheduled_date: str   # "YYYY-MM-DD"
+    scheduled_time: str   # "HH:MM"
 
 
 # ── Endpoints ───────────────────────────────────────────────────
@@ -93,73 +107,109 @@ async def generate_email(
 ):
     """Use Gemini to draft a nudge / encouragement email."""
     sub_modules_text = "\n".join(f"  - {t}" for t in request.sub_module_titles)
+    event_date = (
+        f"{request.scheduled_date} at {request.scheduled_time}"
+        if request.scheduled_date and request.scheduled_time
+        else None
+    )
 
-    event_date = f"{request.scheduled_date} at {request.scheduled_time}" if request.scheduled_date and request.scheduled_time else "your scheduled training time"
-
+    # ── Step 1: Ask Gemini ONLY for the text snippets (no HTML in JSON) ──────
+    schedule_line = f"Scheduled for: {event_date}" if event_date else ""
     prompt = f"""You are a corporate learning & development assistant.
-Draft a professional yet warm and encouraging nudge email for employees about their upcoming training content.
+Generate content snippets for a training nudge email. Return ONLY a raw JSON object (no markdown fences, no explanation) with exactly these keys:
+
+- "subject": a compelling email subject line (plain text, no quotes inside)
+- "tagline": a short motivating subtitle for the sprint, e.g. "Your pathway to mastery starts here" (plain text, max 12 words)
+- "intro": a warm 1-2 sentence opener referencing the sprint and its sub-modules (plain text, no HTML)
+- "body": 2-3 encouraging sentences about why these sub-modules matter (plain text, no HTML)
+- "engagement": if an engagement question is provided below, write it as a single plain-text sentence starting with "💡 Thought for today: ". Otherwise return an empty string "".
 
 Sprint: {request.sprint_title}
 Sub-modules covered:
 {sub_modules_text}
+{schedule_line}
+Engagement question: {request.engagement_question or "none"}
 """
-    if request.engagement_question:
-        prompt += f"\nInclude this engagement question in the email naturally: \"{request.engagement_question}\"\n"
 
-    if request.scheduled_date and request.scheduled_time:
-        prompt += f"\nThe content is scheduled for {request.scheduled_date} at {request.scheduled_time}.\n"
+    try:
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        response = model.generate_content(prompt)
+        text = response.text.strip()
 
-    # Build image block for hero card — two-column if image provided, single column otherwise
+        # Strip any markdown fences (```json ... ```)
+        text = re.sub(r'^```[a-zA-Z]*\s*', '', text)
+        text = re.sub(r'\s*```\s*$', '', text)
+        text = text.strip()
+
+        snippets = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"AI returned invalid JSON: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate email content: {str(e)}")
+
+    # ── Step 2: Build the HTML template in Python (no JSON encoding issues) ──
+    subject = snippets.get("subject", f"Your training sprint is ready: {request.sprint_title}")
+    tagline = snippets.get("tagline", "Your pathway to mastery starts here")
+    intro = snippets.get("intro", "")
+    body_text = snippets.get("body", "")
+    engagement_text = snippets.get("engagement", "")
+
+    engagement_block = ""
+    if engagement_text:
+        engagement_block = f'''<blockquote style="border-left:4px solid #3B66F5;margin:24px 0;padding:14px 20px;background:#EEF2FF;border-radius:0 12px 12px 0;font-style:italic;color:#1E3A8A;">
+  <strong>{engagement_text}</strong>
+</blockquote>'''
+
     if request.sprint_image_url:
-        hero_image_block = f"""
-                  </td>
-
-                  <!-- Sprint Image -->
-                  <td style="vertical-align:bottom;text-align:right;width:40%;padding:0;">
+        hero_image_col = f'''<td style="vertical-align:bottom;text-align:right;width:38%;padding:0;">
                     <img src="{request.sprint_image_url}"
                       alt="{request.sprint_title}"
-                      width="200"
-                      style="display:block;margin-left:auto;border-radius:0 0 20px 0;object-fit:cover;max-height:240px;" />
-                  </td>"""
-        hero_td_width = "width:60%;"
+                      width="190"
+                      style="display:block;margin-left:auto;border-radius:0 0 20px 0;object-fit:cover;max-height:220px;" />
+                  </td>'''
+        hero_td_width = "width:62%;"
     else:
-        hero_image_block = """
-                  </td>"""
+        hero_image_col = ""
         hero_td_width = "width:100%;"
 
-    prompt += f"""
-Requirements:
-1. Keep the tone motivating and professional.
-2. The email should encourage employees to complete the listed sub-modules.
-3. If an engagement question is provided, weave it into the email so it feels natural.
-4. Return ONLY a JSON object with two keys: "subject" (email subject line) and "body" (the full HTML email body). Do not wrap the JSON in markdown code fences.
+    date_row = ""
+    if event_date:
+        date_row = f'<p style="margin:0 0 24px;font-size:14px;color:#3B66F5;font-weight:600;">&#128197;&nbsp; {event_date}</p>'
 
-For the "body", you MUST output the following HTML template exactly, replacing only the placeholder tokens (wrapped in {{{{ }}}}) with appropriate generated content. Do not alter any HTML tags, inline styles, or structure outside the placeholder tokens.
+    # Lucid "L" logo SVG (matches app branding — blue rect + base bar)
+    lucid_logo_svg = (
+        '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+        '<rect x="6" y="4" width="3" height="14" fill="#3B66F5" rx="0.5"/>'
+        '<rect x="6" y="15" width="9" height="3" fill="#3B66F5" rx="0.5"/>'
+        '</svg>'
+    )
 
-Template:
-<!DOCTYPE html>
+    html_body = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Virtual Event Invite</title>
+  <title>{subject}</title>
 </head>
-<body style="margin:0;padding:0;background-color:#dde6f5;font-family:'Segoe UI',Arial,sans-serif;">
-
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#dde6f5;padding:40px 0;">
+<body style="margin:0;padding:0;background-color:#EFF6FF;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#EFF6FF;padding:40px 0;">
     <tr>
       <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;">
+        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(59,102,245,0.10);">
 
           <!-- LOGO HEADER -->
           <tr>
-            <td style="padding:28px 36px 20px;">
+            <td style="padding:24px 36px 20px;border-bottom:1px solid #EFF6FF;">
               <table cellpadding="0" cellspacing="0">
                 <tr>
-                  <td>
-                    <span style="font-size:26px;font-weight:800;color:#e91e8c;letter-spacing:-1px;">
-                      &#128022; <span style="color:#e91e8c;">Lucid</span><span style="color:#3a3a6e;">Learn</span>
-                    </span>
+                  <td style="vertical-align:middle;">
+                    <div style="display:inline-block;background:#EEF2FF;border-radius:10px;padding:7px 9px;vertical-align:middle;">
+                      {lucid_logo_svg}
+                    </div>
+                  </td>
+                  <td style="vertical-align:middle;padding-left:10px;">
+                    <span style="font-size:22px;font-weight:800;color:#1E293B;letter-spacing:-0.5px;">Lucid</span>
+                    <span style="font-size:22px;font-weight:400;color:#3B66F5;letter-spacing:-0.5px;">Learn</span>
                   </td>
                 </tr>
               </table>
@@ -168,39 +218,22 @@ Template:
 
           <!-- HERO CARD -->
           <tr>
-            <td style="padding:0 24px 28px;">
+            <td style="padding:28px 24px 24px;">
               <table width="100%" cellpadding="0" cellspacing="0"
-                style="background:linear-gradient(135deg,#eef1ff 0%,#dde4ff 100%);border-radius:20px;overflow:hidden;">
+                style="background:linear-gradient(135deg,#3B66F5 0%,#1D4ED8 100%);border-radius:16px;overflow:hidden;">
                 <tr>
-                  <td style="padding:32px 36px;vertical-align:top;{hero_td_width}">
-
-                    <!-- Badge -->
-                    <div style="display:inline-block;border:1.5px solid #aab0d0;border-radius:999px;padding:5px 16px;font-size:13px;color:#3a3a6e;margin-bottom:20px;">
+                  <td style="padding:32px 32px 32px;vertical-align:top;{hero_td_width}">
+                    <div style="display:inline-block;background:rgba(255,255,255,0.18);border-radius:999px;padding:5px 16px;font-size:12px;color:#ffffff;font-weight:600;letter-spacing:0.5px;margin-bottom:18px;text-transform:uppercase;">
                       Learning Sprint
                     </div>
-
-                    <!-- Sprint Title -->
-                    <h1 style="margin:0 0 6px;font-size:32px;font-weight:800;color:#1a1a4e;line-height:1.15;">
-                      {{{{SPRINT_TITLE}}}}
-                    </h1>
-
-                    <!-- Tagline -->
-                    <p style="margin:0 0 18px;font-size:15px;font-weight:600;color:#3a3a6e;">
-                      {{{{SPRINT_TAGLINE}}}}
-                    </p>
-
-                    <!-- Date -->
-                    <p style="margin:0 0 24px;font-size:15px;color:#3a3a6e;">
-                      &#128197;&nbsp; <strong>{{{{EVENT_DATE}}}}</strong>
-                    </p>
-
-                    <!-- CTA Button -->
-                    <a href="#"
-                      style="display:inline-block;background:#e91e8c;color:#ffffff;text-decoration:none;
-                             font-weight:700;font-size:15px;padding:13px 24px;border-radius:999px;">
-                      Start Learning &nbsp;&#10140;
+                    <h1 style="margin:0 0 8px;font-size:26px;font-weight:800;color:#ffffff;line-height:1.2;">{request.sprint_title}</h1>
+                    <p style="margin:0 0 20px;font-size:14px;font-weight:500;color:rgba(255,255,255,0.85);">{tagline}</p>
+                    {date_row}
+                    <a href="https://lucid.workfloww.ai" style="display:inline-block;background:#ffffff;color:#3B66F5;text-decoration:none;font-weight:700;font-size:14px;padding:11px 24px;border-radius:999px;">
+                      Start Learning &rarr;
                     </a>
-{hero_image_block}
+                  </td>
+                  {hero_image_col}
                 </tr>
               </table>
             </td>
@@ -208,37 +241,31 @@ Template:
 
           <!-- EMAIL BODY -->
           <tr>
-            <td style="padding:0 36px 36px;color:#222;font-size:16px;line-height:1.7;">
-
-              <p>Hi there,</p>
-
-              <p>
-                {{{{EMAIL_INTRO}}}}
-              </p>
-
-              <p>
-                {{{{EMAIL_BODY}}}}
-              </p>
-
-              {{{{ENGAGEMENT_BLOCK}}}}
-
-              <!-- Secondary CTA -->
-              <p style="margin-top:28px;">
-                <a href="#"
-                  style="display:inline-block;background:#e91e8c;color:#ffffff;text-decoration:none;
-                         font-weight:700;font-size:15px;padding:13px 28px;border-radius:999px;">
-                  Start Learning &nbsp;&#10140;
+            <td style="padding:8px 36px 36px;color:#334155;font-size:15px;line-height:1.75;">
+              <p style="margin:0 0 16px;">Hi there,</p>
+              <p style="margin:0 0 16px;">{intro}</p>
+              <p style="margin:0 0 16px;">{body_text}</p>
+              {engagement_block}
+              <p style="margin:28px 0 0;">
+                <a href="https://lucid.workfloww.ai" style="display:inline-block;background:#3B66F5;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 28px;border-radius:999px;">
+                  Start Learning &rarr;
                 </a>
               </p>
+            </td>
+          </tr>
 
+          <!-- DIVIDER -->
+          <tr>
+            <td style="padding:0 36px;">
+              <div style="height:1px;background:#EFF6FF;"></div>
             </td>
           </tr>
 
           <!-- FOOTER -->
           <tr>
-            <td style="padding:20px 36px;border-top:1px solid #eee;font-size:12px;color:#888;text-align:center;">
+            <td style="padding:20px 36px 28px;font-size:12px;color:#94A3B8;text-align:center;">
               You're receiving this because you are enrolled in a training sprint on LucidLearn.<br/>
-              <a href="#" style="color:#e91e8c;text-decoration:none;">Unsubscribe</a>
+              <a href="#" style="color:#3B66F5;text-decoration:none;">Unsubscribe</a>
             </td>
           </tr>
 
@@ -246,39 +273,10 @@ Template:
       </td>
     </tr>
   </table>
-
 </body>
-</html>
+</html>"""
 
-Placeholder instructions:
-- {{{{SPRINT_TITLE}}}}: Use "{request.sprint_title}"
-- {{{{SPRINT_TAGLINE}}}}: Write a short motivating subtitle for the sprint (e.g. "Your pathway to mastery starts here")
-- {{{{EVENT_DATE}}}}: Use "{event_date}"
-- {{{{EMAIL_INTRO}}}}: Write a warm 1-2 sentence opener referencing the sprint and the modules: {sub_modules_text}
-- {{{{EMAIL_BODY}}}}: Write 2-3 encouraging sentences about the sub-modules covered and why they matter
-- {{{{ENGAGEMENT_BLOCK}}}}: If an engagement question was provided, render it as a styled blockquote like:
-  <blockquote style="border-left:4px solid #e91e8c;margin:20px 0;padding:12px 20px;background:#fff0f7;border-radius:0 12px 12px 0;font-style:italic;color:#3a3a6e;">
-    💡 <strong>Thought for today:</strong> [the engagement question here]
-  </blockquote>
-  Otherwise leave {{{{ENGAGEMENT_BLOCK}}}} as an empty string.
-"""
-
-    try:
-        model = genai.GenerativeModel("gemini-2.0-flash")
-        response = model.generate_content(prompt)
-        text = response.text.strip()
-
-        # Strip markdown fences if present
-        if text.startswith("```"):
-            text = "\n".join(text.split("\n")[1:])
-        if text.endswith("```"):
-            text = "\n".join(text.split("\n")[:-1])
-
-        import json
-        email_data = json.loads(text)
-        return {"email": email_data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate email: {str(e)}")
+    return {"email": {"subject": subject, "body": html_body}}
 
 
 @router.post("/send-email")
@@ -338,4 +336,87 @@ async def send_email(
         "message": f"Email sent to {sent_count}/{len(recipient_emails)} users",
         "sent_count": sent_count,
         "failed": failed,
+    }
+
+
+# ── Standalone SMTP helper (called by APScheduler — must be a plain function) ─
+
+def send_smtp_job(recipient_emails: List[str], subject: str, body: str) -> None:
+    """Send HTML email via SMTP. Designed to be called as an APScheduler job."""
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER", "")
+    smtp_pass = os.getenv("SMTP_PASS", "")
+    from_email = os.getenv("FROM_EMAIL", smtp_user)
+
+    if not smtp_user or not smtp_pass:
+        raise RuntimeError("SMTP credentials not configured on server")
+
+    server = smtplib.SMTP(smtp_host, smtp_port)
+    server.starttls()
+    server.login(smtp_user, smtp_pass)
+
+    for email_addr in recipient_emails:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = from_email
+        msg["To"] = email_addr
+        msg.attach(MIMEText(body, "html"))
+        server.sendmail(from_email, email_addr, msg.as_string())
+
+    server.quit()
+
+
+@router.post("/schedule-email")
+async def schedule_email(
+    request: ScheduleEmailRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """Schedule the drafted email to be delivered at a future date/time (UTC)."""
+    # 1. Parse the run date
+    try:
+        run_dt = datetime.strptime(
+            f"{request.scheduled_date} {request.scheduled_time}", "%Y-%m-%d %H:%M"
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid date/time format. Expected YYYY-MM-DD and HH:MM",
+        )
+
+    if run_dt <= datetime.utcnow():
+        raise HTTPException(
+            status_code=400,
+            detail="Scheduled time must be in the future (UTC)",
+        )
+
+    # 2. Get assigned users
+    users_result = await get_assigned_users_for_sprint(request.module_id)
+    if users_result["error"]:
+        raise HTTPException(status_code=400, detail=users_result["error"])
+
+    users_data = users_result["data"] or []
+    if not users_data:
+        raise HTTPException(status_code=404, detail="No users assigned to this sprint")
+
+    recipient_emails = [u["email"] for u in users_data if u.get("email")]
+    if not recipient_emails:
+        raise HTTPException(status_code=404, detail="No valid email addresses found")
+
+    # 3. Schedule the job (SQLite-persisted, survives restarts)
+    job_id = f"dispatch_{request.module_id}_{uuid.uuid4().hex[:8]}"
+    scheduler.add_job(
+        send_smtp_job,
+        trigger="date",
+        run_date=run_dt,
+        id=job_id,
+        args=[recipient_emails, request.subject, request.body],
+        replace_existing=True,
+    )
+
+    return {
+        "status": "scheduled",
+        "job_id": job_id,
+        "scheduled_at": run_dt.isoformat(),
+        "recipient_count": len(recipient_emails),
     }

@@ -69,7 +69,14 @@ export default function AdminDispatchCenterPage() {
   const [draftedEmail, setDraftedEmail] = useState<{ subject: string; body: string } | null>(null);
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
-  const [sendResult, setSendResult] = useState<{ message: string; sent_count: number; failed: string[] } | null>(null);
+  const [sendResult, setSendResult] = useState<{
+    message: string;
+    sent_count?: number;
+    failed?: string[];
+    status?: string;
+    scheduled_at?: string;
+    recipient_count?: number;
+  } | null>(null);
 
   // Assigned users
   const [assignedUsers, setAssignedUsers] = useState<AssignedUser[]>([]);
@@ -234,30 +241,59 @@ export default function AdminDispatchCenterPage() {
     setSendResult(null);
 
     try {
-      const res = await fetch(`${API_BASE}/api/dispatch/send-email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': currentUser.user_id,
-        },
-        body: JSON.stringify({
-          module_id: selectedSprintId,
-          subject: draftedEmail.subject,
-          body: draftedEmail.body,
-          scheduled_date: scheduleEnabled ? scheduledDate : undefined,
-          scheduled_time: scheduleEnabled ? scheduledTime : undefined,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSendResult(data);
+      if (scheduleEnabled) {
+        // ── Schedule for later ──────────────────────────────────
+        if (!scheduledDate || !scheduledTime) {
+          alert('Please pick a date and time before scheduling.');
+          setSending(false);
+          return;
+        }
+        const res = await fetch(`${API_BASE}/api/dispatch/schedule-email`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': currentUser.user_id,
+          },
+          body: JSON.stringify({
+            module_id: selectedSprintId,
+            subject: draftedEmail.subject,
+            body: draftedEmail.body,
+            scheduled_date: scheduledDate,
+            scheduled_time: scheduledTime,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setSendResult(data);
+        } else {
+          const err = await res.json().catch(() => null);
+          alert(err?.detail || 'Failed to schedule email');
+        }
       } else {
-        const err = await res.json().catch(() => null);
-        alert(err?.detail || 'Failed to send email');
+        // ── Send immediately ────────────────────────────────────
+        const res = await fetch(`${API_BASE}/api/dispatch/send-email`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': currentUser.user_id,
+          },
+          body: JSON.stringify({
+            module_id: selectedSprintId,
+            subject: draftedEmail.subject,
+            body: draftedEmail.body,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setSendResult(data);
+        } else {
+          const err = await res.json().catch(() => null);
+          alert(err?.detail || 'Failed to send email');
+        }
       }
     } catch (e) {
-      console.error('Error sending email:', e);
-      alert('Failed to send email');
+      console.error('Error sending/scheduling email:', e);
+      alert('Failed to send/schedule email');
     } finally {
       setSending(false);
     }
@@ -656,7 +692,12 @@ export default function AdminDispatchCenterPage() {
                       >
                         {sending ? (
                           <>
-                            <Loader2 size={16} className="animate-spin" /> Sending…
+                            <Loader2 size={16} className="animate-spin" />
+                            {scheduleEnabled ? 'Scheduling…' : 'Sending…'}
+                          </>
+                        ) : scheduleEnabled ? (
+                          <>
+                            <Calendar size={16} /> Schedule Email ({assignedUsers.length})
                           </>
                         ) : (
                           <>
@@ -671,24 +712,51 @@ export default function AdminDispatchCenterPage() {
 
               {/* Send Result */}
               {sendResult && (
-                <div className={`rounded-xl p-5 border-2 ${sendResult.failed.length === 0 ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+                <div className={`rounded-xl p-5 border-2 ${
+                  sendResult.status === 'scheduled'
+                    ? 'bg-blue-50 border-blue-200'
+                    : (sendResult.failed?.length ?? 0) === 0
+                      ? 'bg-green-50 border-green-200'
+                      : 'bg-yellow-50 border-yellow-200'
+                }`}>
                   <div className="flex items-start gap-3">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${sendResult.failed.length === 0 ? 'bg-green-500' : 'bg-yellow-500'}`}>
-                      {sendResult.failed.length === 0 ? (
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
+                      sendResult.status === 'scheduled'
+                        ? 'bg-blue-500'
+                        : (sendResult.failed?.length ?? 0) === 0
+                          ? 'bg-green-500'
+                          : 'bg-yellow-500'
+                    }`}>
+                      {sendResult.status === 'scheduled' ? (
+                        <Calendar size={20} className="text-white" />
+                      ) : (sendResult.failed?.length ?? 0) === 0 ? (
                         <Check size={20} className="text-white" />
                       ) : (
                         <AlertCircle size={20} className="text-white" />
                       )}
                     </div>
                     <div>
-                      <h4 className="font-bold text-slate-900 text-sm">{sendResult.message}</h4>
-                      {sendResult.failed.length > 0 && (
-                        <div className="mt-2">
-                          <p className="text-xs font-semibold text-red-600 mb-1">Failed to deliver to:</p>
-                          {sendResult.failed.map((email) => (
-                            <p key={email} className="text-xs text-red-500">{email}</p>
-                          ))}
-                        </div>
+                      {sendResult.status === 'scheduled' ? (
+                        <>
+                          <h4 className="font-bold text-slate-900 text-sm">
+                            Email scheduled for {sendResult.recipient_count} recipient{sendResult.recipient_count !== 1 ? 's' : ''}
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Delivery time: {sendResult.scheduled_at ? new Date(sendResult.scheduled_at).toLocaleString() : '—'}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <h4 className="font-bold text-slate-900 text-sm">{sendResult.message}</h4>
+                          {(sendResult.failed?.length ?? 0) > 0 && (
+                            <div className="mt-2">
+                              <p className="text-xs font-semibold text-red-600 mb-1">Failed to deliver to:</p>
+                              {sendResult.failed!.map((email) => (
+                                <p key={email} className="text-xs text-red-500">{email}</p>
+                              ))}
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                     <button onClick={() => setSendResult(null)} className="ml-auto text-slate-400 hover:text-slate-600">

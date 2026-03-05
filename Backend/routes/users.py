@@ -189,7 +189,9 @@ async def get_user_by_email_route(
     requesting_user_id = None if not user_id else user_id
     result = await get_user_by_email(requesting_user_id, email)
     if result["error"]:
-        if "not found" in (result["error"] or "").lower():
+        err_lower = (result["error"] or "").lower()
+        print(f"[by-email route] error for {email}: {result['error']!r}")
+        if "not found" in err_lower or "no rows" in err_lower:
             raise HTTPException(status_code=404, detail=result["error"])
         raise HTTPException(status_code=403, detail=result["error"])
     return {"user": result["data"]}

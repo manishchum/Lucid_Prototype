@@ -56,12 +56,11 @@ export async function POST(req: NextRequest) {
       page_url: body.page_url || body.pageUrl || body.url || body.page || null,
     };
 
-    const res = await logError(payload as any);
-    if (!res || res.ok === false) {
-      // surface DB/RPC errors so we can debug why logs aren't being persisted
-      return NextResponse.json({ ok: false, error: res?.error || 'unknown logError failure' }, { status: 500 });
-    }
-    return NextResponse.json({ ok: true, deduped: false }, { status: 201 });
+    // Fire-and-forget — do NOT await logError so the response is instant.
+    // A slow/unavailable Supabase connection must never block the login page.
+    logError(payload as any).catch((e) => console.error('background logError failed', e));
+
+    return NextResponse.json({ ok: true, deduped: false }, { status: 202 });
   } catch (err) {
     console.error('Logging endpoint error', err);
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
