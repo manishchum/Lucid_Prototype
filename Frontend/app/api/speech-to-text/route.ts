@@ -1,59 +1,190 @@
 import { NextRequest, NextResponse } from "next/server";
-import os from 'os';
-import fs from 'fs';
-const base64Key = process.env.GOOGLE_STT_JSON;
-let credentialsPath: string | undefined;
-let serviceAccountCredentials: any = null;
+import { GoogleAuth } from "google-auth-library";
 
-if (base64Key) {
-  try {
-    const decoded = Buffer.from(base64Key, 'base64').toString('utf8');
-    serviceAccountCredentials = JSON.parse(decoded);
-    const tempPath = os.tmpdir() + `/google-credentials-${Date.now()}.json`;
-    fs.writeFileSync(tempPath, decoded, { encoding: 'utf8' });
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = tempPath;
-    credentialsPath = tempPath;
-    console.log('[STT API] Decoded Google credentials from GOOGLE_STT_JSON and set GOOGLE_APPLICATION_CREDENTIALS');
-  } catch (e) {
-    console.error('[STT API] Failed to decode/write Google credentials:', e);
-  }
-} else {
-  console.warn('[STT API] GOOGLE_STT_JSON not set.');
-}
+/* ======================================================
+   🔐 Load Service Account Credentials (Base64)
+   ====================================================== */
 
-// Helper function to get OAuth2 access token
-async function getAccessToken() {
-  if (!serviceAccountCredentials) {
-    throw new Error('Service account credentials not loaded');
+const credentials = process.env.GOOGLE_STT_JSON
+  ? JSON.parse(
+      Buffer.from(process.env.GOOGLE_STT_JSON, "base64").toString("utf8")
+    )
+  : null;
+
+/* ======================================================
+   🔑 Get OAuth2 Access Token
+   ====================================================== */
+
+async function getAccessToken(): Promise<string> {
+  if (!credentials) {
+    throw new Error("Google STT credentials not configured");
   }
 
-  const { GoogleAuth } = await import('google-auth-library');
   const auth = new GoogleAuth({
-    credentials: serviceAccountCredentials,
-    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+    credentials,
+    scopes: ["https://www.googleapis.com/auth/cloud-platform"],
   });
 
   const client = await auth.getClient();
-  const accessToken = await client.getAccessToken();
-  
-  if (!accessToken.token) {
-    throw new Error('Failed to get access token');
+  const token = await client.getAccessToken();
+
+  if (!token.token) {
+    throw new Error("Failed to obtain Google access token");
   }
 
-  return accessToken.token;
+  return token.token;
 }
 
-// Helper function to estimate audio duration
-function estimateAudioDuration(audioSizeBytes: number, sampleRate: number = 48000): number {
-  // More conservative estimate: WEBM OPUS compression varies
-  // Real-world data: ~15KB/second average for speech
-  const bytesPerSecond = 15000; 
-  return audioSizeBytes / bytesPerSecond;
+/* ======================================================
+   🎙 Transcribe Single Chunk
+   ====================================================== */
+
+async function transcribeChunk(
+  base64Audio: string,
+  chunkIndex: number,
+  accessToken: string
+): Promise<{ text: string; chunkIndex: number }> {
+  const response = await fetch(
+    "https://speech.googleapis.com/v1/speech:longrunningrecognize",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        config: {
+          encoding: "WEBM_OPUS", // must match frontend
+          sampleRateHertz: 48000,
+          languageCode: "en-US",
+          enableAutomaticPunctuation: true,
+        },
+        audio: {
+          content: base64Audio,
+        },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Chunk ${chunkIndex} transcription failed (${response.status}): ${errorText}`
+    );
+  }
+
+  const data = await response.json();
+  const operationName = data.name;
+
+  if (!operationName) {
+    throw new Error(`Chunk ${chunkIndex} failed to start operation`);
+  }
+
+  // Poll until done
+  const operationUrl = `https://speech.googleapis.com/v1/operations/${operationName}`;
+
+  let attempts = 0;
+  const maxAttempts = 30; // ~30 seconds
+  const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+  while (attempts < maxAttempts) {
+    await delay(1000);
+    attempts++;
+
+    const pollResponse = await fetch(operationUrl, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    const pollData = await pollResponse.json();
+
+    if (pollData.done) {
+      if (pollData.error) {
+        throw new Error(
+          `Chunk ${chunkIndex} operation error: ${JSON.stringify(pollData.error)}`
+        );
+      }
+
+ const transcript =
+        pollData.response?.results
+          ?.map((r: any) => r.alternatives?.[0]?.transcript || "")
+          .join(" ") || "";
+
+      return {
+        text: transcript.trim(),
+        chunkIndex,
+      };
+    }
+  }
+
+  throw new Error(`Chunk ${chunkIndex} transcription timeout`);
 }
+
+/* ======================================================
+   🔗 Merge Chunk Transcriptions
+   ====================================================== */
+
+function mergeTranscriptions(
+  transcriptions: Array<{ text: string; chunkIndex: number }>
+): string {
+  if (transcriptions.length === 0) return "";
+  if (transcriptions.length === 1) return transcriptions[0].text;
+
+  // Sort by chunk index
+  transcriptions.sort((a, b) => a.chunkIndex - b.chunkIndex);
+
+  let merged = transcriptions[0].text;
+
+  for (let i = 1; i < transcriptions.length; i++) {
+    const current = transcriptions[i].text;
+
+    const overlap = findOverlap(merged, current);
+
+    if (overlap.length > 0) {
+      const uniquePart = current.slice(overlap.length).trim();
+      merged = `${merged} ${uniquePart}`;
+    } else {
+      merged = `${merged} ${current}`;
+    }
+  }
+
+  return merged.trim();
+}
+
+function normalize(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[.,!?]/g, "")
+    .trim();
+}
+
+function findOverlap(text1: string, text2: string): string {
+  const words1 = normalize(text1).split(/\s+/);
+  const words2 = normalize(text2).split(/\s+/);
+
+  const minOverlapWords = 2;
+  const maxOverlapWords = Math.min(8, words1.length, words2.length);
+
+  for (let overlapLen = maxOverlapWords; overlapLen >= minOverlapWords; overlapLen--) {
+    const end1 = words1.slice(-overlapLen).join(" ");
+    const start2 = words2.slice(0, overlapLen).join(" ");
+
+    if (end1 === start2) {
+      return words2.slice(0, overlapLen).join(" ");
+    }
+  }
+
+  return "";
+}
+
+/* ======================================================
+   🚀 Main POST Handler
+   ====================================================== */
 
 export async function POST(request: NextRequest) {
   try {
-    if (!serviceAccountCredentials) {
+    if (!credentials) {
       return NextResponse.json(
         { error: "Google Speech-to-Text credentials not configured" },
         { status: 500 }
@@ -61,206 +192,102 @@ export async function POST(request: NextRequest) {
     }
 
     const formData = await request.formData();
-    const audioFile = formData.get("audio") as File;
 
-    if (!audioFile) {
+    const isChunked = formData.has("chunkCount");
+
+    const accessToken = await getAccessToken();
+
+    /* --------------------------------------------
+       🟢 SINGLE AUDIO FILE
+       -------------------------------------------- */
+
+    if (!isChunked) {
+      const audioFile = formData.get("audio") as File;
+
+      if (!audioFile) {
+        return NextResponse.json(
+          { error: "No audio file provided" },
+          { status: 400 }
+        );
+      }
+
+      const buffer = Buffer.from(await audioFile.arrayBuffer());
+      const base64Audio = buffer.toString("base64");
+
+      const result = await transcribeChunk(base64Audio, 0, accessToken);
+
+      if (!result.text) {
+        return NextResponse.json(
+          { error: "No speech detected" },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json({
+        text: result.text,
+        processingMethod: "single",
+      });
+    }
+
+    /* --------------------------------------------
+       🟢 CHUNKED AUDIO (Parallel)
+       -------------------------------------------- */
+
+    const chunkCount = parseInt(formData.get("chunkCount") as string, 10);
+
+    if (!chunkCount || chunkCount <= 0) {
       return NextResponse.json(
-        { error: "No audio file provided" },
+        { error: "Invalid chunk count" },
         { status: 400 }
       );
     }
 
-    // Convert audio to base64
-    const buffer = Buffer.from(await audioFile.arrayBuffer());
-    const base64Audio = buffer.toString("base64");
+    const chunks: Array<{ blob: File; index: number }> = [];
 
-    const estimatedDuration = estimateAudioDuration(buffer.length);
-    console.log("[Speech-to-Text] Sending request to Google Speech API...");
-    console.log("[Speech-to-Text] Audio size:", buffer.length, "bytes");
-    console.log("[Speech-to-Text] Estimated duration:", estimatedDuration.toFixed(1), "seconds");
-
-    // Get OAuth2 access token
-    const accessToken = await getAccessToken();
-
-    // Use conservative threshold: if > 800KB or estimated > 55s, use long-running
-    // Google's sync API has issues with anything close to 60s
-    if (buffer.length > 800000 || estimatedDuration > 55) {
-      console.log("[Speech-to-Text] Audio likely > 60s, using LongRunningRecognize...");
-      return await handleLongAudioRecognition(buffer, base64Audio, accessToken);
+    for (let i = 0; i < chunkCount; i++) {
+      const chunkBlob = formData.get(`chunk_${i}`) as File;
+      if (chunkBlob) {
+        chunks.push({ blob: chunkBlob, index: i });
+      }
     }
 
+    if (chunks.length === 0) {
+      return NextResponse.json(
+        { error: "No audio chunks provided" },
+        { status: 400 }
+      );
+    }
 
-    console.log("Sending payload to the gemini");
-    // console.log(base64Audio);
-    console.log(audioFile);
-    // Use sync API for audio under 60 seconds
-    const apiUrl = `https://speech.googleapis.com/v1/speech:recognize`;
-    console.log(apiUrl);
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        config: {
-          encoding: "LINEAR16",  // WAV format for better transcription quality
-          sampleRateHertz: 48000,
-          languageCode: "en-US",
-          enableAutomaticPunctuation: true,
-          model: "default",
-          useEnhanced: true,
-        },
-        audio: {
-          content: base64Audio,
-        },
-      }),
+    const transcriptionPromises = chunks.map(async (chunk) => {
+      const buffer = Buffer.from(await chunk.blob.arrayBuffer());
+      const base64Audio = buffer.toString("base64");
+
+      return transcribeChunk(base64Audio, chunk.index, accessToken);
     });
 
+    const transcriptions = await Promise.all(transcriptionPromises);
 
-    console.log(response);
-    console.log("Request sent, awaiting response...");
+    const mergedText = mergeTranscriptions(transcriptions);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("[Speech-to-Text] API error response:", response.status, errorText);
-      
-      let errorData;
-      try {
-        errorData = JSON.parse(errorText);
-      } catch {
-        errorData = { message: errorText };
-      }
-      
-      const errorMessage = errorData.error?.message || errorData.message || '';
-      
-      // If Google says "Sync input too long", automatically retry with LongRunningRecognize
-      if (errorMessage.includes('Sync input too long') || errorMessage.includes('LongRunningRecognize')) {
-        console.log('[Speech-to-Text] Sync API rejected - retrying with LongRunningRecognize...');
-        return await handleLongAudioRecognition(buffer, base64Audio, accessToken);
-      }
-      
-      throw new Error(errorMessage || `API returned ${response.status}`);
+    if (!mergedText) {
+      return NextResponse.json(
+        { error: "No speech detected in audio" },
+        { status: 400 }
+      );
     }
 
-    const data = await response.json();
-    console.log("[Speech-to-Text] API response:", JSON.stringify(data, null, 2));
+    return NextResponse.json({
+      text: mergedText,
+      chunkCount: transcriptions.length,
+      processingMethod: "async-parallel",
+    });
 
-    // Extract transcript from response
-    const transcript = data.results?.[0]?.alternatives?.[0]?.transcript;
-
-    if (!transcript) {
-      console.warn('[Speech-to-Text] No speech detected in audio');
-      // Return 200 with empty text instead of 400 error
-      // This allows the UI to handle silence gracefully
-      return NextResponse.json({ 
-        text: '',
-        confidence: 0,
-        warning: 'No speech detected in audio'
-      });
-    }
-
-    return NextResponse.json({ text: transcript });
   } catch (err: any) {
-    console.error("Speech-to-text error:", err);
+    console.error("[Async STT] Error:", err);
+
     return NextResponse.json(
-      { error: err.message || "Speech-to-text failed" },
+      { error: err.message || "Async transcription failed" },
       { status: 500 }
     );
-  }
-}
-
-// Handle long audio recognition using LongRunningRecognize
-async function handleLongAudioRecognition(
-  buffer: Buffer,
-  base64Audio: string,
-  accessToken: string
-): Promise<NextResponse> {
-  try {
-    console.log('[Speech-to-Text] Starting long-running recognition...');
-    
-    // Start long-running operation
-    const longRunningUrl = `https://speech.googleapis.com/v1/speech:longrunningrecognize`;
-    
-    const startResponse = await fetch(longRunningUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        config: {
-          encoding: 'WEBM_OPUS',
-          sampleRateHertz: 48000,
-          languageCode: 'en-US',
-          enableAutomaticPunctuation: true,
-        },
-        audio: {
-          content: base64Audio,
-        },
-      }),
-    });
-
-    if (!startResponse.ok) {
-      const errorText = await startResponse.text();
-      console.error('[Speech-to-Text] Long-running start error:', errorText);
-      throw new Error(`Failed to start long-running recognition: ${startResponse.status}`);
-    }
-
-    const operationData = await startResponse.json();
-    const operationName = operationData.name;
-    console.log('[Speech-to-Text] Operation started:', operationName);
-
-    // Poll for completion
-    let attempts = 0;
-    const maxAttempts = 60; // 60 attempts * 2 seconds = 2 minutes timeout
-    
-    while (attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
-      attempts++;
-
-      const statusUrl = `https://speech.googleapis.com/v1/operations/${operationName}`;
-      const statusResponse = await fetch(statusUrl, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-
-      if (!statusResponse.ok) {
-        console.error('[Speech-to-Text] Status check failed:', statusResponse.status);
-        continue;
-      }
-
-      const statusData = await statusResponse.json();
-      
-      if (statusData.done) {
-        console.log('[Speech-to-Text] Operation completed after', attempts, 'attempts');
-        
-        if (statusData.error) {
-          throw new Error(statusData.error.message || 'Recognition failed');
-        }
-
-        const transcript = statusData.response?.results?.[0]?.alternatives?.[0]?.transcript;
-        
-        if (!transcript) {
-          return NextResponse.json({
-            text: '',
-            confidence: 0,
-            warning: 'No speech detected in audio',
-          });
-        }
-
-        return NextResponse.json({ text: transcript });
-      }
-      
-      console.log(`[Speech-to-Text] Still processing... (attempt ${attempts}/${maxAttempts})`);
-    }
-
-    // Timeout
-    throw new Error('Recognition timed out after 2 minutes');
-    
-  } catch (error: any) {
-    console.error('[Speech-to-Text] Long-running recognition error:', error);
-    throw error;
   }
 }

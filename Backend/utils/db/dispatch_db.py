@@ -64,3 +64,23 @@ async def get_assigned_users_for_sprint(module_id: str) -> Dict[str, Any]:
         return {"data": users_response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
+
+
+async def get_sprint_image(module_id: str) -> Dict[str, Any]:
+    """
+    Fetch the first available image for a sprint from the vectordb_images table.
+    Returns the public image_url or None if no images exist.
+    """
+    try:
+        response = (
+            supabase.table("vectordb_images")
+            .select("image_url")
+            .eq("module_id", module_id)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return {"data": response.data[0]["image_url"], "error": None}
+        return {"data": None, "error": None}
+    except Exception as e:
+        return {"data": None, "error": str(e)}

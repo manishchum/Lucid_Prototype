@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { Download } from 'lucide-react';
 
 type Node = { id: string; label: string; x: number; y: number };
@@ -9,9 +9,11 @@ type Edge = { from: string; to: string };
 export default function MindmapViewer({
   data,
   source,
+  onDownloadReady,
 }: {
   data: { nodes: Node[]; edges: Edge[] } | null;
   source?: string;
+  onDownloadReady?: (fn: () => void) => void;
 }) {
   if (!data || !data.nodes) return null;
   const nodes = data.nodes;
@@ -31,6 +33,7 @@ export default function MindmapViewer({
     if (!nodes || nodes.length === 0) return nodes;
 
     const idKey = (id: any) => String(id);
+
     // Build children and parent maps
     const children = new Map<string, string[]>();
     const parent = new Map<string, string | null>();
@@ -50,27 +53,6 @@ export default function MindmapViewer({
     // Find root (node without a parent) or fallback to first node
     const roots = nodes.filter((n) => parent.get(idKey(n.id)) === null).map((n) => idKey(n.id));
     const rootId = roots[0] || idKey(nodes[0].id);
-
-    // Compute depth for each node
-    const depths = new Map<string, number>();
-    const dfsDepth = (id: string, d: number) => {
-      depths.set(id, d);
-      const ch = children.get(id) || [];
-      for (const c of ch) dfsDepth(c, d + 1);
-    };
-    dfsDepth(rootId, 0);
-
-    // Collect leaf order (left-to-right ordering) by DFS
-    const leafOrder: string[] = [];
-    const dfsLeaves = (id: string) => {
-      const ch = children.get(id) || [];
-      if (ch.length === 0) {
-        leafOrder.push(id);
-        return;
-      }
-      for (const c of ch) dfsLeaves(c);
-    };
-    dfsLeaves(rootId);
 
     // Helper to estimate rect size for a label (matches render logic)
     const estimateRect = (label: string) => {
@@ -94,52 +76,77 @@ export default function MindmapViewer({
       return { rectW, rectH };
     };
 
-    // Determine horizontal positions for leaves using estimated widths
-    const leafSizes = new Map<string, { w: number; h: number }>();
-    for (const id of leafOrder) {
-      const node = nodes.find((n) => idKey(n.id) === id);
-      const e = estimateRect(node?.label || '');
-      leafSizes.set(id, { w: e.rectW, h: e.rectH });
+    // Precompute rect sizes for all nodes
+    const rectSizes = new Map<string, { w: number; h: number }>();
+    for (const n of nodes) {
+      const e = estimateRect(n.label || '');
+      rectSizes.set(idKey(n.id), { w: e.rectW, h: e.rectH });
     }
 
-    // Minimum gap between node rectangles
-    const minGap = 24;
-    const xMap = new Map<string, number>();
-    // Position first leaf at x=0, subsequent leaves placed to avoid overlap
-    for (let i = 0; i < leafOrder.length; i++) {
-      const id = leafOrder[i];
-      const size = leafSizes.get(id) || { w: 120, h: 40 };
-      if (i === 0) {
-        xMap.set(id, 0);
-      } else {
-        const prevId = leafOrder[i - 1];
-        const prevSize = leafSizes.get(prevId) || { w: 120, h: 40 };
-        const prevCenter = xMap.get(prevId) ?? 0;
-        const nextCenter = prevCenter + prevSize.w / 2 + minGap + size.w / 2;
-        xMap.set(id, nextCenter);
-      }
-    }
-
-    // Assign x for internal nodes as average of children
-    const assignX = (id: string): number => {
-      const ch = children.get(id) || [];
-      if (ch.length === 0) return xMap.get(id) ?? 0;
-      const xs = ch.map((c) => assignX(c));
-      const avg = xs.reduce((a, b) => a + b, 0) / xs.length;
-      xMap.set(id, avg);
-      return avg;
+    // Compute depth for each node
+    const depths = new Map<string, number>();
+    const dfsDepth = (id: string, d: number) => {
+      depths.set(id, d);
+      for (const c of children.get(id) || []) dfsDepth(c, d + 1);
     };
-    assignX(rootId);
+    dfsDepth(rootId, 0);
 
-    // Choose vertical spacing based on node heights to avoid overlap
+    // Choose vertical spacing based on max node height across all levels
     let maxRectH = 0;
     for (const n of nodes) {
       const est = estimateRect(n.label || '');
       if (est.rectH > maxRectH) maxRectH = est.rectH;
     }
-    const levelHeight = Math.max(120, maxRectH + 40);
+    const levelHeight = Math.max(100, maxRectH + 48);
 
-    // Build new nodes with computed x/y (centered horizontally)
+    // --- Buchheim/Walker-inspired layout ---
+    // We do a bottom-up subtree width calculation then top-down placement,
+    // pushing sibling subtrees apart so nodes at every level are gap-separated.
+    const minGap = 32; // minimum horizontal gap between adjacent node rects
+
+    // Step 1: compute the "natural width" of the subtree rooted at each node.
+    // This is the total horizontal span needed so all descendants don't overlap.
+    const subtreeWidth = new Map<string, number>();
+    const computeSubtreeWidth = (id: string): number => {
+      const ch = children.get(id) || [];
+      const selfW = (rectSizes.get(id)?.w ?? 120);
+      if (ch.length === 0) {
+        subtreeWidth.set(id, selfW);
+        return selfW;
+      }
+      // Sum of children subtree widths + gaps between them
+      const childWidths = ch.map((c) => computeSubtreeWidth(c));
+      const total = childWidths.reduce((a, b) => a + b, 0) + (ch.length - 1) * minGap;
+      // Subtree width must also fit the node itself
+      const w = Math.max(selfW, total);
+      subtreeWidth.set(id, w);
+      return w;
+    };
+    computeSubtreeWidth(rootId);
+
+    // Step 2: top-down assignment of x positions.
+    // Each subtree is centered over its allotted horizontal span.
+    const xMap = new Map<string, number>();
+    const assignPositions = (id: string, centerX: number) => {
+      xMap.set(id, centerX);
+      const ch = children.get(id) || [];
+      if (ch.length === 0) return;
+
+      // Total width consumed by children subtrees
+      const childWidths = ch.map((c) => subtreeWidth.get(c) ?? 120);
+      const totalChildW = childWidths.reduce((a, b) => a + b, 0) + (ch.length - 1) * minGap;
+
+      // Start from the left edge of the children band
+      let curX = centerX - totalChildW / 2;
+      for (let i = 0; i < ch.length; i++) {
+        const cw = childWidths[i];
+        assignPositions(ch[i], curX + cw / 2);
+        curX += cw + minGap;
+      }
+    };
+    assignPositions(rootId, 0);
+
+    // Step 3: build final node list with x/y
     const built = nodes.map((n) => {
       const id = idKey(n.id);
       const x = xMap.get(id) ?? 0;
@@ -147,7 +154,7 @@ export default function MindmapViewer({
       return { ...n, x, y };
     });
 
-    // Center the whole layout around x=0 (so centering code can position it)
+    // Center the whole layout around x=0
     const xsList = built.map((n) => n.x);
     const minX = Math.min(...xsList);
     const maxX = Math.max(...xsList);
@@ -444,6 +451,64 @@ export default function MindmapViewer({
       return { x: sx, y: sy };
     };
 
+    // Build and expose the download function to the parent
+    const downloadPNG = useCallback(async () => {
+      if (!svgRef.current) return;
+      try {
+        const svg = svgRef.current;
+        const group = svg.querySelector('g');
+        const defs = svg.querySelector('defs')?.outerHTML || '';
+        const inner = group?.innerHTML || '';
+        const bg = `<rect x="${minX}" y="${minY}" width="${naturalWidth}" height="${naturalHeight}" fill="#ffffff"/>`;
+        const svgStr = `<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"${naturalWidth}\" height=\"${naturalHeight}\" viewBox=\"${minX} ${minY} ${naturalWidth} ${naturalHeight}\">${defs}${bg}${inner}</svg>`;
+
+        const svg64 = btoa(unescape(encodeURIComponent(svgStr)));
+        const imgSrc = 'data:image/svg+xml;base64,' + svg64;
+
+        const baseDPR = Math.max(1, window.devicePixelRatio || 1);
+        const DPR = Math.min(3, Math.round(baseDPR * 1.5));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(naturalWidth * DPR);
+        canvas.height = Math.round(naturalHeight * DPR);
+        canvas.style.width = naturalWidth + 'px';
+        canvas.style.height = naturalHeight + 'px';
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Canvas not supported');
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+        const img = new Image();
+        img.onload = () => {
+          try {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, naturalWidth, naturalHeight);
+            ctx.drawImage(img, 0, 0, naturalWidth, naturalHeight);
+            canvas.toBlob((blob) => {
+              if (!blob) return;
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'mindmap.png';
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              setTimeout(() => URL.revokeObjectURL(url), 5000);
+            }, 'image/png');
+          } catch (e) {
+            console.error('Failed to rasterize SVG', e);
+          }
+        };
+        img.onerror = (ev) => console.error('Image load failed for SVG rasterization', ev);
+        img.src = imgSrc;
+      } catch (e) {
+        console.error('Failed to download PNG', e);
+      }
+    }, [minX, minY, naturalWidth, naturalHeight]);
+
+    useEffect(() => {
+      if (onDownloadReady) onDownloadReady(downloadPNG);
+    }, [downloadPNG, onDownloadReady]);
+
     return (
       <div className="relative w-full h-full bg-white select-none">
         <div className="absolute top-2 right-2 z-10 flex gap-2">
@@ -463,70 +528,6 @@ export default function MindmapViewer({
           </button>
           <button onClick={resetView} className="bg-white px-2 py-1 rounded shadow" title="Reset view">
             Reset
-          </button>
-
-          
-
-          {/* PNG download (high-quality raster) */}
-          <button
-            onClick={async () => {
-              if (!svgRef.current) return;
-              try {
-                const svg = svgRef.current;
-                const group = svg.querySelector('g');
-                const defs = svg.querySelector('defs')?.outerHTML || '';
-                const inner = group?.innerHTML || '';
-                const bg = `<rect x="${minX}" y="${minY}" width="${naturalWidth}" height="${naturalHeight}" fill="#ffffff"/>`;
-                const svgStr = `<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"${naturalWidth}\" height=\"${naturalHeight}\" viewBox=\"${minX} ${minY} ${naturalWidth} ${naturalHeight}\">${defs}${bg}${inner}</svg>`;
-
-                // Create image
-                const svg64 = btoa(unescape(encodeURIComponent(svgStr)));
-                const imgSrc = 'data:image/svg+xml;base64,' + svg64;
-
-                // Choose DPR for clarity (cap to avoid huge canvases)
-                const baseDPR = Math.max(1, window.devicePixelRatio || 1);
-                const DPR = Math.min(3, Math.round(baseDPR * 1.5));
-
-                const canvas = document.createElement('canvas');
-                canvas.width = Math.round(naturalWidth * DPR);
-                canvas.height = Math.round(naturalHeight * DPR);
-                canvas.style.width = naturalWidth + 'px';
-                canvas.style.height = naturalHeight + 'px';
-                const ctx = canvas.getContext('2d');
-                if (!ctx) throw new Error('Canvas not supported');
-                ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-
-                const img = new Image();
-                img.onload = () => {
-                  try {
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillRect(0, 0, naturalWidth, naturalHeight);
-                    ctx.drawImage(img, 0, 0, naturalWidth, naturalHeight);
-                    canvas.toBlob((blob) => {
-                      if (!blob) return;
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = 'mindmap.png';
-                      document.body.appendChild(a);
-                      a.click();
-                      a.remove();
-                      setTimeout(() => URL.revokeObjectURL(url), 5000);
-                    }, 'image/png');
-                  } catch (e) {
-                    console.error('Failed to rasterize SVG', e);
-                  }
-                };
-                img.onerror = (ev) => console.error('Image load failed for SVG rasterization', ev);
-                img.src = imgSrc;
-              } catch (e) {
-                console.error('Failed to download PNG', e);
-              }
-            }}
-            className="bg-white px-2 py-1 rounded shadow flex items-center justify-center"
-            title="Download image"
-          >
-            <Download size={16} />
           </button>
         </div>
 
@@ -734,144 +735,118 @@ export default function MindmapViewer({
     );
   }
 
-  // Helper: extract a short snippet for node from source text
-  function renderNodeDetail(node: Node, source?: string) {
-    if (!source || !source.trim()) {
-      return <p>No additional content available.</p>;
+  // Helper: strip HTML preserving paragraph breaks, then return clean plain text paragraphs
+  function htmlToPlainParagraphs(source: string): string[] {
+    let text = source;
+    try {
+      // Replace block-level tags with newlines BEFORE stripping, so structure is preserved
+      text = text
+        .replace(/<\/?(p|div|br|h[1-6]|li|tr|section|article|blockquote)[^>]*>/gi, '\n')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'");
+    } catch (e) {
+      text = source.replace(/<[^>]+>/g, ' ');
     }
+    // Normalize line endings, collapse multiple blank lines into one, trim each line
+    return text
+      .split(/\n/)
+      .map((l) => l.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+  }
 
-    const snippet = extractSnippetForLabel(node.label, source);
-    return (
-      <>
-        <p className="mb-3 text-sm text-gray-800">{snippet}</p>
-        <a className="text-xs text-blue-600 hover:underline" href="#" onClick={(e) => e.preventDefault()}>
-          Show related content
-        </a>
-      </>
-    );
+  // Score how well a text block matches the label words (weighted: exact phrase > individual words)
+  function scoreMatch(text: string, labelWords: string[], labelRaw: string): number {
+    const low = text.toLowerCase();
+    // Bonus for exact label phrase match
+    const phraseBonus = low.includes(labelRaw.toLowerCase()) ? labelWords.length * 2 : 0;
+    let wordScore = 0;
+    for (const w of labelWords) {
+      if (w.length > 2 && low.includes(w)) wordScore += 1;
+    }
+    return phraseBonus + wordScore;
   }
 
   function extractSnippetForLabel(label: string, source: string) {
-    // decode entities then strip tags
-    let plain = source;
-    try {
-      if (typeof document !== 'undefined') {
-        const t = document.createElement('textarea');
-        t.innerHTML = source;
-        plain = t.value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-      } else {
-        plain = source.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-      }
-    } catch (e) {
-      plain = source.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    }
+    const lines = htmlToPlainParagraphs(source);
+    if (!lines.length) return '';
+
     const labelWords = label
       .toLowerCase()
       .split(/\s+/)
       .filter(Boolean)
-      .map((w) => w.replace(/[^a-z0-9]/gi, ''));
-    if (!plain) return '';
+      .map((w) => w.replace(/[^a-z0-9]/gi, ''))
+      .filter((w) => w.length > 2);
 
-    // Prefer a single sentence that matches most label words
-    const sentences = plain.match(/[^.!?]+[.!?]+/g) || [plain];
-    let bestSent = '';
+    if (!labelWords.length) return lines[0].slice(0, 360);
+
+    // Score each line and return the best matching one (capped to ~360 chars)
+    let best = '';
     let bestScore = 0;
-    for (const sent of sentences) {
-      const low = sent.toLowerCase();
-      let score = 0;
-      for (const w of labelWords) {
-        if (w.length > 2 && low.includes(w)) score += 1;
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        bestSent = sent.trim();
+    for (const line of lines) {
+      const s = scoreMatch(line, labelWords, label);
+      if (s > bestScore) {
+        bestScore = s;
+        best = line;
       }
     }
-    if (bestScore > 0) return bestSent;
+    if (bestScore > 0) return best.slice(0, 360) + (best.length > 360 ? ' ...' : '');
 
-    // Paragraph-level fallback
-    const paragraphs = plain.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-    let bestPara = '';
-    bestScore = 0;
-    for (const p of paragraphs) {
-      const low = p.toLowerCase();
-      let score = 0;
-      for (const w of labelWords) {
-        if (w.length > 2 && low.includes(w)) score += 1;
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        bestPara = p;
-      }
-    }
-    if (bestScore > 0) return (bestPara.split(/\n/)[0] || bestPara).slice(0, 400).trim();
-
-    // final fallback: excerpt around first word
-    const firstWord = labelWords.find((w) => w.length > 2) || labelWords[0] || '';
+    // Sentence-level fallback within the first match by first keyword
+    const plain = lines.join(' ');
     const lc = plain.toLowerCase();
+    const firstWord = labelWords[0] || '';
     const idx = firstWord ? lc.indexOf(firstWord) : -1;
     if (idx >= 0) {
-      const start = Math.max(0, idx - 120);
-      const end = Math.min(plain.length, idx + 300);
+      const start = Math.max(0, idx - 80);
+      const end = Math.min(plain.length, idx + 280);
       return (start > 0 ? '... ' : '') + plain.slice(start, end).trim() + (end < plain.length ? ' ...' : '');
     }
 
-    return plain.slice(0, 360) + (plain.length > 360 ? ' ...' : '');
+    return lines[0].slice(0, 360);
   }
 
   function extractFullSnippetForLabel(label: string, source: string) {
     if (!source || !source.trim()) return 'No related content available.';
-    const plain = source.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+    const lines = htmlToPlainParagraphs(source);
+    if (!lines.length) return 'No related content available.';
+
     const labelWords = label
       .toLowerCase()
       .split(/\s+/)
       .filter(Boolean)
-      .map((w) => w.replace(/[^a-z0-9]/gi, ''));
+      .map((w) => w.replace(/[^a-z0-9]/gi, ''))
+      .filter((w) => w.length > 2);
 
-    // Paragraph-based search: prefer a paragraph that contains multiple label words
-    const paragraphs = plain.split(/(?:\n\s*\n|\r\n\r\n)/).map((p) => p.trim()).filter(Boolean);
-    let bestIdx = -1;
-    let bestScore = 0;
-    for (let i = 0; i < paragraphs.length; i++) {
-      const p = paragraphs[i].toLowerCase();
-      let score = 0;
-      for (const w of labelWords) {
-        if (w.length > 2 && p.includes(w)) score += 1;
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        bestIdx = i;
-      }
-    }
+    if (!labelWords.length) return lines.slice(0, 5).join('\n');
 
-    if (bestIdx >= 0 && bestScore > 0) {
-      // return paragraph + next paragraph for context
-      const start = bestIdx;
-      const end = Math.min(paragraphs.length, bestIdx + 2);
-      return paragraphs.slice(start, end).join('\n\n');
-    }
+    // Score every line, pick the best-scoring one and return it plus its neighbours for context
+    const scores = lines.map((line) => scoreMatch(line, labelWords, label));
+    const bestIdx = scores.indexOf(Math.max(...scores));
+    const bestScore = scores[bestIdx];
 
-    // As a fallback, look for sentence matches (broader)
-    const sentences = plain.match(/[^.!?]+[.!?]+/g) || [plain];
-    bestIdx = -1;
-    bestScore = 0;
-    for (let i = 0; i < sentences.length; i++) {
-      const s = sentences[i].toLowerCase();
-      let score = 0;
-      for (const w of labelWords) {
-        if (w.length > 2 && s.includes(w)) score += 1;
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        bestIdx = i;
-      }
-    }
-    if (bestIdx >= 0 && bestScore > 0) {
+    if (bestScore > 0) {
+      // Return a window of lines around the best match (up to ~6 lines of context)
       const start = Math.max(0, bestIdx - 1);
-      const end = Math.min(sentences.length, bestIdx + 2);
-      return sentences.slice(start, end).join(' ').trim();
+      const end = Math.min(lines.length, bestIdx + 5);
+      return lines.slice(start, end).join('\n');
     }
 
-    // Final fallback: return a larger extract to avoid tiny duplicates
-    return plain.slice(0, 1200) + (plain.length > 1200 ? ' ...' : '');
+    // Final fallback: first occurrence of any keyword
+    const plain = lines.join(' ');
+    const lc = plain.toLowerCase();
+    const firstWord = labelWords[0] || '';
+    const idx = firstWord ? lc.indexOf(firstWord) : -1;
+    if (idx >= 0) {
+      const start = Math.max(0, idx - 200);
+      const end = Math.min(plain.length, idx + 800);
+      return (start > 0 ? '...' : '') + plain.slice(start, end).trim() + (end < plain.length ? '...' : '');
+    }
+
+    return lines.slice(0, 6).join('\n');
   }

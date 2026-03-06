@@ -13,9 +13,12 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str) -> Di
     Return user by email. If requesting_user_id is None, allow lookup for auth bootstrap.
     """
     try:
-        resp = supabase.table('users').select('*').eq('email', email).eq('is_active', True).single().execute()
-        user = resp.data if hasattr(resp, 'data') else None
+        # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
+        resp = supabase.table('users').select('*').eq('email', email).eq('is_active', True).limit(1).execute()
+        rows = resp.data if hasattr(resp, 'data') else []
+        user = rows[0] if rows else None
         if not user:
+            print(f"[get_user_by_email] No active user found for email: {email}")
             return {"data": None, "error": "User not found"}
         # If a requesting user is provided, perform a permission check; otherwise allow lookup.
         if requesting_user_id:
@@ -27,6 +30,7 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str) -> Di
         # For authentication (requesting_user_id is None), keep password for validation
         return {"data": user, "error": None}
     except Exception as e:
+        print(f"[get_user_by_email] Exception for {email}: {e}")
         return {"data": None, "error": str(e)}
 
 async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[str, Any]:

@@ -29,22 +29,13 @@ async def GET(request: Request):
         res = supabase.table("chatbot_user_interactions") \
             .select("ask_doubt") \
             .eq("user_id", userId) \
-            .single() \
+            .limit(1) \
             .execute()
 
-        data = res.data
-        error = res.error
+        rows = res.data if hasattr(res, 'data') else []
+        data = rows[0] if rows else None
 
-        if error:
-            print("[assistant/chat] supabase select error", {
-                "user": userId,
-                "error": error
-            })
-
-            # return empty array instead of failure
-            return JSONResponse({"chat": []})
-
-        chat = data["chat"] if (data and isinstance(data.get("chat"), list)) else []
+        chat = data["ask_doubt"] if (data and isinstance(data.get("ask_doubt"), list)) else []
 
         return JSONResponse({"chat": chat})
 
