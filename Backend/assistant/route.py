@@ -15,7 +15,7 @@ supabase: Client = create_client(
     os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 )
 
-COMMON_GEMINI_MODELS = ["gemini-3-pro-preview"]
+COMMON_GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-pro"]
 
 
 # -----------------------------------------------------
@@ -274,7 +274,7 @@ Do not include citations.
             gResp = await callGemini(
                 synthUser,
                 {
-                    "candidateModels": ["gemini-3-pro-preview"],
+                    "candidateModels": ["gemini-2.0-flash", "gemini-1.5-pro"],
                     "maxOutputTokens": 1500
                 }
             )
@@ -290,7 +290,7 @@ Do not include citations.
 
                 return JSONResponse({
                     "answer": finalAnswer,
-                    "llm_model_used": "gemini-3-pro-preview",
+                    "llm_model_used": "gemini-2.0-flash",
                     "llm_error": None
                 })
 

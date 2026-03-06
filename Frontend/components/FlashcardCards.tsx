@@ -12,9 +12,10 @@ export type FlashcardSection = {
 
 type Props = {
   sections?: FlashcardSection[] | null
+  onExportReady?: (fn: () => Promise<void>) => void
 }
 
-export default function FlashcardCards({ sections }: Props) {
+export default function FlashcardCards({ sections, onExportReady }: Props) {
   const items = (sections && Array.isArray(sections) ? sections.slice(0, 6) : [])
 
   if (!items || items.length === 0) return (
@@ -210,14 +211,12 @@ export default function FlashcardCards({ sections }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (onExportReady) onExportReady(exportAsPNG)
+  }, [items])
+
   return (
     <section aria-label="Flashcard cards" className="py-0 relative overflow-visible">
-      {/* Download button above the cards */}
-      <div className="mb-3 flex justify-end pr-3">
-        <button onClick={exportAsPNG} className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center" title="Download flashcards image">
-          <Download size={16} />
-        </button>
-      </div>
 
       {/* scroller has modest horizontal padding; arrows will be positioned outside the scroller so they don't overlap cards */}
       <div

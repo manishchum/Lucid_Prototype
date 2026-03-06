@@ -1,6 +1,10 @@
 from typing import Dict, Any, Optional
+import bcrypt
 from ..supabase_client import supabase
 from .permissions import check_user_permission, check_company_access
+
+# Default password for new users
+DEFAULT_PASSWORD = "workfloww@2025"
 
 # ==================== USER/EMPLOYEE OPERATIONS ====================
 
@@ -9,9 +13,12 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str) -> Di
     Return user by email. If requesting_user_id is None, allow lookup for auth bootstrap.
     """
     try:
-        resp = supabase.table('users').select('*').eq('email', email).eq('is_active', True).single().execute()
-        user = resp.data if hasattr(resp, 'data') else None
+        # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
+        resp = supabase.table('users').select('*').eq('email', email).eq('is_active', True).limit(1).execute()
+        rows = resp.data if hasattr(resp, 'data') else []
+        user = rows[0] if rows else None
         if not user:
+            print(f"[get_user_by_email] No active user found for email: {email}")
             return {"data": None, "error": "User not found"}
         # If a requesting user is provided, perform a permission check; otherwise allow lookup.
         if requesting_user_id:
@@ -23,6 +30,7 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str) -> Di
         # For authentication (requesting_user_id is None), keep password for validation
         return {"data": user, "error": None}
     except Exception as e:
+        print(f"[get_user_by_email] Exception for {email}: {e}")
         return {"data": None, "error": str(e)}
 
 async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[str, Any]:
@@ -116,6 +124,24 @@ async def create_user(
                     'user_id', existing_data['user_id']
                 ).execute()
                 return {"data": resp.data, "error": None, "reactivated": True}
+
+        # Hash password if not provided, if it's the plain default password, or if it's not already hashed
+        password = user_data.get('password')
+        if not password or password == DEFAULT_PASSWORD:
+            # Use default password and hash it
+            hashed_password = bcrypt.hashpw(
+                DEFAULT_PASSWORD.encode('utf-8'),
+                bcrypt.gensalt()
+            ).decode('utf-8')
+            user_data['password'] = hashed_password
+        elif not (password.startswith('$2b$') or password.startswith('$2a$') or password.startswith('$2y$')):
+            # If password doesn't look like a bcrypt hash, hash it
+            hashed_password = bcrypt.hashpw(
+                password.encode('utf-8'),
+                bcrypt.gensalt()
+            ).decode('utf-8')
+            user_data['password'] = hashed_password
+        # If it already looks like a bcrypt hash, leave it as-is
 
         response = supabase.table('users').insert(user_data).execute()
         return {"data": response.data, "error": None}

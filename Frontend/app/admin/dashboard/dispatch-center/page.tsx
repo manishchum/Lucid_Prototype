@@ -110,11 +110,22 @@ export default function AdminDispatchCenterPage() {
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('09:00');
 
+  // Sprint image
+  const [sprintImageUrl, setSprintImageUrl] = useState('');
+  const [loadingImage, setLoadingImage] = useState(false);
+
   // Email draft state
   const [draftedEmail, setDraftedEmail] = useState<{ subject: string; body: string } | null>(null);
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
-  const [sendResult, setSendResult] = useState<{ message: string; sent_count: number; failed: string[] } | null>(null);
+  const [sendResult, setSendResult] = useState<{
+    message: string;
+    sent_count?: number;
+    failed?: string[];
+    status?: string;
+    scheduled_at?: string;
+    recipient_count?: number;
+  } | null>(null);
 
   // Assigned users
   const [assignedUsers, setAssignedUsers] = useState<AssignedUser[]>([]);
@@ -167,19 +178,24 @@ export default function AdminDispatchCenterPage() {
       setAssignedUsers([]);
       setDraftedEmail(null);
       setSendResult(null);
+      setSprintImageUrl('');
       return;
     }
 
     const fetchData = async () => {
       setLoadingSubModules(true);
+      setLoadingImage(true);
       setDraftedEmail(null);
       setSendResult(null);
       try {
-        const [subRes, usersRes] = await Promise.all([
+        const [subRes, usersRes, imageRes] = await Promise.all([
           fetch(`${API_BASE}/api/dispatch/sub-modules/${selectedSprintId}`, {
             headers: { 'X-User-ID': currentUser.user_id },
           }),
           fetch(`${API_BASE}/api/dispatch/assigned-users/${selectedSprintId}`, {
+            headers: { 'X-User-ID': currentUser.user_id },
+          }),
+          fetch(`${API_BASE}/api/dispatch/sprint-image/${selectedSprintId}`, {
             headers: { 'X-User-ID': currentUser.user_id },
           }),
         ]);
@@ -191,10 +207,15 @@ export default function AdminDispatchCenterPage() {
           const usersData = await usersRes.json();
           setAssignedUsers(usersData.users || []);
         }
+        if (imageRes.ok) {
+          const imageData = await imageRes.json();
+          setSprintImageUrl(imageData.image_url || '');
+        }
       } catch (e) {
-        console.error('Error fetching sub-modules / users:', e);
+        console.error('Error fetching sub-modules / users / image:', e);
       } finally {
         setLoadingSubModules(false);
+        setLoadingImage(false);
       }
     };
     fetchData();
@@ -245,6 +266,7 @@ export default function AdminDispatchCenterPage() {
           engagement_question: engagementQuestion || undefined,
           scheduled_date: scheduleEnabled ? scheduledDate : undefined,
           scheduled_time: scheduleEnabled ? scheduledTime : undefined,
+          sprint_image_url: sprintImageUrl || undefined,
         }),
       });
       if (res.ok) {
@@ -269,30 +291,59 @@ export default function AdminDispatchCenterPage() {
     setSendResult(null);
 
     try {
-      const res = await fetch(`${API_BASE}/api/dispatch/send-email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': currentUser.user_id,
-        },
-        body: JSON.stringify({
-          module_id: selectedSprintId,
-          subject: draftedEmail.subject,
-          body: draftedEmail.body,
-          scheduled_date: scheduleEnabled ? scheduledDate : undefined,
-          scheduled_time: scheduleEnabled ? scheduledTime : undefined,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSendResult(data);
+      if (scheduleEnabled) {
+        // ── Schedule for later ──────────────────────────────────
+        if (!scheduledDate || !scheduledTime) {
+          alert('Please pick a date and time before scheduling.');
+          setSending(false);
+          return;
+        }
+        const res = await fetch(`${API_BASE}/api/dispatch/schedule-email`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': currentUser.user_id,
+          },
+          body: JSON.stringify({
+            module_id: selectedSprintId,
+            subject: draftedEmail.subject,
+            body: draftedEmail.body,
+            scheduled_date: scheduledDate,
+            scheduled_time: scheduledTime,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setSendResult(data);
+        } else {
+          const err = await res.json().catch(() => null);
+          alert(err?.detail || 'Failed to schedule email');
+        }
       } else {
-        const err = await res.json().catch(() => null);
-        alert(err?.detail || 'Failed to send email');
+        // ── Send immediately ────────────────────────────────────
+        const res = await fetch(`${API_BASE}/api/dispatch/send-email`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': currentUser.user_id,
+          },
+          body: JSON.stringify({
+            module_id: selectedSprintId,
+            subject: draftedEmail.subject,
+            body: draftedEmail.body,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setSendResult(data);
+        } else {
+          const err = await res.json().catch(() => null);
+          alert(err?.detail || 'Failed to send email');
+        }
       }
     } catch (e) {
-      console.error('Error sending email:', e);
-      alert('Failed to send email');
+      console.error('Error sending/scheduling email:', e);
+      alert('Failed to send/schedule email');
     } finally {
       setSending(false);
     }
@@ -475,13 +526,62 @@ export default function AdminDispatchCenterPage() {
                 </div>
               )}
 
-              {/* 5. Dispatch Scheduling */}
+              {/* 5. Sprint Image */}
+              {selectedSprintId && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
+                    5. Sprint Image (for email hero)
+                  </label>
+                  <div className="space-y-3">
+                    {/* Auto-fetched preview or loading */}
+                    {loadingImage ? (
+                      <div className="flex items-center gap-2 text-sm text-slate-400">
+                        <Loader2 size={14} className="animate-spin" /> Looking for sprint image…
+                      </div>
+                    ) : sprintImageUrl ? (
+                      <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
+                        <img
+                          src={sprintImageUrl}
+                          alt="Sprint image preview"
+                          className="w-full h-36 object-cover"
+                        />
+                        <button
+                          onClick={() => { setSprintImageUrl(''); setDraftedEmail(null); }}
+                          className="absolute top-2 right-2 w-7 h-7 bg-white/90 hover:bg-white rounded-full flex items-center justify-center shadow text-slate-600 hover:text-red-500 transition-colors"
+                          title="Remove image"
+                        >
+                          <X size={14} />
+                        </button>
+                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/40 to-transparent px-3 py-2">
+                          <p className="text-[11px] text-white/90 font-medium truncate">
+                            {sprintImageUrl.length > 60 ? sprintImageUrl.slice(0, 60) + '…' : sprintImageUrl}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 text-sm">
+                        <span>🖼️</span> No image found for this sprint — paste a URL below.
+                      </div>
+                    )}
+                    {/* Manual URL override */}
+                    <input
+                      type="url"
+                      value={sprintImageUrl}
+                      onChange={(e) => { setSprintImageUrl(e.target.value); setDraftedEmail(null); }}
+                      placeholder="Paste an image URL to use in the email…"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-blue-400 text-slate-700"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 6. Dispatch Scheduling */}
               {selectedSprintId && (
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-2">
                       <Calendar size={14} />
-                      5. Dispatch Scheduling
+                      6. Dispatch Scheduling
                     </label>
                     <button
                       onClick={() => setScheduleEnabled(!scheduleEnabled)}
@@ -620,10 +720,13 @@ export default function AdminDispatchCenterPage() {
 
                     {/* Body */}
                     <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Body</label>
-                      <div
-                        className="bg-white rounded-lg border border-slate-200 p-4 max-h-[350px] overflow-y-auto text-sm text-slate-700 prose prose-sm max-w-none"
-                        dangerouslySetInnerHTML={{ __html: draftedEmail.body }}
+                      <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Body Preview</label>
+                      <iframe
+                        srcDoc={draftedEmail.body}
+                        className="w-full rounded-lg border border-slate-200 bg-white"
+                        style={{ height: '480px' }}
+                        sandbox="allow-same-origin"
+                        title="Email Preview"
                       />
                     </div>
 
@@ -643,7 +746,12 @@ export default function AdminDispatchCenterPage() {
                       >
                         {sending ? (
                           <>
-                            <Loader2 size={16} className="animate-spin" /> Sending…
+                            <Loader2 size={16} className="animate-spin" />
+                            {scheduleEnabled ? 'Scheduling…' : 'Sending…'}
+                          </>
+                        ) : scheduleEnabled ? (
+                          <>
+                            <Calendar size={16} /> Schedule Email ({assignedUsers.length})
                           </>
                         ) : (
                           <>
@@ -658,24 +766,51 @@ export default function AdminDispatchCenterPage() {
 
               {/* Send Result */}
               {sendResult && (
-                <div className={`rounded-xl p-5 border-2 ${sendResult.failed.length === 0 ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+                <div className={`rounded-xl p-5 border-2 ${
+                  sendResult.status === 'scheduled'
+                    ? 'bg-blue-50 border-blue-200'
+                    : (sendResult.failed?.length ?? 0) === 0
+                      ? 'bg-green-50 border-green-200'
+                      : 'bg-yellow-50 border-yellow-200'
+                }`}>
                   <div className="flex items-start gap-3">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${sendResult.failed.length === 0 ? 'bg-green-500' : 'bg-yellow-500'}`}>
-                      {sendResult.failed.length === 0 ? (
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
+                      sendResult.status === 'scheduled'
+                        ? 'bg-blue-500'
+                        : (sendResult.failed?.length ?? 0) === 0
+                          ? 'bg-green-500'
+                          : 'bg-yellow-500'
+                    }`}>
+                      {sendResult.status === 'scheduled' ? (
+                        <Calendar size={20} className="text-white" />
+                      ) : (sendResult.failed?.length ?? 0) === 0 ? (
                         <Check size={20} className="text-white" />
                       ) : (
                         <AlertCircle size={20} className="text-white" />
                       )}
                     </div>
                     <div>
-                      <h4 className="font-bold text-slate-900 text-sm">{sendResult.message}</h4>
-                      {sendResult.failed.length > 0 && (
-                        <div className="mt-2">
-                          <p className="text-xs font-semibold text-red-600 mb-1">Failed to deliver to:</p>
-                          {sendResult.failed.map((email) => (
-                            <p key={email} className="text-xs text-red-500">{email}</p>
-                          ))}
-                        </div>
+                      {sendResult.status === 'scheduled' ? (
+                        <>
+                          <h4 className="font-bold text-slate-900 text-sm">
+                            Email scheduled for {sendResult.recipient_count} recipient{sendResult.recipient_count !== 1 ? 's' : ''}
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Delivery time: {sendResult.scheduled_at ? new Date(sendResult.scheduled_at).toLocaleString() : '—'}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <h4 className="font-bold text-slate-900 text-sm">{sendResult.message}</h4>
+                          {(sendResult.failed?.length ?? 0) > 0 && (
+                            <div className="mt-2">
+                              <p className="text-xs font-semibold text-red-600 mb-1">Failed to deliver to:</p>
+                              {sendResult.failed!.map((email) => (
+                                <p key={email} className="text-xs text-red-500">{email}</p>
+                              ))}
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                     <button onClick={() => setSendResult(null)} className="ml-auto text-slate-400 hover:text-slate-600">
