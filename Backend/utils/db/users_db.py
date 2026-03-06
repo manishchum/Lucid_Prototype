@@ -1,6 +1,10 @@
 from typing import Dict, Any, Optional
+import bcrypt
 from ..supabase_client import supabase
 from .permissions import check_user_permission, check_company_access
+
+# Default password for new users
+DEFAULT_PASSWORD = "workfloww@2025"
 
 # ==================== USER/EMPLOYEE OPERATIONS ====================
 
@@ -116,6 +120,24 @@ async def create_user(
                     'user_id', existing_data['user_id']
                 ).execute()
                 return {"data": resp.data, "error": None, "reactivated": True}
+
+        # Hash password if not provided, if it's the plain default password, or if it's not already hashed
+        password = user_data.get('password')
+        if not password or password == DEFAULT_PASSWORD:
+            # Use default password and hash it
+            hashed_password = bcrypt.hashpw(
+                DEFAULT_PASSWORD.encode('utf-8'),
+                bcrypt.gensalt()
+            ).decode('utf-8')
+            user_data['password'] = hashed_password
+        elif not (password.startswith('$2b$') or password.startswith('$2a$') or password.startswith('$2y$')):
+            # If password doesn't look like a bcrypt hash, hash it
+            hashed_password = bcrypt.hashpw(
+                password.encode('utf-8'),
+                bcrypt.gensalt()
+            ).decode('utf-8')
+            user_data['password'] = hashed_password
+        # If it already looks like a bcrypt hash, leave it as-is
 
         response = supabase.table('users').insert(user_data).execute()
         return {"data": response.data, "error": None}

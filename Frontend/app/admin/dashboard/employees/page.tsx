@@ -1276,7 +1276,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             continue;
           }
           // Create user via backend API
-          const createRes = await fetch(`${API_URL}/api/users`, {
+          const createRes = await fetch(`${API_URL}/api/users/`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1286,7 +1286,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
               email: email.toLowerCase(),
               company_id: companyId,
               hire_date: new Date().toISOString().split('T')[0],
-              password: null
+              password: "workfloww@2025"
             })
           });
           if (!createRes.ok) {
@@ -1461,7 +1461,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
 
           // Create user via API
           try {
-            const createRes = await fetch(`${API_URL}/api/users`, {
+            const createRes = await fetch(`${API_URL}/api/users/`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -1475,7 +1475,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
                 position: position || null,
                 phone: phone ? String(phone) : null,
                 hire_date: new Date().toISOString().split('T')[0],
-                password: null // Default password for bulk uploads
+                password: "workfloww@2025" // Default password for bulk uploads
               })
             });
 
@@ -1905,7 +1905,7 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
         console.error('Failed to fetch company data:', compErr);
       }
       // Create user via API
-      const createRes = await fetch(`${API_URL}/api/users`, {
+      const createRes = await fetch(`${API_URL}/api/users/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1919,7 +1919,7 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
           position: formData.position || null,
           phone: formData.phone || null,
           hire_date: new Date().toISOString().split('T')[0],
-          password: null // Default password
+          password: "workfloww@2025" // Default password
         })
       });
 
