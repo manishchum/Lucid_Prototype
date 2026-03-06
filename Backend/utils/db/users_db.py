@@ -148,6 +148,70 @@ async def create_user(
     except Exception as e:
         return {"data": None, "error": str(e)}
 
+
+
+async def create_user_signup(
+    user_data: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Create a new user.
+    Permission: Must be company_admin+ in the same company.
+    """
+    company_id = user_data.get('company_id')
+    
+    if not company_id:
+        return {"data": None, "error": "company_id is required"}
+    
+   
+    
+    try:
+        email = user_data.get('email', '').lower().strip()
+
+        # Check for an existing inactive user with the same email in this company
+        if email:
+            existing_resp = supabase.table('users').select('*').ilike('email', email).eq(
+                'company_id', company_id
+            ).eq('is_active', False).execute()
+            existing_data = existing_resp.data[0] if existing_resp.data else None
+
+            if existing_data:
+                # Reactivate the existing user and apply any new fields from user_data
+                reactivation_fields = {
+                    **{k: v for k, v in user_data.items()
+                       if k not in ('user_id', 'company_id', 'email', 'created_at')},
+                    'is_active': True,
+                    'employment_status': user_data.get('employment_status', 'ACTIVE'),
+                }
+                resp = supabase.table('users').update(reactivation_fields).eq(
+                    'user_id', existing_data['user_id']
+                ).execute()
+                return {"data": resp.data, "error": None, "reactivated": True}
+
+        # Hash password if not provided, if it's the plain default password, or if it's not already hashed
+        password = user_data.get('password')
+        if not password or password == DEFAULT_PASSWORD:
+            # Use default password and hash it
+            hashed_password = bcrypt.hashpw(
+                DEFAULT_PASSWORD.encode('utf-8'),
+                bcrypt.gensalt()
+            ).decode('utf-8')
+            user_data['password'] = hashed_password
+        elif not (password.startswith('$2b$') or password.startswith('$2a$') or password.startswith('$2y$')):
+            # If password doesn't look like a bcrypt hash, hash it
+            hashed_password = bcrypt.hashpw(
+                password.encode('utf-8'),
+                bcrypt.gensalt()
+            ).decode('utf-8')
+            user_data['password'] = hashed_password
+        # If it already looks like a bcrypt hash, leave it as-is
+
+        response = supabase.table('users').insert(user_data).execute()
+        return {"data": response.data, "error": None}
+    except Exception as e:
+        return {"data": None, "error": str(e)}
+
+
+
 async def update_user(
     requesting_user_id: str,
     target_user_id: str,
