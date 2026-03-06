@@ -246,7 +246,7 @@ export default function SignupPage() {
       const hashedPassword = await bcrypt.hash(formData.password, saltRounds)
 
       // Insert user into database with company_id
-      const createRes = await fetch(`${API_BASE}/api/users`, {
+      const createRes = await fetch(`${API_BASE}/api/users/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -266,6 +266,10 @@ export default function SignupPage() {
       }
 
       const createPayload = await createRes.json().catch(() => null)
+
+      console.log("These are the payloads")
+      console.log(createPayload);
+      console.log(createRes);
       const newUser = (createPayload && (createPayload.user || createPayload)) || null
       if (!newUser || !newUser.user_id) {
         throw new Error("User created but response is missing user_id")
@@ -276,7 +280,7 @@ export default function SignupPage() {
         .from("roles")
         .select("role_id")
         .eq("name", "USER")
-        .maybeSingle()
+        // .maybeSingle()
 
       if (roleError) {
         throw new Error("Error fetching USER role: " + roleError.message)

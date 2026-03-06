@@ -132,7 +132,7 @@ async def get_progress_by_user_and_module(requesting_user_id: str, user_id: str,
         
         resp = supabase.table('module_progress').select(
             '*, processed_modules(title, original_module_id)'
-        ).eq('user_id', user_id).eq('processed_module_id', processed_module_id).maybeSingle().execute()
+        ).eq('user_id', user_id).eq('processed_module_id', processed_module_id).maybe_single().execute()
         
         return {"data": resp.data, "error": None}
     except Exception as e:
@@ -203,7 +203,7 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
         # Check if progress record exists
         existing = supabase.table('module_progress').select('module_progress_id, completed_at').eq(
             'user_id', user_id
-        ).eq('processed_module_id', processed_module_id).maybeSingle().execute()
+        ).eq('processed_module_id', processed_module_id).maybe_single().execute()
         
         view_only = progress_data.get('viewOnly', False)
         
