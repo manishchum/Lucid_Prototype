@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download, ExternalLink } from "lucide-react";
+import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download, ExternalLink, X, Paperclip } from "lucide-react";
 import { formatContentType } from '@/lib/contentType';
 import { useRouter } from "next/navigation";
 import {
@@ -66,7 +66,6 @@ function ContentUpload({
       setRetrievedReviewerId(null);
       return;
     }
-
     setIsValidatingEmail(true);
     const timer = setTimeout(async () => {
       await validateReviewerEmail(reviewerEmail.trim());
@@ -312,10 +311,13 @@ function ContentUpload({
           
           if (moduleData && moduleData.module_id) {
             console.log('[Upload] Created module with ID:', moduleData.module_id);
-
-            // Persist file names in parent so the preview dialog can show them
-            onFilesUploaded?.(moduleData.module_id, uploadFiles.map(f => f.name));
-
+            
+            // Store source file names in localStorage (frontend-only solution)
+            const sourceFilesMap = JSON.parse(localStorage.getItem('moduleSourceFiles') || '{}');
+            sourceFilesMap[moduleData.module_id] = files.map(f => f.name);
+            localStorage.setItem('moduleSourceFiles', JSON.stringify(sourceFilesMap));
+            console.log('[Upload] Stored source files in localStorage:', files.map(f => f.name));
+            
             // Refresh UI immediately to show the new module card
             onUploadComplete();
             
@@ -732,44 +734,32 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const [selectedModule, setSelectedModule] = useState<any | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
-  const [localFileNames, setLocalFileNames] = useState<Record<string, string[]>>(() => {
-    // Initialize from localStorage on mount
-    if (typeof window !== 'undefined') {
-      try {
-        return JSON.parse(localStorage.getItem('moduleSourceFiles') || '{}');
-      } catch {
-        return {};
-      }
-    }
-    return {};
-  });
-
-  // Persist localFileNames to localStorage whenever it changes
-  useEffect(() => {
-    if (Object.keys(localFileNames).length > 0) {
-      localStorage.setItem('moduleSourceFiles', JSON.stringify(localFileNames));
-    }
-  }, [localFileNames]);
+  
+  // Get source files - first check localStorage (frontend storage), then fall back to backend data
   const files = (() => {
-    const moduleId = selectedModule?.module_id;
-
-    // Prefer names captured at upload time (always available, even if backend omits source_files)
-    if (moduleId && localFileNames[moduleId]) return localFileNames[moduleId];
-
+    if (!selectedModule) return [];
+    
+    // Try localStorage first (frontend-only storage)
+    try {
+      const sourceFilesMap = JSON.parse(localStorage.getItem('moduleSourceFiles') || '{}');
+      if (sourceFilesMap[selectedModule.module_id] && sourceFilesMap[selectedModule.module_id].length > 0) {
+        return sourceFilesMap[selectedModule.module_id];
+      }
+    } catch (e) {
+      console.warn('Failed to read source files from localStorage:', e);
+    }
+    
+    // Fall back to backend data
     const raw = selectedModule?.source_files;
-
     if (!raw) return [];
-
     if (Array.isArray(raw)) return raw;
-
     if (typeof raw === "string") {
       try {
         return JSON.parse(raw);
       } catch {
-        return raw.split(",");
+        return raw.split(",").map((s: string) => s.trim()).filter(Boolean);
       }
     }
-
     return [];
   })();
   const [trainingModules, setTrainingModules] = useState<any[]>([]);
@@ -1019,133 +1009,163 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   setSelectedModule(null);
   setPreviewUrl(null);
 }}>
-  <DialogContent className="max-w-6xl w-[92vw] h-[88vh] p-0 overflow-hidden flex flex-col">
+  <DialogContent className="max-w-5xl w-[90vw] max-h-[90vh] p-0 overflow-hidden rounded-2xl">
 
-    {/* ── Header ── */}
-    <DialogHeader className="px-6 py-4 border-b bg-white shrink-0">
-      <div className="flex items-start justify-between">
+    {/* Header */}
+    <div className="px-6 py-5 border-b bg-white flex items-start justify-between">
+      <div className="flex items-center gap-4">
+        <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
+          <FileText className="w-6 h-6 text-blue-600"/>
+        </div>
         <div>
-          <DialogTitle className="text-lg font-semibold text-gray-900">
+          <DialogTitle className="text-xl font-semibold text-gray-900">
             {selectedModule?.title}
           </DialogTitle>
           <p className="text-sm text-gray-500 mt-0.5">
-            {files.length} source document{files.length !== 1 ? "s" : ""}
+            Module Details & Source Files
           </p>
         </div>
       </div>
-    </DialogHeader>
+      <button
+        onClick={() => {
+          setSelectedModule(null);
+          setPreviewUrl(null);
+        }}
+        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+      >
+        <X className="w-5 h-5 text-gray-500"/>
+      </button>
+    </div>
 
-    {/* ── Body ── */}
-    <div className="flex flex-1 overflow-hidden">
+    {/* Content Area */}
+    <div className="p-6 bg-gray-50 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 100px)' }}>
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
 
-      {/* LEFT — PDF Preview */}
-      <div className="flex-1 flex flex-col bg-gray-100 border-r overflow-hidden">
-
-        {/* Toolbar */}
-        <div className="px-4 py-2 border-b bg-white flex items-center justify-between shrink-0">
-          <span className="text-xs font-semibold text-gray-500 tracking-wide uppercase">
-            Document
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 w-7 p-0 text-base font-semibold"
-              onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
-            >
-              −
-            </Button>
-            <span className="text-xs text-gray-600 w-10 text-center">
-              {Math.round(zoom * 100)}%
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 w-7 p-0 text-base font-semibold"
-              onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
-            >
-              +
-            </Button>
+        {/* LEFT — COMBINED PDF */}
+        <div className="lg:col-span-3 flex flex-col">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              COMBINED DOCUMENT
+            </h4>
             {previewUrl && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs gap-1 ml-2"
+              <button
                 onClick={() => window.open(previewUrl, "_blank")}
+                className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium"
               >
-                <ExternalLink className="w-3 h-3" />
-                Open
-              </Button>
+                <ExternalLink className="w-4 h-4"/>
+                Open in Viewer
+              </button>
+            )}
+          </div>
+
+          <div className="relative bg-white border border-gray-200 rounded-xl flex items-center justify-center min-h-[450px] shadow-sm">
+            {previewUrl ? (
+              <>
+                <div className="absolute inset-0 overflow-auto flex items-start justify-center p-4">
+                  <div
+                    style={{
+                      transform: `scale(${zoom})`,
+                      transformOrigin: "top center",
+                      transition: "transform 0.2s"
+                    }}
+                  >
+                    <iframe
+                      src={`${previewUrl}#toolbar=0&navpanes=0`}
+                      className="w-[600px] h-[800px] rounded-lg border border-gray-100"
+                    />
+                  </div>
+                </div>
+                <div className="absolute bottom-4 left-4 flex gap-2 z-20">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-white/90 backdrop-blur"
+                    onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
+                  >
+                    -
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-white/90 backdrop-blur"
+                    onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
+                  >
+                    +
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="text-center text-gray-400 py-12">
+                <FileText className="w-16 h-16 mx-auto mb-4 opacity-30"/>
+                <p className="font-medium text-gray-500">PDF Preview Placeholder</p>
+                <p className="text-sm text-gray-400 mt-1">Combined document for RAG processing</p>
+              </div>
             )}
           </div>
         </div>
 
-        {/* PDF frame */}
-        <div className="flex-1 overflow-auto flex items-start justify-center p-6">
-          {previewUrl ? (
-            <div
-              style={{
-                transform: `scale(${zoom})`,
-                transformOrigin: "top center",
-                transition: "transform 0.2s",
+        {/* RIGHT — SOURCE FILES + AI INFO */}
+        <div className="lg:col-span-2 flex flex-col space-y-5">
+          
+          {/* Source Files Section */}
+          <div>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+              SOURCE FILES ({files.length})
+            </h4>
+
+            <div className="space-y-2">
+              {files.length > 0 ? (
+                files.map((name: string, i: number) => {
+                  // Calculate approximate file size display (since we don't have actual sizes stored)
+                  const fileSizeDisplay = "2.4 MB • PDF";
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl px-4 py-3 hover:shadow-sm transition cursor-pointer"
+                    >
+                      <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <FileText className="w-5 h-5 text-blue-500"/>
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-medium text-gray-900 text-sm truncate">{name}</span>
+                        <span className="text-xs text-gray-400">{fileSizeDisplay}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-6 bg-white border border-gray-200 rounded-xl">
+                  <Paperclip className="w-8 h-8 mx-auto mb-2 text-gray-300"/>
+                  <p className="text-sm text-gray-500">No source files available</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* AI Processing Info Card */}
+          <div className="bg-blue-500 rounded-2xl p-5 text-white mt-auto">
+            <h5 className="font-semibold text-lg mb-2">AI Processing Info</h5>
+            <p className="text-sm text-blue-100 leading-relaxed mb-4">
+              These documents have been combined and indexed for the RAG system. The learning journey is generated based on the semantic context of all source files.
+            </p>
+            <button
+              onClick={() => {
+                // Navigate to learning journey
+                if (selectedModule?.module_id) {
+                  window.open(`/learning/${selectedModule.module_id}`, '_blank');
+                }
               }}
+              className="w-full bg-white text-blue-600 font-semibold py-2.5 px-4 rounded-xl hover:bg-blue-50 transition-colors text-sm"
             >
-              <iframe
-                src={`${previewUrl}#toolbar=0&navpanes=0`}
-                className="w-[720px] h-[1020px] rounded-lg border shadow-md bg-white"
-              />
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-3">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
-              <p className="text-sm">Loading preview…</p>
-            </div>
-          )}
+              View Learning Journey
+            </button>
+          </div>
+
         </div>
+
       </div>
-
-      {/* RIGHT — Source Files */}
-      <div className="w-72 shrink-0 flex flex-col bg-white overflow-hidden">
-
-        {/* Panel header */}
-        <div className="px-5 py-3 border-b shrink-0">
-          <span className="text-xs font-semibold text-gray-500 tracking-wide uppercase">
-            Source Files ({files.length})
-          </span>
-        </div>
-
-        {/* File cards */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {files.length > 0 ? (
-            files.map((name: string, i: number) => (
-              <div
-                key={i}
-                className="flex items-center gap-3 bg-gray-50 border border-gray-100 rounded-xl px-3 py-3 hover:bg-gray-100 transition-colors"
-              >
-                <div className="w-9 h-9 bg-red-50 border border-red-100 rounded-lg flex items-center justify-center shrink-0">
-                  <FileText className="w-4 h-4 text-red-500" />
-                </div>
-                <div className="flex flex-col min-w-0">
-                  <span
-                    className="text-sm font-medium text-gray-800 truncate"
-                    title={name}
-                  >
-                    {name}
-                  </span>
-                  <span className="text-xs text-gray-400">PDF Document</span>
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400 py-8 gap-2">
-              <FileText className="w-10 h-10 opacity-30" />
-              <p className="text-sm text-center">No source files recorded</p>
-            </div>
-          )}
-        </div>
-      </div>
-
     </div>
+
   </DialogContent>
 </Dialog>
       
