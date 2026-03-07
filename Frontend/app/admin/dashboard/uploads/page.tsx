@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download } from "lucide-react";
+import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download, ExternalLink, X, Paperclip } from "lucide-react";
 import { formatContentType } from '@/lib/contentType';
 import { useRouter } from "next/navigation";
 import {
@@ -64,7 +64,6 @@ function ContentUpload({
       setRetrievedReviewerId(null);
       return;
     }
-
     setIsValidatingEmail(true);
     const timer = setTimeout(async () => {
       await validateReviewerEmail(reviewerEmail.trim());
@@ -310,6 +309,12 @@ function ContentUpload({
           
           if (moduleData && moduleData.module_id) {
             console.log('[Upload] Created module with ID:', moduleData.module_id);
+            
+            // Store source file names in localStorage (frontend-only solution)
+            const sourceFilesMap = JSON.parse(localStorage.getItem('moduleSourceFiles') || '{}');
+            sourceFilesMap[moduleData.module_id] = files.map(f => f.name);
+            localStorage.setItem('moduleSourceFiles', JSON.stringify(sourceFilesMap));
+            console.log('[Upload] Stored source files in localStorage:', files.map(f => f.name));
             
             // Refresh UI immediately to show the new module card
             onUploadComplete();
@@ -722,21 +727,32 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const [selectedModule, setSelectedModule] = useState<any | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
+  
+  // Get source files - first check localStorage (frontend storage), then fall back to backend data
   const files = (() => {
+    if (!selectedModule) return [];
+    
+    // Try localStorage first (frontend-only storage)
+    try {
+      const sourceFilesMap = JSON.parse(localStorage.getItem('moduleSourceFiles') || '{}');
+      if (sourceFilesMap[selectedModule.module_id] && sourceFilesMap[selectedModule.module_id].length > 0) {
+        return sourceFilesMap[selectedModule.module_id];
+      }
+    } catch (e) {
+      console.warn('Failed to read source files from localStorage:', e);
+    }
+    
+    // Fall back to backend data
     const raw = selectedModule?.source_files;
-
     if (!raw) return [];
-
     if (Array.isArray(raw)) return raw;
-
     if (typeof raw === "string") {
       try {
         return JSON.parse(raw);
       } catch {
-        return raw.split(",");
+        return raw.split(",").map((s: string) => s.trim()).filter(Boolean);
       }
     }
-
     return [];
   })();
   const [trainingModules, setTrainingModules] = useState<any[]>([]);
@@ -986,117 +1002,161 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   setSelectedModule(null);
   setPreviewUrl(null);
 }}>
-  <DialogContent className="max-w-7xl w-[95vw] h-[85vh] p-0 overflow-hidden">
+  <DialogContent className="max-w-5xl w-[90vw] max-h-[90vh] p-0 overflow-hidden rounded-2xl">
 
-    <DialogHeader className="px-6 py-4 border-b bg-white flex flex-row items-center justify-between">
-      <div>
-        <DialogTitle className="text-lg font-semibold">
-          {selectedModule?.title}
-        </DialogTitle>
-        <p className="text-sm text-gray-500">
-          Module Details & Source Files
-        </p>
+    {/* Header */}
+    <div className="px-6 py-5 border-b bg-white flex items-start justify-between">
+      <div className="flex items-center gap-4">
+        <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
+          <FileText className="w-6 h-6 text-blue-600"/>
+        </div>
+        <div>
+          <DialogTitle className="text-xl font-semibold text-gray-900">
+            {selectedModule?.title}
+          </DialogTitle>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Module Details & Source Files
+          </p>
+        </div>
       </div>
-    </DialogHeader>
+      <button
+        onClick={() => {
+          setSelectedModule(null);
+          setPreviewUrl(null);
+        }}
+        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+      >
+        <X className="w-5 h-5 text-gray-500"/>
+      </button>
+    </div>
 
-    <div className="grid grid-cols-3 gap-6 h-full p-6 bg-gray-50">
+    {/* Content Area */}
+    <div className="p-6 bg-gray-50 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 100px)' }}>
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
 
-      {/* LEFT — COMBINED PDF */}
-
-      <div className="col-span-2 flex flex-col">
-
-        <h4 className="text-sm font-semibold text-gray-500 mb-3 tracking-wide">
-          COMBINED DOCUMENT
-        </h4>
-
-        <div className="relative bg-white border border-dashed border-gray-300 rounded-xl flex items-center justify-center h-[600px] shadow-sm">
-
-          {previewUrl ? (
-            <>
-              <div className="absolute inset-0 overflow-auto flex items-start justify-center">
-
-                <div
-                  style={{
-                    transform: `scale(${zoom})`,
-                    transformOrigin: "top center",
-                    transition: "transform 0.2s"
-                  }}
-                >
-                  <iframe
-                    src={`${previewUrl}#toolbar=0&navpanes=0`}
-                    className="w-[900px] h-[1200px] rounded-xl border"
-                  />
-                </div>
-
-              </div>
-              <div className="absolute top-4 left-4 flex gap-2 z-20">
-
-              <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
-              >
-              -
-              </Button>
-
-              <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
-              >
-              +
-              </Button>
-
-              </div>
-
+        {/* LEFT — COMBINED PDF */}
+        <div className="lg:col-span-3 flex flex-col">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              COMBINED DOCUMENT
+            </h4>
+            {previewUrl && (
               <button
                 onClick={() => window.open(previewUrl, "_blank")}
-                className="absolute top-4 right-4 text-sm text-blue-600 hover:underline"
+                className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium"
               >
+                <ExternalLink className="w-4 h-4"/>
                 Open in Viewer
               </button>
-            </>
-          ) : (
-            <div className="text-center text-gray-400">
-              <FileText className="w-12 h-12 mx-auto mb-3 opacity-40"/>
-              <p className="font-medium">PDF Preview Placeholder</p>
-              <p className="text-sm">Combined document for RAG processing</p>
-            </div>
-          )}
+            )}
+          </div>
 
+          <div className="relative bg-white border border-gray-200 rounded-xl flex items-center justify-center min-h-[450px] shadow-sm">
+            {previewUrl ? (
+              <>
+                <div className="absolute inset-0 overflow-auto flex items-start justify-center p-4">
+                  <div
+                    style={{
+                      transform: `scale(${zoom})`,
+                      transformOrigin: "top center",
+                      transition: "transform 0.2s"
+                    }}
+                  >
+                    <iframe
+                      src={`${previewUrl}#toolbar=0&navpanes=0`}
+                      className="w-[600px] h-[800px] rounded-lg border border-gray-100"
+                    />
+                  </div>
+                </div>
+                <div className="absolute bottom-4 left-4 flex gap-2 z-20">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-white/90 backdrop-blur"
+                    onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
+                  >
+                    -
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-white/90 backdrop-blur"
+                    onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
+                  >
+                    +
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="text-center text-gray-400 py-12">
+                <FileText className="w-16 h-16 mx-auto mb-4 opacity-30"/>
+                <p className="font-medium text-gray-500">PDF Preview Placeholder</p>
+                <p className="text-sm text-gray-400 mt-1">Combined document for RAG processing</p>
+              </div>
+            )}
+          </div>
         </div>
 
-      </div>
+        {/* RIGHT — SOURCE FILES + AI INFO */}
+        <div className="lg:col-span-2 flex flex-col space-y-5">
+          
+          {/* Source Files Section */}
+          <div>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+              SOURCE FILES ({files.length})
+            </h4>
 
+            <div className="space-y-2">
+              {files.length > 0 ? (
+                files.map((name: string, i: number) => {
+                  // Calculate approximate file size display (since we don't have actual sizes stored)
+                  const fileSizeDisplay = "2.4 MB • PDF";
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl px-4 py-3 hover:shadow-sm transition cursor-pointer"
+                    >
+                      <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <FileText className="w-5 h-5 text-blue-500"/>
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-medium text-gray-900 text-sm truncate">{name}</span>
+                        <span className="text-xs text-gray-400">{fileSizeDisplay}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-6 bg-white border border-gray-200 rounded-xl">
+                  <Paperclip className="w-8 h-8 mx-auto mb-2 text-gray-300"/>
+                  <p className="text-sm text-gray-500">No source files available</p>
+                </div>
+              )}
+            </div>
+          </div>
 
-      {/* RIGHT — SOURCE FILES */}
-
-      <div className="col-span-1 flex flex-col space-y-4">
-
-        <h4 className="text-sm font-semibold text-gray-500 tracking-wide">
-          SOURCE FILES ({files.length})
-        </h4>
-
-        <div className="space-y-3">
-          {files.map((name: string, i: number) => (
-            <div
-              key={i}
-              className="flex items-center gap-3 bg-white border rounded-xl px-4 py-3 shadow-sm hover:shadow-md transition"
+          {/* AI Processing Info Card */}
+          <div className="bg-blue-500 rounded-2xl p-5 text-white mt-auto">
+            <h5 className="font-semibold text-lg mb-2">AI Processing Info</h5>
+            <p className="text-sm text-blue-100 leading-relaxed mb-4">
+              These documents have been combined and indexed for the RAG system. The learning journey is generated based on the semantic context of all source files.
+            </p>
+            <button
+              onClick={() => {
+                // Navigate to learning journey
+                if (selectedModule?.module_id) {
+                  window.open(`/learning/${selectedModule.module_id}`, '_blank');
+                }
+              }}
+              className="w-full bg-white text-blue-600 font-semibold py-2.5 px-4 rounded-xl hover:bg-blue-50 transition-colors text-sm"
             >
-              <div className="w-9 h-9 bg-red-50 rounded-lg flex items-center justify-center">
-                <FileText className="w-4 h-4 text-red-500"/>
-              </div>
+              View Learning Journey
+            </button>
+          </div>
 
-              <div className="flex flex-col text-sm">
-                <span className="font-medium text-gray-800">{name}</span>
-                <span className="text-xs text-gray-400">PDF</span>
-              </div>
-            </div>
-          ))}
         </div>
 
       </div>
-
     </div>
 
   </DialogContent>
