@@ -12,6 +12,12 @@ import { supabase } from "@/lib/supabase";
 import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download } from "lucide-react";
 import { formatContentType } from '@/lib/contentType';
 import { useRouter } from "next/navigation";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
 
 interface Admin {
   user_id: string
@@ -110,87 +116,6 @@ function ContentUpload({
   
   const isMediaFile = (type: string) => type.includes('video/') || type.includes('audio/') || type.match(/\.(mp4|mp3|wav|mov|avi|m4a)$/i);
 
-  // const triggerAIProcessing = async ( moduleId: string, files: File[], contentUrl?: string) => {
-  //   // Validate moduleId before processing
-  //   if (!moduleId || moduleId === 'undefined') {
-  //     console.error('[AI] Invalid moduleId:', moduleId);
-  //     alert('Cannot process module: Invalid module ID');
-  //     return;
-  //   }
-    
-  //   try {
-  //     console.log(`[AI] Starting processing for module: ${moduleId}`);
-
-  //     // Update status to transcribing/summarizing immediately via backend API
-  //     const firstFile = files[0];
-  //     const initialStatus = isMediaFile(firstFile?.type || '') ? 'transcribing' : 'summarizing';
-  //     const statusRes = await fetch(`${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`, {
-  //       method: 'PATCH',
-  //       headers: {
-  //         'Content-Type': 'application/json',
-  //         'X-User-ID': adminId
-  //       },
-  //       body: JSON.stringify({ processing_status: initialStatus })
-  //     });
-  //     if (!statusRes.ok) {
-  //       const errorText = await statusRes.text().catch(() => '');
-  //       console.error('Failed to update processing status:', errorText);
-  //     }
-  //     onUploadComplete(); // Refresh UI to show status change
-
-  //     if (isMediaFile(firstFile?.type || '')) {
-  //       // Step 1: Extract/Transcribe
-  //       const extractRes = await fetch('/api/extract-and-analyze', {
-  //         method: 'POST',
-  //         headers: { 'Content-Type': 'application/json' },
-  //         body: JSON.stringify({ fileUrl, fileType: firstFile?.type , moduleId })
-  //       });
-
-  //       if (!extractRes.ok) throw new Error('Transcription failed');
-  //       const { extractedText } = await extractRes.json();
-
-  //       // Step 2: Process text with GPT - Now calling backend API
-  //       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
-  //       await fetch(`${backendUrl}/api/openai-upload`, {
-  //         method: 'POST',
-  //         headers: { 'Content-Type': 'application/json' },
-  //         body: JSON.stringify({ text: extractedText, moduleId })
-  //       });
-  //     } else {
-  //       // Direct file upload for documents/spreadsheets
-  //       const formData = new FormData();
-  //       files.forEach((f) => {
-  //         formData.append("files", f);
-  //       });
-
-  //       formData.append("moduleId", moduleId);
-
-  //       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
-  //       await fetch(`${backendUrl}/api/openai-upload`, {
-  //         method: 'POST',
-  //         body: formData
-  //       });
-  //     }
-
-  //     console.log(`[AI] Processing triggered successfully for module: ${moduleId}`);
-  //     onUploadComplete(); // Final refresh
-  //   } catch (err) {
-  //     console.error('[AI] Pipeline failed:', err);
-  //     // Update status to failed via backend API
-  //     const failRes = await fetch(`${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`, {
-  //       method: 'PATCH',
-  //       headers: {
-  //         'Content-Type': 'application/json',
-  //         'X-User-ID': adminId
-  //       },
-  //       body: JSON.stringify({ processing_status: 'failed' })
-  //     });
-  //     if (!failRes.ok) {
-  //       console.error('Failed to update failed status:', await failRes.text().catch(() => ''));
-  //     }
-  //     onUploadComplete();
-  //   }
-  // };
 
   const triggerAIProcessing = async (moduleId: string, uploadFiles: File[], contentUrl?: string) => {
     if (!moduleId || moduleId === "undefined") {
@@ -301,7 +226,10 @@ function ContentUpload({
   };
 
   const handleUpload = async () => {
-    if (files.length === 0  || !title) return;
+    if (files.length === 0  || !title || !retrievedReviewerId){
+      alert("Retriever ID Required");
+      return;
+    } 
 
     setUploading(true);
     const uploadFiles = [...files];
@@ -354,7 +282,8 @@ function ContentUpload({
             processing_status: 'pending',
             threshold_value: thresholdValue,
             reviewer_id: retrievedReviewerId,
-            additional_readings: additionalLinks.length > 0 ? additionalLinks : null
+            additional_readings: additionalLinks.length > 0 ? additionalLinks : null,
+            source_files: files.map(f => f.name)
           })
         });
 
@@ -417,7 +346,7 @@ function ContentUpload({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div>
         <Label htmlFor="title">Title *</Label>
         <Input
@@ -458,7 +387,7 @@ function ContentUpload({
 
       {/* Reviewer Email Input */}
       <div>
-        <Label htmlFor="reviewerEmail">Reviewer Email (Optional)</Label>
+        <Label htmlFor="reviewerEmail">Reviewer Email </Label>
         <div className="relative">
           <Input
             id="reviewerEmail"
@@ -490,7 +419,7 @@ function ContentUpload({
       </div>
 
       {/* Additional Links Input */}
-      <div>
+      <div className="md:col-span-2">
         <Label>Additional Reference Links</Label>
         <div className="space-y-2">
           {additionalLinks.map((link, index) => (
@@ -517,51 +446,90 @@ function ContentUpload({
         </div>
       </div>
 
-      <div>
+      <div className="md:col-span-2">
         <Label htmlFor="file">Upload File</Label>
         <Input
           id="file"
           type="file"
           multiple
-          accept=".pdf,.docx,.doc"
+          accept=".pdf"
           onChange={(e) => {
-            if(!e.target.files) return;
-            setFiles(Array.from(e.target.files || []));
+            if (!e.target.files) return;
+
+            const newFiles = Array.from(e.target.files);
+
+            setFiles(prev => [...prev, ...newFiles]);
           }}
         />
       </div>
 
       {/* Selected Files List */}
+
       {files.length > 0 && (
-        <div className="mt-3 space-y-2">
-          <Label>Selected Files:</Label>
+        <div className="mt-4">
 
-          {files.map((file, index) => (
-            <div
-              key={index}
-              className="flex items-center justify-between bg-gray-50 border rounded p-2 text-sm"
-            >
-              <span className="truncate">{file.name}</span>
+          <p className="text-xs font-semibold text-gray-500 mb-3 uppercase">
+            Selected Files ({files.length})
+          </p>
 
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setFiles(files.filter((_, i) => i !== index));
-                }}
-                className="text-red-600"
-              >
-                <Trash2 className="w-4 h-4 mr-1" />
-                Remove
-              </Button>
-            </div>
-          ))}
+          <div className="grid grid-cols-2 gap-4">
+
+            {files.map((file, index) => {
+
+              const fileSize = (file.size / 1024 / 1024).toFixed(2);
+
+              return (
+                <div
+                  key={index}
+                  className="flex items-center justify-between bg-gray-50 border rounded-xl p-4 shadow-sm hover:shadow-md transition"
+                >
+
+                  <div className="flex items-center gap-3">
+
+                    <div className="w-10 h-10 flex items-center justify-center bg-red-100 rounded-lg">
+                      <FileText className="w-5 h-5 text-red-500"/>
+                    </div>
+
+                    <div>
+
+                      <p className="text-sm font-medium text-gray-900 truncate max-w-[180px]">
+                        {file.name}
+                      </p>
+
+                      <p className="text-xs text-gray-500">
+                        {fileSize} MB
+                      </p>
+
+                    </div>
+
+                  </div>
+
+
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() =>
+                      setFiles(files.filter((_, i) => i !== index))
+                    }
+                    className="text-red-500 hover:text-red-600"
+                  >
+                    <Trash2 className="w-4 h-4"/>
+                  </Button>
+
+                </div>
+              );
+
+            })}
+
+          </div>
+
         </div>
       )}
-
+      <div className="md:col-span-2 flex justify-end">
       <Button onClick={handleUpload} disabled={files.length === 0 || !title || uploading}>
         {uploading ? 'Uploading...' : 'Upload Content'}
       </Button>
+      </div>
     </div>
   );
 }
@@ -749,7 +717,28 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
 }
 
 // Training Content Management Component
+
 function TrainingContentManagement({ companyId, adminId }: { companyId: string; adminId: string }) {
+  const [selectedModule, setSelectedModule] = useState<any | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const files = (() => {
+    const raw = selectedModule?.source_files;
+
+    if (!raw) return [];
+
+    if (Array.isArray(raw)) return raw;
+
+    if (typeof raw === "string") {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return raw.split(",");
+      }
+    }
+
+    return [];
+  })();
   const [trainingModules, setTrainingModules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -773,6 +762,9 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       }
 
       const modulesPayload = await modulesRes.json().catch(() => ({}));
+      console.log("Backend response");
+      console.log(modulesPayload);
+
       const data = modulesPayload.modules || [];
 
       // Fetch ALL content jobs in ONE batch call (much faster than per-module)
@@ -804,6 +796,13 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
       // Map modules with their job status (no async operations, just lookups)
       const modulesWithStatus = (data || []).map((module) => {
+
+        console.log("Logging each module source file");
+        console.log("MODULE ID:",module.module_id);
+        console.log("Source files:", module.source_files);
+        console.log("Type:", typeof module.source_files);
+
+
         let finalStatus = module.processing_status;
         
         const job = jobsMap.get(module.module_id);
@@ -974,8 +973,137 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     );
   }
 
+  const isViewDisabled = (module: any) => {
+  const status = module.processing_status?.toLowerCase();
+
+  return status !== "completed";
+};
+
+
   return (
     <div className="space-y-4">
+      <Dialog open={!!selectedModule} onOpenChange={() => {
+  setSelectedModule(null);
+  setPreviewUrl(null);
+}}>
+  <DialogContent className="max-w-7xl w-[95vw] h-[85vh] p-0 overflow-hidden">
+
+    <DialogHeader className="px-6 py-4 border-b bg-white flex flex-row items-center justify-between">
+      <div>
+        <DialogTitle className="text-lg font-semibold">
+          {selectedModule?.title}
+        </DialogTitle>
+        <p className="text-sm text-gray-500">
+          Module Details & Source Files
+        </p>
+      </div>
+    </DialogHeader>
+
+    <div className="grid grid-cols-3 gap-6 h-full p-6 bg-gray-50">
+
+      {/* LEFT — COMBINED PDF */}
+
+      <div className="col-span-2 flex flex-col">
+
+        <h4 className="text-sm font-semibold text-gray-500 mb-3 tracking-wide">
+          COMBINED DOCUMENT
+        </h4>
+
+        <div className="relative bg-white border border-dashed border-gray-300 rounded-xl flex items-center justify-center h-[600px] shadow-sm">
+
+          {previewUrl ? (
+            <>
+              <div className="absolute inset-0 overflow-auto flex items-start justify-center">
+
+                <div
+                  style={{
+                    transform: `scale(${zoom})`,
+                    transformOrigin: "top center",
+                    transition: "transform 0.2s"
+                  }}
+                >
+                  <iframe
+                    src={`${previewUrl}#toolbar=0&navpanes=0`}
+                    className="w-[900px] h-[1200px] rounded-xl border"
+                  />
+                </div>
+
+              </div>
+              <div className="absolute top-4 left-4 flex gap-2 z-20">
+
+              <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
+              >
+              -
+              </Button>
+
+              <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
+              >
+              +
+              </Button>
+
+              </div>
+
+              <button
+                onClick={() => window.open(previewUrl, "_blank")}
+                className="absolute top-4 right-4 text-sm text-blue-600 hover:underline"
+              >
+                Open in Viewer
+              </button>
+            </>
+          ) : (
+            <div className="text-center text-gray-400">
+              <FileText className="w-12 h-12 mx-auto mb-3 opacity-40"/>
+              <p className="font-medium">PDF Preview Placeholder</p>
+              <p className="text-sm">Combined document for RAG processing</p>
+            </div>
+          )}
+
+        </div>
+
+      </div>
+
+
+      {/* RIGHT — SOURCE FILES */}
+
+      <div className="col-span-1 flex flex-col space-y-4">
+
+        <h4 className="text-sm font-semibold text-gray-500 tracking-wide">
+          SOURCE FILES ({files.length})
+        </h4>
+
+        <div className="space-y-3">
+          {files.map((name: string, i: number) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 bg-white border rounded-xl px-4 py-3 shadow-sm hover:shadow-md transition"
+            >
+              <div className="w-9 h-9 bg-red-50 rounded-lg flex items-center justify-center">
+                <FileText className="w-4 h-4 text-red-500"/>
+              </div>
+
+              <div className="flex flex-col text-sm">
+                <span className="font-medium text-gray-800">{name}</span>
+                <span className="text-xs text-gray-400">PDF</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+      </div>
+
+    </div>
+
+  </DialogContent>
+</Dialog>
+      
+
+      
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
@@ -1006,53 +1134,106 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           <div className="grid gap-4">
             {trainingModules.map((module) => (
               <Card key={module.module_id}>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h4 className="font-medium text-gray-900">{module.title}</h4>
-                        {getStatusBadge(module.processing_status)}
-                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border ${getReviewStageColor(module.review_stage)}`}>
-                          {getReviewStageLabel(module.review_stage)}
-                        </span>
-                      </div>
+              <CardContent className="p-4">
 
-                      {module.description && (
-                        <p className="text-sm text-gray-600 mb-2">{module.description}</p>
-                      )}
+              <div className="flex items-center justify-between">
 
-                      <div className="flex items-center gap-4 text-xs text-gray-500">
-                        <span>Type: {formatContentType(module.content_type)}</span>
-                        <span>Created: {new Date(module.created_at).toLocaleDateString()}</span>
-                        {module.ai_modules && (
-                          <span>AI Processed: Yes</span>
-                        )}
-                      </div>
-                    </div>
+              <div className="flex-1">
 
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleViewModule(module)}
-                      >
-                        <Eye className="w-4 h-4 mr-1" />
-                        View
-                      </Button>
+              <div className="flex items-center gap-3 mb-2">
 
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDeleteModule(module.module_id)}
-                        className="text-red-600 hover:text-red-800"
-                      >
-                        <Trash2 className="w-4 h-4 mr-1" />
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
+              <h4 className="font-medium text-gray-900">
+              {module.title}
+              </h4>
+
+              {getStatusBadge(module.processing_status)}
+
+              <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border ${getReviewStageColor(module.review_stage)}`}>
+              {getReviewStageLabel(module.review_stage)}
+              </span>
+
+              </div>
+
+              {module.description && (
+              <p className="text-sm text-gray-600 mb-2">
+              {module.description}
+              </p>
+              )}
+
+              <div className="flex items-center gap-4 text-xs text-gray-500">
+              <span>Type: {formatContentType(module.content_type)}</span>
+              <span>Created: {new Date(module.created_at).toLocaleDateString()}</span>
+              </div>
+
+              </div>
+
+              <div className="flex gap-2">
+
+              <Button
+              variant="outline"
+              size="sm"
+              disabled={isViewDisabled(module)}
+              className={isViewDisabled(module) ? "opacity-50 cursor-not-allowed" : ""}
+              onClick={async () => {
+                if (isViewDisabled(module)) return;
+                setPreviewUrl(null);
+                setSelectedModule(module);
+
+                try {
+                  const url = new URL(module.content_url);
+                  const pathSegments = url.pathname.split('/');
+                  const trainingContentIndex = pathSegments.indexOf('training-content');
+
+                  if (trainingContentIndex === -1) {
+                    setPreviewUrl(module.content_url);
+                    return;
+                  }
+
+                  const storagePath = pathSegments.slice(trainingContentIndex + 1).join('/');
+
+                  const { data, error } = await supabase
+                    .storage
+                    .from('training-content')
+                    .createSignedUrl(storagePath, 24 * 60 * 60);
+
+                  if (error) {
+                    console.warn("Signed URL failed, using original");
+                    setPreviewUrl(module.content_url);
+                    return;
+                  }
+
+                  setPreviewUrl(data.signedUrl);
+
+                } catch (err) {
+                  console.error("Preview error:", err);
+                  setPreviewUrl(module.content_url);
+                }
+              }}
+              >
+              <Eye className="w-4 h-4 mr-1"/>
+
+            {isViewDisabled(module) ? "Preparing..." : "View"}
+              </Button>
+
+              <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleDeleteModule(module.module_id)}
+              className="text-red-600"
+              >
+              <Trash2 className="w-4 h-4 mr-1"/>
+              Delete
+              </Button>
+
+              </div>
+
+              </div>
+
+              </CardContent>
               </Card>
+                
+
+              
             ))}
           </div>
         )}
