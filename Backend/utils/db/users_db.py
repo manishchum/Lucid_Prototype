@@ -171,21 +171,22 @@ async def create_user_signup(
         if email:
             existing_resp = supabase.table('users').select('*').ilike('email', email).eq(
                 'company_id', company_id
-            ).eq('is_active', False).execute()
-            existing_data = existing_resp.data[0] if existing_resp.data else None
+            ).eq('is_active', False).maybe_single().execute()
+            # existing_data = existing_resp.data[0] if existing_resp.data else None
 
-            if existing_data:
-                # Reactivate the existing user and apply any new fields from user_data
-                reactivation_fields = {
-                    **{k: v for k, v in user_data.items()
-                       if k not in ('user_id', 'company_id', 'email', 'created_at')},
-                    'is_active': True,
-                    'employment_status': user_data.get('employment_status', 'ACTIVE'),
-                }
-                resp = supabase.table('users').update(reactivation_fields).eq(
-                    'user_id', existing_data['user_id']
-                ).execute()
-                return {"data": resp.data, "error": None, "reactivated": True}
+            # if existing_data:
+            #     # # Reactivate the existing user and apply any new fields from user_data
+            #     # reactivation_fields = {
+            #     #     **{k: v for k, v in user_data.items()
+            #     #        if k not in ('user_id', 'company_id', 'email', 'created_at')},
+            #     #     'is_active': True,
+            #     #     'employment_status': user_data.get('employment_status', 'ACTIVE'),
+            #     # }
+            #     # resp = supabase.table('users').update(reactivation_fields).eq(
+            #     #     'user_id', existing_data['user_id']
+            #     # ).execute()
+            #     # return {"data": resp.data, "error": None, "reactivated": True}
+            #     return {"data": None, "error": "An account with this email already exists. Please contact your administrator to reactivate your account if you believe this is an error."}
 
         # Hash password if not provided, if it's the plain default password, or if it's not already hashed
         password = user_data.get('password')
