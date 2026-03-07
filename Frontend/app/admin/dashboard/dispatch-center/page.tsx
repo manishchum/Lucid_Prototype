@@ -1,12 +1,17 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
-import { ChevronDown, MessageSquare, Mail, Calendar, Clock, Check, Send, Loader2, Sparkles, X, Users, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ChevronDown, MessageSquare, Mail, Calendar, Clock, Check, Send, Loader2, Sparkles, X, Users, AlertCircle, FileJson, Music, Upload, RefreshCw } from 'lucide-react';
 import EmployeeNavigation from '@/components/employee-navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@supabase/supabase-js';
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 interface Sprint {
   module_id: string;
@@ -109,6 +114,30 @@ export default function AdminDispatchCenterPage() {
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('09:00');
+  // ── Recurring schedule state ─────────────────────────────────
+  const [scheduleMode, setScheduleMode] = useState<'once' | 'recurring'>('once');
+  const [selectedDays, setSelectedDays] = useState<string[]>([]);
+  const [recurringTime, setRecurringTime] = useState('09:00');
+
+  // ── Content selector state ───────────────────────────────────
+  const [selectedContent, setSelectedContent] = useState<string[]>([]);
+
+  // Flashcard import
+  const [flashcardMode, setFlashcardMode] = useState<'existing' | 'import'>('existing');
+  const [customFlashcards, setCustomFlashcards] = useState<{ heading: string; points: string[] }[] | null>(null);
+  const [flashcardImportError, setFlashcardImportError] = useState('');
+  const [flashcardImportSuccess, setFlashcardImportSuccess] = useState('');
+  const flashcardFileRef = useRef<HTMLInputElement>(null);
+
+  // Audio import
+  const [audioMode, setAudioMode] = useState<'existing' | 'import'>('existing');
+  const [customAudioUrl, setCustomAudioUrl] = useState<string | null>(null);
+  const [audioFileName, setAudioFileName] = useState('');
+  const [audioFileSize, setAudioFileSize] = useState('');
+  const [audioUploadProgress, setAudioUploadProgress] = useState(0);
+  const [audioUploading, setAudioUploading] = useState(false);
+  const [audioUploadError, setAudioUploadError] = useState('');
+  const audioFileRef = useRef<HTMLInputElement>(null);
 
   // Sprint image
   const [sprintImageUrl, setSprintImageUrl] = useState('');
@@ -125,6 +154,10 @@ export default function AdminDispatchCenterPage() {
     status?: string;
     scheduled_at?: string;
     recipient_count?: number;
+    // recurring schedule
+    scheduled_emails_id?: string;
+    days_of_week?: string[];
+    scheduled_time?: string;
   } | null>(null);
 
   // Assigned users
@@ -242,6 +275,93 @@ export default function AdminDispatchCenterPage() {
     setSendResult(null);
   };
 
+  // ── Flashcard JSON import ────────────────────────────────────
+  const handleFlashcardFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFlashcardImportError('');
+    setFlashcardImportSuccess('');
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target?.result as string);
+        if (
+          !Array.isArray(parsed) ||
+          parsed.length === 0 ||
+          !parsed.every(
+            (c: any) =>
+              typeof c.heading === 'string' && Array.isArray(c.points)
+          )
+        ) {
+          setFlashcardImportError('Invalid format. Expected [{ heading, points[] }]');
+          setCustomFlashcards(null);
+          return;
+        }
+        setCustomFlashcards(parsed);
+        setFlashcardImportSuccess(`✓ ${parsed.length} card${parsed.length !== 1 ? 's' : ''} imported`);
+      } catch {
+        setFlashcardImportError('Could not parse file. Make sure it is valid JSON.');
+        setCustomFlashcards(null);
+      }
+    };
+    reader.readAsText(file);
+    // reset input so same file can be re-selected
+    e.target.value = '';
+  };
+
+  // ── Audio file upload to Supabase ────────────────────────────
+  const handleAudioFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAudioUploadError('');
+    setCustomAudioUrl(null);
+    setAudioFileName(file.name);
+    setAudioFileSize((file.size / (1024 * 1024)).toFixed(1) + ' MB');
+    setAudioUploading(true);
+    setAudioUploadProgress(10);
+
+    try {
+      const path = `custom-audio/${selectedSprintId}/${Date.now()}_${file.name}`;
+      // Simulate incremental progress while uploading
+      const progressInterval = setInterval(() => {
+        setAudioUploadProgress((p) => Math.min(p + 15, 85));
+      }, 300);
+
+      const { error } = await supabase.storage
+        .from('module_audio')
+        .upload(path, file, { upsert: true });
+
+      clearInterval(progressInterval);
+
+      if (error) {
+        setAudioUploadError(`Upload failed: ${error.message}`);
+        setAudioUploading(false);
+        setAudioUploadProgress(0);
+        return;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from('module_audio')
+        .getPublicUrl(path);
+
+      setCustomAudioUrl(urlData.publicUrl);
+      setAudioUploadProgress(100);
+    } catch (err: any) {
+      setAudioUploadError(`Upload failed: ${err.message ?? 'Unknown error'}`);
+      setAudioUploadProgress(0);
+    } finally {
+      setAudioUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  // ── Toggle content item ──────────────────────────────────────
+  const toggleContent = (key: string) => {
+    setSelectedContent((prev) =>
+      prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]
+    );
+  };
+
   // ── Generate email via Gemini ────────────────────────────────
   const handleGenerateEmail = async () => {
     if (!selectedSprint || selectedSubModuleIds.length === 0) return;
@@ -271,7 +391,52 @@ export default function AdminDispatchCenterPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        setDraftedEmail(data.email);
+        const geminiEmail = data.email;
+
+        // If content blocks are selected, fetch the raw flashcard/audio HTML and
+        // inject it into the Gemini email — so the final email has BOTH the
+        // Gemini-written message AND the real flashcard/audio content
+        if (selectedContent.length > 0 && selectedSprintId) {
+          try {
+            const notifyRes = await fetch(`${API_BASE}/api/dispatch/notify-email`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
+              body: JSON.stringify({
+                module_id: selectedSprintId,
+                selected_content: selectedContent,
+                blocks_only: true,
+                ...(customFlashcards ? { customFlashcards } : {}),
+                ...(customAudioUrl ? { customAudioUrl } : {}),
+              }),
+            });
+            if (notifyRes.ok) {
+              const { blocks_html } = await notifyRes.json();
+              if (blocks_html) {
+                // Inject the blocks right before <!-- DIVIDER --> in the Gemini email
+                const injectedRow = `
+          <!-- CONTENT BLOCKS -->
+          <tr>
+            <td style="padding:0 36px 24px;">
+              ${blocks_html}
+            </td>
+          </tr>
+
+          <!-- DIVIDER -->`;
+                const enrichedBody = geminiEmail.body.replace('<!-- DIVIDER -->', injectedRow);
+                setDraftedEmail({ subject: geminiEmail.subject, body: enrichedBody });
+              } else {
+                // blocks_html was empty (no flashcards/audio found) — just show Gemini email
+                setDraftedEmail(geminiEmail);
+              }
+            } else {
+              setDraftedEmail(geminiEmail);
+            }
+          } catch {
+            setDraftedEmail(geminiEmail);
+          }
+        } else {
+          setDraftedEmail(geminiEmail);
+        }
       } else {
         const err = await res.json().catch(() => null);
         alert(err?.detail || 'Failed to generate email');
@@ -290,9 +455,49 @@ export default function AdminDispatchCenterPage() {
     setSending(true);
     setSendResult(null);
 
+    const notifyPayload: Record<string, any> = {
+      module_id: selectedSprintId,
+      subject: draftedEmail.subject,
+      body: draftedEmail.body,
+      selected_content: selectedContent,
+      ...(customFlashcards ? { customFlashcards } : {}),
+      ...(customAudioUrl ? { customAudioUrl } : {}),
+    };
+
     try {
-      if (scheduleEnabled) {
-        // ── Schedule for later ──────────────────────────────────
+      if (scheduleEnabled && scheduleMode === 'recurring') {
+        // ── Save recurring schedule to DB ───────────────────────
+        if (selectedDays.length === 0) {
+          alert('Please select at least one day of the week.');
+          setSending(false);
+          return;
+        }
+        // Convert the user's local HH:MM to UTC HH:MM before storing,
+        // so the cron worker (which operates in UTC) compares apples to apples.
+        const [localH, localM] = recurringTime.split(':').map(Number);
+        const localDate = new Date();
+        localDate.setHours(localH, localM, 0, 0);
+        const utcTime = `${String(localDate.getUTCHours()).padStart(2, '0')}:${String(localDate.getUTCMinutes()).padStart(2, '0')}`;
+
+        const res = await fetch(`/api/dispatch/save-schedule`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...notifyPayload,
+            days_of_week: selectedDays,
+            scheduled_time: utcTime,          // stored & read as UTC
+            company_id: currentUser.company_id,
+            recipient_user_ids: assignedUsers.map((u) => ({ user_id: u.user_id, email: u.email })),
+          }),
+        });
+        if (res.ok) {
+          setSendResult(await res.json());
+        } else {
+          const err = await res.json().catch(() => null);
+          alert(err?.error || 'Failed to save schedule');
+        }
+      } else if (scheduleEnabled && scheduleMode === 'once') {
+        // ── Schedule one-time future delivery ───────────────────
         if (!scheduledDate || !scheduledTime) {
           alert('Please pick a date and time before scheduling.');
           setSending(false);
@@ -300,21 +505,15 @@ export default function AdminDispatchCenterPage() {
         }
         const res = await fetch(`${API_BASE}/api/dispatch/schedule-email`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-ID': currentUser.user_id,
-          },
+          headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
           body: JSON.stringify({
-            module_id: selectedSprintId,
-            subject: draftedEmail.subject,
-            body: draftedEmail.body,
+            ...notifyPayload,
             scheduled_date: scheduledDate,
             scheduled_time: scheduledTime,
           }),
         });
         if (res.ok) {
-          const data = await res.json();
-          setSendResult(data);
+          setSendResult(await res.json());
         } else {
           const err = await res.json().catch(() => null);
           alert(err?.detail || 'Failed to schedule email');
@@ -323,19 +522,11 @@ export default function AdminDispatchCenterPage() {
         // ── Send immediately ────────────────────────────────────
         const res = await fetch(`${API_BASE}/api/dispatch/send-email`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-ID': currentUser.user_id,
-          },
-          body: JSON.stringify({
-            module_id: selectedSprintId,
-            subject: draftedEmail.subject,
-            body: draftedEmail.body,
-          }),
+          headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
+          body: JSON.stringify(notifyPayload),
         });
         if (res.ok) {
-          const data = await res.json();
-          setSendResult(data);
+          setSendResult(await res.json());
         } else {
           const err = await res.json().catch(() => null);
           alert(err?.detail || 'Failed to send email');
@@ -526,11 +717,219 @@ export default function AdminDispatchCenterPage() {
                 </div>
               )}
 
-              {/* 5. Sprint Image */}
+              {/* 5. Content to Include */}
               {selectedSprintId && (
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
-                    5. Sprint Image (for email hero)
+                    5. Content to Include
+                  </label>
+                  <div className="space-y-3">
+
+                    {/* ── Flashcard card ── */}
+                    <div className={`rounded-xl border-2 transition-all overflow-hidden ${
+                      selectedContent.includes('flashcards')
+                        ? 'border-purple-400 bg-purple-50'
+                        : 'border-slate-200 bg-white'
+                    }`}>
+                      <button
+                        onClick={() => toggleContent('flashcards')}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                      >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                          selectedContent.includes('flashcards') ? 'bg-purple-500' : 'bg-slate-100'
+                        }`}>
+                          <FileJson size={16} className={selectedContent.includes('flashcards') ? 'text-white' : 'text-slate-500'} />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold text-sm text-slate-800">Flashcards</p>
+                          <p className="text-xs text-slate-500">Embed flashcard cards from the module</p>
+                        </div>
+                        {selectedContent.includes('flashcards') && (
+                          <Check size={16} className="text-purple-500 shrink-0" />
+                        )}
+                      </button>
+
+                      {/* Flashcard sub-options */}
+                      {selectedContent.includes('flashcards') && (
+                        <div className="px-4 pb-4 space-y-3">
+                          {/* Toggle pill */}
+                          <div className="inline-flex rounded-full bg-slate-100 p-1 gap-1">
+                            <button
+                              onClick={() => { setFlashcardMode('existing'); setCustomFlashcards(null); setFlashcardImportError(''); setFlashcardImportSuccess(''); }}
+                              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                                flashcardMode === 'existing'
+                                  ? 'bg-white shadow text-slate-800'
+                                  : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Use Existing
+                            </button>
+                            <button
+                              onClick={() => setFlashcardMode('import')}
+                              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                                flashcardMode === 'import'
+                                  ? 'bg-white shadow text-slate-800'
+                                  : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Import JSON
+                            </button>
+                          </div>
+
+                          {/* Import JSON panel */}
+                          {flashcardMode === 'import' && (
+                            <div className="space-y-2">
+                              <input
+                                ref={flashcardFileRef}
+                                type="file"
+                                accept=".json"
+                                className="hidden"
+                                onChange={handleFlashcardFileChange}
+                              />
+                              <button
+                                onClick={() => flashcardFileRef.current?.click()}
+                                className="flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-dashed border-purple-300 bg-white text-purple-600 text-xs font-semibold hover:bg-purple-50 transition-all w-full justify-center"
+                              >
+                                <Upload size={14} /> Choose .json file
+                              </button>
+                              {flashcardImportSuccess && (
+                                <p className="text-xs font-semibold text-green-600 flex items-center gap-1">
+                                  <Check size={12} /> {flashcardImportSuccess}
+                                </p>
+                              )}
+                              {flashcardImportError && (
+                                <p className="text-xs text-red-500">{flashcardImportError}</p>
+                              )}
+                              <p className="text-[11px] text-slate-400">
+                                Expected format: <code className="bg-slate-100 px-1 rounded">{'[{ "heading": "...", "points": ["..."] }]'}</code>
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ── Audio card ── */}
+                    <div className={`rounded-xl border-2 transition-all overflow-hidden ${
+                      selectedContent.includes('audio')
+                        ? 'border-orange-400 bg-orange-50'
+                        : 'border-slate-200 bg-white'
+                    }`}>
+                      <button
+                        onClick={() => toggleContent('audio')}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                      >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                          selectedContent.includes('audio') ? 'bg-orange-500' : 'bg-slate-100'
+                        }`}>
+                          <Music size={16} className={selectedContent.includes('audio') ? 'text-white' : 'text-slate-500'} />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold text-sm text-slate-800">Audio Lesson</p>
+                          <p className="text-xs text-slate-500">Embed a listen link for the module audio</p>
+                        </div>
+                        {selectedContent.includes('audio') && (
+                          <Check size={16} className="text-orange-500 shrink-0" />
+                        )}
+                      </button>
+
+                      {/* Audio sub-options */}
+                      {selectedContent.includes('audio') && (
+                        <div className="px-4 pb-4 space-y-3">
+                          {/* Toggle pill */}
+                          <div className="inline-flex rounded-full bg-slate-100 p-1 gap-1">
+                            <button
+                              onClick={() => { setAudioMode('existing'); setCustomAudioUrl(null); setAudioFileName(''); setAudioFileSize(''); setAudioUploadError(''); setAudioUploadProgress(0); }}
+                              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                                audioMode === 'existing'
+                                  ? 'bg-white shadow text-slate-800'
+                                  : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Use Existing
+                            </button>
+                            <button
+                              onClick={() => setAudioMode('import')}
+                              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                                audioMode === 'import'
+                                  ? 'bg-white shadow text-slate-800'
+                                  : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Import Audio
+                            </button>
+                          </div>
+
+                          {/* Import Audio panel */}
+                          {audioMode === 'import' && (
+                            <div className="space-y-2">
+                              <input
+                                ref={audioFileRef}
+                                type="file"
+                                accept=".mp3,.wav"
+                                className="hidden"
+                                onChange={handleAudioFileChange}
+                              />
+                              {!audioFileName ? (
+                                <button
+                                  onClick={() => audioFileRef.current?.click()}
+                                  disabled={audioUploading}
+                                  className="flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-dashed border-orange-300 bg-white text-orange-600 text-xs font-semibold hover:bg-orange-50 transition-all w-full justify-center disabled:opacity-50"
+                                >
+                                  <Upload size={14} /> Choose .mp3 or .wav
+                                </button>
+                              ) : (
+                                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-slate-200 text-sm">
+                                  <span className="text-lg">🎵</span>
+                                  <span className="font-medium text-slate-700 truncate flex-1">{audioFileName}</span>
+                                  <span className="text-slate-400 text-xs shrink-0">{audioFileSize}</span>
+                                  {!audioUploading && !customAudioUrl && (
+                                    <button onClick={() => audioFileRef.current?.click()} className="text-orange-500 hover:text-orange-700 ml-1">
+                                      <Upload size={13} />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Upload progress bar */}
+                              {audioUploading && (
+                                <div className="space-y-1">
+                                  <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                                    <div
+                                      className="h-full bg-orange-400 transition-all duration-300 ease-out rounded-full"
+                                      style={{ width: `${audioUploadProgress}%` }}
+                                    />
+                                  </div>
+                                  <p className="text-xs text-slate-400">Uploading… {audioUploadProgress}%</p>
+                                </div>
+                              )}
+
+                              {/* Success */}
+                              {customAudioUrl && !audioUploading && (
+                                <p className="text-xs font-semibold text-green-600 flex items-center gap-1">
+                                  <Check size={12} /> Uploaded successfully
+                                </p>
+                              )}
+
+                              {/* Error */}
+                              {audioUploadError && (
+                                <p className="text-xs text-red-500">{audioUploadError}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                  </div>
+                </div>
+              )}
+
+              {/* 6. Sprint Image */}
+              {selectedSprintId && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
+                    6. Sprint Image (for email hero)
                   </label>
                   <div className="space-y-3">
                     {/* Auto-fetched preview or loading */}
@@ -575,13 +974,13 @@ export default function AdminDispatchCenterPage() {
                 </div>
               )}
 
-              {/* 6. Dispatch Scheduling */}
+              {/* 7. Dispatch Scheduling */}
               {selectedSprintId && (
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-2">
                       <Calendar size={14} />
-                      6. Dispatch Scheduling
+                      7. Dispatch Scheduling
                     </label>
                     <button
                       onClick={() => setScheduleEnabled(!scheduleEnabled)}
@@ -599,29 +998,130 @@ export default function AdminDispatchCenterPage() {
 
                   {scheduleEnabled && (
                     <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Date</label>
-                          <input
-                            type="date"
-                            value={scheduledDate}
-                            onChange={(e) => setScheduledDate(e.target.value)}
-                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Time</label>
-                          <div className="relative">
-                            <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+
+                      {/* Mode toggle: Once vs Recurring */}
+                      <div className="inline-flex rounded-full bg-slate-200 p-1 gap-1">
+                        <button
+                          onClick={() => setScheduleMode('once')}
+                          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                            scheduleMode === 'once'
+                              ? 'bg-white shadow text-slate-800'
+                              : 'text-slate-500 hover:text-slate-700'
+                          }`}
+                        >
+                          One-time
+                        </button>
+                        <button
+                          onClick={() => setScheduleMode('recurring')}
+                          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                            scheduleMode === 'recurring'
+                              ? 'bg-white shadow text-slate-800'
+                              : 'text-slate-500 hover:text-slate-700'
+                          }`}
+                        >
+                          <RefreshCw size={11} /> Recurring
+                        </button>
+                      </div>
+
+                      {/* ONE-TIME: date + time */}
+                      {scheduleMode === 'once' && (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Date</label>
                             <input
-                              type="time"
-                              value={scheduledTime}
-                              onChange={(e) => setScheduledTime(e.target.value)}
-                              className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
+                              type="date"
+                              value={scheduledDate}
+                              onChange={(e) => setScheduledDate(e.target.value)}
+                              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
                             />
                           </div>
+                          <div>
+                            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Time</label>
+                            <div className="relative">
+                              <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                              <input
+                                type="time"
+                                value={scheduledTime}
+                                onChange={(e) => setScheduledTime(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
+                              />
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      )}
+
+                      {/* RECURRING: days of week + time */}
+                      {scheduleMode === 'recurring' && (() => {
+                        const days = [
+                          { key: 'Mon', label: 'Mon' },
+                          { key: 'Tue', label: 'Tue' },
+                          { key: 'Wed', label: 'Wed' },
+                          { key: 'Thu', label: 'Thu' },
+                          { key: 'Fri', label: 'Fri' },
+                          { key: 'Sat', label: 'Sat' },
+                          { key: 'Sun', label: 'Sun' },
+                        ];
+                        const toggleDay = (key: string) => {
+                          setSelectedDays((prev) =>
+                            prev.includes(key) ? prev.filter((d) => d !== key) : [...prev, key]
+                          );
+                        };
+                        return (
+                          <div className="space-y-4">
+                            <div>
+                              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">
+                                Days of Week
+                              </label>
+                              <div className="flex gap-1.5 flex-wrap">
+                                {days.map((d) => (
+                                  <button
+                                    key={d.key}
+                                    onClick={() => toggleDay(d.key)}
+                                    className={`w-11 h-11 rounded-xl text-xs font-bold transition-all border-2 ${
+                                      selectedDays.includes(d.key)
+                                        ? 'bg-blue-500 border-blue-500 text-white shadow'
+                                        : 'bg-white border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-500'
+                                    }`}
+                                  >
+                                    {d.label}
+                                  </button>
+                                ))}
+                              </div>
+                              {selectedDays.length > 0 && (
+                                <p className="text-xs text-blue-600 font-semibold mt-2">
+                                  Sends every: {selectedDays.join(', ')}
+                                </p>
+                              )}
+                            </div>
+                            <div>
+                              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">
+                                Time (your local time)
+                              </label>
+                              <div className="relative w-44">
+                                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                <input
+                                  type="time"
+                                  value={recurringTime}
+                                  onChange={(e) => setRecurringTime(e.target.value)}
+                                  className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
+                                />
+                              </div>
+                              {recurringTime && (() => {
+                                const [lh, lm] = recurringTime.split(':').map(Number);
+                                const d = new Date();
+                                d.setHours(lh, lm, 0, 0);
+                                const utcStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
+                                return (
+                                  <p className="text-xs text-slate-400 mt-1.5">
+                                    Stored as <span className="font-semibold text-slate-600">{utcStr}</span>
+                                  </p>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                     </div>
                   )}
                 </div>
@@ -724,8 +1224,8 @@ export default function AdminDispatchCenterPage() {
                       <iframe
                         srcDoc={draftedEmail.body}
                         className="w-full rounded-lg border border-slate-200 bg-white"
-                        style={{ height: '480px' }}
-                        sandbox="allow-same-origin"
+                        style={{ height: '600px' }}
+                        sandbox="allow-same-origin allow-scripts"
                         title="Email Preview"
                       />
                     </div>
@@ -747,7 +1247,11 @@ export default function AdminDispatchCenterPage() {
                         {sending ? (
                           <>
                             <Loader2 size={16} className="animate-spin" />
-                            {scheduleEnabled ? 'Scheduling…' : 'Sending…'}
+                            {scheduleEnabled && scheduleMode === 'recurring' ? 'Saving…' : scheduleEnabled ? 'Scheduling…' : 'Sending…'}
+                          </>
+                        ) : scheduleEnabled && scheduleMode === 'recurring' ? (
+                          <>
+                            <RefreshCw size={16} /> Save Recurring Schedule ({assignedUsers.length})
                           </>
                         ) : scheduleEnabled ? (
                           <>
@@ -767,7 +1271,7 @@ export default function AdminDispatchCenterPage() {
               {/* Send Result */}
               {sendResult && (
                 <div className={`rounded-xl p-5 border-2 ${
-                  sendResult.status === 'scheduled'
+                  sendResult.status === 'scheduled' || sendResult.status === 'saved_recurring'
                     ? 'bg-blue-50 border-blue-200'
                     : (sendResult.failed?.length ?? 0) === 0
                       ? 'bg-green-50 border-green-200'
@@ -775,7 +1279,7 @@ export default function AdminDispatchCenterPage() {
                 }`}>
                   <div className="flex items-start gap-3">
                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                      sendResult.status === 'scheduled'
+                      sendResult.status === 'scheduled' || sendResult.status === 'saved_recurring'
                         ? 'bg-blue-500'
                         : (sendResult.failed?.length ?? 0) === 0
                           ? 'bg-green-500'
@@ -783,6 +1287,8 @@ export default function AdminDispatchCenterPage() {
                     }`}>
                       {sendResult.status === 'scheduled' ? (
                         <Calendar size={20} className="text-white" />
+                      ) : sendResult.status === 'saved_recurring' ? (
+                        <RefreshCw size={20} className="text-white" />
                       ) : (sendResult.failed?.length ?? 0) === 0 ? (
                         <Check size={20} className="text-white" />
                       ) : (
@@ -797,6 +1303,18 @@ export default function AdminDispatchCenterPage() {
                           </h4>
                           <p className="text-xs text-slate-500 mt-1">
                             Delivery time: {sendResult.scheduled_at ? new Date(sendResult.scheduled_at).toLocaleString() : '—'}
+                          </p>
+                        </>
+                      ) : sendResult.status === 'saved_recurring' ? (
+                        <>
+                          <h4 className="font-bold text-slate-900 text-sm">
+                            Recurring schedule saved for {sendResult.recipient_count} recipient{sendResult.recipient_count !== 1 ? 's' : ''}
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Sends every: {sendResult.days_of_week?.join(', ')} at {sendResult.scheduled_time} UTC
+                          </p>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            Schedule ID: <code className="bg-slate-100 px-1 rounded">{sendResult.scheduled_emails_id}</code>
                           </p>
                         </>
                       ) : (

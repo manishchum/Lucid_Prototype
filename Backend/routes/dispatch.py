@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Header, Query
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Any, Dict
 import google.generativeai as genai
 import os
 import re
@@ -19,6 +19,7 @@ from utils.db.dispatch_db import (
     get_assigned_users_for_sprint,
     get_sprint_image,
 )
+from utils.supabase_client import supabase
 
 router = APIRouter(prefix="/api/dispatch", tags=["dispatch"])
 
@@ -53,7 +54,288 @@ class ScheduleEmailRequest(BaseModel):
     scheduled_time: str   # "HH:MM"
 
 
-# ── Endpoints ───────────────────────────────────────────────────
+class NotifyEmailRequest(BaseModel):
+    module_id: str
+    selected_content: List[str]   # e.g. ["flashcards", "audio"]
+    scheduled_date: Optional[str] = None
+    scheduled_time: Optional[str] = None
+    customFlashcards: Optional[List[Dict[str, Any]]] = None   # overrides module flashcard_data
+    customAudioUrl: Optional[str] = None                      # overrides module audio_url
+    dry_run: bool = False                                     # True = build + return full HTML, no send
+    blocks_only: bool = False                                 # True = return only the inner content block HTML
+
+
+# ── Content-block email builder ─────────────────────────────────
+
+def build_content_blocks(
+    module: Dict[str, Any],
+    selected_content: List[str],
+    custom_flashcards: Optional[List[Dict[str, Any]]] = None,
+    custom_audio_url: Optional[str] = None,
+) -> str:
+    """Return only the inner HTML content blocks (flashcards + audio) with no email wrapper.
+    Uses table-only layout — no divs — for full Outlook compatibility."""
+    # ── Flashcard block ───────────────────────────────────────
+    flashcard_html = ""
+    if "flashcards" in selected_content:
+        flashcard_data = custom_flashcards if custom_flashcards is not None else (module.get("flashcard_data") or [])
+        if flashcard_data:
+            cards = ""
+            for card in flashcard_data:
+                heading = card.get("heading", "")
+                points = card.get("points") or []
+                items = "".join(
+                    f'<li style="margin-top:0;margin-bottom:4px;font-size:14px;'
+                    f'color:#555555;font-family:Arial,sans-serif;">{p}</li>'
+                    for p in points
+                )
+                cards += (
+                    '<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"'
+                    ' style="border-collapse:collapse;margin-bottom:12px;">'
+                    '<tr>'
+                    '<td width="4" bgcolor="#7C6FFF"'
+                    ' style="width:4px;background-color:#7C6FFF;font-size:1px;line-height:1px;">&nbsp;</td>'
+                    '<td bgcolor="#F0EEFF"'
+                    ' style="background-color:#F0EEFF;padding-top:16px;padding-bottom:16px;'
+                    'padding-left:16px;padding-right:16px;">'
+                    f'<p style="margin-top:0;margin-bottom:8px;font-size:15px;font-weight:700;'
+                    f'color:#333333;font-family:Arial,sans-serif;">{heading}</p>'
+                    f'<ul style="margin-top:0;margin-bottom:0;padding-left:18px;">{items}</ul>'
+                    '</td>'
+                    '</tr>'
+                    '</table>'
+                )
+            flashcard_html = (
+                '<p style="margin-top:0;margin-bottom:12px;font-size:16px;font-weight:700;'
+                'color:#1E293B;font-family:Arial,sans-serif;">&#128218; Flashcards</p>'
+                + cards
+            )
+
+    # ── Audio block ───────────────────────────────────────────
+    audio_html = ""
+    if "audio" in selected_content:
+        audio_url = custom_audio_url if custom_audio_url is not None else module.get("audio_url", "")
+        if audio_url:
+            audio_html = (
+                '<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"'
+                ' style="border-collapse:collapse;margin-bottom:16px;">'
+                '<tr>'
+                '<td bgcolor="#FEF3EC"'
+                ' style="background-color:#FEF3EC;padding-top:16px;padding-bottom:16px;'
+                'padding-left:16px;padding-right:16px;">'
+                '<p style="margin-top:0;margin-bottom:6px;font-size:15px;font-weight:700;'
+                'color:#333333;font-family:Arial,sans-serif;">&#127911; Audio Lesson</p>'
+                '<p style="margin-top:0;margin-bottom:12px;font-size:13px;color:#666666;'
+                'font-family:Arial,sans-serif;">Click below to listen to the full audio for this module.</p>'
+                '<table role="presentation" border="0" cellpadding="0" cellspacing="0"'
+                ' style="border-collapse:collapse;">'
+                '<tr>'
+                f'<td bgcolor="#E8824A"'
+                f' style="background-color:#E8824A;padding-top:10px;padding-bottom:10px;'
+                f'padding-left:20px;padding-right:20px;border-radius:6px;">'
+                f'<a href="{audio_url}"'
+                f' style="font-size:14px;font-weight:700;color:#ffffff;'
+                f'font-family:Arial,sans-serif;text-decoration:none;display:inline-block;">'
+                f'&#9654; Play Audio</a>'
+                f'</td>'
+                '</tr>'
+                '</table>'
+                '</td>'
+                '</tr>'
+                '</table>'
+            )
+
+    return flashcard_html + audio_html
+
+
+def build_email_body(
+    module: Dict[str, Any],
+    selected_content: List[str],
+    custom_flashcards: Optional[List[Dict[str, Any]]] = None,
+    custom_audio_url: Optional[str] = None,
+) -> str:
+    """
+    Build a fully Outlook/Gmail/Apple-Mail-compatible HTML email.
+    Rules: tables only, inline styles, VML for rounded corners, no divs, no gradients.
+    """
+    title = module.get("title", "Your Training Module")
+    content_blocks = build_content_blocks(module, selected_content, custom_flashcards, custom_audio_url)
+
+    if not content_blocks:
+        content_blocks = (
+            '<p style="margin-top:0;margin-bottom:0;color:#94A3B8;font-size:14px;'
+            'text-align:center;font-family:Arial,sans-serif;">No additional content was selected.</p>'
+        )
+
+    html = f"""<!DOCTYPE html>
+<html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <!--[if mso]>
+  <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+  <![endif]-->
+  <title>{title}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#EEF2FF;">
+<!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#EEF2FF"><tr><td><![endif]-->
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#EEF2FF"
+       style="background-color:#EEF2FF;border-collapse:collapse;">
+  <tr>
+    <td align="center" style="padding-top:40px;padding-bottom:40px;padding-left:16px;padding-right:16px;">
+
+      <!-- OUTER WHITE CARD -->
+      <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="760"
+             style="background-color:#ffffff;border-collapse:collapse;width:600px;max-width:600px;">
+
+        <!-- HEADER: Lucid Learn logo -->
+        <tr>
+          <td bgcolor="#ffffff" style="background-color:#ffffff;padding-top:20px;padding-bottom:16px;
+                                       padding-left:36px;padding-right:36px;
+                                       border-bottom:2px solid #EEF2FF;">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+              <tr>
+                <!-- "L" icon box -->
+                <td width="44" style="width:44px;">
+                  <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                         width="44" bgcolor="#EEF2FF"
+                         style="background-color:#EEF2FF;width:44px;border-collapse:collapse;">
+                    <tr>
+                      <td width="44" height="44" align="center" bgcolor="#EEF2FF"
+                          style="background-color:#EEF2FF;width:44px;height:44px;
+                                 text-align:center;vertical-align:middle;">
+                        <span style="font-size:26px;font-weight:900;color:#3B66F5;
+                                     font-family:Arial,Helvetica,sans-serif;line-height:44px;">L</span>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+                <!-- Brand name -->
+                <td style="padding-left:10px;vertical-align:middle;">
+                  <span style="font-size:22px;font-weight:800;color:#1E293B;
+                               font-family:Arial,Helvetica,sans-serif;letter-spacing:-1px;">Lucid</span><!--
+                  --><span style="font-size:22px;font-weight:400;color:#3B66F5;
+                               font-family:Arial,Helvetica,sans-serif;letter-spacing:-1px;">Learn</span>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- HERO: blue box with VML rounded corners for Outlook -->
+        <tr>
+          <td bgcolor="#ffffff" style="background-color:#ffffff;padding-top:16px;padding-bottom:16px;
+                                       padding-left:24px;padding-right:24px;">
+            <!--[if mso]>
+            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml"
+              xmlns:w="urn:schemas-microsoft-com:office:word"
+              href="https://lucid.workfloww.ai"
+              style="height:180px;v-text-anchor:middle;width:552px;"
+              arcsize="5%" fillcolor="#3B66F5" strokecolor="#3B66F5">
+            <w:anchorlock/>
+            <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:13px;">
+            <![endif]-->
+            <!--[if !mso]><!-->
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                   bgcolor="#3B66F5"
+                   style="background-color:#3B66F5;border-collapse:collapse;border-radius:16px;width:100%;">
+              <tr>
+                <td bgcolor="#3B66F5" style="background-color:#3B66F5;padding-top:28px;padding-bottom:28px;
+                                             padding-left:32px;padding-right:32px;border-radius:16px;">
+            <!--<![endif]-->
+
+                  <!-- Badge pill -->
+                  <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                         style="border-collapse:collapse;margin-bottom:14px;">
+                    <tr>
+                      <td bgcolor="#5577FF"
+                          style="background-color:#5577FF;padding-top:5px;padding-bottom:5px;
+                                 padding-left:16px;padding-right:16px;border-radius:999px;">
+                        <span style="font-size:11px;font-weight:700;color:#ffffff;
+                                     font-family:Arial,sans-serif;letter-spacing:1px;
+                                     text-transform:uppercase;">Learning Module</span>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <!-- Sprint title -->
+                  <p style="margin-top:0;margin-bottom:16px;font-size:24px;font-weight:800;
+                             color:#ffffff;font-family:Arial,Helvetica,sans-serif;line-height:1.25;">
+                    {title}
+                  </p>
+
+                  <!-- CTA button -->
+                  <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                         style="border-collapse:collapse;">
+                    <tr>
+                      <td bgcolor="#ffffff"
+                          style="background-color:#ffffff;border-radius:999px;padding-top:11px;
+                                 padding-bottom:11px;padding-left:24px;padding-right:24px;">
+                        <a href="https://lucid.workfloww.ai"
+                           style="font-size:14px;font-weight:700;color:#3B66F5;
+                                  font-family:Arial,sans-serif;text-decoration:none;
+                                  display:inline-block;">Start Learning &#8594;</a>
+                      </td>
+                    </tr>
+                  </table>
+
+            <!--[if !mso]><!-->
+                </td>
+              </tr>
+            </table>
+            <!--<![endif]-->
+            <!--[if mso]></center></v:roundrect><![endif]-->
+          </td>
+        </tr>
+
+        <!-- CONTENT BLOCKS (flashcards / audio) -->
+        <tr>
+          <td bgcolor="#ffffff" style="background-color:#ffffff;
+                                       padding-top:8px;padding-bottom:32px;
+                                       padding-left:36px;padding-right:36px;">
+            {content_blocks}
+          </td>
+        </tr>
+
+        <!-- DIVIDER -->
+        <tr>
+          <td bgcolor="#ffffff" style="background-color:#ffffff;
+                                       padding-left:36px;padding-right:36px;">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                   style="border-collapse:collapse;">
+              <tr>
+                <td height="1" bgcolor="#EEF2FF"
+                    style="height:1px;font-size:1px;line-height:1px;background-color:#EEF2FF;">&nbsp;</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- FOOTER -->
+        <tr>
+          <td bgcolor="#ffffff" align="center"
+              style="background-color:#ffffff;padding-top:20px;padding-bottom:28px;
+                     padding-left:36px;padding-right:36px;text-align:center;">
+            <p style="margin-top:0;margin-bottom:6px;font-size:12px;color:#94A3B8;
+                      font-family:Arial,sans-serif;text-align:center;">
+              You&#39;re receiving this because you are enrolled in a training module on LucidLearn.
+            </p>
+            <a href="#" style="font-size:12px;color:#3B66F5;font-family:Arial,sans-serif;
+                               text-decoration:none;">Unsubscribe</a>
+          </td>
+        </tr>
+
+      </table>
+      <!-- END OUTER WHITE CARD -->
+
+    </td>
+  </tr>
+</table>
+<!--[if mso | IE]></td></tr></table><![endif]-->
+</body>
+</html>"""
+    return html
 
 @router.get("/sprints/{company_id}")
 async def list_sprints(
@@ -156,122 +438,260 @@ Engagement question: {request.engagement_question or "none"}
 
     engagement_block = ""
     if engagement_text:
-        engagement_block = f'''<blockquote style="border-left:4px solid #3B66F5;margin:24px 0;padding:14px 20px;background:#EEF2FF;border-radius:0 12px 12px 0;font-style:italic;color:#1E3A8A;">
-  <strong>{engagement_text}</strong>
-</blockquote>'''
+        engagement_block = f"""
+            <tr>
+              <td style="padding-top:0;padding-bottom:16px;padding-left:0;padding-right:0;">
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                       style="border-collapse:collapse;">
+                  <tr>
+                    <td width="4" bgcolor="#3B66F5"
+                        style="width:4px;background-color:#3B66F5;font-size:1px;line-height:1px;">&nbsp;</td>
+                    <td bgcolor="#EEF2FF"
+                        style="background-color:#EEF2FF;padding-top:14px;padding-bottom:14px;
+                               padding-left:20px;padding-right:20px;">
+                      <p style="margin-top:0;margin-bottom:0;font-size:14px;color:#1E3A8A;
+                                 font-style:italic;font-family:Arial,sans-serif;font-weight:700;">
+                        {engagement_text}
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>"""
 
+    # Build hero image column (if provided)
     if request.sprint_image_url:
-        hero_image_col = f'''<td style="vertical-align:bottom;text-align:right;width:38%;padding:0;">
-                    <img src="{request.sprint_image_url}"
-                      alt="{request.sprint_title}"
-                      width="190"
-                      style="display:block;margin-left:auto;border-radius:0 0 20px 0;object-fit:cover;max-height:220px;" />
-                  </td>'''
-        hero_td_width = "width:62%;"
+        hero_image_col = f"""
+                  <td width="190" style="width:190px;vertical-align:bottom;text-align:right;padding:0;">
+                    <img src="{request.sprint_image_url}" alt="{request.sprint_title}"
+                         width="190" height="auto" border="0"
+                         style="display:block;width:190px;max-width:190px;" />
+                  </td>"""
+        hero_text_width = 'width="370" style="width:370px;'
     else:
         hero_image_col = ""
-        hero_td_width = "width:100%;"
+        hero_text_width = 'width="552" style="width:552px;'
 
     date_row = ""
     if event_date:
-        date_row = f'<p style="margin:0 0 24px;font-size:14px;color:#3B66F5;font-weight:600;">&#128197;&nbsp; {event_date}</p>'
-
-    # Lucid "L" logo — light blue rounded square with blue "L" (matches app icon)
-    lucid_logo_html = (
-        '<div style="display:inline-block;background:#EEF2FF;border-radius:14px;'
-        'width:44px;height:44px;text-align:center;vertical-align:middle;line-height:44px;">'
-        '<span style="font-size:26px;font-weight:900;color:#3B66F5;'
-        'font-family:Arial,Helvetica,sans-serif;line-height:44px;display:inline-block;vertical-align:middle;">L</span>'
-        '</div>'
-    )
+        date_row = (f'<p style="margin-top:0;margin-bottom:20px;font-size:14px;color:#93C5FD;'
+                    f'font-weight:600;font-family:Arial,sans-serif;">&#128197; {event_date}</p>')
 
     html_body = f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <!--[if mso]>
+  <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+  <![endif]-->
   <title>{subject}</title>
 </head>
-<body style="margin:0;padding:0;background-color:#EFF6FF;font-family:'Segoe UI',Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#EFF6FF;padding:40px 0;">
-    <tr>
-      <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(59,102,245,0.10);">
+<body style="margin:0;padding:0;background-color:#EEF2FF;">
+<!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#EEF2FF"><tr><td><![endif]-->
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#EEF2FF"
+       style="background-color:#EEF2FF;border-collapse:collapse;">
+  <tr>
+    <td align="center" style="padding-top:40px;padding-bottom:40px;padding-left:16px;padding-right:16px;">
 
-          <!-- LOGO HEADER -->
-          <tr>
-            <td style="padding:16px 36px 12px;border-bottom:1px solid #EFF6FF;">
-              <table cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="vertical-align:middle;">
-                    {lucid_logo_html}
-                  </td>
-                  <td style="vertical-align:middle;padding-left:10px;">
-                    <span style="font-size:22px;font-weight:800;color:#1E293B;letter-spacing:-0.5px;">Lucid</span>
-                    <span style="font-size:22px;font-weight:400;color:#3B66F5;letter-spacing:-0.5px;">Learn</span>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
+      <!-- OUTER WHITE CARD -->
+      <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600"
+             bgcolor="#ffffff"
+             style="background-color:#ffffff;border-collapse:collapse;width:600px;max-width:600px;">
 
-          <!-- HERO CARD -->
-          <tr>
-            <td style="padding:8px 24px 24px;">
-              <table width="100%" cellpadding="0" cellspacing="0"
-                style="background:linear-gradient(135deg,#3B66F5 0%,#1D4ED8 100%);border-radius:16px;overflow:hidden;">
-                <tr>
-                  <td style="padding:32px 32px 32px;vertical-align:top;{hero_td_width}">
-                    <div style="display:inline-block;background:rgba(255,255,255,0.18);border-radius:999px;padding:5px 16px;font-size:12px;color:#ffffff;font-weight:600;letter-spacing:0.5px;margin-bottom:18px;text-transform:uppercase;">
-                      Learning Sprint
-                    </div>
-                    <h1 style="margin:0 0 8px;font-size:26px;font-weight:800;color:#ffffff;line-height:1.2;">{request.sprint_title}</h1>
-                    <p style="margin:0 0 20px;font-size:14px;font-weight:500;color:rgba(255,255,255,0.85);">{tagline}</p>
-                    {date_row}
-                    <a href="https://lucid.workfloww.ai" style="display:inline-block;background:#ffffff;color:#3B66F5;text-decoration:none;font-weight:700;font-size:14px;padding:11px 24px;border-radius:999px;">
-                      Start Learning &rarr;
-                    </a>
-                  </td>
-                  {hero_image_col}
-                </tr>
-              </table>
-            </td>
-          </tr>
+        <!-- HEADER: Lucid Learn logo -->
+        <tr>
+          <td bgcolor="#ffffff"
+              style="background-color:#ffffff;padding-top:20px;padding-bottom:16px;
+                     padding-left:36px;padding-right:36px;
+                     border-bottom:2px solid #EEF2FF;">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                   style="border-collapse:collapse;">
+              <tr>
+                <td width="44" style="width:44px;">
+                  <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                         width="44" bgcolor="#EEF2FF"
+                         style="background-color:#EEF2FF;width:44px;border-collapse:collapse;">
+                    <tr>
+                      <td width="44" height="44" align="center" bgcolor="#EEF2FF"
+                          style="background-color:#EEF2FF;width:44px;height:44px;
+                                 text-align:center;vertical-align:middle;">
+                        <span style="font-size:26px;font-weight:900;color:#3B66F5;
+                                     font-family:Arial,Helvetica,sans-serif;line-height:44px;">L</span>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+                <td style="padding-left:10px;vertical-align:middle;">
+                  <span style="font-size:22px;font-weight:800;color:#1E293B;
+                               font-family:Arial,Helvetica,sans-serif;letter-spacing:-1px;">Lucid</span><!--
+                  --><span style="font-size:22px;font-weight:400;color:#3B66F5;
+                               font-family:Arial,Helvetica,sans-serif;letter-spacing:-1px;">Learn</span>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
 
-          <!-- EMAIL BODY -->
-          <tr>
-            <td style="padding:8px 36px 36px;color:#334155;font-size:15px;line-height:1.75;">
-              <p style="margin:0 0 16px;">Hi there,</p>
-              <p style="margin:0 0 16px;">{intro}</p>
-              <p style="margin:0 0 16px;">{body_text}</p>
+        <!-- HERO: blue box, VML rounded corners for Outlook -->
+        <tr>
+          <td bgcolor="#ffffff"
+              style="background-color:#ffffff;padding-top:16px;padding-bottom:16px;
+                     padding-left:24px;padding-right:24px;">
+            <!--[if mso]>
+            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml"
+              xmlns:w="urn:schemas-microsoft-com:office:word"
+              href="https://lucid.workfloww.ai"
+              style="height:190px;v-text-anchor:middle;width:552px;"
+              arcsize="5%" fillcolor="#3B66F5" strokecolor="#3B66F5">
+            <w:anchorlock/>
+            <center style="color:#ffffff;font-family:Arial,sans-serif;">
+            <![endif]-->
+            <!--[if !mso]><!-->
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                   bgcolor="#3B66F5"
+                   style="background-color:#3B66F5;border-collapse:collapse;border-radius:16px;">
+              <tr>
+                <td {hero_text_width}padding-top:28px;padding-bottom:28px;
+                              padding-left:32px;padding-right:32px;
+                              vertical-align:top;border-radius:16px;">
+            <!--<![endif]-->
+
+                  <!-- Badge -->
+                  <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                         style="border-collapse:collapse;margin-bottom:14px;">
+                    <tr>
+                      <td bgcolor="#5577FF"
+                          style="background-color:#5577FF;padding-top:5px;padding-bottom:5px;
+                                 padding-left:16px;padding-right:16px;border-radius:999px;">
+                        <span style="font-size:11px;font-weight:700;color:#ffffff;
+                                     font-family:Arial,sans-serif;letter-spacing:1px;
+                                     text-transform:uppercase;">Learning Sprint</span>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <!-- Title -->
+                  <p style="margin-top:0;margin-bottom:8px;font-size:26px;font-weight:800;
+                             color:#ffffff;font-family:Arial,Helvetica,sans-serif;line-height:1.2;">
+                    {request.sprint_title}
+                  </p>
+                  <!-- Tagline -->
+                  <p style="margin-top:0;margin-bottom:20px;font-size:14px;font-weight:500;
+                             color:#C7D7FD;font-family:Arial,sans-serif;">
+                    {tagline}
+                  </p>
+                  {date_row}
+                  <!-- CTA button -->
+                  <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                         style="border-collapse:collapse;">
+                    <tr>
+                      <td bgcolor="#ffffff"
+                          style="background-color:#ffffff;border-radius:999px;
+                                 padding-top:11px;padding-bottom:11px;
+                                 padding-left:24px;padding-right:24px;">
+                        <a href="https://lucid.workfloww.ai"
+                           style="font-size:14px;font-weight:700;color:#3B66F5;
+                                  font-family:Arial,sans-serif;text-decoration:none;
+                                  display:inline-block;">Start Learning &#8594;</a>
+                      </td>
+                    </tr>
+                  </table>
+
+            <!--[if !mso]><!-->
+                </td>
+                {hero_image_col}
+              </tr>
+            </table>
+            <!--<![endif]-->
+            <!--[if mso]></center></v:roundrect><![endif]-->
+          </td>
+        </tr>
+
+        <!-- EMAIL BODY TEXT -->
+        <tr>
+          <td bgcolor="#ffffff"
+              style="background-color:#ffffff;padding-top:8px;padding-bottom:8px;
+                     padding-left:36px;padding-right:36px;">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                   style="border-collapse:collapse;">
+              <tr>
+                <td style="padding-bottom:16px;">
+                  <p style="margin-top:0;margin-bottom:0;font-size:15px;color:#334155;
+                             font-family:Arial,sans-serif;line-height:1.75;">Hi there,</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding-bottom:16px;">
+                  <p style="margin-top:0;margin-bottom:0;font-size:15px;color:#334155;
+                             font-family:Arial,sans-serif;line-height:1.75;">{intro}</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding-bottom:16px;">
+                  <p style="margin-top:0;margin-bottom:0;font-size:15px;color:#334155;
+                             font-family:Arial,sans-serif;line-height:1.75;">{body_text}</p>
+                </td>
+              </tr>
               {engagement_block}
-              <p style="margin:28px 0 0;">
-                <a href="https://lucid.workfloww.ai" style="display:inline-block;background:#3B66F5;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 28px;border-radius:999px;">
-                  Start Learning &rarr;
-                </a>
-              </p>
-            </td>
-          </tr>
+              <!-- Second CTA -->
+              <tr>
+                <td style="padding-top:12px;padding-bottom:28px;">
+                  <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                         style="border-collapse:collapse;">
+                    <tr>
+                      <td bgcolor="#3B66F5"
+                          style="background-color:#3B66F5;border-radius:999px;
+                                 padding-top:12px;padding-bottom:12px;
+                                 padding-left:28px;padding-right:28px;">
+                        <a href="https://lucid.workfloww.ai"
+                           style="font-size:14px;font-weight:700;color:#ffffff;
+                                  font-family:Arial,sans-serif;text-decoration:none;
+                                  display:inline-block;">Start Learning &#8594;</a>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
 
-          <!-- DIVIDER -->
-          <tr>
-            <td style="padding:0 36px;">
-              <div style="height:1px;background:#EFF6FF;"></div>
-            </td>
-          </tr>
+        <!-- DIVIDER -->
+        <tr>
+          <td bgcolor="#ffffff" style="background-color:#ffffff;padding-left:36px;padding-right:36px;">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                   style="border-collapse:collapse;">
+              <tr>
+                <td height="1" bgcolor="#EEF2FF"
+                    style="height:1px;font-size:1px;line-height:1px;background-color:#EEF2FF;">&nbsp;</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
 
-          <!-- FOOTER -->
-          <tr>
-            <td style="padding:20px 36px 28px;font-size:12px;color:#94A3B8;text-align:center;">
-              You're receiving this because you are enrolled in a training sprint on LucidLearn.<br/>
-              <a href="#" style="color:#3B66F5;text-decoration:none;">Unsubscribe</a>
-            </td>
-          </tr>
+        <!-- FOOTER -->
+        <tr>
+          <td bgcolor="#ffffff" align="center"
+              style="background-color:#ffffff;padding-top:20px;padding-bottom:28px;
+                     padding-left:36px;padding-right:36px;text-align:center;">
+            <p style="margin-top:0;margin-bottom:6px;font-size:12px;color:#94A3B8;
+                      font-family:Arial,sans-serif;text-align:center;">
+              You&#39;re receiving this because you are enrolled in a training sprint on LucidLearn.
+            </p>
+            <a href="#" style="font-size:12px;color:#3B66F5;font-family:Arial,sans-serif;
+                               text-decoration:none;">Unsubscribe</a>
+          </td>
+        </tr>
 
-        </table>
-      </td>
-    </tr>
-  </table>
+      </table>
+      <!-- END OUTER WHITE CARD -->
+
+    </td>
+  </tr>
+</table>
+<!--[if mso | IE]></td></tr></table><![endif]-->
 </body>
 </html>"""
 
@@ -418,4 +838,165 @@ async def schedule_email(
         "job_id": job_id,
         "scheduled_at": run_dt.isoformat(),
         "recipient_count": len(recipient_emails),
+    }
+
+
+# ── Notify endpoint: selected-content email ────────────────────
+
+@router.post("/notify-email")
+async def notify_email(
+    request: NotifyEmailRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Build and send (or schedule) an email whose content blocks are
+    determined by the admin's `selected_content` list.
+
+    selected_content examples:
+      ["flashcards", "audio"]  → both blocks
+      ["audio"]                → audio only
+      ["flashcards"]           → flashcards only
+      []                       → header + footer only
+    """
+    # 1a. Fetch sprint title from training_modules
+    sprint_result = supabase.table("training_modules") \
+        .select("title") \
+        .eq("module_id", request.module_id) \
+        .single() \
+        .execute()
+
+    if not sprint_result.data:
+        raise HTTPException(status_code=404, detail="Module not found")
+
+    # 1b. Fetch flashcard_data and audio_url from processed_modules for this sprint
+    fc_result = supabase.table("processed_modules") \
+        .select("flashcard_data, audio_url") \
+        .eq("original_module_id", request.module_id) \
+        .execute()
+
+    # Aggregate flashcard_data arrays and pick the first available audio_url
+    combined_flashcards: List[Dict[str, Any]] = []
+    audio_url_from_db = ""
+    for row in (fc_result.data or []):
+        if row.get("flashcard_data"):
+            combined_flashcards.extend(row["flashcard_data"])
+        if not audio_url_from_db and row.get("audio_url"):
+            audio_url_from_db = row["audio_url"]
+
+    module = {
+        "title": sprint_result.data.get("title", ""),
+        "audio_url": audio_url_from_db,
+        "flashcard_data": combined_flashcards,
+    }
+
+    # 2. Build the dynamic HTML body (use custom overrides when provided)
+    html_body = build_email_body(
+        module,
+        request.selected_content,
+        custom_flashcards=request.customFlashcards,
+        custom_audio_url=request.customAudioUrl,
+    )
+    subject = f"Your training module is ready: {module.get('title', '')}"
+
+    # blocks_only: return just the raw inner HTML snippet so the frontend
+    # can inject it into the Gemini-generated email body
+    if request.blocks_only:
+        blocks = build_content_blocks(
+            module,
+            request.selected_content,
+            custom_flashcards=request.customFlashcards,
+            custom_audio_url=request.customAudioUrl,
+        )
+        return {"blocks_html": blocks}
+
+    # Dry-run: return the full notify-style email HTML without sending
+    if request.dry_run:
+        return {"subject": subject, "body": html_body}
+
+    # 3. Get assigned users
+    users_result = await get_assigned_users_for_sprint(request.module_id)
+    if users_result["error"]:
+        raise HTTPException(status_code=400, detail=users_result["error"])
+
+    users_data = users_result["data"] or []
+    if not users_data:
+        raise HTTPException(status_code=404, detail="No users assigned to this module")
+
+    recipient_emails = [u["email"] for u in users_data if u.get("email")]
+    if not recipient_emails:
+        raise HTTPException(status_code=404, detail="No valid email addresses found")
+
+    # 4a. Schedule for later if date/time provided
+    if request.scheduled_date and request.scheduled_time:
+        try:
+            run_dt = datetime.strptime(
+                f"{request.scheduled_date} {request.scheduled_time}", "%Y-%m-%d %H:%M"
+            )
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid date/time format. Expected YYYY-MM-DD and HH:MM",
+            )
+
+        if run_dt <= datetime.utcnow():
+            raise HTTPException(
+                status_code=400,
+                detail="Scheduled time must be in the future (UTC)",
+            )
+
+        job_id = f"notify_{request.module_id}_{uuid.uuid4().hex[:8]}"
+        scheduler.add_job(
+            send_smtp_job,
+            trigger="date",
+            run_date=run_dt,
+            id=job_id,
+            args=[recipient_emails, subject, html_body],
+            replace_existing=True,
+        )
+        return {
+            "status": "scheduled",
+            "job_id": job_id,
+            "scheduled_at": run_dt.isoformat(),
+            "recipient_count": len(recipient_emails),
+        }
+
+    # 4b. Send immediately
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER", "")
+    smtp_pass = os.getenv("SMTP_PASS", "")
+    from_email = os.getenv("FROM_EMAIL", smtp_user)
+
+    if not smtp_user or not smtp_pass:
+        raise HTTPException(status_code=500, detail="SMTP credentials not configured on server")
+
+    sent_count = 0
+    failed: List[str] = []
+
+    try:
+        server = smtplib.SMTP(smtp_host, smtp_port)
+        server.starttls()
+        server.login(smtp_user, smtp_pass)
+
+        for email_addr in recipient_emails:
+            try:
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = subject
+                msg["From"] = from_email
+                msg["To"] = email_addr
+                msg.attach(MIMEText(html_body, "html"))
+                server.sendmail(from_email, email_addr, msg.as_string())
+                sent_count += 1
+            except Exception:
+                failed.append(email_addr)
+
+        server.quit()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"SMTP connection failed: {str(e)}")
+
+    return {
+        "message": f"Notify email sent to {sent_count}/{len(recipient_emails)} users",
+        "sent_count": sent_count,
+        "failed": failed,
+        "selected_content": request.selected_content,
     }
