@@ -267,11 +267,18 @@ export default function SignupPage() {
 
       const createPayload = await createRes.json().catch(() => null)
 
+      const userData = Array.isArray(createPayload.user) 
+        ? createPayload.user[0] 
+        : createPayload.user;
       console.log("These are the payloads")
       console.log(createPayload);
       console.log(createRes);
-      const newUser = (createPayload && (createPayload.user || createPayload)) || null
-      if (!newUser || !newUser.user_id) {
+      const newUser = (userData && (userData.user || userData)) || null
+
+
+      console.log("new user payload")
+      console.log(userData)
+      if (!userData.user_id) {
         throw new Error("User created but response is missing user_id")
       }
 
@@ -280,7 +287,7 @@ export default function SignupPage() {
         .from("roles")
         .select("role_id")
         .eq("name", "USER")
-        // .maybeSingle()
+        .maybeSingle()
 
       if (roleError) {
         throw new Error("Error fetching USER role: " + roleError.message)
@@ -304,6 +311,7 @@ export default function SignupPage() {
           scope_id: companyData.company_id,
           assigned_by: newUser.user_id,
           assigned_at: new Date().toISOString(),
+          expires_at: new Date(), // no expiration
           is_active: true,
           notes: "Assigned during signup"
         })
