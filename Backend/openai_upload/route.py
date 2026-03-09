@@ -605,6 +605,7 @@ async def openai_upload_file(
     temp_files = []
     pdf_files = []
     merged_pdf_path = None
+    source_file_paths = []
 
     try:
         print("FILES RECEIVED COUNT:", len(files))
@@ -621,6 +622,26 @@ async def openai_upload_file(
 
             with open(temp_path, "wb") as f:
                 shutil.copyfileobj(file.file, f)
+
+            # -------- Upload individual file to Supabase --------
+            with open(temp_path, "rb") as f:
+                file_bytes = f.read()
+
+            source_storage_path = f"uploads/{moduleId}/source/{safe_name}"
+
+            supabase.storage.from_("content library").remove([source_storage_path])
+
+            upload_source = supabase.storage.from_("content library").upload(
+                source_storage_path,
+                file_bytes,
+                {"content-type": file.content_type or "application/octet-stream"}
+            )
+
+            if hasattr(upload_source, "error") and upload_source.error:
+                raise Exception(f"Failed to upload source file: {upload_source.error}")
+
+            source_file_paths.append(source_storage_path)
+            # ----------------------------------------------------
 
             temp_files.append(temp_path)
 
@@ -682,6 +703,10 @@ async def openai_upload_file(
         }).eq("module_id", moduleId).execute()
 
         supabase.table("training_modules").update({
+            "source_files": source_file_paths
+        }).eq("module_id", moduleId).execute()
+
+        supabase.table("training_modules").update({
             "processing_status": "summarizing"
         }).eq("module_id", moduleId).execute()
 
@@ -714,6 +739,54 @@ async def openai_upload_file(
 
         if merged_pdf_path and os.path.exists(merged_pdf_path):
             os.unlink(merged_pdf_path)
+
+@router.post("/preview-file")
+async def preview_file(payload: dict):
+    file_path = payload.get("filePath")
+
+    if not file_path:
+        return JSONResponse({"error": "Missing filePath"}, status_code=400)
+
+    try:
+        temp_dir = tempfile.gettempdir()
+
+        # Download file from Supabase
+        res = supabase.storage.from_("content library").download(file_path)
+
+        if not res:
+            raise Exception("File not found in storage")
+
+        original_path = os.path.join(temp_dir, os.path.basename(file_path))
+
+        with open(original_path, "wb") as f:
+            f.write(res)
+
+        # If already PDF → return directly
+        if original_path.lower().endswith(".pdf"):
+            public = supabase.storage.from_("content library").get_public_url(file_path)
+            return {"previewUrl": public}
+
+        # Convert DOC/DOCX → PDF
+        converted_pdf = original_path.rsplit(".", 1)[0] + "_preview.pdf"
+
+        await convertDocToPdf(original_path, converted_pdf)
+
+        # Upload preview PDF
+        preview_storage_path = f"preview/{uuid.uuid4()}.pdf"
+
+        with open(converted_pdf, "rb") as f:
+            supabase.storage.from_("content library").upload(
+                preview_storage_path,
+                f.read(),
+                {"content-type": "application/pdf"}
+            )
+
+        url = supabase.storage.from_("content library").get_public_url(preview_storage_path)
+
+        return {"previewUrl": url}
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 # -------------------------
 # Main POST route (equivalent export async function POST)
