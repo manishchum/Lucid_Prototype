@@ -597,27 +597,6 @@ function ContentUpload({
           <Button onClick={handleAddLink}>Add</Button>
         </div>
       </div>
-
-      <div className="md:col-span-2">
-        <Label htmlFor="file">Upload File</Label>
-        <Input
-          id="file"
-          type="file"
-          multiple
-          accept=".pdf"
-          onChange={(e) => {
-            if (!e.target.files) return;
-
-            const newFiles = Array.from(e.target.files);
-
-            setFiles(prev => [...prev, ...newFiles]);
-          }}
-        />
-      </div>
-
-      
-
-
       <div className="md:col-span-2 flex justify-end">
       <Button onClick={handleUpload} disabled={files.length === 0 || !title || uploading}>
         {uploading ? 'Uploading...' : 'Upload Content'}
@@ -1260,7 +1239,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                         try {
                           // Combined AI document
                           if (file.type === "combined") {
-                            setPreviewUrl(`${file.url}#toolbar=0`);
+                            setPreviewUrl(file.url);
                             return;
                           }
 
@@ -1288,7 +1267,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                           const data = await res.json();
 
                           if (data.previewUrl) {
-                            setPreviewUrl(`${data.previewUrl}#toolbar=0`);
+                            setPreviewUrl(data.previewUrl);
                           } else {
                             console.error("Preview URL missing");
                           }
