@@ -1,12 +1,11 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import AudioPlayer from "./AudioPlayer";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import EmployeeNavigation from "@/components/employee-navigation";
 import ModuleSideNav from "@/components/ModuleSideNav";
 import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download } from "lucide-react";
 import FlashcardCards from '@/components/FlashcardCards'
@@ -333,8 +332,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
 
   return (
     <div className="min-h-screen">
-      <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} forceCollapsed={true} />
-      
       {/* Module Side Navigation */}
       {employee?.user_id && (
         <ModuleSideNav 
@@ -344,10 +341,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
         />
       )}
 
-      <div 
-        className="transition-all duration-300 ease-in-out px-12 py-8" 
-        style={{ marginLeft: 'calc(var(--sidebar-width, 5rem) + 16rem)' }}
-      >
+      <div className="px-12 py-8" style={{ marginLeft: '16rem' }}>
         <div className="w-full mx-auto">
           <div>
             <main className="w-full">
@@ -1066,8 +1060,10 @@ function ContentTransformer({
   const [audioOpen, setAudioOpen] = useState(false);
   const [flashcardSections, setFlashcardSections] = useState<any[] | null>(null);
   const [flashcardLoading, setFlashcardLoading] = useState(false);
+  const flashcardExportRef = useRef<(() => Promise<void>) | null>(null);
   const [mindmapData, setMindmapData] = useState<any | null>(null);
   const [mindmapLoading, setMindmapLoading] = useState(false);
+  const mindmapDownloadRef = useRef<(() => void) | null>(null);
   const [infographicData, setInfographicData] = useState<any | null>(null);
   const [infographicLoading, setInfographicLoading] = useState(false);
 
@@ -1756,12 +1752,12 @@ function ContentTransformer({
 
         {/* Placeholder / generated output for other options */}
         {selectedOption !== 'audio' && selectedOption !== 'video' && (
-          <div className="rounded-xl border border-slate-200 bg-white p-12 text-left">
-            <div className="text-slate-600 text-sm text-left">
+          <div className="text-slate-600 text-sm text-left">
+
                   {selectedOption === 'flashcard' && (
                     <div>
                       {flashcardLoading && (
-                        <div className="flex flex-col items-center">
+                        <div className="rounded-xl border border-slate-200 bg-white p-12 text-left flex flex-col items-center">
                           <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
                           <div>Generating flashcards...</div>
                         </div>
@@ -1769,7 +1765,24 @@ function ContentTransformer({
 
                       {!flashcardLoading && (
                         <div>
-                              <FlashcardCards sections={flashcardSections} />
+                          {/* Download button outside the white box, aligned right */}
+                          {flashcardSections && flashcardSections.length > 0 && (
+                            <div className="mb-2 flex justify-end">
+                              <button
+                                onClick={() => flashcardExportRef.current?.()}
+                                className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center"
+                                title="Download flashcards image"
+                              >
+                                <Download size={16} />
+                              </button>
+                            </div>
+                          )}
+                          <div className="rounded-xl border border-slate-200 bg-white p-6 text-left">
+                            <FlashcardCards
+                              sections={flashcardSections}
+                              onExportReady={(fn) => { flashcardExportRef.current = fn; }}
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1780,20 +1793,36 @@ function ContentTransformer({
               {selectedOption === 'mindmap' && (
                 <div>
                   {mindmapLoading && (
-                    <div className="flex flex-col items-center">
+                    <div className="rounded-xl border border-slate-200 bg-white p-12 text-left flex flex-col items-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
                       <div>Generating mindmap...</div>
                     </div>
                   )}
 
                   {!mindmapLoading && mindmapData && (
-                    <div className="w-full h-[60vh] rounded-lg border p-2 bg-white overflow-auto">
-                      <MindmapViewer data={mindmapData} source={module.content || ''} />
+                    <div>
+                      {/* Download button outside the white box, aligned right */}
+                      <div className="mb-2 flex justify-end">
+                        <button
+                          onClick={() => mindmapDownloadRef.current?.()}
+                          className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center"
+                          title="Download mindmap image"
+                        >
+                          <Download size={16} />
+                        </button>
+                      </div>
+                      <div className="w-full h-[45vh] rounded-xl border border-slate-200 overflow-hidden">
+                        <MindmapViewer
+                          data={mindmapData}
+                          source={module.content || ''}
+                          onDownloadReady={(fn) => { mindmapDownloadRef.current = fn; }}
+                        />
+                      </div>
                     </div>
                   )}
 
                   {!mindmapLoading && !mindmapData && (
-                    <div className="text-sm text-gray-500">Click the Mindmap tile to generate and view the mindmap.</div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-12 text-left text-sm text-gray-500">Click the Mindmap tile to generate and view the mindmap.</div>
                   )}
 
                   {/* Debug preview removed */}
@@ -1803,17 +1832,16 @@ function ContentTransformer({
               {selectedOption === 'infographic' && (
                 <div>
                   {infographicLoading && (
-                    <div className="flex flex-col items-center">
+                    <div className="rounded-xl border border-slate-200 bg-white p-12 text-left flex flex-col items-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
                       <div>Generating visual guide...</div>
                     </div>
                   )}
 
                   {!infographicLoading && infographicData && (
-                    <div className="w-full rounded-lg border p-4 bg-white">
-                      {/* Header with title and download button */}
-                      <div className="mb-4 flex items-center justify-between">
-                        <h3 className="text-2xl font-bold flex-1 text-center">{infographicData.title}</h3>
+                    <div>
+                      {/* Download button outside the white box, aligned right */}
+                      <div className="mb-2 flex justify-end">
                         <button
                           onClick={() => {
                             try {
@@ -1947,6 +1975,12 @@ function ContentTransformer({
                           <Download size={16} />
                         </button>
                       </div>
+
+                      <div className="w-full rounded-xl border border-slate-200 bg-white p-4">
+                        {/* Header with title */}
+                        <div className="mb-4 text-center">
+                          <h3 className="text-2xl font-bold">{infographicData.title}</h3>
+                        </div>
                       
                       {/* Main sections */}
                       {infographicData.sections && infographicData.sections.map((section: any, sIdx: number) => (
@@ -2013,17 +2047,18 @@ function ContentTransformer({
                           </div>
                         </div>
                       )}
+                      </div>
                     </div>
                   )}
 
                   {!infographicLoading && !infographicData && (
-                    <div className="text-sm text-gray-500">Click the Visual Guide tile to generate the structured overview.</div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-12 text-left text-sm text-gray-500">Click the Visual Guide tile to generate the structured overview.</div>
                   )}
                 </div>
               )}
 
               {selectedOption === 'chat' && (
-                <div>
+                <div className="rounded-xl border border-slate-200 bg-white p-12 text-left">
                   <div className="rounded-xl border p-4 mb-4 max-h-96 overflow-auto bg-white">
                     {userChatHistory.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-64 text-center">
@@ -2143,7 +2178,6 @@ function ContentTransformer({
                 </div>
               )}
             </div>
-          </div>
         )}
       </div>
     </div>

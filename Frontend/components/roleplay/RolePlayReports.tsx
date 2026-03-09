@@ -21,7 +21,7 @@ interface RolePlaySession {
   scenario_title: string;
   scenario_role: string;
   scenario_difficulty: string;
-  conversation_transcript: Message[];
+  conversation_transcript: Message[] | string;
   completed_at: string;
   duration_seconds: number;
   message_count: number;
@@ -195,6 +195,20 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
           const assessment = session.roleplay_assessments?.[0];
           const isExpanded = expandedSession === session.id;
 
+          // Parse transcript — Supabase may return it as a JSON string
+          let transcript: Message[] = [];
+          if (session.conversation_transcript) {
+            if (typeof session.conversation_transcript === 'string') {
+              try {
+                transcript = JSON.parse(session.conversation_transcript);
+              } catch {
+                transcript = [];
+              }
+            } else if (Array.isArray(session.conversation_transcript)) {
+              transcript = session.conversation_transcript;
+            }
+          }
+
           return (
             <Card key={session.id} className="overflow-hidden">
               {/* Header */}
@@ -215,15 +229,17 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
                     <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500">
                       <span className="flex items-center gap-1">
                         <Calendar className="w-4 h-4" />
-                        {new Date(session.completed_at).toLocaleDateString()}
+                        {session.completed_at ? new Date(session.completed_at).toLocaleDateString() : 'In Progress'}
                       </span>
                       <span className="flex items-center gap-1">
                         <MessageCircle className="w-4 h-4" />
-                        {session.message_count} messages
+                        {session.message_count || transcript.length} messages
                       </span>
-                      <span>
-                        ⏱️ {Math.floor(session.duration_seconds / 60)}m {session.duration_seconds % 60}s
-                      </span>
+                      {session.duration_seconds > 0 && (
+                        <span>
+                          ⏱️ {Math.floor(session.duration_seconds / 60)}m {session.duration_seconds % 60}s
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -245,98 +261,111 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
               </div>
 
               {/* Expanded Content */}
-              {isExpanded && assessment && (
+              {isExpanded && (
                 <div className="border-t border-slate-200 bg-slate-50 p-6 space-y-6">
                   {/* Summary */}
-                  <div>
-                    <h5 className="font-semibold text-slate-900 mb-2">Performance Summary</h5>
-                    <p className="text-slate-700">{assessment.summary}</p>
-                  </div>
-
-                  {/* Video Recording */}
-                  {session.video_url && (
-                    <div>
-                      <h5 className="font-semibold text-slate-900 mb-3">Session Recording</h5>
-                      <div className="bg-black rounded-lg overflow-hidden">
-                        <video 
-                          src={session.video_url} 
-                          controls 
-                          className="w-full"
-                          style={{ maxHeight: '400px' }}
-                        >
-                          Your browser does not support the video tag.
-                        </video>
+                  {assessment && (
+                    <>
+                      <div>
+                        <h5 className="font-semibold text-slate-900 mb-2">Performance Summary</h5>
+                        <p className="text-slate-700">{assessment.summary}</p>
                       </div>
-                    </div>
+
+                      {/* Video Recording */}
+                      {session.video_url && (
+                        <div>
+                          <h5 className="font-semibold text-slate-900 mb-3">Session Recording</h5>
+                          <div className="bg-black rounded-lg overflow-hidden">
+                            <video 
+                              src={session.video_url} 
+                              controls 
+                              className="w-full"
+                              style={{ maxHeight: '400px' }}
+                            >
+                              Your browser does not support the video tag.
+                            </video>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Performance Breakdown */}
+                      <div>
+                        <h5 className="font-semibold text-slate-900 mb-3">Performance Breakdown</h5>
+                        <div className="space-y-3">
+                          {assessment.parameters.map((param, idx) => (
+                            <div key={idx}>
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-sm font-medium text-slate-700">{param.name}</span>
+                                <span className="text-sm font-bold text-slate-900">{param.score}/100</span>
+                              </div>
+                              <div className="w-full bg-slate-200 rounded-full h-2 mb-2">
+                                <div
+                                  className={`h-2 rounded-full transition-all ${
+                                    param.score >= 80 ? 'bg-green-500' : param.score >= 60 ? 'bg-yellow-500' : 'bg-red-500'
+                                  }`}
+                                  style={{ width: `${param.score}%` }}
+                                />
+                              </div>
+                              <p className="text-sm text-slate-600">{param.feedback}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Recommendations */}
+                      <div>
+                        <h5 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
+                          <Lightbulb className="w-5 h-5 text-yellow-500" />
+                          Recommendations
+                        </h5>
+                        <ul className="space-y-2">
+                          {assessment.recommendations.map((rec, idx) => (
+                            <li key={idx} className="flex items-start gap-2 text-slate-700">
+                              <span className="text-purple-600 font-bold mt-0.5">•</span>
+                              <span className="text-sm">{rec}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </>
                   )}
 
-                  {/* Performance Breakdown */}
-                  <div>
-                    <h5 className="font-semibold text-slate-900 mb-3">Performance Breakdown</h5>
-                    <div className="space-y-3">
-                      {assessment.parameters.map((param, idx) => (
-                        <div key={idx}>
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-sm font-medium text-slate-700">{param.name}</span>
-                            <span className="text-sm font-bold text-slate-900">{param.score}/100</span>
-                          </div>
-                          <div className="w-full bg-slate-200 rounded-full h-2 mb-2">
-                            <div
-                              className={`h-2 rounded-full transition-all ${
-                                param.score >= 80 ? 'bg-green-500' : param.score >= 60 ? 'bg-yellow-500' : 'bg-red-500'
-                              }`}
-                              style={{ width: `${param.score}%` }}
-                            />
-                          </div>
-                          <p className="text-sm text-slate-600">{param.feedback}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Recommendations */}
-                  <div>
-                    <h5 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
-                      <Lightbulb className="w-5 h-5 text-yellow-500" />
-                      Recommendations
-                    </h5>
-                    <ul className="space-y-2">
-                      {assessment.recommendations.map((rec, idx) => (
-                        <li key={idx} className="flex items-start gap-2 text-slate-700">
-                          <span className="text-purple-600 font-bold mt-0.5">•</span>
-                          <span className="text-sm">{rec}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Conversation Transcript */}
+                  {/* Conversation Transcript — always shown when expanded */}
                   <div>
                     <h5 className="font-semibold text-slate-900 mb-3">Conversation Transcript</h5>
-                    <div className="bg-white rounded-lg p-4 max-h-96 overflow-y-auto space-y-3">
-                      {session.conversation_transcript.map((msg, idx) => (
-                        <div
-                          key={idx}
-                          className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                        >
+                    {transcript.length > 0 ? (
+                      <div className="bg-white rounded-lg p-4 max-h-96 overflow-y-auto space-y-3">
+                        {transcript.map((msg, idx) => (
                           <div
-                            className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                              msg.sender === 'user'
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-slate-100 text-slate-900'
-                            }`}
+                            key={idx}
+                            className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                           >
-                            <p className="text-xs font-semibold mb-1 opacity-70">
-                              {msg.sender === 'user' ? 'You' : session.scenario_role}
-                            </p>
-                            <p className="text-sm">{msg.text}</p>
-                            <p className="text-xs opacity-60 mt-1">
-                              {new Date(msg.timestamp).toLocaleTimeString()}
-                            </p>
+                            <div
+                              className={`max-w-[80%] rounded-lg px-4 py-2 ${
+                                msg.sender === 'user'
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-slate-100 text-slate-900'
+                              }`}
+                            >
+                              <p className="text-xs font-semibold mb-1 opacity-70">
+                                {msg.sender === 'user' ? 'You' : session.scenario_role}
+                              </p>
+                              <p className="text-sm">{msg.text}</p>
+                              {msg.timestamp && (
+                                <p className="text-xs opacity-60 mt-1">
+                                  {new Date(msg.timestamp).toLocaleTimeString()}
+                                </p>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="bg-white rounded-lg p-6 text-center text-slate-400">
+                        <MessageCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No transcript available for this session.</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

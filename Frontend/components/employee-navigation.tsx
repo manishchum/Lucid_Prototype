@@ -9,7 +9,6 @@ import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import AdminDispatchCenter from "@/components/admin-dispatch-center";
 
 interface EmployeeNavigationProps {
   showBack?: boolean;
@@ -22,21 +21,6 @@ interface EmployeeNavigationProps {
   forceCollapsed?: boolean;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
-
-const fetchUserByEmail = async (email: string | undefined | null) => {
-  if (!email) return null;
-  const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
-  if (!res.ok) {
-    console.error('[employee-navigation] Failed to fetch user by email:', res.status, await res.text().catch(()=>''));
-    return null;
-  }
-  const payload = await res.json();
-  let u = payload?.user ?? payload;
-  if (Array.isArray(u)) u = u[0];
-  return u || null;
-};
-
 const EmployeeNavigation = ({ 
   user: providedUser,
   onLogout: providedOnLogout,
@@ -44,22 +28,18 @@ const EmployeeNavigation = ({
 }: EmployeeNavigationProps) => {
   const router = useRouter();
   const pathname = usePathname();
-  const { user: authUser, logout } = useAuth();
+  const { user: authUser, logout, userRoles, isAdmin, employeeData } = useAuth();
   
   // Existing Logic States
-  const [employee, setEmployee] = useState<any>(null);
   const [isCollapsed, setIsCollapsed] = useState(forceCollapsed);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [coursesOpen, setCoursesOpen] = useState(false);
   const [adminDropdownOpen, setAdminDropdownOpen] = useState(false);
   const [kpiDropdownOpen, setKpiDropdownOpen] = useState(false);
-  const [userRoles, setUserRoles] = useState<string[]>([]);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
   const [showReportToast, setShowReportToast] = useState(false);
-  const [showDispatchCenter, setShowDispatchCenter] = useState(false);
 
-  const displayUser = providedUser || employee;
+  const displayUser = providedUser || employeeData;
 
   // Update isCollapsed when forceCollapsed prop changes
   useEffect(() => {
@@ -86,64 +66,7 @@ const EmployeeNavigation = ({
     if (pathname && pathname.startsWith("/kpi")) {
       setKpiDropdownOpen(true);
     }
-
-    if (!providedUser && authUser?.email) {
-      const fetchEmployee = async () => {
-        try {
-          const employeeData = await fetchUserByEmail(authUser.email);
-          if (employeeData) {
-            // always set employee so name/email render even if role fetch fails
-            setEmployee(employeeData);
-
-            // fetch role assignments via backend API instead of direct Supabase access
-            try {
-              const rolesRes = await fetch(`${API_BASE}/api/roles/users/${employeeData.user_id}`, {
-                headers: { 'X-User-ID': employeeData.user_id }
-              });
-
-              if (!rolesRes.ok) {
-                console.error('[employee-navigation] Failed to fetch user roles from backend:', rolesRes.status, await rolesRes.text().catch(()=>''));
-                // keep user visible but not admin
-                setIsAdmin(false);
-                setUserRoles([]);
-                return;
-              }
-
-              const payload = await rolesRes.json().catch(() => null);
-              const assignments = payload?.assignments ?? payload?.data ?? payload ?? [];
-
-              // normalize and extract role objects
-              const normalizedRoles = (assignments || []).map((ra: any) => {
-                const r = ra.role ?? ra.roles ?? ra;
-                return {
-                  name: (r?.name ?? '').toString(),
-                  level: Number(r?.level ?? -1),
-                  id: r?.role_id ?? r?.id ?? null
-                };
-              }).filter((r: any) => r.name || r.level >= 0);
-
-              setUserRoles(normalizedRoles.map((r: any) => r.name));
-
-              // admin detection: role.level >= 3 OR known admin names
-              const hasAdminRole = normalizedRoles.some((r: any) => {
-                const name = (r.name || '').toLowerCase().replace(/[-_\s]/g, '');
-                return r.level >= 3 || ['admin','superadmin','super_admin','ceo'].includes(name);
-              });
-
-              setIsAdmin(hasAdminRole);
-            } catch (e) {
-              console.error('[employee-navigation] Error fetching user roles:', e);
-              setIsAdmin(false);
-              setUserRoles([]);
-            }
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      };
-      fetchEmployee();
-    }
-  }, [providedUser, authUser?.email, pathname]);
+  }, [pathname]);
     
   useEffect(() => {
     setIsNavigating(false);
@@ -369,8 +292,8 @@ const EmployeeNavigation = ({
                     ))}
                     {/* Notify Button */}
                     <button
-                        onClick={() => setShowDispatchCenter(true)}
-                        className="w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50 relative"
+                        onClick={() => handleNavigate('/admin/dashboard/dispatch-center')}
+                        className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive('/admin/dashboard/dispatch-center') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'} relative`}
                     >
                         <Bell size={18} className="shrink-0" />
                         <span className="truncate">Notify</span>
@@ -444,14 +367,6 @@ const EmployeeNavigation = ({
           </button>
         </div>
       </aside>
-
-      {/* Admin Dispatch Center Modal */}
-      {isAdmin && (
-        <AdminDispatchCenter 
-          isOpen={showDispatchCenter} 
-          onClose={() => setShowDispatchCenter(false)} 
-        />
-      )}
     </>
   );
 };

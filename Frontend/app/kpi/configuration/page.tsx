@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
-import EmployeeNavigation from "@/components/employee-navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -257,6 +256,7 @@ const [companyId, setCompanyId] = useState<string>("")
   const [titleFilter, setTitleFilter] = useState("All")
   const [searchTerm, setSearchTerm] = useState("")
   const [admin, setAdmin] = useState<Admin | null>(null);
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   useEffect(() => {
         if (!authLoading) {
           if (!user) router.push("/login");
@@ -648,21 +648,23 @@ const [companyId, setCompanyId] = useState<string>("")
 
   if (loading) {
     return (
-      <div className="flex min-h-screen bg-gray-50">
-        <EmployeeNavigation />
-        <main className="flex-1 lg:ml-72 transition-all duration-300 p-8">
-          <div className="flex items-center justify-center h-full">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      showLoadingProgress
+        ? <LoadingProgress label="Loading KPI configuration..." progress={loadingProgress} />
+        : (
+          <div className="flex min-h-screen bg-gray-50">
+            <main className="flex-1 transition-all duration-300 p-8">
+              <div className="flex items-center justify-center h-full">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+              </div>
+            </main>
           </div>
-        </main>
-      </div>
+        )
     )
   }
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <EmployeeNavigation />
-      <main className="flex-1 lg:ml-72 transition-all duration-300 p-8">
+      <main className="flex-1 transition-all duration-300 p-8">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Header */}
           <div className="mb-8">
@@ -1096,4 +1098,53 @@ const [companyId, setCompanyId] = useState<string>("")
       </main>
     </div>
   )
+}
+
+function useIllusionProgress(active: boolean) {
+  const [progress, setProgress] = useState(12);
+  const [show, setShow] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      const timeout = setTimeout(() => setShow(false), 180);
+      return () => clearTimeout(timeout);
+    }
+
+    setShow(true);
+    setProgress(Math.min(25, 10 + Math.round(Math.random() * 12)));
+
+    const id = setInterval(() => {
+      setProgress((prev) => {
+        const shouldHold = prev > 70 ? Math.random() < 0.45 : Math.random() < 0.25;
+        if (shouldHold) return prev;
+        const increment = Math.max(1, Math.round(Math.random() * 7));
+        return Math.min(prev + increment, 93);
+      });
+    }, 420 + Math.round(Math.random() * 240));
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  return { progress: Math.min(progress, 100), show };
+}
+
+function LoadingProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+          <span>{label}</span>
+          <span className="text-slate-900 text-base font-black">{progress}%</span>
+        </div>
+        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500 font-medium">Preparing KPI configuration. This may take a moment.</p>
+      </div>
+    </div>
+  );
 }

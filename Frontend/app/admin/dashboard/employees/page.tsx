@@ -116,6 +116,8 @@ export default function EmployeesPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
+
   // Filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
@@ -533,9 +535,13 @@ export default function EmployeesPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
+      showLoadingProgress
+        ? <LoadingProgress label="Loading employees..." progress={loadingProgress} />
+        : (
+          <div className="flex items-center justify-center min-h-screen">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          </div>
+        )
     );
   }
 
@@ -1270,7 +1276,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             continue;
           }
           // Create user via backend API
-          const createRes = await fetch(`${API_URL}/api/users`, {
+          const createRes = await fetch(`${API_URL}/api/users/`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1279,8 +1285,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             body: JSON.stringify({
               email: email.toLowerCase(),
               company_id: companyId,
-              hire_date: new Date().toISOString().split('T')[0],
-              password: null
+              hire_date: new Date().toISOString().split('T')[0]
             })
           });
           if (!createRes.ok) {
@@ -1455,7 +1460,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
 
           // Create user via API
           try {
-            const createRes = await fetch(`${API_URL}/api/users`, {
+            const createRes = await fetch(`${API_URL}/api/users/`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -1468,8 +1473,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
                 department_id: departmentId,
                 position: position || null,
                 phone: phone ? String(phone) : null,
-                hire_date: new Date().toISOString().split('T')[0],
-                password: null // Default password for bulk uploads
+                hire_date: new Date().toISOString().split('T')[0]
               })
             });
 
@@ -1899,7 +1903,7 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
         console.error('Failed to fetch company data:', compErr);
       }
       // Create user via API
-      const createRes = await fetch(`${API_URL}/api/users`, {
+      const createRes = await fetch(`${API_URL}/api/users/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1912,8 +1916,7 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
           department_id: formData.department_id || null,
           position: formData.position || null,
           phone: formData.phone || null,
-          hire_date: new Date().toISOString().split('T')[0],
-          password: null // Default password
+          hire_date: new Date().toISOString().split('T')[0]
         })
       });
 
@@ -2475,7 +2478,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
             module_id: moduleId,
             assigned_on: new Date().toISOString(),
             due_date: dueDate || null,
-            baseline_assessment: moduleBaselineSettings[moduleId] ? 1 : 0,
+            baseline_assessment: moduleBaselineSettings[moduleId] ? true : false,
             status: 'ASSIGNED'
           });
         }
@@ -3511,6 +3514,55 @@ function UpdateEmployeeModal({
             </div>
           </form>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function useIllusionProgress(active: boolean) {
+  const [progress, setProgress] = useState(12);
+  const [show, setShow] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      const timeout = setTimeout(() => setShow(false), 180);
+      return () => clearTimeout(timeout);
+    }
+
+    setShow(true);
+    setProgress(Math.min(25, 10 + Math.round(Math.random() * 12)));
+
+    const id = setInterval(() => {
+      setProgress((prev) => {
+        const shouldHold = prev > 70 ? Math.random() < 0.45 : Math.random() < 0.25;
+        if (shouldHold) return prev;
+        const increment = Math.max(1, Math.round(Math.random() * 7));
+        return Math.min(prev + increment, 93);
+      });
+    }, 420 + Math.round(Math.random() * 240));
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  return { progress: Math.min(progress, 100), show };
+}
+
+function LoadingProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+          <span>{label}</span>
+          <span className="text-slate-900 text-base font-black">{progress}%</span>
+        </div>
+        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500 font-medium">Preparing employees data. This may take a moment.</p>
       </div>
     </div>
   );

@@ -23,6 +23,10 @@ try {
   app = initializeApp(firebaseConfig)
   auth = getAuth(app)
   googleProvider = new GoogleAuthProvider()
+  googleProvider.addScope("email")
+  googleProvider.addScope("profile")
+  // Always show account chooser — prevents silent COOP-related popup failures
+  googleProvider.setCustomParameters({ prompt: "select_account" })
   
   // Initialize Analytics (only in browser)
   if (typeof window !== "undefined") {
