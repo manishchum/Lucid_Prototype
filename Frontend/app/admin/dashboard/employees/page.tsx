@@ -1307,8 +1307,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             body: JSON.stringify({
               email: email.toLowerCase(),
               company_id: companyId,
-              hire_date: new Date().toISOString().split('T')[0],
-              password: "workfloww@2025"
+              hire_date: new Date().toISOString().split('T')[0]
             })
           });
           if (!createRes.ok) {
@@ -1496,8 +1495,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
                 department_id: departmentId,
                 position: position || null,
                 phone: phone ? String(phone) : null,
-                hire_date: new Date().toISOString().split('T')[0],
-                password: "workfloww@2025" // Default password for bulk uploads
+                hire_date: new Date().toISOString().split('T')[0]
               })
             });
 
@@ -1962,8 +1960,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
           department_id: formData.department_id || null,
           position: formData.position || null,
           phone: formData.phone || null,
-          hire_date: new Date().toISOString().split('T')[0],
-          password: "workfloww@2025" // Default password
+          hire_date: new Date().toISOString().split('T')[0]
         })
       });
 
