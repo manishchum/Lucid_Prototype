@@ -39,11 +39,13 @@ type KPIUploadResult = {
 function ContentUpload({
   companyId,
   adminId,
-  onUploadComplete
+  onUploadComplete,
+  onFilesUploaded,
 }: {
   companyId: string;
   adminId: string;
   onUploadComplete: () => void;
+  onFilesUploaded?: (moduleId: string, fileNames: string[]) => void;
 }) {
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -570,33 +572,47 @@ function ContentUpload({
       {/* Additional Links Input */}
       <div className="md:col-span-2">
         <Label>Additional Reference Links</Label>
-        <div className="space-y-2 mb-3">
+        <div className="space-y-2">
           {additionalLinks.map((link, index) => (
-            <div key={index} className="flex items-center space-x-2 p-2 border rounded">
-              <span className="flex-1 truncate text-sm">{link.title} - {link.url}</span>
+            <div key={index} className="flex items-center space-x-2">
+              <span className="flex-1 truncate">{link.title} - {link.url}</span>
               <Button variant="outline" size="sm" onClick={() => handleRemoveLink(index)}>
                 Remove
               </Button>
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="flex space-x-2 mt-2">
           <Input
             placeholder="Link Title"
             value={linkTitle}
             onChange={(e) => setLinkTitle(e.target.value)}
             className="border-slate-200 focus:border-[#3B66F5] focus:ring-[#3B66F5]"
           />
-          <div className="flex gap-2">
-            <Input
-              placeholder="Link URL"
-              value={linkUrl}
-              onChange={(e) => setLinkUrl(e.target.value)}
-              className="border-slate-200 focus:border-[#3B66F5] focus:ring-[#3B66F5]"
-            />
-            <Button onClick={handleAddLink} className="whitespace-nowrap">Add</Button>
-          </div>
+          <Input
+            placeholder="Link URL"
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+          />
+          <Button onClick={handleAddLink}>Add</Button>
         </div>
+      </div>
+
+      <div className="md:col-span-2">
+        <Label htmlFor="file">Upload File</Label>
+        <Input
+          id="file"
+          type="file"
+          multiple
+          accept=".pdf"
+          onChange={(e) => {
+            if (!e.target.files) return;
+
+            const newFiles = Array.from(e.target.files);
+
+            setFiles(prev => [...prev, ...newFiles]);
+          }}
+        />
       </div>
 
       
@@ -1332,6 +1348,9 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           companyId={companyId}
           adminId={adminId}
           onUploadComplete={loadTrainingModules}
+          onFilesUploaded={(moduleId, fileNames) =>
+            setLocalFileNames(prev => ({ ...prev, [moduleId]: fileNames }))
+          }
         />
       </div>
 
