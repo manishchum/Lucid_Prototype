@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronDown, MessageSquare, Mail, Calendar, Clock, Check, Send, Loader2, Sparkles, X, Users, AlertCircle, FileJson, Music, Upload, RefreshCw } from 'lucide-react';
+import { ChevronDown, MessageSquare, Mail, Calendar, Clock, Check, Send, Loader2, X, Users, AlertCircle, FileJson, Music, Upload, RefreshCw, Pencil, Eye } from 'lucide-react';
 import EmployeeNavigation from '@/components/employee-navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
@@ -145,6 +145,9 @@ export default function AdminDispatchCenterPage() {
 
   // Email draft state
   const [draftedEmail, setDraftedEmail] = useState<{ subject: string; body: string } | null>(null);
+  const [isEditingEmail, setIsEditingEmail] = useState(false);
+  const [editSubject, setEditSubject] = useState('');
+  const [editBodyText, setEditBodyText] = useState('');
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{
@@ -362,12 +365,135 @@ export default function AdminDispatchCenterPage() {
     );
   };
 
+  // ── Edit mode helpers ────────────────────────────────────────
+  /**
+   * Extract the visible plain text from the HTML body so the user can
+   * edit it as a simple string. We strip all HTML tags and decode entities.
+   * We preserve the full HTML structure — edits are applied back via
+   * patchEmailBody().
+   */
+  const getEditableText = (html: string): string => {
+    // Only extract the "editable" region: everything between the two
+    // <!-- CONTENT BLOCKS --> / <!-- DIVIDER --> markers (or before them).
+    // Simpler approach: strip ALL tags, collapse whitespace, let the user
+    // see the readable text of the Gemini-written body rows.
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    // Remove script/style noise
+    div.querySelectorAll('script,style').forEach((el) => el.remove());
+    return (div.textContent || div.innerText || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  /**
+   * We don't try to re-inject the edited text into the raw HTML directly
+   * (too fragile). Instead we keep a separate `editBodyText` string that
+   * the user edits, and when they save we rebuild just the <p> text nodes
+   * inside the three body <td> rows using a regex replacement on the known
+   * pattern from the Gemini template.
+   *
+   * Strategy: replace the text content of every <p> tag inside the
+   * "EMAIL BODY TEXT" section. We identify that section by the comment
+   * <!-- EMAIL BODY TEXT --> … up to <!-- DIVIDER -->.
+   */
+  const patchEmailBody = (originalHtml: string, newText: string): string => {
+    // Split the user's edited text into paragraphs on blank lines
+    const paragraphs = newText.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+    if (paragraphs.length === 0) return originalHtml;
+
+    // Find the EMAIL BODY TEXT section
+    const bodyStart = originalHtml.indexOf('<!-- EMAIL BODY TEXT -->');
+    const dividerMark = originalHtml.indexOf('<!-- DIVIDER -->');
+
+    // If the markers don't exist fall back to returning the original
+    if (bodyStart === -1 || dividerMark === -1) return originalHtml;
+
+    const beforeBody = originalHtml.slice(0, bodyStart);
+    const bodySection = originalHtml.slice(bodyStart, dividerMark);
+    const afterDivider = originalHtml.slice(dividerMark);
+
+    // Replace all <p ...>...</p> blocks in the body section with the new paragraphs
+    let idx = 0;
+    const patchedBody = bodySection.replace(
+      /<p(\s[^>]*)?>[\s\S]*?<\/p>/g,
+      (match) => {
+        // Keep style attributes, replace inner text
+        const styleMatch = match.match(/<p([^>]*)>/);
+        const attrs = styleMatch ? styleMatch[1] : '';
+        const replacement = `<p${attrs}>${paragraphs[idx] ?? ''}</p>`;
+        idx++;
+        return replacement;
+      }
+    );
+
+    return beforeBody + patchedBody + afterDivider;
+  };
+
+  const handleEnterEditMode = () => {
+    if (!draftedEmail) return;
+    setEditSubject(draftedEmail.subject);
+
+    // Extract only the plain-text paragraphs from the EMAIL BODY TEXT section
+    // so the user edits readable sentences, not raw HTML.
+    const html = draftedEmail.body;
+    const bodyStart = html.indexOf('<!-- EMAIL BODY TEXT -->');
+    const dividerMark = html.indexOf('<!-- DIVIDER -->');
+
+    if (bodyStart !== -1 && dividerMark !== -1) {
+      const bodySection = html.slice(bodyStart, dividerMark);
+      // Pull out the inner text of every <p> tag in that section
+      const matches = [...bodySection.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)];
+      const paragraphs = matches
+        .map((m) => {
+          // Strip any inner HTML tags and decode basic entities
+          return m[1]
+            .replace(/<[^>]+>/g, '')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&#39;/g, "'")
+            .replace(/&quot;/g, '"')
+            .replace(/&#8594;/g, '→')
+            .replace(/&nbsp;/g, ' ')
+            .trim();
+        })
+        .filter(Boolean);
+      setEditBodyText(paragraphs.join('\n\n'));
+    } else {
+      // Fallback: strip all tags from the full body
+      const div = document.createElement('div');
+      div.innerHTML = html;
+      div.querySelectorAll('script,style').forEach((el) => el.remove());
+      setEditBodyText((div.textContent || '').replace(/\s+/g, ' ').trim());
+    }
+
+    setIsEditingEmail(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (!draftedEmail) return;
+    // Patch the plain-text edits back into the original HTML structure
+    const patched = patchEmailBody(draftedEmail.body, editBodyText);
+    setDraftedEmail({ subject: editSubject, body: patched });
+    setIsEditingEmail(false);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditingEmail(false);
+    setEditSubject('');
+    setEditBodyText('');
+  };
+
   // ── Generate email via Gemini ────────────────────────────────
   const handleGenerateEmail = async () => {
     if (!selectedSprint || selectedSubModuleIds.length === 0) return;
     setGenerating(true);
     setDraftedEmail(null);
     setSendResult(null);
+    setIsEditingEmail(false);
+    setEditBodyText('');
+    setEditSubject('');
 
     const selectedTitles = subModules
       .filter((m) => selectedSubModuleIds.includes(m.processed_module_id))
@@ -1141,7 +1267,7 @@ export default function AdminDispatchCenterPage() {
                     </>
                   ) : (
                     <>
-                      <Sparkles size={18} />
+                      <Mail size={18} />
                       Draft Email Snippet
                     </>
                   )}
@@ -1183,7 +1309,7 @@ export default function AdminDispatchCenterPage() {
 
               {/* Email Preview */}
               <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-xl p-6 border border-slate-200 min-h-[300px]">
-                <h3 className="text-lg font-bold text-slate-900 mb-4">Email Preview</h3>
+                <h3 className="text-lg font-bold text-slate-900 mb-4">Email Draft</h3>
 
                 {!draftedEmail && !generating && (
                   <div className="text-center py-16">
@@ -1207,42 +1333,83 @@ export default function AdminDispatchCenterPage() {
 
                 {draftedEmail && !generating && (
                   <div className="space-y-4">
-                    {/* Subject */}
+                    {/* Subject — always editable */}
                     <div>
                       <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Subject</label>
                       <input
                         type="text"
-                        value={draftedEmail.subject}
-                        onChange={(e) => setDraftedEmail({ ...draftedEmail, subject: e.target.value })}
+                        value={isEditingEmail ? editSubject : draftedEmail.subject}
+                        onChange={(e) =>
+                          isEditingEmail
+                            ? setEditSubject(e.target.value)
+                            : setDraftedEmail({ ...draftedEmail, subject: e.target.value })
+                        }
                         className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-800 focus:outline-none focus:border-blue-500"
                       />
                     </div>
 
-                    {/* Body */}
+                    {/* Body — iframe in preview mode, textarea in edit mode */}
                     <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Body Preview</label>
-                      <iframe
-                        srcDoc={draftedEmail.body}
-                        className="w-full rounded-lg border border-slate-200 bg-white"
-                        style={{ height: '600px' }}
-                        sandbox="allow-same-origin allow-scripts"
-                        title="Email Preview"
-                      />
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-semibold text-slate-500 uppercase">Body</label>
+                        <div className="flex items-center gap-2">
+                          {isEditingEmail ? (
+                            <>
+                              <button
+                                onClick={handleCancelEdit}
+                                className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-slate-500 border border-slate-200 bg-white hover:border-slate-300 transition-all"
+                              >
+                                <X size={12} /> Cancel
+                              </button>
+                              <button
+                                onClick={handleSaveEdit}
+                                className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-white bg-blue-500 hover:bg-blue-600 transition-all"
+                              >
+                                <Check size={12} /> Save
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={handleEnterEditMode}
+                              className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-slate-600 border border-slate-200 bg-white hover:border-blue-400 hover:text-blue-600 transition-all"
+                            >
+                              <Pencil size={12} /> Edit
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {isEditingEmail ? (
+                        <div className="space-y-2">
+                          <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                            ✏️ Edit the email text below. Each paragraph on a new blank line will appear as a separate paragraph in the email. Flashcards and audio blocks are kept automatically.
+                          </p>
+                          <textarea
+                            value={editBodyText}
+                            onChange={(e) => setEditBodyText(e.target.value)}
+                            placeholder="Write your email message here…&#10;&#10;Use a blank line between paragraphs."
+                            className="w-full rounded-lg border border-blue-300 bg-white text-sm text-slate-800 focus:outline-none focus:border-blue-500 resize-y leading-relaxed p-4"
+                            style={{ height: '400px', minHeight: '200px', fontFamily: 'inherit' }}
+                            spellCheck={true}
+                          />
+                        </div>
+                      ) : (
+                        <iframe
+                          srcDoc={draftedEmail.body}
+                          className="w-full rounded-lg border border-slate-200 bg-white"
+                          style={{ height: '600px' }}
+                          sandbox="allow-same-origin allow-scripts"
+                          title="Email Preview"
+                        />
+                      )}
                     </div>
 
-                    {/* Send / Regenerate buttons */}
-                    <div className="flex gap-3 pt-2">
-                      <button
-                        onClick={handleGenerateEmail}
-                        disabled={generating}
-                        className="flex-1 py-3 rounded-xl border-2 border-slate-200 bg-white text-slate-700 font-semibold hover:border-slate-300 transition-all flex items-center justify-center gap-2 text-sm"
-                      >
-                        <Sparkles size={16} /> Regenerate
-                      </button>
+                    {/* Send button only (no Regenerate) */}
+                    <div className="pt-2">
                       <button
                         onClick={handleSendEmail}
-                        disabled={sending || assignedUsers.length === 0}
-                        className="flex-1 py-3 rounded-xl bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white font-bold transition-all flex items-center justify-center gap-2 text-sm shadow-lg shadow-green-500/30"
+                        disabled={sending || assignedUsers.length === 0 || isEditingEmail}
+                        className="w-full py-3 rounded-xl bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white font-bold transition-all flex items-center justify-center gap-2 text-sm shadow-lg shadow-green-500/30"
                       >
                         {sending ? (
                           <>
@@ -1263,6 +1430,11 @@ export default function AdminDispatchCenterPage() {
                           </>
                         )}
                       </button>
+                      {isEditingEmail && (
+                        <p className="text-xs text-center text-slate-500 mt-2 font-medium">
+                          Click <span className="font-bold text-blue-600">Save</span> above to apply your edits, then send.
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}

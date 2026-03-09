@@ -189,7 +189,7 @@ def build_email_body(
       <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="760"
              style="background-color:#ffffff;border-collapse:collapse;width:600px;max-width:600px;">
 
-        <!-- HEADER: Lucid Learn logo -->
+        <!-- HEADER: Lucid logo -->
         <tr>
           <td bgcolor="#ffffff" style="background-color:#ffffff;padding-top:20px;padding-bottom:16px;
                                        padding-left:36px;padding-right:36px;
@@ -214,9 +214,7 @@ def build_email_body(
                 <!-- Brand name -->
                 <td style="padding-left:10px;vertical-align:middle;">
                   <span style="font-size:22px;font-weight:800;color:#1E293B;
-                               font-family:Arial,Helvetica,sans-serif;letter-spacing:-1px;">Lucid</span><!--
-                  --><span style="font-size:22px;font-weight:400;color:#3B66F5;
-                               font-family:Arial,Helvetica,sans-serif;letter-spacing:-1px;">Learn</span>
+                               font-family:Arial,Helvetica,sans-serif;letter-spacing:-1px;">Lucid</span>
                 </td>
               </tr>
             </table>
@@ -275,7 +273,7 @@ def build_email_body(
                         <a href="https://lucid.workfloww.ai"
                            style="font-size:14px;font-weight:700;color:#3B66F5;
                                   font-family:Arial,sans-serif;text-decoration:none;
-                                  display:inline-block;">Start Learning &#8594;</a>
+                                  display:inline-block;">Start Exploring &#8594;</a>
                       </td>
                     </tr>
                   </table>
@@ -319,7 +317,7 @@ def build_email_body(
                      padding-left:36px;padding-right:36px;text-align:center;">
             <p style="margin-top:0;margin-bottom:6px;font-size:12px;color:#94A3B8;
                       font-family:Arial,sans-serif;text-align:center;">
-              You&#39;re receiving this because you are enrolled in a training module on LucidLearn.
+              You&#39;re receiving this because you are enrolled in a training module on Lucid.
             </p>
             <a href="#" style="font-size:12px;color:#3B66F5;font-family:Arial,sans-serif;
                                text-decoration:none;">Unsubscribe</a>
@@ -500,7 +498,7 @@ Engagement question: {request.engagement_question or "none"}
              bgcolor="#ffffff"
              style="background-color:#ffffff;border-collapse:collapse;width:600px;max-width:600px;">
 
-        <!-- HEADER: Lucid Learn logo -->
+        <!-- HEADER: Lucid logo -->
         <tr>
           <td bgcolor="#ffffff"
               style="background-color:#ffffff;padding-top:20px;padding-bottom:16px;
@@ -525,9 +523,7 @@ Engagement question: {request.engagement_question or "none"}
                 </td>
                 <td style="padding-left:10px;vertical-align:middle;">
                   <span style="font-size:22px;font-weight:800;color:#1E293B;
-                               font-family:Arial,Helvetica,sans-serif;letter-spacing:-1px;">Lucid</span><!--
-                  --><span style="font-size:22px;font-weight:400;color:#3B66F5;
-                               font-family:Arial,Helvetica,sans-serif;letter-spacing:-1px;">Learn</span>
+                               font-family:Arial,Helvetica,sans-serif;letter-spacing:-1px;">Lucid</span>
                 </td>
               </tr>
             </table>
@@ -567,7 +563,7 @@ Engagement question: {request.engagement_question or "none"}
                                  padding-left:16px;padding-right:16px;border-radius:999px;">
                         <span style="font-size:11px;font-weight:700;color:#ffffff;
                                      font-family:Arial,sans-serif;letter-spacing:1px;
-                                     text-transform:uppercase;">Learning Sprint</span>
+                                     text-transform:uppercase;">Sprint</span>
                       </td>
                     </tr>
                   </table>
@@ -594,7 +590,7 @@ Engagement question: {request.engagement_question or "none"}
                         <a href="https://lucid.workfloww.ai"
                            style="font-size:14px;font-weight:700;color:#3B66F5;
                                   font-family:Arial,sans-serif;text-decoration:none;
-                                  display:inline-block;">Start Learning &#8594;</a>
+                                  display:inline-block;">Start Exploring &#8594;</a>
                       </td>
                     </tr>
                   </table>
@@ -648,7 +644,7 @@ Engagement question: {request.engagement_question or "none"}
                         <a href="https://lucid.workfloww.ai"
                            style="font-size:14px;font-weight:700;color:#ffffff;
                                   font-family:Arial,sans-serif;text-decoration:none;
-                                  display:inline-block;">Start Learning &#8594;</a>
+                                  display:inline-block;">Start Exploring &#8594;</a>
                       </td>
                     </tr>
                   </table>
@@ -678,7 +674,7 @@ Engagement question: {request.engagement_question or "none"}
                      padding-left:36px;padding-right:36px;text-align:center;">
             <p style="margin-top:0;margin-bottom:6px;font-size:12px;color:#94A3B8;
                       font-family:Arial,sans-serif;text-align:center;">
-              You&#39;re receiving this because you are enrolled in a training sprint on LucidLearn.
+              You&#39;re receiving this because you are enrolled in a training sprint on Lucid.
             </p>
             <a href="#" style="font-size:12px;color:#3B66F5;font-family:Arial,sans-serif;
                                text-decoration:none;">Unsubscribe</a>
