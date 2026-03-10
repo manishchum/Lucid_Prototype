@@ -591,12 +591,25 @@ export default function KPITurbocharge() {
       const { data: kpiScores } = await kpiScoreQuery;
 
       // Get module performance (average quiz scores from employee_assessments)
-      const { data: assessmentScores } = await supabase
-        .from('employee_assessments')
-        .select('user_id, score, max_score, completed_at')
-        .in('user_id', userIds)
-        .not('score', 'is', null)
-        .not('max_score', 'is', null);
+      let assessmentScores: any[] = [];
+      if (user?.company_id) {
+        const res = await fetch(`${API_BASE}/api/employee-assessments/company/${user.company_id}?limit=500`, {
+          headers: {
+            'X-User-ID': user.user_id
+          }
+        });
+
+        if (res.ok) {
+          const payload = await res.json();
+          const allAssessments = payload?.assessments || payload?.data || [];
+          // Filter by userIds and only include rows with valid scores
+          assessmentScores = allAssessments.filter(
+            (a: any) => userIds.includes(a.user_id) && a.score != null && a.max_score != null
+          );
+        } else {
+          console.error('Error loading employee assessments:', await res.text());
+        }
+      }
 
       // Calculate data for each user
       const scatterPoints: ScatterDataPoint[] = [];
@@ -705,24 +718,34 @@ export default function KPITurbocharge() {
         }
       }
 
-
-        // Get max_score for each sub-module (processed_module_id)
+      // Get max_score for each sub-module (processed_module_id) via backend
       console.log(userIds);
-      const { maxScoreData, error } = await supabase
-      .from('employee_assessments')
-      .select(`
-        user_id,
-        score,
-        max_score,
-        assessments!inner (
-          processed_module_id,
-          original_module_id
-        )
-      `)
-      .in('user_id', userIds)
-      .not('max_score', 'is', null);
+      let maxScoreData: any[] = [];
+      if (user?.company_id) {
+        const res = await fetch(`${API_BASE}/api/employee-assessments/company/${user.company_id}?limit=500`, {
+          headers: {
+            'X-User-ID': user.user_id
+          }
+        });
 
-        console.log(maxScoreData);
+        if (res.ok) {
+          const payload = await res.json();
+          const allAssessments = payload?.assessments || payload?.data || [];
+          // Filter by userIds and only include rows with valid max_score and assessments data
+          maxScoreData = allAssessments.filter(
+            (a: any) => userIds.includes(a.user_id) && a.max_score != null && a.assessments
+          ).map((a: any) => ({
+            user_id: a.user_id,
+            score: a.score,
+            max_score: a.max_score,
+            assessments: a.assessments
+          }));
+        } else {
+          console.error('Error loading employee assessments:', await res.text());
+        }
+      }
+
+      console.log(maxScoreData);
       // Get processed modules mapping
       let processedModules: Array<{ processed_module_id: string; original_module_id: string }> = [];
       
