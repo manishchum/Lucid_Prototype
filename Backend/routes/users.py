@@ -7,6 +7,7 @@ from utils.db.users_db import (
     get_users_by_company,
     get_user_by_id,
     create_user,
+    create_user_signup,
     update_user,
     delete_user,
     get_users_by_filter
@@ -113,6 +114,24 @@ async def get_user(
         raise HTTPException(status_code=403, detail=result["error"])
     return {"user": result["data"]}
 
+
+
+
+@router.post("/signup")
+async def create_user_endpoint(
+    request: CreateUserRequest
+):
+    user_data = request.dict()
+    # NOTE: hash password before storing in production
+    result = await create_user_signup( user_data)
+    if result["error"]:
+        raise HTTPException(status_code=403, detail=result["error"])
+    reactivated = result.get("reactivated", False)
+    return {
+        "user": result["data"],
+        "message": "User reactivated successfully" if reactivated else "User created successfully",
+        "reactivated": reactivated
+    }
 
 @router.post("/")
 async def create_user_endpoint(

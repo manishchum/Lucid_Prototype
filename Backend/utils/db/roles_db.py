@@ -93,7 +93,7 @@ async def assign_user_role(
             "assigned_by": requesting_user_id,
             "expires_at": role_data.get('expires_at'),
             "notes": role_data.get('notes'),
-            "is_active": role_data.get('is_active', True)
+            "is_active": role_data.get('is_active')
         }
         
         # Check for existing inactive assignment with same user+role+scope (to reactivate instead of duplicating)
@@ -110,7 +110,7 @@ async def assign_user_role(
         return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
-
+ 
 
 async def get_user_roles(
     requesting_user_id: str,

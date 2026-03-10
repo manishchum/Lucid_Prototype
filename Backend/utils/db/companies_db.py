@@ -24,7 +24,7 @@ async def get_company_by_name(requesting_user_id: Optional[str], company_name: s
     Permission: Public access (for signup validation).
     """
     try:
-        resp = supabase.table('companies').select('*').ilike('name', company_name).maybeSingle().execute()
+        resp = supabase.table('companies').select('*').ilike('name', company_name).maybe_single().execute()
         return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
