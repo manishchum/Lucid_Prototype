@@ -383,7 +383,7 @@ function ContentUpload({
       alert('Content uploaded! AI analysis is running in the background.');
     } catch (error: any) {
       console.error('Upload failed:', error);
-      alert(`Upload failed: ${error.message}`);
+      // alert(`Upload failed: ${error.message}`);
     } finally {
       setUploading(false);
     }
