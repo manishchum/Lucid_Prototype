@@ -27,7 +27,7 @@ from assistant.route import router as assistant_router
 from assistant.chat.route import router as assistant_chat_router
 from module_progress.route import router as module_progress_router
 from change_password.route import router as change_password_router
-from routes import users, roles, assessments, companies, content_jobs, learning_plan, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment
+from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment
 
 # Import user routes
 # from routes.users import router as users_router
@@ -117,6 +117,7 @@ app.include_router(companies.router)  # companies router
 app.include_router(content_jobs.router)  # content jobs router
 app.include_router(content_generation_history.router)  # content generation history router
 app.include_router(learning_plan.router)  # learning plan router
+app.include_router(learning_style.router)  # learning style router
 app.include_router(training_modules.router)  # training modules router
 app.include_router(processed_modules.router)  # processed modules router
 app.include_router(dispatch.router)  # dispatch router
