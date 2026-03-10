@@ -316,15 +316,23 @@ This module must be fully self-contained.
 Do NOT reference other modules, earlier sections, or future modules.
 Do NOT assume prior learner knowledge beyond what is implied by the topics.
 
+The response MUST NEVER be empty.
+
+If any instruction conflict occurs,
+the model must prioritize generating valid HTML content
+instead of refusing or returning zero characters.
+
 -----------------------------
 CONTENT BOUNDARIES (CRITICAL)
 -----------------------------
 
 ALLOWED:
 Explain and elaborate on concepts present in the topics
-Teach beyond the document by adding clarity, depth, and conceptual examples
-Use neutral, generic scenarios (e.g., “an organization”, “a system”, “a team”)
-Add analogies, explanations, and conceptual activities
+If the document contains specific rules, numbers, policies, or entities,
+they must be reused verbatim.
+
+If the document is conceptual and lacks detailed explanation,
+the model may expand explanations while staying within the same domain.
 
 STRICTLY FORBIDDEN:
 Do NOT invent or reference company names (real or fictional)
@@ -344,7 +352,6 @@ if any practices are present in the provided context, you MUST reuse it verbatim
 if any tools, vendors, platforms, or products are present in the provided context, you MUST reuse it verbatim.
 Use only domains present in the subject matter
 
-
 IMAGE USAGE POLICY (MANDATORY – NO EXCEPTIONS)
 
 1. You are provided with a fixed list of image URLs.
@@ -354,8 +361,7 @@ IMAGE USAGE POLICY (MANDATORY – NO EXCEPTIONS)
    - Create placeholder images
    - Use <img data-type="...">
    - Generate generic or descriptive-only <img> tags
-   - Output <img> without a real src URL
-
+   
 4. If a relevant image URL is not available:
    - DO NOT generate any image.
    - Do NOT create a placeholder.
@@ -535,6 +541,50 @@ You MUST NOT:
 All expansion must remain semantically equivalent to the source.
 No net-new conceptual information may be introduced.
 
+----------------------------------
+GENERATION FAIL-SAFE RULE (MANDATORY)
+----------------------------------
+
+The model MUST always return a valid HTML response.
+
+Returning an empty response or zero characters is NOT allowed.
+
+If the instructions above create a logical conflict, the model MUST:
+
+1. Prioritize producing a valid HTML module.
+2. Prefer abstract educational explanations over returning nothing.
+3. Relax the STRICT DOCUMENT LOCK rule only when necessary to avoid empty output.
+4. Maintain domain correctness but avoid inventing organization-specific details.
+
+Under no circumstances should the response be empty.
+
+----------------------------------
+MINIMUM OUTPUT LENGTH REQUIREMENT
+----------------------------------
+
+The generated HTML must contain AT LEAST 8000 characters.
+
+If the content is shorter than 8000 characters, the model MUST:
+
+• Expand explanations of existing concepts
+• Add additional breakdown tables
+• Add deeper clarification paragraphs
+• Expand the module summary
+• Expand the learning activity instructions
+
+The model must continue expanding until the output length exceeds 8000 characters.
+
+----------------------------------
+DEADLOCK RESOLUTION RULE
+----------------------------------
+
+If the model determines that strict interpretation of the rules would prevent generation:
+
+1. The model MUST still produce the module.
+2. The model may use generic explanations of the same domain.
+3. The model must not invent companies, vendors, tools, or regulations.
+
+Producing content is ALWAYS preferable to producing an empty response.
 
 -----------------------------
 HTML FORMATTING REQUIREMENTS (STRICT)
@@ -556,15 +606,6 @@ Step tables MUST include columns:
 All tables MUST use <thead> and <tbody>
 Every table must have a <caption> OR a heading immediately before it
 
------------------------------
-VISUAL PLACEHOLDERS
------------------------------
-Where helpful, insert placeholders if needed, if diagrams, charts or infographics are available. eg, 
-<img data-type="diagram" alt="Description of the diagram">
-<img data-type="chart" alt="Description of the chart">
-<img data-type="infographic" alt="Description of the infographic">
-
-Use visuals only when they add learning value.
 
 STRICT DOCUMENT LOCK:
 

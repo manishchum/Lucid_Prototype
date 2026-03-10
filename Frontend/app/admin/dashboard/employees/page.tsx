@@ -36,6 +36,7 @@ interface Admin {
   email: string;
   name: string | null;
   company_id: string;
+  company_name?: string;
 }
 
 interface User {
@@ -96,7 +97,7 @@ interface TrainingModule {
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL; 
 export default function EmployeesPage() {
   const router  = useRouter();
-  const { user,loading:authLoading } = useAuth();
+  const { user, loading: authLoading, isAdmin, isSuperAdmin } = useAuth();
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
@@ -197,13 +198,28 @@ export default function EmployeesPage() {
         setError("Console access required");
         return;
       }
+
+      // Fetch company name for the admin
+      let companyName = '';
+      try {
+        const companyRes = await fetch(`${API_URL}/api/companies/${userData.company_id}`, {
+          headers: { 'X-User-ID': userData.user_id }
+        });
+        if (companyRes.ok) {
+          const companyData = await companyRes.json();
+          companyName = companyData?.company?.name || companyData?.name || '';
+        }
+      } catch (e) {
+        console.error('Failed to fetch company name:', e);
+      }
       
       // Set admin data using user data
       const adminData: Admin = {
         user_id: userData.user_id,
         email: userData.email,
         name: userData.name,
-        company_id: userData.company_id
+        company_id: userData.company_id,
+        company_name: companyName
       };
       
       setAdmin(adminData);
@@ -1103,9 +1119,12 @@ export default function EmployeesPage() {
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
         companyId={admin.company_id}
+        companyName={admin.company_name || ''}
         adminId={admin.user_id}
         departments={departments}
         roles={roles}
+        isAdmin={isAdmin}
+        isSuperAdmin={isSuperAdmin}
         onSuccess={() => {
           loadUsers(admin.company_id);
           setSuccess("User added successfully!");
@@ -1122,6 +1141,9 @@ export default function EmployeesPage() {
           onClose={() => setShowUpdateModal(false)}
           employee={selectedEmployee}
           adminId={admin.user_id}
+          companyName={admin.company_name || ''}
+          isAdmin={isAdmin}
+          isSuperAdmin={isSuperAdmin}
           currentRole={selectedEmployee.role ? [selectedEmployee.role.name] : []}
           onSuccess={() => {
             loadUsers(admin.company_id);
@@ -1431,7 +1453,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
           }
 
           // Check if email already exists (but not for current user)
-          const emailExists = await checkEmailExists(email, '');
+          const emailExists = await checkEmailExists(email);
           if (emailExists) {
             results.errors.push('An employee with this email already exists');
           }
@@ -1690,7 +1712,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
   );
 }
 
-function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles, onSuccess }: any) {
+function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, departments, roles, isAdmin, isSuperAdmin, onSuccess }: any) {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -1708,12 +1730,34 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
   const [fieldErrors, setFieldErrors] = useState<{[key: string]: string}>({});
   const [companies, setCompanies] = useState<any[]>([]);
   let temp = false;
+
+  // Filter roles based on current user's role level
+  // Admin can only assign 'user' role
+  // Super Admin can assign 'user' and 'admin' roles
+  const filteredRoles = roles.filter((role: any) => {
+    const roleName = (role.name || '').toLowerCase().replace(/[-_\s]/g, '');
+    const roleLevel = role.level || 0;
+    
+    if (isSuperAdmin) {
+      // Super admin can assign user and admin roles (not super_admin)
+      return roleLevel < 4 && !['superadmin', 'super_admin', 'ceo'].includes(roleName);
+    } else if (isAdmin) {
+      // Admin can only assign user role
+      return roleLevel < 3 && !['admin', 'superadmin', 'super_admin', 'ceo'].includes(roleName);
+    }
+    return false;
+  });
+
   // Load dropdown data
   useEffect(() => {
     if (isOpen) {
       loadDropdownData();
+      // Auto-set company name for admin/super_admin
+      if (companyName) {
+        setFormData(prev => ({ ...prev, company_name: companyName }));
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, companyName]);
 
   const handleRoleToggle = (roleId: string) => {
     setFormData(prev => ({
@@ -1727,7 +1771,7 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
   const selectAllRoles = () => {
     setFormData(prev => ({
       ...prev,
-      selected_roles: roles.map((role: any) => role.role_id)
+      selected_roles: filteredRoles.map((role: any) => role.role_id)
     }));
   };
 
@@ -2079,23 +2123,19 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
               </div>
             </div>
 
-            {/* Company Name */}
+            {/* Company Name - Read-only for admin/super_admin */}
             <div>
               <Label htmlFor="company_name">Company Name</Label>
-              <select
+              <Input
                 id="company_name"
                 name="company_name"
-                value={formData.company_name}
-                onChange={handleInputChange}
-                className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">Select Company</option>
-                {companies.map(company => (
-                  <option key={company.company_id} value={company.name}>
-                    {company.name}
-                  </option>
-                ))}
-              </select>
+                type="text"
+                value={companyName || formData.company_name}
+                readOnly
+                disabled
+                className="w-full p-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700"
+              />
+              <p className="text-xs text-gray-500 mt-1">Company is automatically set based on your account</p>
             </div>
 
             {/* Department and Employment Status */}
@@ -2148,7 +2188,7 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
                     variant="outline"
                     size="sm"
                     onClick={selectAllRoles}
-                    disabled={formData.selected_roles.length === roles.length}
+                    disabled={formData.selected_roles.length === filteredRoles.length}
                   >
                     Select All
                   </Button>
@@ -2165,11 +2205,11 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
               </div>
 
               <div className="border border-gray-300 rounded-md max-h-40 overflow-y-auto">
-                {roles.length === 0 ? (
-                  <div className="p-3 text-gray-500 text-center">No roles available</div>
+                {filteredRoles.length === 0 ? (
+                  <div className="p-3 text-gray-500 text-center">No roles available for assignment</div>
                 ) : (
                   <div className="p-2 space-y-2">
-                    {roles.map((role: any) => (
+                    {filteredRoles.map((role: any) => (
                       <label
                         key={role.role_id}
                         className="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
@@ -2194,6 +2234,8 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
 
               <div className="text-xs text-gray-500 mt-1">
                 Selected: {formData.selected_roles.length} role{formData.selected_roles.length === 1 ? '' : 's'}
+                {isAdmin && !isSuperAdmin && <span className="ml-2 text-amber-600">(Admins can only assign User role)</span>}
+                {isSuperAdmin && <span className="ml-2 text-blue-600">(Super Admins can assign User and Admin roles)</span>}
               </div>
 
               {/* Selected Roles Preview */}
@@ -2202,7 +2244,7 @@ function AddUserModal({ isOpen, onClose, companyId, adminId, departments, roles,
                   <span className="text-xs text-gray-600 block mb-1">Selected Roles:</span>
                   <div className="flex flex-wrap gap-1">
                     {formData.selected_roles.map(roleId => {
-                      const role = roles.find((r: any) => r.role_id === roleId);
+                      const role = filteredRoles.find((r: any) => r.role_id === roleId);
                       return role ? (
                         <span key={roleId} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
                           {role.name}
@@ -2931,7 +2973,10 @@ function UpdateEmployeeModal({
   isOpen, 
   onClose, 
   employee,
-  adminId, 
+  adminId,
+  companyName,
+  isAdmin,
+  isSuperAdmin,
   currentRole, 
   onSuccess 
 }: { 
@@ -2939,6 +2984,9 @@ function UpdateEmployeeModal({
   onClose: () => void;
   employee: User;
   adminId: string;
+  companyName: string;
+  isAdmin: boolean;
+  isSuperAdmin: boolean;
   currentRole: string[];
   onSuccess: () => void;
 }) {
@@ -2961,6 +3009,23 @@ function UpdateEmployeeModal({
   const [roles, setRoles] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+  // Filter roles based on current user's role level
+  // Admin can only assign 'user' role
+  // Super Admin can assign 'user' and 'admin' roles
+  const filteredRoles = roles.filter((role: any) => {
+    const roleName = (role.name || '').toLowerCase().replace(/[-_\s]/g, '');
+    const roleLevel = role.level || 0;
+    
+    if (isSuperAdmin) {
+      // Super admin can assign user and admin roles (not super_admin)
+      return roleLevel < 4 && !['superadmin', 'super_admin', 'ceo'].includes(roleName);
+    } else if (isAdmin) {
+      // Admin can only assign user role
+      return roleLevel < 3 && !['admin', 'superadmin', 'super_admin', 'ceo'].includes(roleName);
+    }
+    return false;
+  });
 
   // Email validation function
   const validateEmail = (email: string): boolean => {
@@ -3083,7 +3148,7 @@ function UpdateEmployeeModal({
   const selectAllRoles = () => {
     setFormData(prev => ({
       ...prev,
-      selected_roles: roles.map((role: any) => role.role_id)
+      selected_roles: filteredRoles.map((role: any) => role.role_id)
     }));
   };
 
@@ -3387,7 +3452,7 @@ function UpdateEmployeeModal({
                     variant="outline"
                     size="sm"
                     onClick={selectAllRoles}
-                    disabled={formData.selected_roles.length === roles.length}
+                    disabled={formData.selected_roles.length === filteredRoles.length}
                   >
                     Select All
                   </Button>
@@ -3404,11 +3469,11 @@ function UpdateEmployeeModal({
               </div>
 
               <div className="border border-gray-300 rounded-md max-h-40 overflow-y-auto">
-                {roles.length === 0 ? (
-                  <div className="p-3 text-gray-500 text-center">No roles available</div>
+                {filteredRoles.length === 0 ? (
+                  <div className="p-3 text-gray-500 text-center">No roles available for assignment</div>
                 ) : (
                   <div className="p-2 space-y-2">
-                    {roles.map((role: any) => (
+                    {filteredRoles.map((role: any) => (
                       <label
                         key={role.role_id}
                         className="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
@@ -3433,6 +3498,8 @@ function UpdateEmployeeModal({
 
               <div className="text-xs text-gray-500 mt-1">
                 Selected: {formData.selected_roles.length} role{formData.selected_roles.length === 1 ? '' : 's'}
+                {isAdmin && !isSuperAdmin && <span className="ml-2 text-amber-600">(Admins can only assign User role)</span>}
+                {isSuperAdmin && <span className="ml-2 text-blue-600">(Super Admins can assign User and Admin roles)</span>}
               </div>
 
               {/* Selected Roles Preview */}
@@ -3441,7 +3508,7 @@ function UpdateEmployeeModal({
                   <span className="text-xs text-gray-600 block mb-1">Selected Roles:</span>
                   <div className="flex flex-wrap gap-1">
                     {formData.selected_roles.map(roleId => {
-                      const role = roles.find((r: any) => r.role_id === roleId);
+                      const role = filteredRoles.find((r: any) => r.role_id === roleId);
                       return role ? (
                         <span key={roleId} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
                           {role.name}
