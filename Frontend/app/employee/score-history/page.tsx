@@ -306,15 +306,84 @@ export default function ScoreHistoryPage() {
       }
     }
 
-      // Fetch assessment history
-      const { data: assessments } = await supabase
-        .from("employee_assessments")
-        .select("employee_assessment_id, score, max_score, feedback, question_feedback, assessment_id, assessments(type, questions, processed_module_id)")
-        .eq("user_id", employeeData.user_id)
-        .order("employee_assessment_id", { ascending: false });
+      // Fetch assessment history via backend API
+      let enriched: any[] = [];
+      try {
+        console.log(employeeData.user_id);
+        const empAssessRes = await fetch(
+          `${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeData.user_id)}`,
+          {
+            headers: {
+              'X-User-ID': employeeData.user_id
+            }
+          }
+        );
+        console.log(empAssessRes);
+        
+        if (empAssessRes.ok) {
+          const empAssessPayload = await empAssessRes.json().catch(() => ({}));
+          let assessments = Array.isArray(empAssessPayload?.assessments) 
+            ? empAssessPayload.assessments 
+            : (Array.isArray(empAssessPayload?.data) ? empAssessPayload.data : []);
+
+          console.log("Payload", empAssessPayload);
+
+          // Extract unique assessment_ids and fetch assessment details
+          const uniqueIds = new Set<string>();
+          assessments.forEach((ea: any) => {
+            if (ea.assessment_id) {
+              uniqueIds.add(String(ea.assessment_id));
+            }
+          });
+          const assessmentIds = Array.from(uniqueIds);
+
+          if (assessmentIds.length > 0) {
+            // Fetch all assessment details in parallel
+            const assessmentDetailsPromises = assessmentIds.map(async (assessmentId) => {
+              try {
+                const res = await fetch(
+                  `${API_BASE}/api/assessments/${encodeURIComponent(assessmentId)}`,
+                  {
+                    headers: {
+                      'X-User-ID': employeeData.user_id
+                    }
+                  }
+                );
+                if (res.ok) {
+                  const payload = await res.json().catch(() => ({}));
+                  return payload?.assessment || payload;
+                }
+              } catch (e) {
+                console.warn(`Failed to fetch assessment ${assessmentId}:`, e);
+              }
+              return null;
+            });
+
+            const assessmentDetails = await Promise.all(assessmentDetailsPromises);
+            const assessmentMap = new Map();
+            assessmentDetails.forEach((assessment: any) => {
+              if (assessment?.assessment_id) {
+                assessmentMap.set(assessment.assessment_id, assessment);
+              }
+            });
+
+            // Enrich employee_assessments with assessment details
+            enriched = assessments.map((ea: any) => {
+              const assessmentDetail = assessmentMap.get(ea.assessment_id);
+              return {
+                ...ea,
+                assessments: assessmentDetail || null
+              };
+            });
+          } else {
+            enriched = assessments;
+          }
+        }
+      } catch (e) {
+        console.warn('[score-history] Failed to fetch employee assessments via backend:', e);
+      }
 
       // Enrich with module titles for non-baseline assessments
-      let enriched = assessments || [];
       const moduleIds = (enriched || [])
         .filter((a: any) => a?.assessments?.type === 'module' && a.assessments?.processed_module_id)
         .map((a: any) => String(a.assessments.processed_module_id));
