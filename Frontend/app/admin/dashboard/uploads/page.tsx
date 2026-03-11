@@ -222,7 +222,7 @@ function ContentUpload({
       }
 
       onUploadComplete();
-      alert(`AI processing failed: ${(err as any)?.message || err}`);
+      console.warn(`AI processing pending: ${(err as any)?.message || err}`);
     }
   };
 
