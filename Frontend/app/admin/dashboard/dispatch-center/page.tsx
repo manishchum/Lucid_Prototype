@@ -515,6 +515,7 @@ export default function AdminDispatchCenterPage() {
     setGenerating(true);
     setDraftedEmail(null);
     setSendResult(null);
+    setMultiModuleResult(null);
     setIsEditingEmail(false);
     setEditBodyText('');
     setEditSubject('');
@@ -1384,8 +1385,8 @@ export default function AdminDispatchCenterPage() {
                 </div>
               )}
 
-              {/* Draft Button — hidden in multi-module stagger mode (no draft needed) */}
-              {canDraft && !(scheduleEnabled && scheduleMode === 'recurring' && selectedSubModuleIds.length >= 2 && selectedDays.length > 0) && (
+              {/* Draft Button — always visible so admin can preview the email */}
+              {canDraft && (
                 <button
                   onClick={handleGenerateEmail}
                   disabled={generating}
@@ -1405,7 +1406,7 @@ export default function AdminDispatchCenterPage() {
                 </button>
               )}
 
-              {/* Multi-module stagger schedule button */}
+              {/* Multi-module stagger schedule button — shown alongside Draft when applicable */}
               {canDraft && scheduleEnabled && scheduleMode === 'recurring' && selectedSubModuleIds.length >= 2 && selectedDays.length > 0 && (
                 <button
                   onClick={handleScheduleMultiModule}

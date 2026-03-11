@@ -300,7 +300,7 @@ function ContentUpload({
           id="title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Enter training module title"
+          placeholder="Enter Sprint Title"
         />
       </div>
 
@@ -394,7 +394,7 @@ function ContentUpload({
       </div>
 
       <div>
-        <Label htmlFor="file">Upload File</Label>
+        <Label htmlFor="file">Upload Sprint </Label>
         <Input
           id="file"
           type="file"
@@ -404,7 +404,7 @@ function ContentUpload({
       </div>
 
       <Button onClick={handleUpload} disabled={!file || !title || uploading}>
-        {uploading ? 'Uploading...' : 'Upload Content'}
+        {uploading ? 'Publishing...' : 'Publish Sprint'}
       </Button>
     </div>
   );
@@ -447,7 +447,7 @@ function UploadedFilesList({ companyId }: { companyId: string }) {
 
   return (
     <div>
-      <h3 className="text-lg font-semibold mb-4">Uploaded Files in Storage</h3>
+      <h3 className="text-lg font-semibold mb-4">Sprint Resource Library</h3>
       {files.length === 0 ? (
         <p className="text-gray-400 italic">No storage files found</p>
       ) : (
@@ -828,7 +828,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
       {/* Content Upload Section */}
       <div className="border-b pb-4">
-        <h3 className="text-lg font-semibold mb-2">Upload New Training Content</h3>
+        <h3 className="text-lg font-semibold mb-2">Create New Sprint</h3>
         <ContentUpload
           companyId={companyId}
           adminId={adminId}
@@ -838,13 +838,13 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
       {/* Training Modules List */}
       <div>
-        <h3 className="text-lg font-semibold mb-4">Training Modules ({trainingModules.length})</h3>
+        <h3 className="text-lg font-semibold mb-4">Sprint Tracks ({trainingModules.length})</h3>
 
         {trainingModules.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <Upload className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p>No training modules found</p>
-            <p className="text-sm">Upload your first training content to get started</p>
+            <p>No Sprint Tracks Found</p>
+            <p className="text-sm">Publish your First Sprint Track to get Started</p>
           </div>
         ) : (
           <div className="grid gap-4">
@@ -1013,18 +1013,18 @@ export default function UploadsPage() {
   return (
     <div className="space-y-6">
       <div className="border-b border-gray-200 pb-4">
-        <h1 className="text-2xl font-bold text-gray-900">Content Uploads</h1>
-        <p className="text-gray-600 mt-1">Upload training content for your organization</p>
+        <h1 className="text-2xl font-bold text-gray-900">Sprint Studio</h1>
+        <p className="text-gray-600 mt-1">Create New Sprint for your Organization</p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center">
             <Upload className="w-5 h-5 mr-2" />
-            Training Content Management
+            Sprint Content Manager
           </CardTitle>
           <CardDescription>
-            Upload and manage training materials for your organization
+            Create and manage learning sprints for your organization/ Create and organize learning sprints for your team
           </CardDescription>
         </CardHeader>
         <CardContent>
