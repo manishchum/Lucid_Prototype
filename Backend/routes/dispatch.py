@@ -7,7 +7,7 @@ import re
 import json
 import smtplib
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -996,3 +996,186 @@ async def notify_email(
         "failed": failed,
         "selected_content": request.selected_content,
     }
+
+
+# ── Multi-Module Staggered Schedule ───────────────────────────────────────────
+# When the admin selects N modules and a recurring day/time, we schedule one
+# job per module, each offset by 1 week:
+#   Module 1 → first upcoming <day> at <time>
+#   Module 2 → first upcoming <day> + 7 days
+#   Module 3 → first upcoming <day> + 14 days  … and so on.
+
+_DAY_MAP = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6}
+
+
+def _next_weekday(day_name: str, hour: int, minute: int) -> datetime:
+    """Return the next future UTC datetime that falls on day_name at hour:minute UTC.
+
+    Uses only UTC arithmetic so local-timezone offsets never interfere.
+    Python's weekday(): Mon=0 … Sun=6  — same as _DAY_MAP.
+    """
+    target_wd = _DAY_MAP.get(day_name, 0)
+    now_utc = datetime.utcnow()
+
+    # Build today's candidate at the requested HH:MM UTC
+    candidate = now_utc.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+    # How many days until target_wd?
+    days_ahead = (target_wd - now_utc.weekday()) % 7
+    candidate += timedelta(days=days_ahead)
+
+    # If the candidate is not strictly in the future, push one full week ahead
+    if candidate <= now_utc:
+        candidate += timedelta(weeks=1)
+
+    return candidate
+
+
+class ScheduleMultiModuleRequest(BaseModel):
+    """Schedule one email per module on successive occurrences of a weekday.
+
+    Example: module_ids = [A, B], scheduled_day = "Mon", scheduled_time = "09:00"
+      → Module A sent on the first upcoming Monday at 09:00 UTC
+      → Module B sent on the Monday after that (+ 7 days)
+    """
+    module_ids: List[str]           # ordered list of module IDs (sprint sub-modules)
+    selected_content: List[str]     # e.g. ["flashcards", "audio"]
+    scheduled_day: str              # "Mon" | "Tue" | … | "Sun"
+    scheduled_time: str             # "HH:MM" in UTC
+    customFlashcards: Optional[List[Dict[str, Any]]] = None
+    customAudioUrl: Optional[str] = None
+
+
+@router.post("/schedule-multi-module")
+async def schedule_multi_module(
+    request: ScheduleMultiModuleRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Schedule one flashcard/content email per module, staggered by one week each.
+
+    Returns a list of scheduled jobs with their run dates so the frontend
+    can show a preview like:
+      Module 1 → Mon 17 Mar 2026 09:00 UTC
+      Module 2 → Mon 24 Mar 2026 09:00 UTC
+    """
+    try:
+        if not request.module_ids:
+            raise HTTPException(status_code=400, detail="module_ids must not be empty")
+
+        if request.scheduled_day not in _DAY_MAP:
+            raise HTTPException(
+                status_code=400,
+                detail=f"scheduled_day must be one of {list(_DAY_MAP.keys())}",
+            )
+
+        try:
+            hour, minute = [int(x) for x in request.scheduled_time.split(":")]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="scheduled_time must be HH:MM")
+
+        # Compute base run date (first upcoming occurrence of the chosen weekday/time)
+        base_dt = _next_weekday(request.scheduled_day, hour, minute)
+
+        scheduled_jobs = []
+
+        for idx, module_id in enumerate(request.module_ids):
+            run_dt = base_dt + timedelta(weeks=idx)
+
+            # ── Fetch processed_module row (title, flashcard_data, audio_url,
+            #    AND the parent original_module_id for user lookup) ──
+            pm_result = supabase.table("processed_modules") \
+                .select("processed_module_id, title, flashcard_data, audio_url, original_module_id") \
+                .eq("processed_module_id", module_id) \
+                .single() \
+                .execute()
+
+            if not pm_result.data:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Processed module {module_id} not found in processed_modules",
+                )
+
+            pm_row = pm_result.data
+            module_title = pm_row.get("title") or module_id
+            original_module_id = pm_row.get("original_module_id")
+
+            combined_flashcards: List[Dict[str, Any]] = pm_row.get("flashcard_data") or []
+            audio_url_from_db: str = pm_row.get("audio_url") or ""
+
+            module_data = {
+                "title": module_title,
+                "audio_url": audio_url_from_db,
+                "flashcard_data": combined_flashcards,
+            }
+
+            # ── Build email HTML ──
+            html_body = build_email_body(
+                module_data,
+                request.selected_content,
+                custom_flashcards=request.customFlashcards,
+                custom_audio_url=request.customAudioUrl,
+            )
+            subject = f"Your training module is ready: {module_title}"
+
+            # ── Fetch assigned users via the parent sprint (original_module_id) ──
+            # Users are assigned at the training_module (sprint) level, not per sub-module.
+            lookup_id = original_module_id or module_id
+            users_result = await get_assigned_users_for_sprint(lookup_id)
+            if users_result["error"]:
+                raise HTTPException(status_code=400, detail=users_result["error"])
+
+            users_data = users_result["data"] or []
+            recipient_emails = [u["email"] for u in users_data if u.get("email")]
+
+            if not recipient_emails:
+                # Still record the entry but flag no recipients
+                scheduled_jobs.append({
+                    "week": idx + 1,
+                    "module_id": module_id,
+                    "module_title": module_title,
+                    "run_date": run_dt.isoformat(),
+                    "recipient_count": 0,
+                    "job_id": None,
+                    "warning": "No users assigned to this module",
+                })
+                continue
+
+            # ── Create APScheduler job ──
+            job_id = f"multi_notify_{module_id}_{uuid.uuid4().hex[:8]}"
+            scheduler.add_job(
+                send_smtp_job,
+                trigger="date",
+                run_date=run_dt,
+                id=job_id,
+                args=[recipient_emails, subject, html_body],
+                replace_existing=True,
+            )
+
+            scheduled_jobs.append({
+                "week": idx + 1,
+                "module_id": module_id,
+                "module_title": module_title,
+                "run_date": run_dt.isoformat(),
+                "recipient_count": len(recipient_emails),
+                "job_id": job_id,
+            })
+
+        return {
+            "status": "multi_module_scheduled",
+            "scheduled_day": request.scheduled_day,
+            "scheduled_time": request.scheduled_time,
+            "total_modules": len(request.module_ids),
+            "jobs": scheduled_jobs,
+        }
+
+    except HTTPException:
+        raise  # re-raise FastAPI HTTP errors as-is (they already carry status codes)
+    except Exception as exc:
+        # Catch-all: log and return a proper 500 so CORS headers are always present
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"schedule-multi-module failed: {str(exc)}",
+        )
