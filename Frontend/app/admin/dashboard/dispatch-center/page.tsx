@@ -115,7 +115,7 @@ export default function AdminDispatchCenterPage() {
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('09:00');
   // ── Recurring schedule state ─────────────────────────────────
-  const [scheduleMode, setScheduleMode] = useState<'once' | 'recurring'>('once');
+  const [scheduleMode, setScheduleMode] = useState<'once' | 'recurring'>('recurring');
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [recurringTime, setRecurringTime] = useState('09:00');
 
@@ -1197,8 +1197,8 @@ export default function AdminDispatchCenterPage() {
                   {scheduleEnabled && (
                     <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
 
-                      {/* Mode toggle: Once vs Recurring */}
-                      <div className="inline-flex rounded-full bg-slate-200 p-1 gap-1">
+                      {/* Mode toggle: Once vs Recurring — One-time hidden */}
+                      {/* <div className="inline-flex rounded-full bg-slate-200 p-1 gap-1">
                         <button
                           onClick={() => setScheduleMode('once')}
                           className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
@@ -1219,7 +1219,7 @@ export default function AdminDispatchCenterPage() {
                         >
                           <RefreshCw size={11} /> Recurring
                         </button>
-                      </div>
+                      </div> */}
 
                       {/* ONE-TIME: date + time */}
                       {scheduleMode === 'once' && (
