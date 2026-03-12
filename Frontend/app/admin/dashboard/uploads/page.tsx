@@ -1570,7 +1570,7 @@ export default function UploadsPage() {
   if (loading) {
     return (
       showLoadingProgress
-        ? <LoadingProgress label="Loading..." progress={loadingProgress} />
+        ? <LoadingProgress label="Loading Creations..." progress={loadingProgress} />
         : (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
