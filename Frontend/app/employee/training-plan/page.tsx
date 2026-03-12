@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
-import { Users, ChevronLeft, CheckCircle2 } from "lucide-react";
+import { Users, ChevronLeft, CheckCircle2, BookOpen, ArrowUpRight } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -213,6 +213,46 @@ function TrainingPlanContent() {
         }
       }, [user, authLoading, router]);
   const moduleId = searchParams.get('module_id');
+  const normalizedAdditionalReadings = (additionalReadings || [])
+    .map((reading: any, idx: number) => {
+      if (typeof reading === "string") {
+        return {
+          id: `${idx}-${reading}`,
+          title: reading,
+          url: reading,
+          description: null,
+        };
+      }
+
+      if (!reading || typeof reading !== "object") {
+        return null;
+      }
+
+      const url =
+        reading.url ||
+        reading.link ||
+        reading.href ||
+        reading.source ||
+        null;
+      const title =
+        reading.title ||
+        reading.name ||
+        reading.label ||
+        url ||
+        `Reading ${idx + 1}`;
+
+      return {
+        id: String(reading.id || `${idx}-${title}`),
+        title,
+        url,
+        description: reading.description || reading.summary || reading.notes || null,
+      };
+    })
+    .filter(
+      (reading): reading is { id: string; title: string; url: string | null; description: string | null } =>
+        Boolean(reading)
+    );
+
   const fetchPlan = async () => {
     // console.log("[training-plan] Fetching training plan...");
     setLoading(true);
@@ -345,6 +385,9 @@ function TrainingPlanContent() {
       
       // Call training-plan API with module_id if present
       const requestBody: any = { user_id: employeeData.user_id };
+      if (!moduleId) {
+        setAdditionalReadings(null);
+      }
       if (moduleId) {
         requestBody.module_id = moduleId;
         requestBody.processedModuleIds = processedModuleIds;
@@ -935,6 +978,69 @@ function TrainingPlanContent() {
                       <div>{typeof overallRecommendations === 'string' ? overallRecommendations : JSON.stringify(overallRecommendations)}</div>
                     )
                   ) : null}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {normalizedAdditionalReadings.length > 0 && (
+            <Card className="mb-6 bg-blue-50 border-blue-200 shadow-sm">
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                    <BookOpen className="w-5 h-5 text-blue-700" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg font-bold text-gray-900">
+                      Additional Readings
+                    </CardTitle>
+                    <CardDescription className="text-sm text-gray-600">
+                      Extra resources curated for this performance sprint.
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {normalizedAdditionalReadings.map((reading) => {
+                    const isExternalLink = !!reading.url && /^https?:\/\//i.test(reading.url);
+
+                    return (
+                      <div
+                        key={reading.id}
+                        className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="text-sm font-semibold text-gray-900 break-words">
+                              {reading.title}
+                            </h3>
+                            {reading.description && (
+                              <p className="mt-1 text-sm leading-relaxed text-gray-600">
+                                {reading.description}
+                              </p>
+                            )}
+                            {reading.url && (
+                              <p className="mt-2 text-xs text-gray-500 break-all">
+                                {reading.url}
+                              </p>
+                            )}
+                          </div>
+                          {reading.url && (
+                            <a
+                              href={reading.url}
+                              target={isExternalLink ? "_blank" : undefined}
+                              rel={isExternalLink ? "noreferrer" : undefined}
+                              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                            >
+                              Open
+                              <ArrowUpRight className="h-4 w-4" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
