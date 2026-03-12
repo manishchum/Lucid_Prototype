@@ -799,7 +799,8 @@ async def schedule_email(
             detail="Invalid date/time format. Expected YYYY-MM-DD and HH:MM",
         )
 
-    if run_dt <= datetime.utcnow():
+    from datetime import timezone as _tz
+    if run_dt.replace(tzinfo=_tz.utc) <= datetime.now(_tz.utc):
         raise HTTPException(
             status_code=400,
             detail="Scheduled time must be in the future (UTC)",
@@ -934,7 +935,8 @@ async def notify_email(
                 detail="Invalid date/time format. Expected YYYY-MM-DD and HH:MM",
             )
 
-        if run_dt <= datetime.utcnow():
+        from datetime import timezone as _tz
+        if run_dt.replace(tzinfo=_tz.utc) <= datetime.now(_tz.utc):
             raise HTTPException(
                 status_code=400,
                 detail="Scheduled time must be in the future (UTC)",
@@ -1011,16 +1013,19 @@ _DAY_MAP = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6
 def _next_weekday(day_name: str, hour: int, minute: int) -> datetime:
     """Return the next future UTC datetime that falls on day_name at hour:minute UTC.
 
-    Uses only UTC arithmetic so local-timezone offsets never interfere.
-    Python's weekday(): Mon=0 … Sun=6  — same as _DAY_MAP.
+    Returns a timezone-aware UTC datetime so isoformat() always includes +00:00
+    and APScheduler fires at the correct wall-clock UTC time regardless of the
+    server's local timezone.
     """
-    target_wd = _DAY_MAP.get(day_name, 0)
-    now_utc = datetime.utcnow()
+    from datetime import timezone as _tz
 
-    # Build today's candidate at the requested HH:MM UTC
+    target_wd = _DAY_MAP.get(day_name, 0)
+    now_utc = datetime.now(_tz.utc)
+
+    # Build today's candidate at the requested HH:MM UTC (timezone-aware)
     candidate = now_utc.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
-    # How many days until target_wd?
+    # How many days until target_wd? (weekday(): Mon=0 … Sun=6)
     days_ahead = (target_wd - now_utc.weekday()) % 7
     candidate += timedelta(days=days_ahead)
 
