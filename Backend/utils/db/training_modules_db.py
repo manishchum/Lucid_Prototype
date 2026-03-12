@@ -1,6 +1,100 @@
 from typing import Dict, Any, Optional, List
+from urllib.parse import urlparse, unquote
+import re
 from ..supabase_client import supabase
 from .permissions import check_user_permission, check_company_access
+
+
+def extract_storage_path_from_url(content_url: str) -> Optional[str]:
+    """
+    Extract the storage path from a Supabase storage URL.
+    
+    Example URL:
+    https://xxx.supabase.co/storage/v1/object/public/content%20library/uploads/module_id_combined.pdf
+    
+    Returns: uploads/module_id_combined.pdf
+    """
+    if not content_url:
+        return None
+    
+    try:
+        parsed = urlparse(content_url)
+        path = unquote(parsed.path)  # Decode URL-encoded characters
+        
+        # Pattern: /storage/v1/object/public/content library/uploads/...
+        if '/content library/' in path:
+            idx = path.find('/content library/')
+            if idx != -1:
+                return path[idx + len('/content library/'):]
+        
+        # Fallback: try to find 'uploads/' directly
+        if '/uploads/' in path:
+            idx = path.find('uploads/')
+            if idx != -1:
+                return path[idx:]
+        
+        return None
+    except Exception:
+        return None
+
+
+def extract_base_filename(source_path: str) -> Optional[str]:
+    """
+    Extract the base filename from a source file path.
+    
+    Example: uploads/cc1dd720-2c2f-489f-a6ec-f836ea4e5677/source/AI_Grayscale.pdf
+    Returns: AI_Grayscale.pdf
+    """
+    if not source_path:
+        return None
+    try:
+        # Get the last part after the final /
+        parts = source_path.split('/')
+        return parts[-1] if parts else None
+    except Exception:
+        return None
+
+
+async def find_timestamped_uploads(base_filenames: List[str]) -> List[str]:
+    """
+    Find original timestamped upload files that match the base filenames.
+    These are files like: uploads/1773293935634_0_filename.pdf
+    """
+    if not base_filenames:
+        return []
+    
+    matching_paths = []
+    
+    try:
+        # List all files in the uploads folder (not recursive)
+        list_response = supabase.storage.from_("content library").list("uploads")
+        
+        if list_response:
+            for file_info in list_response:
+                file_name = file_info.get('name', '')
+                # Skip folders (they have id = None for directories)
+                if file_info.get('id') is None:
+                    continue
+                
+                # Check if this file matches any of our base filenames
+                # Pattern: {timestamp}_{index}_{original_filename}
+                for base_name in base_filenames:
+                    # The uploaded filename might have spaces replaced with underscores
+                    base_name_normalized = base_name.replace(" ", "_")
+                    
+                    # Check if file_name ends with the base filename (after timestamp_index_ prefix)
+                    # Pattern: digits_digit(s)_filename
+                    match = re.match(r'^\d+_\d+_(.+)$', file_name)
+                    if match:
+                        matched_name = match.group(1)
+                        if matched_name == base_name or matched_name == base_name_normalized:
+                            matching_paths.append(f"uploads/{file_name}")
+                            break
+    except Exception as e:
+        print(f"[DELETE] Warning: Could not list uploads folder: {e}")
+    
+    return matching_paths
+
 
 # ==================== TRAINING MODULE OPERATIONS ====================
 
@@ -166,12 +260,19 @@ async def delete_training_module(
     module_id: str
 ) -> Dict[str, Any]:
     """
-    Delete a training module.
+    Delete a training module and all associated files from storage.
     Permission: Company admin+ only.
+    
+    Deletes files from 3 locations:
+    1. uploads/{module_id}/source/{filename} - from source_files column
+    2. uploads/{module_id}_combined.pdf - from content_url column
+    3. uploads/{timestamp}_{index}_{filename} - original frontend uploads
     """
-    # Get the module to check company
+    # Get the module with content_url and source_files for storage cleanup
     try:
-        module_response = supabase.table('training_modules').select('company_id').eq(
+        module_response = supabase.table('training_modules').select(
+            'company_id, content_url, source_files'
+        ).eq(
             'module_id', module_id
         ).maybe_single().execute()
         
@@ -180,7 +281,8 @@ async def delete_training_module(
     except Exception as e:
         return {"data": None, "error": "Training module not found"}
     
-    company_id = module_response.data['company_id']
+    module_data = module_response.data
+    company_id = module_data['company_id']
     
     # Check permissions
     has_permission = await check_user_permission(requesting_user_id, 'company_admin')
@@ -192,6 +294,58 @@ async def delete_training_module(
             "error": "Permission denied: Company admin access required"
         }
     
+    # Collect all storage paths to delete
+    storage_paths_to_delete = []
+    base_filenames = []  # For finding timestamped uploads
+    
+    # 1. Extract path from content_url (combined PDF)
+    content_url = module_data.get('content_url')
+    if content_url:
+        main_storage_path = extract_storage_path_from_url(content_url)
+        if main_storage_path:
+            storage_paths_to_delete.append(main_storage_path)
+    
+    # 2. Add source files paths and collect base filenames
+    source_files = module_data.get('source_files')
+    if source_files:
+        source_files_list = []
+        if isinstance(source_files, list):
+            source_files_list = source_files
+        elif isinstance(source_files, str):
+            # In case it's stored as a JSON string
+            try:
+                import json
+                parsed_files = json.loads(source_files)
+                if isinstance(parsed_files, list):
+                    source_files_list = parsed_files
+            except:
+                pass
+        
+        # Add source file paths and extract base filenames
+        for sf in source_files_list:
+            storage_paths_to_delete.append(sf)
+            base_name = extract_base_filename(sf)
+            if base_name:
+                base_filenames.append(base_name)
+    
+    # 3. Find and add timestamped original uploads (uploads/{timestamp}_{index}_{filename})
+    if base_filenames:
+        timestamped_files = await find_timestamped_uploads(base_filenames)
+        if timestamped_files:
+            storage_paths_to_delete.extend(timestamped_files)
+            print(f"[DELETE] Found timestamped uploads to delete: {timestamped_files}")
+    
+    # Delete files from storage bucket
+    if storage_paths_to_delete:
+        try:
+            # Remove files from 'content library' bucket
+            supabase.storage.from_("content library").remove(storage_paths_to_delete)
+            print(f"[DELETE] Removed {len(storage_paths_to_delete)} files from storage: {storage_paths_to_delete}")
+        except Exception as storage_error:
+            # Log but don't fail the entire operation if storage deletion fails
+            print(f"[DELETE] Warning: Failed to delete some storage files: {storage_error}")
+    
+    # Delete the module from database
     try:
         response = supabase.table('training_modules').delete().eq(
             'module_id', module_id

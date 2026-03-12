@@ -72,6 +72,7 @@ async def POST(request: Request):
 
         if existingProgress:
 
+            print("inside existing progress")
             if viewOnly:
                 return JSONResponse({
                     "success": True,
@@ -138,6 +139,7 @@ async def POST(request: Request):
 
             updateData["completed_at"] = datetime.utcnow().isoformat()
 
+            print("Final Update Data:", updateData)
             update_res = supabase.table("module_progress") \
                 .update(updateData) \
                 .eq("module_progress_id", existingProgress[0]["module_progress_id"]) \
@@ -156,6 +158,7 @@ async def POST(request: Request):
             result = data
 
         else:
+            print("Inside the else")
             create_res = supabase.table("module_progress") \
                 .update(progressData) \
                 .select() \

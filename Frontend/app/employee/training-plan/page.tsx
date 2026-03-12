@@ -293,11 +293,23 @@ function TrainingPlanContent() {
           console.error("[training-plan] Error fetching training modules:", tmErr);
         }
         
-        // Get all baseline assessments this user has completed
-        const { data: userCompletedBaselines } = await supabase
-          .from("employee_assessments")
-          .select("assessment_id")
-          .eq("user_id", employeeData.user_id);
+        // Get all baseline assessments this user has completed via backend API
+        let userCompletedBaselines: any[] = [];
+        try {
+          const empAssessRes = await fetch(
+            `${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeData.user_id)}`,
+            { headers: { 'X-User-ID': employeeData.user_id } }
+          );
+          console.log("Error due to this line");
+          if (empAssessRes.ok) {
+            const empAssessPayload = await empAssessRes.json();
+            userCompletedBaselines = empAssessPayload?.assessments || empAssessPayload?.data || [];
+          } else {
+            console.error("[training-plan] Error fetching employee assessments:", await empAssessRes.text());
+          }
+        } catch (e) {
+          console.error("[training-plan] Error fetching completed baselines:", e);
+        }
         
         const completedBaselineIds = new Set(
           (userCompletedBaselines || []).map((ub: any) => ub.assessment_id)
@@ -359,11 +371,28 @@ function TrainingPlanContent() {
               .map((b: any) => b.assessment_id)
               .filter(Boolean);
             if (baselineIds.length > 0) {
-              const { data: userBaselines } = await supabase
-                .from("employee_assessments")
-                .select("assessment_id")
-                .in("assessment_id", baselineIds)
-                .eq("user_id", employeeData.user_id);
+              // Fetch employee assessments via backend API
+              let userBaselines: any[] = [];
+              try {
+                const empAssessRes = await fetch(
+                  `${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeData.user_id)}`,
+                  { headers: { 'X-User-ID': employeeData.user_id } }
+                );
+                
+                if (empAssessRes.ok) {
+                  const empAssessPayload = await empAssessRes.json();
+                  const allAssessments = empAssessPayload?.assessments || empAssessPayload?.data || [];
+                  // Filter to only include baseline assessments
+                  userBaselines = allAssessments.filter((a: any) => 
+                    baselineIds.includes(a.assessment_id)
+                  );
+                } else {
+                  console.error("[training-plan] Error fetching employee assessments:", await empAssessRes.text());
+                }
+              } catch (e) {
+                console.error("[training-plan] Error fetching user baselines:", e);
+              }
+              
               if (userBaselines && userBaselines.length > 0) {
                 setBaselineCompleted(true);
               } else {
@@ -673,7 +702,7 @@ function TrainingPlanContent() {
           
           // Create or update module progress via backend API
           try {
-            const progressRes = await fetch(`${API_BASE}/api/module-progress`, {
+            const progressRes = await fetch(`${API_BASE}/api/module-progress/`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',

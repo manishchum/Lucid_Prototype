@@ -145,7 +145,23 @@ ${objectivesText}
       // -------------------------------------
       // STEP 2: Generate embedding
       // -------------------------------------
+      async function generateEmbeddingWithRetry(text, retries = 3, delay = 2000) {
+        for (let attempt = 1; attempt <= retries; attempt++) {
+          try {
+            console.log(`[EMBEDDING] Attempt ${attempt}/${retries}`);
+            return await generateEmbedding(text);
 
+          } catch (err) {
+            if (attempt === retries) {
+              console.error(`[EMBEDDING] All ${retries} attempts failed`);
+              throw err;
+            }
+
+            console.warn(`[EMBEDDING] Attempt ${attempt} failed, retrying in ${delay}ms...`);
+            await new Promise(res => setTimeout(res, delay));
+          }
+        }
+      }
       async function generateEmbedding(text) {
         try {
           console.log(`[EMBEDDING] Starting embedding generation for text length: ${text.length}`);
@@ -175,7 +191,8 @@ ${objectivesText}
       }
       
       console.log(`[RAG] Generating embedding for module: ${mod.title}`);
-      const queryEmbedding = await generateEmbedding(semanticQuery);
+      // const queryEmbedding = await generateEmbedding(semanticQuery);
+      const queryEmbedding = await generateEmbeddingWithRetry(semanticQuery);
       
       console.log(`[RAG] Fetching top-K chunks from vector DB...`);
       console.log(`[RAG] Module ID: ${mod.original_module_id}, Match count: 6`);
@@ -732,28 +749,98 @@ Module is fully self-contained
     }
 
     // Attach images if available
+    // if (matchedImages && matchedImages.length > 0) {
+    //   console.log(`[GEMINI] Attaching ${matchedImages.length} images to prompt`);
+
+    //   for (const img of matchedImages) {
+    //     geminiContents[0].parts.push({
+    //       fileData: {
+    //         fileUri: img.image_url, // must be public or signed URL
+    //         mimeType: getMimeType(img.image_url)
+    //       }
+    //     });
+    //   }
+    // }
+
     if (matchedImages && matchedImages.length > 0) {
       console.log(`[GEMINI] Attaching ${matchedImages.length} images to prompt`);
 
       for (const img of matchedImages) {
-        geminiContents[0].parts.push({
-          fileData: {
-            fileUri: img.image_url, // must be public or signed URL
-            mimeType: getMimeType(img.image_url)
+
+        try {
+
+          const head = await axios.head(img.image_url, { timeout: 5000 });
+          const contentType = head.headers['content-type'] || '';
+
+          if (!contentType.startsWith('image/')) {
+            console.warn("[GEMINI] Skipping non-image:", img.image_url);
+            continue;
           }
-        });
+
+          console.log("[GEMINI] Attaching image:", img.image_url);
+
+          geminiContents[0].parts.push({
+            fileData: {
+              fileUri: img.image_url,
+              mimeType: contentType
+            }
+          });
+
+        } catch (err) {
+          console.warn("[GEMINI] Skipping unreachable image:", img.image_url);
+        }
+
       }
     }
       
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: geminiContents,
-        generationConfig: {
-          maxOutputTokens: 6000,
-          temperature: TEMPERATURE,
-          topP: TOP_P
+      // const response = await ai.models.generateContent({
+      //   model: 'gemini-3-pro-preview',
+      //   contents: geminiContents,
+      //   generationConfig: {
+      //     maxOutputTokens: 6000,
+      //     temperature: TEMPERATURE,
+      //     topP: TOP_P
+      //   }
+      // });
+
+      let response;
+
+      try {
+
+        response = await ai.models.generateContent({
+          model: 'gemini-3-pro-preview',
+          contents: geminiContents,
+          generationConfig: {
+            maxOutputTokens: 6000,
+            temperature: TEMPERATURE,
+            topP: TOP_P
+          }
+        });
+
+      } catch (err) {
+
+        if (err.message && err.message.includes("Cannot fetch content")) {
+
+          console.warn("[GEMINI] Retrying generation without images");
+
+          geminiContents[0].parts =
+            geminiContents[0].parts.filter(p => !p.fileData);
+
+          response = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: geminiContents,
+            generationConfig: {
+              maxOutputTokens: 6000,
+              temperature: TEMPERATURE,
+              topP: TOP_P
+            }
+          });
+
+        } else {
+          throw err;
         }
-      });
+
+      }
       
       let aiContent = '';
 

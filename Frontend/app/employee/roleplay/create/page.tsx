@@ -77,6 +77,21 @@ const CreateRoleplayComponent = () => {
     initialPrompt: '',
   });
   const [errors, setErrors] = useState<string[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [sidebarLeft, setSidebarLeft] = useState('280px');
+
+  // Track sidebar width so the sticky bar starts after the nav
+  useEffect(() => {
+    const updateLeft = () => {
+      const width = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width').trim();
+      if (width) setSidebarLeft(width);
+    };
+    updateLeft();
+    const observer = new MutationObserver(updateLeft);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!authLoading) {
@@ -348,6 +363,36 @@ const CreateRoleplayComponent = () => {
     }
   };
 
+  const handleSaveChanges = async () => {
+    if (!editingScenarioId) return;
+    setIsSaving(true);
+    const updatedScenario: Scenario = {
+      scenario_id: editingScenarioId,
+      title: formData.title,
+      description: formData.description || formData.learnerBrief,
+      role: formData.aiRole,
+      difficulty: formData.difficulty,
+      initialPrompt: formData.initialPrompt,
+      userRole: formData.userRole,
+      tone: formData.tone,
+      learnerBrief: formData.learnerBrief,
+      aiObjectives: formData.aiObjectives,
+      maxDuration: formData.maxDuration,
+      minTurns: formData.minTurns,
+      endConditions: formData.endConditions,
+      evaluationParams: formData.evaluationParameters,
+      passingScore: formData.cutoffScore,
+    };
+    const { error } = await updateCustomScenario(editingScenarioId, updatedScenario);
+    setIsSaving(false);
+    if (error) {
+      alert('Failed to save changes: ' + error.message);
+    } else {
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    }
+  };
+
   const loadEvaluationTemplate = (templateKey: string) => {
     const template = evaluationTemplates[templateKey as keyof typeof evaluationTemplates] || evaluationTemplates.default;
     setFormData({
@@ -398,7 +443,7 @@ const CreateRoleplayComponent = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 pt-6 pb-12">
-      <main className="container mx-auto px-4 py-6 max-w-7xl">
+      <main className="container mx-auto px-4 py-6 max-w-7xl" style={{ paddingBottom: isEditMode ? '6rem' : undefined }}>
           {/* Header */}
           <div className="mb-6">
             <button
@@ -1156,6 +1201,57 @@ In this exercise, you will interact with a virtual character to practice and imp
               </Card>
             </div>
           </div>
+
+          {/* Sticky Save Changes bar — only in edit mode */}
+          {isEditMode && (
+            <div className="fixed bottom-0 right-0 z-50 bg-white border-t border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] transition-all duration-300" style={{ left: sidebarLeft }}>
+              <div className="px-6 pr-20 py-3 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  {saveSuccess ? (
+                    <span className="flex items-center gap-2 text-green-600 font-semibold text-sm">
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Changes saved successfully!
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 text-sm">
+                      You are editing <span className="font-semibold text-slate-700">{formData.title || 'this scenario'}</span>. Your changes will be saved when you click <span className="font-semibold">Update Changes</span>.
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <Button
+                    variant="outline"
+                    onClick={() => router.push('/employee/roleplay')}
+                    className="border-slate-300"
+                  >
+                    Discard & Exit
+                  </Button>
+                  <Button
+                    onClick={handleSaveChanges}
+                    disabled={isSaving}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white flex items-center gap-2 px-6"
+                  >
+                    {isSaving ? (
+                      <>
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                        </svg>
+                        Saving…
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        Update Changes
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
       </main>
     </div>
   );

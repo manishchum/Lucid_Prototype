@@ -272,15 +272,25 @@ export default function EditModulePage() {
 
   const fetchPendingHistory = async () => {
     try {
-      // Get the latest in_review entry per processed_module_id for this module
-      const { data: historyData, error: historyError } = await supabase
-        .from('content_generation_history')
-        .select('*')
-        .eq('original_module_id', moduleId)
-        .eq('status', 'in_review')
-        .order('created_at', { ascending: false });
+      if (!currentUserId) return;
 
-      if (historyError) throw historyError;
+      // Get the latest in_review entry per processed_module_id for this module
+      const response = await fetch(
+        `${API_BASE}/api/content-generation-history/by-original-module/${moduleId}?status=in_review&limit=500`,
+        {
+          headers: {
+            'X-User-ID': currentUserId
+          }
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to fetch pending history');
+      }
+
+      const data = await response.json();
+      const historyData = data.history || [];
 
       if (historyData && historyData.length > 0) {
         // Build a map: processed_module_id -> latest in_review history entry
@@ -330,7 +340,7 @@ export default function EditModulePage() {
 
   // ADMIN: Request Approval - store new content in content_generation_history with status in_review
   const handleRequestApproval = async () => {
-    if (!selectedSubModule || !contentEditableRef.current) return;
+    if (!selectedSubModule || !contentEditableRef.current || !currentUserId) return;
 
     const newContent = contentEditableRef.current.innerHTML;
 
@@ -345,16 +355,24 @@ export default function EditModulePage() {
     setSubmitting(true);
     try {
       // Insert new history entry with status in_review
-      const { error: insertError } = await supabase
-        .from('content_generation_history')
-        .insert({
+      const historyResponse = await fetch(`${API_BASE}/api/content-generation-history/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': currentUserId
+        },
+        body: JSON.stringify({
           processed_module_id: selectedSubModule.processed_module_id,
           original_module_id: moduleId,
           content: newContent,
           status: 'in_review'
-        });
+        })
+      });
 
-      if (insertError) throw insertError;
+      if (!historyResponse.ok) {
+        const error = await historyResponse.json();
+        throw new Error(error.detail || 'Failed to create history entry');
+      }
 
       // Update the training module review_stage to in_review
       const { error: updateError } = await supabase
@@ -372,6 +390,7 @@ export default function EditModulePage() {
       await fetchPendingHistory();
       // Refresh module to get updated review_stage
       const { data: updatedModule } = await supabase
+        .from('training_modules')
         .select('*')
         .eq('module_id', moduleId)
         .single();
@@ -394,7 +413,7 @@ export default function EditModulePage() {
       
   // REVIEWER: Save reviewer edits to history (overwrite the in_review entry)
   const handleReviewerSave = async () => {
-    if (!selectedSubModule || !contentEditableRef.current) return;
+    if (!selectedSubModule || !contentEditableRef.current || !currentUserId) return;
 
     const newContent = contentEditableRef.current.innerHTML;
     const existingPending = pendingHistoryMap[selectedSubModule.processed_module_id];
@@ -403,22 +422,42 @@ export default function EditModulePage() {
     try {
       if (existingPending) {
         // Update existing in_review entry with reviewer's edits
-        const { error } = await supabase
-          .from('content_generation_history')
-          .update({ content: newContent })
-          .eq('content_generation_history_id', existingPending.content_generation_history_id);
-        if (error) throw error;
+        const response = await fetch(
+          `${API_BASE}/api/content-generation-history/${existingPending.content_generation_history_id}`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-ID': currentUserId
+            },
+            body: JSON.stringify({ content: newContent })
+          }
+        );
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || 'Failed to update history');
+        }
       } else {
         // Create new in_review entry with reviewer's edits
-        const { error } = await supabase
-          .from('content_generation_history')
-          .insert({
+        const response = await fetch(`${API_BASE}/api/content-generation-history/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': currentUserId
+          },
+          body: JSON.stringify({
             processed_module_id: selectedSubModule.processed_module_id,
             original_module_id: moduleId,
             content: newContent,
             status: 'in_review'
-          });
-        if (error) throw error;
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || 'Failed to create history entry');
+        }
       }
 
       setHasUnsavedChanges(false);
@@ -436,17 +475,27 @@ export default function EditModulePage() {
   const handleFinalApproval = async () => {
     if (!confirm('Approve all changes and push to live? This will update the content visible to employees.')) return;
 
+    if (!currentUserId) return;
+
     setSubmitting(true);
     try {
       // Get all in_review history entries for this module
-      const { data: pendingEntries, error: fetchError } = await supabase
-        .from('content_generation_history')
-        .select('*')
-        .eq('original_module_id', moduleId)
-        .eq('status', 'in_review')
-        .order('created_at', { ascending: false });
+      const response = await fetch(
+        `${API_BASE}/api/content-generation-history/by-original-module/${moduleId}?status=in_review&limit=500`,
+        {
+          headers: {
+            'X-User-ID': currentUserId
+          }
+        }
+      );
 
-      if (fetchError) throw fetchError;
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to fetch pending entries');
+      }
+
+      const data = await response.json();
+      const pendingEntries = data.history || [];
 
       if (!pendingEntries || pendingEntries.length === 0) {
         alert('No pending changes to approve.');
@@ -476,13 +525,23 @@ export default function EditModulePage() {
       }
 
       // Mark all in_review entries for this module as approved
-      const { error: statusError } = await supabase
-        .from('content_generation_history')
-        .update({ status: 'approved' })
-        .eq('original_module_id', moduleId)
-        .eq('status', 'in_review');
+      for (const entry of pendingEntries) {
+        const statusResponse = await fetch(
+          `${API_BASE}/api/content-generation-history/${entry.content_generation_history_id}/status`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-ID': currentUserId
+            },
+            body: JSON.stringify({ status: 'approved' })
+          }
+        );
 
-      if (statusError) throw statusError;
+        if (!statusResponse.ok) {
+          console.error(`Failed to update status for ${entry.content_generation_history_id}`);
+        }
+      }
 
       // Update training module review_stage to approved
       const { error: moduleUpdateError } = await supabase
@@ -505,16 +564,46 @@ export default function EditModulePage() {
   const handleReject = async () => {
     if (!confirm('Reject all pending changes? This will discard the submitted edits.')) return;
 
+    if (!currentUserId) return;
+
     setSubmitting(true);
     try {
-      // Mark all in_review entries as rejected
-      const { error: statusError } = await supabase
-        .from('content_generation_history')
-        .update({ status: 'rejected' })
-        .eq('original_module_id', moduleId)
-        .eq('status', 'in_review');
+      // Get all in_review entries first
+      const response = await fetch(
+        `${API_BASE}/api/content-generation-history/by-original-module/${moduleId}?status=in_review&limit=500`,
+        {
+          headers: {
+            'X-User-ID': currentUserId
+          }
+        }
+      );
 
-      if (statusError) throw statusError;
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to fetch pending entries');
+      }
+
+      const data = await response.json();
+      const pendingEntries = data.history || [];
+
+      // Mark all in_review entries as rejected
+      for (const entry of pendingEntries) {
+        const statusResponse = await fetch(
+          `${API_BASE}/api/content-generation-history/${entry.content_generation_history_id}/status`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-ID': currentUserId
+            },
+            body: JSON.stringify({ status: 'rejected' })
+          }
+        );
+
+        if (!statusResponse.ok) {
+          console.error(`Failed to reject ${entry.content_generation_history_id}`);
+        }
+      }
 
       // Update training module review_stage to rejected
       const { error: moduleUpdateError } = await supabase

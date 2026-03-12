@@ -658,6 +658,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
             <AssessmentReportComponent
               report={assessmentReport}
               scenarioTitle={selectedScenario.title}
+              passingScore={selectedScenario.passingScore ?? 60}
               onStartNew={handleStartNew}
             />
           ) : (

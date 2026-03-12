@@ -302,52 +302,159 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
   };
 
   const loadAssessmentData = async () => {
-    let assessmentQuery = supabase
-      .from('employee_assessments')
-      .select(`
-        employee_assessment_id,
-        score,
-        max_score,
-        completed_at,
-        answers,
-        feedback,
-        user_id,
-        users!inner(name, email, company_id),
-        assessments!inner(
-          assessment_id,
-          type,
-          created_at,
-          company_id,
-          learning_style,
-          processed_module_id,
-          processed_modules!inner(
-            title,
-            learning_style,
-            original_module_id,
-            training_modules!inner(title)
-          )
-        )
-      `)
-      .eq('users.company_id', companyId);
+    try {
+      if (!adminUserId) {
+        console.warn('[loadAssessmentData] No adminUserId available');
+        calculateAssessmentStatistics([]);
+        return;
+      }
 
-    // Apply assessment type filter
-    if (selectedAssessmentType !== 'all') {
-      assessmentQuery = assessmentQuery.eq('assessments.type', selectedAssessmentType);
+      // Build query parameters
+      const params = new URLSearchParams();
+      params.append('limit', '500');
+      
+      // Note: The backend filters by company when we use the company endpoint
+      // but we'll fetch assessment details separately if needed
+
+      // Fetch employee assessments from backend
+      const assessmentRes = await fetch(
+        `${API_URL}/api/employee-assessments/company/${encodeURIComponent(companyId)}?${params.toString()}`,
+        {
+          headers: {
+            'X-User-ID': adminUserId
+          }
+        }
+      );
+
+      if (!assessmentRes.ok) {
+        const error = await assessmentRes.text().catch(() => 'Unknown error');
+        console.error('[loadAssessmentData] Failed to fetch assessments:', assessmentRes.status, error);
+        calculateAssessmentStatistics([]);
+        return;
+      }
+
+      const assessmentPayload = await assessmentRes.json().catch(() => ({ assessments: [] }));
+      let assessmentResults = assessmentPayload?.assessments || [];
+
+      // Apply time range filter on frontend since backend doesn't support it yet
+      if (selectedTimeRange !== 'all') {
+        const daysAgo = new Date();
+        daysAgo.setDate(daysAgo.getDate() - parseInt(selectedTimeRange));
+        const cutoffDate = daysAgo.toISOString();
+        assessmentResults = assessmentResults.filter((a: any) => 
+          a.completed_at && a.completed_at >= cutoffDate
+        );
+      }
+
+      // Enrich assessment results with additional data
+      // Get unique assessment IDs
+      const assessmentIds = [...new Set(assessmentResults.map((a: any) => a.assessment_id).filter(Boolean))];
+      
+      // Fetch assessment details for all assessments
+      const assessmentDetailsMap = new Map();
+      for (const assessId of assessmentIds) {
+        try {
+          const res = await fetch(`${API_URL}/api/assessments/${encodeURIComponent(assessId)}`, {
+            headers: { 'X-User-ID': adminUserId }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const assessment = data?.assessment || data;
+            assessmentDetailsMap.set(assessId, assessment);
+          }
+        } catch (e) {
+          console.error(`[loadAssessmentData] Failed to fetch assessment ${assessId}:`, e);
+        }
+      }
+
+      // Get unique processed_module_ids from assessments
+      const processedModuleIds = [...new Set(
+        Array.from(assessmentDetailsMap.values())
+          .map((a: any) => a.processed_module_id)
+          .filter(Boolean)
+      )];
+
+      // Fetch processed module details
+      const processedModulesMap = new Map();
+      for (const pmId of processedModuleIds) {
+        try {
+          const res = await fetch(`${API_URL}/api/processed-modules/${encodeURIComponent(pmId)}`, {
+            headers: { 'X-User-ID': adminUserId }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const pm = data?.module || data;
+            processedModulesMap.set(pmId, pm);
+          }
+        } catch (e) {
+          console.error(`[loadAssessmentData] Failed to fetch processed module ${pmId}:`, e);
+        }
+      }
+
+      // Get unique original_module_ids
+      const originalModuleIds = [...new Set(
+        Array.from(processedModulesMap.values())
+          .map((pm: any) => pm.original_module_id)
+          .filter(Boolean)
+      )];
+
+      // Fetch training module details
+      const trainingModulesMap = new Map();
+      for (const modId of originalModuleIds) {
+        try {
+          const res = await fetch(`${API_URL}/api/training-modules/${encodeURIComponent(modId)}`, {
+            headers: { 'X-User-ID': adminUserId }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const module = data?.module || data;
+            trainingModulesMap.set(modId, module);
+          }
+        } catch (e) {
+          console.error(`[loadAssessmentData] Failed to fetch training module ${modId}:`, e);
+        }
+      }
+
+      // Enrich assessment results with nested data
+      const enrichedResults = assessmentResults.map((empAssessment: any) => {
+        const assessment = assessmentDetailsMap.get(empAssessment.assessment_id) || {};
+        const processedModule = processedModulesMap.get(assessment.processed_module_id) || {};
+        const trainingModule = trainingModulesMap.get(processedModule.original_module_id) || {};
+
+        return {
+          ...empAssessment,
+          assessments: {
+            assessment_id: assessment.assessment_id,
+            type: assessment.type,
+            created_at: assessment.created_at,
+            company_id: assessment.company_id,
+            learning_style: assessment.learning_style,
+            processed_module_id: assessment.processed_module_id,
+            processed_modules: {
+              title: processedModule.title,
+              learning_style: processedModule.learning_style,
+              original_module_id: processedModule.original_module_id,
+              training_modules: {
+                title: trainingModule.title
+              }
+            }
+          }
+        };
+      });
+
+      // Apply assessment type filter
+      let filteredResults = enrichedResults;
+      if (selectedAssessmentType !== 'all') {
+        filteredResults = enrichedResults.filter((a: any) => 
+          a.assessments?.type === selectedAssessmentType
+        );
+      }
+
+      calculateAssessmentStatistics(filteredResults);
+    } catch (error) {
+      console.error('[loadAssessmentData] Error:', error);
+      calculateAssessmentStatistics([]);
     }
-
-    // Apply time range filter
-    if (selectedTimeRange !== 'all') {
-      const daysAgo = new Date();
-      daysAgo.setDate(daysAgo.getDate() - parseInt(selectedTimeRange));
-      assessmentQuery = assessmentQuery.gte('completed_at', daysAgo.toISOString());
-    }
-
-    const { data: assessmentResults, error: assessmentError } = await assessmentQuery
-      .order('completed_at', { ascending: false });
-
-    if (assessmentError) throw assessmentError;
-
-    calculateAssessmentStatistics(assessmentResults || []);
   };
 
   const loadLearningStyleData = async () => {
@@ -419,14 +526,30 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       const moduleList = await loadModules(companyId, adminUserId);
       const totalModules = moduleList.length;
 
-      const { data: assessmentData } = await supabase
-        .from('employee_assessments')
-        .select(`
-          score,
-          max_score,
-          users!inner(company_id)
-        `)
-        .eq('users.company_id', companyId);
+      // Fetch employee assessments from backend
+      let assessmentData: any[] = [];
+      try {
+        if (adminUserId) {
+          const assessmentRes = await fetch(
+            `${API_URL}/api/employee-assessments/company/${encodeURIComponent(companyId)}?limit=500`,
+            {
+              headers: {
+                'X-User-ID': adminUserId
+              }
+            }
+          );
+          console.log("Assessment response status:", assessmentRes);
+          if (assessmentRes.ok) {
+            const payload = await assessmentRes.json().catch(() => ({ assessments: [] }));
+            assessmentData = payload?.assessments || [];
+          } else {
+            console.log("Failed in else");
+            console.warn('[loadOverallStatistics] Failed to fetch assessments:', assessmentRes.status);
+          }
+        }
+      } catch (e) {
+        console.error('[loadOverallStatistics] Error fetching assessments:', e);
+      }
 
       const totalAssessments = assessmentData?.length || 0;
       const completedAssessments = assessmentData?.filter(assessment => assessment.score !== null).length || 0;

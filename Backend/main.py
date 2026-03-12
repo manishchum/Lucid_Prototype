@@ -25,9 +25,9 @@ from generate_mindmap.route import router as generate_mindmap_router
 from module_chat.route import router as module_chat
 from assistant.route import router as assistant_router
 from assistant.chat.route import router as assistant_chat_router
+from module_progress.route import router as module_progress_router
 from change_password.route import router as change_password_router
-from routes import users, roles, assessments, companies, content_jobs, learning_plan, training_modules, dispatch, processed_modules, module_progress
-from scheduler import scheduler
+from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment
 
 # Import user routes
 # from routes.users import router as users_router
@@ -55,13 +55,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.on_event("startup")
-async def startup_event():
-    scheduler.start()
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    scheduler.shutdown(wait=False)
 
 @app.get("/")
 async def root():
@@ -113,6 +106,7 @@ app.include_router(roleplay_assessment_router, prefix="/api", tags=["roleplay-as
 app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
 app.include_router(embed_router, prefix="/api", tags=["embeddings"])
 app.include_router(module_chat, prefix="/api", tags=["module-chat"])
+app.include_router(module_progress_router, prefix="/api", tags=["module-progress"])
 app.include_router(assistant_router, prefix="/api", tags=["assistant"])
 app.include_router(assistant_chat_router, prefix="/api", tags=["assistant-chat"])
 app.include_router(change_password_router, prefix="/api", tags=["change-password"])
@@ -125,11 +119,14 @@ app.include_router(roles.router)  # roles router
 app.include_router(assessments.router)  # assessments router
 app.include_router(companies.router)  # companies router
 app.include_router(content_jobs.router)  # content jobs router
+app.include_router(content_generation_history.router)  # content generation history router
 app.include_router(learning_plan.router)  # learning plan router
+app.include_router(learning_style.router)  # learning style router
 app.include_router(training_modules.router)  # training modules router
 app.include_router(processed_modules.router)  # processed modules router
 app.include_router(dispatch.router)  # dispatch router
 app.include_router(module_progress.router)  # module progress router
+app.include_router(employee_assessment.router)  # employee assessment router
 
 if __name__ == "__main__":
     import uvicorn

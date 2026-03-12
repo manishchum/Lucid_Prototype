@@ -115,7 +115,7 @@ export default function AdminDispatchCenterPage() {
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('09:00');
   // ── Recurring schedule state ─────────────────────────────────
-  const [scheduleMode, setScheduleMode] = useState<'once' | 'recurring'>('once');
+  const [scheduleMode, setScheduleMode] = useState<'once' | 'recurring'>('recurring');
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [recurringTime, setRecurringTime] = useState('09:00');
 
@@ -515,6 +515,7 @@ export default function AdminDispatchCenterPage() {
     setGenerating(true);
     setDraftedEmail(null);
     setSendResult(null);
+    setMultiModuleResult(null);
     setIsEditingEmail(false);
     setEditBodyText('');
     setEditSubject('');
@@ -1196,8 +1197,8 @@ export default function AdminDispatchCenterPage() {
                   {scheduleEnabled && (
                     <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
 
-                      {/* Mode toggle: Once vs Recurring */}
-                      <div className="inline-flex rounded-full bg-slate-200 p-1 gap-1">
+                      {/* Mode toggle: Once vs Recurring — One-time hidden */}
+                      {/* <div className="inline-flex rounded-full bg-slate-200 p-1 gap-1">
                         <button
                           onClick={() => setScheduleMode('once')}
                           className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
@@ -1218,7 +1219,7 @@ export default function AdminDispatchCenterPage() {
                         >
                           <RefreshCw size={11} /> Recurring
                         </button>
-                      </div>
+                      </div> */}
 
                       {/* ONE-TIME: date + time */}
                       {scheduleMode === 'once' && (
@@ -1303,39 +1304,52 @@ export default function AdminDispatchCenterPage() {
                                   className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
                                 />
                               </div>
-                              {recurringTime && (() => {
-                                const [lh, lm] = recurringTime.split(':').map(Number);
-                                const d = new Date();
-                                d.setHours(lh, lm, 0, 0);
-                                const utcStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
-                                return (
-                                  <p className="text-xs text-slate-400 mt-1.5">
-                                    Stored as <span className="font-semibold text-slate-600">{utcStr}</span>
-                                  </p>
-                                );
-                              })()}
+                              {recurringTime && (
+                                <p className="text-xs text-slate-400 mt-1.5">
+                                  Emails will be sent at <span className="font-semibold text-slate-600">{recurringTime} IST</span>
+                                </p>
+                              )}
                             </div>
 
                             {/* ── Stagger preview (multi-module) ── */}
                             {selectedSubModuleIds.length >= 2 && selectedDays.length > 0 && (() => {
-                              // Compute preview dates client-side (mirrors backend logic)
-                              const dayMap: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 0 };
-                              const targetDay = dayMap[selectedDays[0]] ?? 1;
+                              // Mirror exactly what handleScheduleMultiModule sends to the backend:
+                              // 1. Convert local recurringTime → UTC HH:MM
+                              // 2. Use UTC HH:MM for date arithmetic (same as Python _next_weekday)
                               const [lh, lm] = recurringTime.split(':').map(Number);
+                              const localDate = new Date();
+                              localDate.setHours(lh, lm, 0, 0);
+                              const utcH = localDate.getUTCHours();
+                              const utcM = localDate.getUTCMinutes();
+
+                              // Python weekday: Mon=0 … Sun=6  (same as JS getUTCDay offset below)
+                              const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+                              // JS getUTCDay: Sun=0, Mon=1 … Sat=6  → map to Python weekday
+                              const jsDayToPython: Record<number, number> = { 0: 6, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5 };
+
+                              const targetPythonDay = dayMap[selectedDays[0]] ?? 0;
 
                               const getNextWeekday = (offset: number): Date => {
                                 const now = new Date();
-                                // Work in UTC
-                                const nowUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), lh, lm, 0));
-                                let daysAhead = (targetDay - nowUtc.getUTCDay() + 7) % 7;
-                                let first = new Date(nowUtc.getTime() + daysAhead * 86400000);
-                                if (first <= nowUtc) first = new Date(first.getTime() + 7 * 86400000);
-                                return new Date(first.getTime() + offset * 7 * 86400000);
+                                // Build today's candidate at utcH:utcM UTC
+                                const candidate = new Date(Date.UTC(
+                                  now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+                                  utcH, utcM, 0
+                                ));
+                                const currentPythonDay = jsDayToPython[now.getUTCDay()];
+                                let daysAhead = (targetPythonDay - currentPythonDay + 7) % 7;
+                                candidate.setUTCDate(candidate.getUTCDate() + daysAhead);
+                                // If not strictly in the future, push one week
+                                if (candidate <= now) candidate.setUTCDate(candidate.getUTCDate() + 7);
+                                // Apply weekly offset for subsequent modules
+                                candidate.setUTCDate(candidate.getUTCDate() + offset * 7);
+                                return candidate;
                               };
 
                               const selectedModules = subModules.filter((m) =>
                                 selectedSubModuleIds.includes(m.processed_module_id)
                               );
+                              const istTimeLabel = `${recurringTime} IST`;
 
                               return (
                                 <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 overflow-hidden">
@@ -1348,10 +1362,9 @@ export default function AdminDispatchCenterPage() {
                                   <div className="divide-y divide-blue-100">
                                     {selectedModules.map((mod, idx) => {
                                       const runDate = getNextWeekday(idx);
-                                      const label = runDate.toLocaleDateString('en-GB', {
-                                        weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+                                      const dateLabel = runDate.toLocaleDateString('en-GB', {
+                                        weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
                                       });
-                                      const timeLabel = `${String(lh).padStart(2, '0')}:${String(lm).padStart(2, '0')} UTC`;
                                       return (
                                         <div key={mod.processed_module_id} className="flex items-center gap-3 px-4 py-2.5">
                                           <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-[11px] font-bold text-white shrink-0">
@@ -1361,7 +1374,7 @@ export default function AdminDispatchCenterPage() {
                                             {mod.title}
                                           </span>
                                           <span className="text-xs font-semibold text-blue-700 shrink-0">
-                                            {label} · {timeLabel}
+                                            {dateLabel} · {istTimeLabel}
                                           </span>
                                         </div>
                                       );
@@ -1369,7 +1382,7 @@ export default function AdminDispatchCenterPage() {
                                   </div>
                                   <div className="px-4 py-2 bg-blue-50 border-t border-blue-100">
                                     <p className="text-[11px] text-blue-500">
-                                      Each module's flashcards will be sent on successive {selectedDays[0]}s, one week apart.
+                                      Each module's flashcards will be sent on successive {selectedDays[0]}s at {istTimeLabel}, one week apart.
                                     </p>
                                   </div>
                                 </div>
@@ -1384,8 +1397,8 @@ export default function AdminDispatchCenterPage() {
                 </div>
               )}
 
-              {/* Draft Button — hidden in multi-module stagger mode (no draft needed) */}
-              {canDraft && !(scheduleEnabled && scheduleMode === 'recurring' && selectedSubModuleIds.length >= 2 && selectedDays.length > 0) && (
+              {/* Draft Button — always visible so admin can preview the email */}
+              {canDraft && (
                 <button
                   onClick={handleGenerateEmail}
                   disabled={generating}
@@ -1405,7 +1418,7 @@ export default function AdminDispatchCenterPage() {
                 </button>
               )}
 
-              {/* Multi-module stagger schedule button */}
+              {/* Multi-module stagger schedule button — shown alongside Draft when applicable */}
               {canDraft && scheduleEnabled && scheduleMode === 'recurring' && selectedSubModuleIds.length >= 2 && selectedDays.length > 0 && (
                 <button
                   onClick={handleScheduleMultiModule}
@@ -1686,10 +1699,10 @@ export default function AdminDispatchCenterPage() {
                           <p className="text-sm font-semibold text-slate-800 truncate">{job.module_title}</p>
                           <p className="text-xs text-slate-500">
                             {new Date(job.run_date).toLocaleDateString('en-GB', {
-                              weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+                              weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
                             })} · {new Date(job.run_date).toLocaleTimeString('en-GB', {
-                              hour: '2-digit', minute: '2-digit', timeZone: 'UTC',
-                            })} UTC · {job.recipient_count} recipient{job.recipient_count !== 1 ? 's' : ''}
+                              hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
+                            })} IST · {job.recipient_count} recipient{job.recipient_count !== 1 ? 's' : ''}
                           </p>
                           {job.warning && (
                             <p className="text-xs text-amber-600 font-medium mt-0.5">⚠ {job.warning}</p>
@@ -1705,7 +1718,7 @@ export default function AdminDispatchCenterPage() {
                   </div>
                   <div className="px-5 py-2.5 bg-indigo-50 border-t border-indigo-100">
                     <p className="text-xs text-indigo-600 font-medium">
-                      Each module's flashcard email will be sent on successive {multiModuleResult.scheduled_day}s at {multiModuleResult.scheduled_time} UTC.
+                      Each module's flashcard email will be sent on successive {multiModuleResult.scheduled_day}s at {recurringTime} IST.
                     </p>
                   </div>
                 </div>
