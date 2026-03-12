@@ -1205,7 +1205,7 @@ In this exercise, you will interact with a virtual character to practice and imp
           {/* Sticky Save Changes bar — only in edit mode */}
           {isEditMode && (
             <div className="fixed bottom-0 right-0 z-50 bg-white border-t border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] transition-all duration-300" style={{ left: sidebarLeft }}>
-              <div className="px-6 py-3 flex items-center justify-between gap-4">
+              <div className="px-6 pr-20 py-3 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                   {saveSuccess ? (
                     <span className="flex items-center gap-2 text-green-600 font-semibold text-sm">
