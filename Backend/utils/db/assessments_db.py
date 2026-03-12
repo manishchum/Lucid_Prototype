@@ -162,7 +162,7 @@ async def get_baseline_assessment(
             'type', 'baseline'
         ).eq('company_id', company_id).eq(
             'original_module_id', original_module_id
-        ).limit(1).maybeSingle().execute()
+        ).limit(1).maybe_single().execute()
         
         return {"data": response.data, "error": None}
     except Exception as e:
@@ -189,7 +189,7 @@ async def get_module_assessment(
         # First verify that this processed_module belongs to the user via module_progress
         progress_resp = supabase.table('module_progress').select('processed_module_id').eq(
             'user_id', user_id
-        ).eq('processed_module_id', processed_module_id).maybeSingle().execute()
+        ).eq('processed_module_id', processed_module_id).maybe_single().execute()
         
         if not progress_resp.data:
             return {"data": None, "error": "Processed module not found for this user"}
@@ -199,7 +199,7 @@ async def get_module_assessment(
             'type', 'module'
         ).eq('processed_module_id', processed_module_id).eq(
             'learning_style', learning_style
-        ).maybeSingle().execute()
+        ).maybe_single().execute()
         
         return {"data": response.data, "error": None}
     except Exception as e:

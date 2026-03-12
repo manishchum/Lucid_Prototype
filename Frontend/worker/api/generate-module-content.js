@@ -145,7 +145,23 @@ ${objectivesText}
       // -------------------------------------
       // STEP 2: Generate embedding
       // -------------------------------------
+      async function generateEmbeddingWithRetry(text, retries = 3, delay = 2000) {
+        for (let attempt = 1; attempt <= retries; attempt++) {
+          try {
+            console.log(`[EMBEDDING] Attempt ${attempt}/${retries}`);
+            return await generateEmbedding(text);
 
+          } catch (err) {
+            if (attempt === retries) {
+              console.error(`[EMBEDDING] All ${retries} attempts failed`);
+              throw err;
+            }
+
+            console.warn(`[EMBEDDING] Attempt ${attempt} failed, retrying in ${delay}ms...`);
+            await new Promise(res => setTimeout(res, delay));
+          }
+        }
+      }
       async function generateEmbedding(text) {
         try {
           console.log(`[EMBEDDING] Starting embedding generation for text length: ${text.length}`);
@@ -175,7 +191,8 @@ ${objectivesText}
       }
       
       console.log(`[RAG] Generating embedding for module: ${mod.title}`);
-      const queryEmbedding = await generateEmbedding(semanticQuery);
+      // const queryEmbedding = await generateEmbedding(semanticQuery);
+      const queryEmbedding = await generateEmbeddingWithRetry(semanticQuery);
       
       console.log(`[RAG] Fetching top-K chunks from vector DB...`);
       console.log(`[RAG] Module ID: ${mod.original_module_id}, Match count: 6`);
@@ -316,15 +333,23 @@ This module must be fully self-contained.
 Do NOT reference other modules, earlier sections, or future modules.
 Do NOT assume prior learner knowledge beyond what is implied by the topics.
 
+The response MUST NEVER be empty.
+
+If any instruction conflict occurs,
+the model must prioritize generating valid HTML content
+instead of refusing or returning zero characters.
+
 -----------------------------
 CONTENT BOUNDARIES (CRITICAL)
 -----------------------------
 
 ALLOWED:
 Explain and elaborate on concepts present in the topics
-Teach beyond the document by adding clarity, depth, and conceptual examples
-Use neutral, generic scenarios (e.g., “an organization”, “a system”, “a team”)
-Add analogies, explanations, and conceptual activities
+If the document contains specific rules, numbers, policies, or entities,
+they must be reused verbatim.
+
+If the document is conceptual and lacks detailed explanation,
+the model may expand explanations while staying within the same domain.
 
 STRICTLY FORBIDDEN:
 Do NOT invent or reference company names (real or fictional)
@@ -344,7 +369,6 @@ if any practices are present in the provided context, you MUST reuse it verbatim
 if any tools, vendors, platforms, or products are present in the provided context, you MUST reuse it verbatim.
 Use only domains present in the subject matter
 
-
 IMAGE USAGE POLICY (MANDATORY – NO EXCEPTIONS)
 
 1. You are provided with a fixed list of image URLs.
@@ -354,8 +378,7 @@ IMAGE USAGE POLICY (MANDATORY – NO EXCEPTIONS)
    - Create placeholder images
    - Use <img data-type="...">
    - Generate generic or descriptive-only <img> tags
-   - Output <img> without a real src URL
-
+   
 4. If a relevant image URL is not available:
    - DO NOT generate any image.
    - Do NOT create a placeholder.
@@ -535,6 +558,50 @@ You MUST NOT:
 All expansion must remain semantically equivalent to the source.
 No net-new conceptual information may be introduced.
 
+----------------------------------
+GENERATION FAIL-SAFE RULE (MANDATORY)
+----------------------------------
+
+The model MUST always return a valid HTML response.
+
+Returning an empty response or zero characters is NOT allowed.
+
+If the instructions above create a logical conflict, the model MUST:
+
+1. Prioritize producing a valid HTML module.
+2. Prefer abstract educational explanations over returning nothing.
+3. Relax the STRICT DOCUMENT LOCK rule only when necessary to avoid empty output.
+4. Maintain domain correctness but avoid inventing organization-specific details.
+
+Under no circumstances should the response be empty.
+
+----------------------------------
+MINIMUM OUTPUT LENGTH REQUIREMENT
+----------------------------------
+
+The generated HTML must contain AT LEAST 8000 characters.
+
+If the content is shorter than 8000 characters, the model MUST:
+
+• Expand explanations of existing concepts
+• Add additional breakdown tables
+• Add deeper clarification paragraphs
+• Expand the module summary
+• Expand the learning activity instructions
+
+The model must continue expanding until the output length exceeds 8000 characters.
+
+----------------------------------
+DEADLOCK RESOLUTION RULE
+----------------------------------
+
+If the model determines that strict interpretation of the rules would prevent generation:
+
+1. The model MUST still produce the module.
+2. The model may use generic explanations of the same domain.
+3. The model must not invent companies, vendors, tools, or regulations.
+
+Producing content is ALWAYS preferable to producing an empty response.
 
 -----------------------------
 HTML FORMATTING REQUIREMENTS (STRICT)
@@ -556,15 +623,6 @@ Step tables MUST include columns:
 All tables MUST use <thead> and <tbody>
 Every table must have a <caption> OR a heading immediately before it
 
------------------------------
-VISUAL PLACEHOLDERS
------------------------------
-Where helpful, insert placeholders if needed, if diagrams, charts or infographics are available. eg, 
-<img data-type="diagram" alt="Description of the diagram">
-<img data-type="chart" alt="Description of the chart">
-<img data-type="infographic" alt="Description of the infographic">
-
-Use visuals only when they add learning value.
 
 STRICT DOCUMENT LOCK:
 
@@ -691,28 +749,98 @@ Module is fully self-contained
     }
 
     // Attach images if available
+    // if (matchedImages && matchedImages.length > 0) {
+    //   console.log(`[GEMINI] Attaching ${matchedImages.length} images to prompt`);
+
+    //   for (const img of matchedImages) {
+    //     geminiContents[0].parts.push({
+    //       fileData: {
+    //         fileUri: img.image_url, // must be public or signed URL
+    //         mimeType: getMimeType(img.image_url)
+    //       }
+    //     });
+    //   }
+    // }
+
     if (matchedImages && matchedImages.length > 0) {
       console.log(`[GEMINI] Attaching ${matchedImages.length} images to prompt`);
 
       for (const img of matchedImages) {
-        geminiContents[0].parts.push({
-          fileData: {
-            fileUri: img.image_url, // must be public or signed URL
-            mimeType: getMimeType(img.image_url)
+
+        try {
+
+          const head = await axios.head(img.image_url, { timeout: 5000 });
+          const contentType = head.headers['content-type'] || '';
+
+          if (!contentType.startsWith('image/')) {
+            console.warn("[GEMINI] Skipping non-image:", img.image_url);
+            continue;
           }
-        });
+
+          console.log("[GEMINI] Attaching image:", img.image_url);
+
+          geminiContents[0].parts.push({
+            fileData: {
+              fileUri: img.image_url,
+              mimeType: contentType
+            }
+          });
+
+        } catch (err) {
+          console.warn("[GEMINI] Skipping unreachable image:", img.image_url);
+        }
+
       }
     }
       
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: geminiContents,
-        generationConfig: {
-          maxOutputTokens: 6000,
-          temperature: TEMPERATURE,
-          topP: TOP_P
+      // const response = await ai.models.generateContent({
+      //   model: 'gemini-3-pro-preview',
+      //   contents: geminiContents,
+      //   generationConfig: {
+      //     maxOutputTokens: 6000,
+      //     temperature: TEMPERATURE,
+      //     topP: TOP_P
+      //   }
+      // });
+
+      let response;
+
+      try {
+
+        response = await ai.models.generateContent({
+          model: 'gemini-3-pro-preview',
+          contents: geminiContents,
+          generationConfig: {
+            maxOutputTokens: 6000,
+            temperature: TEMPERATURE,
+            topP: TOP_P
+          }
+        });
+
+      } catch (err) {
+
+        if (err.message && err.message.includes("Cannot fetch content")) {
+
+          console.warn("[GEMINI] Retrying generation without images");
+
+          geminiContents[0].parts =
+            geminiContents[0].parts.filter(p => !p.fileData);
+
+          response = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: geminiContents,
+            generationConfig: {
+              maxOutputTokens: 6000,
+              temperature: TEMPERATURE,
+              topP: TOP_P
+            }
+          });
+
+        } else {
+          throw err;
         }
-      });
+
+      }
       
       let aiContent = '';
 

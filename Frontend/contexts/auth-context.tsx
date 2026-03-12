@@ -12,6 +12,7 @@ interface AuthContextType {
   loading: boolean
   userRoles: string[]
   isAdmin: boolean
+  isSuperAdmin: boolean
   userId: string | null
   employeeData: any | null
   login: (userData: any) => Promise<void>
@@ -23,6 +24,7 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   userRoles: [],
   isAdmin: false,
+  isSuperAdmin: false,
   userId: null,
   employeeData: null,
   login: async () => {},
@@ -87,7 +89,13 @@ const fetchUserRoles = async (userId: string) => {
       return r.level >= 3 || ['admin','superadmin','super_admin','ceo'].includes(name)
     })
 
-    return { roles: roleNames, isAdmin: hasAdminRole }
+    // super_admin detection: role.level >= 4 OR known super_admin names
+    const hasSuperAdminRole = normalizedRoles.some((r: any) => {
+      const name = (r.name || '').toLowerCase().replace(/[-_\s]/g, '')
+      return r.level >= 4 || ['superadmin','super_admin','ceo'].includes(name)
+    })
+
+    return { roles: roleNames, isAdmin: hasAdminRole, isSuperAdmin: hasSuperAdminRole }
   } catch (e) {
     console.error('[auth-context] Error fetching user roles:', e)
     return { roles: [], isAdmin: false }
@@ -99,6 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [userRoles, setUserRoles] = useState<string[]>([])
   const [isAdmin, setIsAdmin] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const [employeeData, setEmployeeData] = useState<any | null>(null)
 
@@ -114,9 +123,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUserId(empData.user_id)
           
           // Fetch roles for this user
-          const { roles, isAdmin: adminStatus } = await fetchUserRoles(empData.user_id)
+          const { roles, isAdmin: adminStatus, isSuperAdmin: superAdminStatus } = await fetchUserRoles(empData.user_id)
           setUserRoles(roles)
           setIsAdmin(adminStatus)
+          setIsSuperAdmin(superAdminStatus)
         }
       } else {
         // Reset all data on logout
@@ -124,6 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUserId(null)
         setUserRoles([])
         setIsAdmin(false)
+        setIsSuperAdmin(false)
       }
       
       setLoading(false)
@@ -145,9 +156,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setEmployeeData(empData)
           setUserId(empData.user_id)
           
-          const { roles, isAdmin: adminStatus } = await fetchUserRoles(empData.user_id)
+          const { roles, isAdmin: adminStatus, isSuperAdmin: superAdminStatus } = await fetchUserRoles(empData.user_id)
           setUserRoles(roles)
           setIsAdmin(adminStatus)
+          setIsSuperAdmin(superAdminStatus)
         }
       }
       
@@ -165,6 +177,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUserId(null)
     setUserRoles([])
     setIsAdmin(false)
+    setIsSuperAdmin(false)
   }
 
   return (
@@ -174,6 +187,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading, 
         userRoles, 
         isAdmin, 
+        isSuperAdmin,
         userId, 
         employeeData, 
         login, 

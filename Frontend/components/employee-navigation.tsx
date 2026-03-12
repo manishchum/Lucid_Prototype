@@ -28,7 +28,7 @@ const EmployeeNavigation = ({
 }: EmployeeNavigationProps) => {
   const router = useRouter();
   const pathname = usePathname();
-  const { user: authUser, logout, userRoles, isAdmin, employeeData } = useAuth();
+  const { user: authUser, logout, userRoles, isAdmin, isSuperAdmin, employeeData } = useAuth();
   
   // Existing Logic States
   const [isCollapsed, setIsCollapsed] = useState(forceCollapsed);
@@ -257,88 +257,86 @@ const EmployeeNavigation = ({
             </button>
             {isCollapsed && <NavTooltip label="Role-Play" />}
           </div>
-          {/* Console */}
+          {/* Console - visible for Admin and Super Admin */}
           {isAdmin && (
-            <>
-              
-              <div className="relative group">
-                <button 
-                  onClick={() => isCollapsed ? handleNavigate('/admin/dashboard/analytics') : setAdminDropdownOpen(!adminDropdownOpen)} 
-                  className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <Shield size={20} className="shrink-0" />
-                    {!isCollapsed && <span className="text-[15px] font-bold">Console</span>}
-                  </div>
-                  {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${adminDropdownOpen ? '' : '-rotate-90'}`} />}
-                </button>
-                {isCollapsed && <NavTooltip label="Console" />}
-                {adminDropdownOpen && !isCollapsed && (
-                  <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
-                    {[
-                        { href: "/admin/dashboard/analytics", label: "Analytics", icon: BarChart3 },
-                        { href: "/admin/dashboard/employees", label: "Employees", icon: Users },
-                        { href: "/admin/dashboard/uploads", label: "Uploads", icon: Upload },
-                        { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
-                    ].map((item) => (
-                        <button
-                            key={item.label}
-                            onClick={() => handleNavigate(item.href)}
-                            className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
-                        >
-                            <item.icon size={18} className="shrink-0" />
-                            <span className="truncate">{item.label}</span>
-                        </button>
-                    ))}
-                    {/* Notify Button */}
-                    <button
-                        onClick={() => handleNavigate('/admin/dashboard/dispatch-center')}
-                        className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive('/admin/dashboard/dispatch-center') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'} relative`}
-                    >
-                        <Bell size={18} className="shrink-0" />
-                        <span className="truncate">Notify</span>
-                        {/* Notification badge */}
-                        <div className="absolute top-2 left-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"></div>
-                    </button>
-                  </div>
-                )}
-                
-              </div>
+            <div className="relative group">
+              <button 
+                onClick={() => isCollapsed ? handleNavigate('/admin/dashboard/analytics') : setAdminDropdownOpen(!adminDropdownOpen)} 
+                className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
+              >
+                <div className="flex items-center gap-3.5">
+                  <Shield size={20} className="shrink-0" />
+                  {!isCollapsed && <span className="text-[15px] font-bold">Console</span>}
+                </div>
+                {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${adminDropdownOpen ? '' : '-rotate-90'}`} />}
+              </button>
+              {isCollapsed && <NavTooltip label="Console" />}
+              {adminDropdownOpen && !isCollapsed && (
+                <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
+                  {[
+                      { href: "/admin/dashboard/analytics", label: "Analytics", icon: BarChart3 },
+                      { href: "/admin/dashboard/employees", label: "Employees", icon: Users },
+                      { href: "/admin/dashboard/uploads", label: "Uploads", icon: Upload },
+                      { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
+                  ].map((item) => (
+                      <button
+                          key={item.label}
+                          onClick={() => handleNavigate(item.href)}
+                          className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                      >
+                          <item.icon size={18} className="shrink-0" />
+                          <span className="truncate">{item.label}</span>
+                      </button>
+                  ))}
+                  {/* Notify Button */}
+                  <button
+                      onClick={() => handleNavigate('/admin/dashboard/dispatch-center')}
+                      className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive('/admin/dashboard/dispatch-center') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'} relative`}
+                  >
+                      <Bell size={18} className="shrink-0" />
+                      <span className="truncate">Notify</span>
+                      {/* Notification badge */}
+                      <div className="absolute top-2 left-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"></div>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
-              {/* KPI Panel */}
-              <div className="relative group">
-                <button 
-                  onClick={() => isCollapsed ? handleNavigate('/kpi/intelligence') : setKpiDropdownOpen(!kpiDropdownOpen)} 
-                  className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <TrendingUp size={20} className="shrink-0" />
-                    {!isCollapsed && <span className="text-[15px] font-bold">KPI</span>}
-                  </div>
-                  {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${kpiDropdownOpen ? '' : '-rotate-90'}`} />}
-                </button>
-                {isCollapsed && <NavTooltip label="KPI" />}
-                {kpiDropdownOpen && !isCollapsed && (
-                  <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
-                    {[
-                        { href: "/kpi/intelligence", label: "KPI Intelligence", icon: TrendingUp },
-                        { href: "/kpi/configuration", label: "KPI Configuration", icon: SettingsIcon },
-                        { href: "/kpi/turbocharge", label: "KPI TurboCharge", icon: Zap },
-                        { href: "/kpi/workforce-overview", label: "Workforce Overview", icon: UsersRound },
-                    ].map((item) => (
-                        <button
-                            key={item.label}
-                            onClick={() => handleNavigate(item.href)}
-                            className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
-                        >
-                            <item.icon size={18} className="shrink-0" />
-                            <span className="truncate">{item.label}</span>
-                        </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
+          {/* KPI Panel - visible only for Super Admin */}
+          {isSuperAdmin && (
+            <div className="relative group">
+              <button 
+                onClick={() => isCollapsed ? handleNavigate('/kpi/intelligence') : setKpiDropdownOpen(!kpiDropdownOpen)} 
+                className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
+              >
+                <div className="flex items-center gap-3.5">
+                  <TrendingUp size={20} className="shrink-0" />
+                  {!isCollapsed && <span className="text-[15px] font-bold">KPI</span>}
+                </div>
+                {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${kpiDropdownOpen ? '' : '-rotate-90'}`} />}
+              </button>
+              {isCollapsed && <NavTooltip label="KPI" />}
+              {kpiDropdownOpen && !isCollapsed && (
+                <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
+                  {[
+                      { href: "/kpi/intelligence", label: "KPI Intelligence", icon: TrendingUp },
+                      { href: "/kpi/configuration", label: "KPI Configuration", icon: SettingsIcon },
+                      { href: "/kpi/turbocharge", label: "KPI TurboCharge", icon: Zap },
+                      { href: "/kpi/workforce-overview", label: "Workforce Overview", icon: UsersRound },
+                  ].map((item) => (
+                      <button
+                          key={item.label}
+                          onClick={() => handleNavigate(item.href)}
+                          className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                      >
+                          <item.icon size={18} className="shrink-0" />
+                          <span className="truncate">{item.label}</span>
+                      </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
         <div className="relative group">
