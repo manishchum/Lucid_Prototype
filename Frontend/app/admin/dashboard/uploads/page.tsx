@@ -380,7 +380,7 @@ function ContentUpload({
       
       // Final refresh and notification
       onUploadComplete();
-      alert('Content uploaded! AI analysis is running in the background.');
+      alert('Sprint material uploaded. AI processing has started!');
     } catch (error: any) {
       console.error('Upload failed:', error);
       // alert(`Upload failed: ${error.message}`);
