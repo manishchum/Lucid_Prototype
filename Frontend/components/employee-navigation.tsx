@@ -275,8 +275,8 @@ const EmployeeNavigation = ({
                 <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
                   {[
                       { href: "/admin/dashboard/analytics", label: "Analytics", icon: BarChart3 },
-                      { href: "/admin/dashboard/employees", label: "Employees", icon: Users },
-                      { href: "/admin/dashboard/uploads", label: "Uploads", icon: Upload },
+                      { href: "/admin/dashboard/employees", label: "Assign Sprints", icon: Users },
+                      { href: "/admin/dashboard/uploads", label: "Sprint Manager", icon: Upload },
                       { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
                   ].map((item) => (
                       <button

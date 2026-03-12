@@ -121,18 +121,18 @@ function ContentUpload({
   const triggerAIProcessing = async (moduleId: string, uploadFiles: File[], contentUrl?: string) => {
     if (!moduleId || moduleId === "undefined") {
       console.error("[AI] Invalid moduleId:", moduleId);
-      alert("Cannot process module: Invalid module ID");
+      alert("Cannot process Sprint: Invalid Sprint ID");
       return;
     }
 
     if (!uploadFiles || uploadFiles.length === 0) {
       console.error("[AI] No files passed to triggerAIProcessing");
-      alert("Cannot process module: No files selected");
+      alert("Cannot process Sprint: No files selected");
       return;
     }
 
     try {
-      console.log(`[AI] Starting processing for module: ${moduleId}`);
+      console.log(`[AI] Starting processing for Sprint: ${moduleId}`);
 
       const firstFile = uploadFiles[0];
       const initialStatus = isMediaFile(firstFile?.type || "") ? "transcribing" : "summarizing";
@@ -200,7 +200,7 @@ function ContentUpload({
         }
       }
 
-      console.log(`[AI] Processing triggered successfully for module: ${moduleId}`);
+      console.log(`[AI] Processing triggered successfully for Sprint: ${moduleId}`);
       onUploadComplete();
     } catch (err) {
       console.error("[AI] Pipeline failed:", err);
@@ -253,16 +253,16 @@ function ContentUpload({
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Upload failed');
+        throw new Error(errorData.error || 'Creation failed');
       }
 
       const result = await response.json();
-      console.log('Upload successful:', result);
+      console.log('Creation successful:', result);
 
       const uploadedFileRaw = result.inserted?.[0]?.module;
 
       if (!uploadedFileRaw) {
-        throw new Error("Upload succeeded but no file URL returned from API");
+        throw new Error("Creation succeeded but no file URL returned from API");
       }
 
       const uploadedFile = uploadedFileRaw.replace("/object/sign","/object/public");
@@ -380,7 +380,7 @@ function ContentUpload({
       
       // Final refresh and notification
       onUploadComplete();
-      alert('Content uploaded! AI analysis is running in the background.');
+      alert('Sprint material uploaded. AI processing has started!');
     } catch (error: any) {
       console.error('Upload failed:', error);
       // alert(`Upload failed: ${error.message}`);
@@ -393,7 +393,7 @@ function ContentUpload({
     // Upload section
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div className="md:col-span-2">
-        <Label className="mb-2 block">Training Documents (PDF)</Label>
+        <Label className="mb-2 block">Sprint Documents (PDF)</Label>
 
         <div
           onDragOver={(e) => e.preventDefault()}
@@ -408,7 +408,7 @@ function ContentUpload({
           <Upload className="mx-auto mb-3 w-10 h-10 text-gray-400" />
 
           <p className="text-sm font-medium text-gray-700">
-            Click to upload or drag and drop
+            Add Sprint Resources or drag and drop
           </p>
 
           <p className="text-xs text-gray-500 mt-1">
@@ -504,7 +504,7 @@ function ContentUpload({
           id="title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Enter training module title"
+          placeholder="Enter Sprint Title"
         />
       </div>
 
@@ -565,7 +565,7 @@ function ContentUpload({
           </p>
         )}
         <p className="mt-1 text-xs text-slate-500">
-          Assign a reviewer who will approve this content before it goes live.
+          Assign a reviewer who will approve this Sprint Content before it goes live.
         </p>
       </div>
 
@@ -599,7 +599,7 @@ function ContentUpload({
       </div>
       <div className="md:col-span-2 flex justify-end">
       <Button onClick={handleUpload} disabled={files.length === 0 || !title || uploading}>
-        {uploading ? 'Uploading...' : 'Upload Content'}
+        {uploading ? 'Creating...' : 'Add Sprint Content'}
       </Button>
       </div>
     </div>
@@ -643,7 +643,7 @@ function UploadedFilesList({ companyId }: { companyId: string }) {
 
   return (
     <div>
-      <h3 className="text-lg font-semibold mb-4">Uploaded Files in Storage</h3>
+      <h3 className="text-lg font-semibold mb-4">Sprint Content Library</h3>
       {files.length === 0 ? (
         <p className="text-gray-400 italic">No storage files found</p>
       ) : (
@@ -768,7 +768,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
 
       {result && (
         <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded">
-          <div className="font-semibold text-green-800">Upload Result:</div>
+          <div className="font-semibold text-green-800">Sprint Content Status:</div>
           <div className="text-sm text-green-700">
             Created: {result.created || 0}, Updated: {result.updated || 0}
           </div>
@@ -833,7 +833,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     // Add combined AI document at the top
     if (selectedModule.content_url) {
       sourceFiles.unshift({
-        name: "Combined Training Document",
+        name: "Combined Sprint's Document",
         url: selectedModule.content_url,
         type: "combined"
       });
@@ -986,7 +986,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       setTrainingModules(modulesWithStatus);
     } catch (error: any) {
       console.error('Failed to load training modules:', error);
-      setError('Failed to load training modules');
+      setError('Failed to load Sprints');
     } finally {
       setLoading(false);
     }
@@ -1067,7 +1067,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
             return;
           } catch (openErr) {
             console.error('Failed to open fallback content URL:', openErr);
-            setError('Failed to open training module');
+            setError('Failed to open Sprint Document');
             return;
           }
         }
@@ -1076,16 +1076,16 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
         window.open(data.signedUrl, '_blank');
       } else {
         console.error('No content URL found for module');
-        setError('Training module file not found');
+        setError('Sprint Content File not found');
       }
     } catch (error: any) {
       console.error('Failed to view module:', error);
-      setError('Failed to open training module');
+      setError('Failed to open Sprint Document');
     }
   };
 
   const handleDeleteModule = async (moduleId: string) => {
-    if (!confirm("Are you sure you want to delete this training module?")) return;
+    if (!confirm("Are you sure you want to delete this Sprint?")) return;
 
     try {
       // Delete module via backend API
@@ -1106,7 +1106,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       loadTrainingModules();
     } catch (error: any) {
       console.error('Failed to delete module:', error);
-      setError('Failed to delete training module');
+      setError('Failed to delete Sprint');
     }
   };
 
@@ -1114,7 +1114,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     return (
       <div className="flex items-center justify-center py-8">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        <span className="ml-2 text-gray-600">Loading training modules...</span>
+        <span className="ml-2 text-gray-600">Loading Sprints...</span>
       </div>
     );
   }
@@ -1322,7 +1322,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
       {/* Content Upload Section */}
       <div className="border-b pb-4">
-        <h3 className="text-lg font-semibold mb-2">Upload New Training Content</h3>
+        <h3 className="text-lg font-semibold mb-2">Create New Sprint</h3>
         <ContentUpload
           companyId={companyId}
           adminId={adminId}
@@ -1335,13 +1335,13 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
       {/* Training Modules List */}
       <div>
-        <h3 className="text-lg font-semibold mb-4">Training Modules ({trainingModules.length})</h3>
+        <h3 className="text-lg font-semibold mb-4">Sprints({trainingModules.length})</h3>
 
         {trainingModules.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <Upload className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p>No training modules found</p>
-            <p className="text-sm">Upload your first training content to get started</p>
+            <p>No Sprints found</p>
+            <p className="text-sm">Create your first Sprint to get started</p>
           </div>
         ) : (
           <div className="grid gap-4">
@@ -1570,7 +1570,7 @@ export default function UploadsPage() {
   if (loading) {
     return (
       showLoadingProgress
-        ? <LoadingProgress label="Loading uploads..." progress={loadingProgress} />
+        ? <LoadingProgress label="Loading Creations..." progress={loadingProgress} />
         : (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -1591,18 +1591,18 @@ export default function UploadsPage() {
   return (
     <div className="space-y-6">
       <div className="border-b border-gray-200 pb-4">
-        <h1 className="text-2xl font-bold text-gray-900">Content Uploads</h1>
-        <p className="text-gray-600 mt-1">Upload training content for your organization</p>
+        <h1 className="text-2xl font-bold text-gray-900">Sprint Studio</h1>
+        <p className="text-gray-600 mt-1">Create New Sprint for your Organization</p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center">
             <Upload className="w-5 h-5 mr-2" />
-            Training Content Management
+            Sprint Content Manager
           </CardTitle>
           <CardDescription>
-            Upload and manage training materials for your organization
+            Create and Manage Sprints for your Organization
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1659,7 +1659,7 @@ function LoadingProgress({ label, progress }: { label: string; progress: number 
             style={{ width: `${progress}%` }}
           />
         </div>
-        <p className="text-xs text-slate-500 font-medium">Preparing uploads. This may take a moment.</p>
+        <p className="text-xs text-slate-500 font-medium">Preparing Sprints. This may take a moment.</p>
       </div>
     </div>
   );

@@ -107,7 +107,7 @@ export async function fetchAllScenarios(): Promise<{ data: Scenario[] | null; er
         maxDuration: Array.isArray(dbScenario.maxDuration) ? dbScenario.maxDuration[0] : dbScenario.maxDuration,
         minTurns: Array.isArray(dbScenario.minTurns) ? dbScenario.minTurns[0] : dbScenario.minTurns,
         endConditions: Array.isArray(dbScenario.endConditions) ? dbScenario.endConditions[0] : dbScenario.endConditions,
-        evaluationParams: Array.isArray(dbScenario.evaluationParams) ? dbScenario.evaluationParams[0] : dbScenario.evaluationParams,
+        evaluationParams: Array.isArray(dbScenario.evaluationParams) ? dbScenario.evaluationParams : dbScenario.evaluationParams,
         passingScore: Array.isArray(dbScenario.passingScore) ? dbScenario.passingScore[0] : dbScenario.passingScore,
         isCustom: true, // Mark as custom so we know it can be edited
       };
@@ -217,7 +217,7 @@ export async function fetchScenariosForUser(userId: string, isAdmin: boolean): P
           maxDuration: Array.isArray(dbScenario.maxDuration) ? dbScenario.maxDuration[0] : dbScenario.maxDuration,
           minTurns: Array.isArray(dbScenario.minTurns) ? dbScenario.minTurns[0] : dbScenario.minTurns,
           endConditions: Array.isArray(dbScenario.endConditions) ? dbScenario.endConditions[0] : dbScenario.endConditions,
-          evaluationParams: Array.isArray(dbScenario.evaluationParams) ? dbScenario.evaluationParams[0] : dbScenario.evaluationParams,
+          evaluationParams: Array.isArray(dbScenario.evaluationParams) ? dbScenario.evaluationParams : dbScenario.evaluationParams,
           passingScore: Array.isArray(dbScenario.passingScore) ? dbScenario.passingScore[0] : dbScenario.passingScore,
           isCustom: true,
         };
