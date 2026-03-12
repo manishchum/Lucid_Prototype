@@ -121,18 +121,18 @@ function ContentUpload({
   const triggerAIProcessing = async (moduleId: string, uploadFiles: File[], contentUrl?: string) => {
     if (!moduleId || moduleId === "undefined") {
       console.error("[AI] Invalid moduleId:", moduleId);
-      alert("Cannot process module: Invalid module ID");
+      alert("Cannot process Sprint: Invalid Sprint ID");
       return;
     }
 
     if (!uploadFiles || uploadFiles.length === 0) {
       console.error("[AI] No files passed to triggerAIProcessing");
-      alert("Cannot process module: No files selected");
+      alert("Cannot process Sprint: No files selected");
       return;
     }
 
     try {
-      console.log(`[AI] Starting processing for module: ${moduleId}`);
+      console.log(`[AI] Starting processing for Sprint: ${moduleId}`);
 
       const firstFile = uploadFiles[0];
       const initialStatus = isMediaFile(firstFile?.type || "") ? "transcribing" : "summarizing";
@@ -200,7 +200,7 @@ function ContentUpload({
         }
       }
 
-      console.log(`[AI] Processing triggered successfully for module: ${moduleId}`);
+      console.log(`[AI] Processing triggered successfully for Sprint: ${moduleId}`);
       onUploadComplete();
     } catch (err) {
       console.error("[AI] Pipeline failed:", err);
@@ -253,16 +253,16 @@ function ContentUpload({
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Upload failed');
+        throw new Error(errorData.error || 'Creation failed');
       }
 
       const result = await response.json();
-      console.log('Upload successful:', result);
+      console.log('Creation successful:', result);
 
       const uploadedFileRaw = result.inserted?.[0]?.module;
 
       if (!uploadedFileRaw) {
-        throw new Error("Upload succeeded but no file URL returned from API");
+        throw new Error("Creation succeeded but no file URL returned from API");
       }
 
       const uploadedFile = uploadedFileRaw.replace("/object/sign","/object/public");
@@ -380,7 +380,7 @@ function ContentUpload({
       
       // Final refresh and notification
       onUploadComplete();
-      alert('Content uploaded! AI analysis is running in the background.');
+      alert('Sprint material uploaded. AI processing has started!');
     } catch (error: any) {
       console.error('Upload failed:', error);
       // alert(`Upload failed: ${error.message}`);
@@ -565,7 +565,7 @@ function ContentUpload({
           </p>
         )}
         <p className="mt-1 text-xs text-slate-500">
-          Assign a reviewer who will approve this content before it goes live.
+          Assign a reviewer who will approve this Sprint Content before it goes live.
         </p>
       </div>
 
@@ -833,7 +833,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     // Add combined AI document at the top
     if (selectedModule.content_url) {
       sourceFiles.unshift({
-        name: "Combined Training Document",
+        name: "Combined Sprint's Document",
         url: selectedModule.content_url,
         type: "combined"
       });
@@ -986,7 +986,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       setTrainingModules(modulesWithStatus);
     } catch (error: any) {
       console.error('Failed to load training modules:', error);
-      setError('Failed to load training modules');
+      setError('Failed to load Sprints');
     } finally {
       setLoading(false);
     }
@@ -1067,7 +1067,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
             return;
           } catch (openErr) {
             console.error('Failed to open fallback content URL:', openErr);
-            setError('Failed to open training module');
+            setError('Failed to open Sprint Document');
             return;
           }
         }
@@ -1076,7 +1076,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
         window.open(data.signedUrl, '_blank');
       } else {
         console.error('No content URL found for module');
-        setError('Training module file not found');
+        setError('Sprint Content File not found');
       }
     } catch (error: any) {
       console.error('Failed to view module:', error);
@@ -1106,7 +1106,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       loadTrainingModules();
     } catch (error: any) {
       console.error('Failed to delete module:', error);
-      setError('Failed to delete training module');
+      setError('Failed to delete Sprint');
     }
   };
 
@@ -1570,7 +1570,7 @@ export default function UploadsPage() {
   if (loading) {
     return (
       showLoadingProgress
-        ? <LoadingProgress label="Loading uploads..." progress={loadingProgress} />
+        ? <LoadingProgress label="Loading..." progress={loadingProgress} />
         : (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -1602,7 +1602,7 @@ export default function UploadsPage() {
             Sprint Content Manager
           </CardTitle>
           <CardDescription>
-            Create and Manage Learning Sprints for your Organization
+            Create and Manage Sprints for your Organization
           </CardDescription>
         </CardHeader>
         <CardContent>
