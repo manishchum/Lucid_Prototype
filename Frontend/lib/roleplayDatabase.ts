@@ -602,7 +602,7 @@ export async function getEmployeeRolePlaySessions(
 ): Promise<{ data: any[] | null; error: any }> {
   const { data, error } = await supabase
     .from('roleplay_sessions')
-    .select('*, roleplay_assessments(*)')
+    .select('*, roleplay_assessments(*), scenarios(passingScore)')
     .eq('employee_id', employeeId)
     .order('completed_at', { ascending: false, nullsFirst: false })
     .limit(limit);

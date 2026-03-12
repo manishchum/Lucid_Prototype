@@ -26,6 +26,7 @@ interface RolePlaySession {
   duration_seconds: number;
   message_count: number;
   video_url?: string;
+  scenarios?: { passingScore?: number[] | number | null };
   roleplay_assessments: Array<{
     overall_score: number;
     summary: string;
@@ -83,16 +84,14 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
     }
   };
 
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return 'text-green-600 bg-green-50 border-green-200';
-    if (score >= 60) return 'text-yellow-600 bg-yellow-50 border-yellow-200';
-    return 'text-red-600 bg-red-50 border-red-200';
+  const getScoreColor = (score: number, passingScore: number) => {
+    return score >= passingScore
+      ? 'text-green-600 bg-green-50 border-green-200'
+      : 'text-red-600 bg-red-50 border-red-200';
   };
 
-  const getScoreBadge = (score: number) => {
-    if (score >= 80) return '🎉 Excellent';
-    if (score >= 60) return '👍 Good';
-    return '💪 Keep Practicing';
+  const getScoreBadge = (score: number, passingScore: number) => {
+    return score >= passingScore ? '✅ Passed' : '💪 Keep Practicing';
   };
 
   const getDifficultyColor = (difficulty: string) => {
@@ -195,6 +194,10 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
           const assessment = session.roleplay_assessments?.[0];
           const isExpanded = expandedSession === session.id;
 
+          // Resolve passing score from joined scenarios relation (stored as array in DB)
+          const rawPs = session.scenarios?.passingScore;
+          const passingScore: number = Array.isArray(rawPs) ? (rawPs[0] ?? 60) : (typeof rawPs === 'number' ? rawPs : 60);
+
           // Parse transcript — Supabase may return it as a JSON string
           let transcript: Message[] = [];
           if (session.conversation_transcript) {
@@ -245,11 +248,11 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
 
                   {assessment && (
                     <div className="flex flex-col items-end gap-2">
-                      <div className={`px-4 py-2 rounded-lg border-2 ${getScoreColor(assessment.overall_score)}`}>
+                      <div className={`px-4 py-2 rounded-lg border-2 ${getScoreColor(assessment.overall_score, passingScore)}`}>
                         <p className="text-3xl font-bold">{assessment.overall_score}</p>
                       </div>
                       <span className="text-sm font-medium text-slate-600">
-                        {getScoreBadge(assessment.overall_score)}
+                        {getScoreBadge(assessment.overall_score, passingScore)}
                       </span>
                     </div>
                   )}
@@ -301,7 +304,7 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
                               <div className="w-full bg-slate-200 rounded-full h-2 mb-2">
                                 <div
                                   className={`h-2 rounded-full transition-all ${
-                                    param.score >= 80 ? 'bg-green-500' : param.score >= 60 ? 'bg-yellow-500' : 'bg-red-500'
+                                    param.score >= passingScore ? 'bg-green-500' : 'bg-red-500'
                                   }`}
                                   style={{ width: `${param.score}%` }}
                                 />
