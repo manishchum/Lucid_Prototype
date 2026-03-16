@@ -22,13 +22,13 @@ export default function LandingPage() {
   const features = [
     {
       title: 'Living Knowledge Base',
-      description: 'Transforms raw data into learning intelligence',
+      description: 'Transform Raw Data Into Sales & Operations Intelligence',
       icon: <BookOpen size={20} />,
       color: 'bg-[#2563EB]'
     },
     {
       title: 'Smart Intelligence',
-      description: 'Eliminates redundant learning',
+      description: 'Eliminates Redundancy',
       icon: <Puzzle size={20} />,
       color: 'bg-[#0F172A]'
     },
@@ -96,12 +96,12 @@ export default function LandingPage() {
           <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-700">
             <h1 className="text-5xl md:text-6xl lg:text-[72px] font-black tracking-tighter leading-[0.9] text-[#0F172A]">
               Accelerate Your <br /> Workforce <br />
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-[#2563EB] via-[#6366F1] to-[#9333EA]">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-[#2563EB] via-[#6366F1] to-[#9333EA] pr-2">
                 For Peak Performance
               </span>
             </h1>
             <p className="max-w-2xl mx-auto text-slate-500 text-base md:text-lg font-medium leading-relaxed">
-              The enterprise AI platform that accelerates workforce readiness at the speed of business.
+              Enterprise Productivity Platform Accelerating Sales & Operations Outcomes
             </p>
           </div>
 
@@ -158,22 +158,20 @@ export default function LandingPage() {
       {/* Trust Footer - Slimmer version */}
       <footer className="shrink-0 py-6 px-8 border-t border-slate-50 max-w-7xl mx-auto w-full flex flex-row justify-between items-center gap-4">
         <div className="flex gap-8">
-           <div className="flex items-center gap-3">
+           {/* <div className="flex items-center gap-3">
              <div className="w-9 h-9 bg-slate-50 rounded-lg flex items-center justify-center text-slate-400">
                <ShieldCheck size={18} />
              </div>
-             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">SOC2 Type II</span>
            </div>
            <div className="flex items-center gap-3">
              <div className="w-9 h-9 bg-slate-50 rounded-lg flex items-center justify-center text-slate-400">
                <Fingerprint size={18} />
              </div>
-             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Encrypted Data</span>
-           </div>
+           </div> */}
         </div>
         <div className="flex items-center gap-4">
-          <p className="text-[9px] text-slate-300 font-black uppercase tracking-widest">Powered By</p>
-          <div className="px-4 py-2 bg-slate-50 rounded-full border border-slate-100 font-black text-[10px] text-[#0F172A]">Google Gemini</div>
+          {/* <p className="text-[9px] text-slate-300 font-black uppercase tracking-widest">Powered By</p>
+          <div className="px-4 py-2 bg-slate-50 rounded-full border border-slate-100 font-black text-[10px] text-[#0F172A]">Google Gemini</div> */}
         </div>
       </footer>
 
