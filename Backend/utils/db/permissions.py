@@ -27,11 +27,12 @@ async def check_user_permission(user_id: str, required_role: str) -> bool:
                 req_level = 2
 
         # fetch active role assignments for the user with joined role level
-        resp = supabase.table('user_role_assignments').select('role:roles(level,name)').eq(
+        resp = supabase.table('user_role_assignments').select('is_active, role:roles(level,name)').eq(
             'user_id', user_id
-        ).eq('is_active', True).execute()
+        ).execute()
 
-        assignments = resp.data or []
+        # Backward compatibility: NULL is_active is treated as active.
+        assignments = [a for a in (resp.data or []) if a.get('is_active') is not False]
         if not assignments:
             return False
 
