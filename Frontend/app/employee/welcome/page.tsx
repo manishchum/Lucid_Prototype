@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
-import { supabase } from "@/lib/supabase";
+import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 import { 
   Users, BookOpen, Clock, User, ChevronDown, 
   Trophy, Target, TrendingUp, Zap, LayoutGrid,
@@ -58,407 +58,133 @@ export default function EmployeeWelcome() {
   const [showLoginToast, setShowLoginToast] = useState<boolean>(false);
   const [isNavOverlay, setIsNavOverlay] = useState<boolean>(false);
   const [showAllModules, setShowAllModules] = useState<boolean>(false);
-  const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(true);
+  const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(false);
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
 
   const fetchUserByEmail = async (email: string) => {
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
-    if (!res.ok) return null;
-    const payload = await res.json();
-    let u = payload?.user ?? payload;
-    if (Array.isArray(u)) u = u[0];
-    return u || null;
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`,
+      );
+      if (!res.ok) return null;
+      const payload = await res.json();
+      let u = payload?.user ?? payload;
+      if (Array.isArray(u)) u = u[0];
+      return u || null;
+    } catch {
+      return null;
+    }
   };
 
   // --- Login Toast System (only show when a login/signup flow sets a flag) ---
   // Behavior: login/signup pages should set sessionStorage.setItem('show_login_toast_next', '1')
   // right before redirecting to the home/welcome page. This component will read that flag,
   // show the toast once, then remove the flag so subsequent navigations won't re-show it.
-  useEffect(() => {
-    if (authLoading) return;
+  const fetchDashboardData = async (employeeData: any) => {
+    const result = await sharedDataClient.query(
+      createCacheKey({
+        namespace: "dashboard",
+        tenantId: employeeData.company_id,
+        userId: employeeData.user_id,
+        path: "/employee/dashboard"
+      }),
+      async () => {
+        const headers = { 'X-User-ID': employeeData.user_id };
 
-    // If there's no user, nothing to do
-    if (!user) {
-      prevUserRef.current = null;
-      return;
-    }
+        const [plansRes, modulesRes, progressRes, usersRes, companyRes, learningStyleRes] = await Promise.all([
+          fetch(`${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
+          fetch(`${API_BASE}/api/training-modules/company/${employeeData.company_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
+          fetch(`${API_BASE}/api/module-progress/user/${employeeData.user_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
+          fetch(`${API_BASE}/api/users/company/${employeeData.company_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
+          fetch(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`, { headers }).then((r) => r.ok ? r.json() : {}),
+          fetch(`${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => r.ok ? r.json() : {}),
+        ]);
 
-    try {
-      const shouldShow = sessionStorage.getItem('show_login_toast_next');
-      if (shouldShow) {
-        // Remove the flag so it doesn't show again on future navigations
-        sessionStorage.removeItem('show_login_toast_next');
-        setShowLoginToast(true);
-        setTimeout(() => setShowLoginToast(false), 7000);
+        return {
+          plans: plansRes?.plans || [],
+          modules: modulesRes?.modules || [],
+          progress: progressRes?.progress || [],
+          users: usersRes?.users || [],
+          company: companyRes?.company || companyRes || null,
+          learningStyle: learningStyleRes?.data?.learning_style || null,
+        };
+      },
+      {
+        ttlMs: 60 * 1000,
+        swr: true,
+        swrMs: 5 * 60 * 1000,
       }
-    } catch (e) {
-      // ignore sessionStorage errors (e.g., private mode)
-    }
+    );
 
-    prevUserRef.current = user;
-  }, [user, authLoading]);
-
-  // --- Core Backend Logic (Preserved exactly) ---
-  useEffect(() => {
-    if (!authLoading) {
-      if (!user) router.push("/login");
-      else checkEmployeeAccess();
-      
-    }
-  }, [user, authLoading, router]);
-
-  // Check learning plan entries and update overall_status based on module progress
-  useEffect(() => {
-    const checkAndUpdateOverallStatus = async () => {
-      if (!employee?.user_id) return;
-
-      try {
-        // Fetch all learning plan entries for the current user via backend API
-        const lpRes = await fetch(
-          `${API_BASE}/api/learning-plans/?user_id=${employee.user_id}`,
-          { headers: { 'X-User-ID': employee.user_id } }
-        );
-
-        if (!lpRes.ok) {
-          const errorData = await lpRes.json();
-          console.error('[checkOverallStatus] Error fetching learning plans:', errorData);
-          return;
-        }
-
-        const lpData = await lpRes.json();
-        const learningPlans = lpData?.plans || [];
-
-        if (!learningPlans || learningPlans.length === 0) {
-          console.log('[checkOverallStatus] No learning plans found');
-          return;
-        }
-
-        // Process each learning plan entry
-        for (const plan of learningPlans) {
-          // Skip if no processed_module_ids
-          if (!plan.processed_module_ids || !Array.isArray(plan.processed_module_ids) || plan.processed_module_ids.length === 0) {
-            continue;
-          }
-
-          // Fetch module progress for all processed_module_ids via backend
-          let moduleProgressData: any[] = [];
-          try {
-            const mpRes = await fetch(`${API_BASE}/api/module-progress/user/${encodeURIComponent(employee.user_id)}`, {
-              headers: { 'X-User-ID': employee.user_id }
-            });
-            if (mpRes.ok) {
-              const mpPayload = await mpRes.json().catch(() => ({}));
-              const allProg = mpPayload?.progress || mpPayload || [];
-              moduleProgressData = (Array.isArray(allProg) ? allProg : [allProg]).filter((r: any) =>
-                plan.processed_module_ids.includes(r.processed_module_id)
-              );
-            } else {
-              console.warn('[checkOverallStatus] failed to fetch module progress', mpRes.status);
-              continue;
-            }
-          } catch (e) {
-            console.error('[checkOverallStatus] Error fetching module progress:', e);
-            continue;
-          }
-
-          // Check if all sub-modules have passed (use pass_status)
-          const allPassed = plan.processed_module_ids.every((moduleId: string) => {
-            const progress = moduleProgressData.find((p: any) => p.processed_module_id === moduleId);
-            return progress && progress.pass_status === true;
-          });
-
-          // Update overall_status if all passed and current status is not already true
-          if (allPassed && plan.overall_status !== true) {
-            try {
-              const updateRes = await fetch(
-                `${API_BASE}/api/learning-plans/${plan.learning_plan_id}`,
-                {
-                  method: 'PUT',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'X-User-ID': employee.user_id
-                  },
-                  body: JSON.stringify({ overall_status: true })
-                }
-              );
-
-              if (!updateRes.ok) {
-                const errorData = await updateRes.json();
-                console.error('[checkOverallStatus] Error updating overall_status:', errorData);
-              } else {
-                console.log(`[checkOverallStatus] Updated overall_status to true for learning_plan_id: ${plan.learning_plan_id}`);
-              }
-            } catch (e) {
-              console.error('[checkOverallStatus] Error updating overall_status:', e);
-            }
-          }
-        }
-
-        // After updating all learning plan entries, update user ready status
-        await updateUserReadyStatus(employee.user_id);
-      } catch (e) {
-        console.error('[checkOverallStatus] Unexpected error:', e);
-      }
-    };
-
-    if (employee?.user_id) {
-      checkAndUpdateOverallStatus();
-    }
-  }, [employee?.user_id]);
-
-  // Function to update user ready status based on all learning plan entries
-  const updateUserReadyStatus = async (userId: string) => {
-    try {
-      console.log('[updateUserReadyStatus] Calculating ready status for user:', userId);
-
-      // Fetch all learning plan entries for this user via backend API
-      const lpRes = await fetch(
-        `${API_BASE}/api/learning-plans/?user_id=${userId}`,
-        { headers: { 'X-User-ID': userId } }
-      );
-
-      if (!lpRes.ok) {
-        const errorData = await lpRes.json();
-        console.error('[updateUserReadyStatus] Error fetching learning plans:', errorData);
-        return;
-      }
-
-      const lpData = await lpRes.json();
-      const learningPlans = lpData?.plans || [];
-
-      // If user has no learning plans, they are not ready
-      if (!learningPlans || learningPlans.length === 0) {
-        console.log('[updateUserReadyStatus] No learning plans found for user');
-        
-        try{
-          await fetch(`${API_BASE}/api/users/${userId}`,{
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json', 'X-User-ID': userId},
-            body: JSON.stringify({ ready_status: false }),
-          });
-          console.log('[updateUserReadyStatus] User has no learning plans, ready_status set to false');
-        } catch (e) {
-          console.error('[updateUserReadyStatus] Error updating user ready_status for no learning plans case:', e);
-        }
-        return;
-      }
-
-      // Check if ALL learning plan entries have overall_status = true
-      const allPlansCompleted = learningPlans.every((plan: any) => plan.overall_status === true);
-
-      console.log('[updateUserReadyStatus] Total learning plans:', learningPlans.length);
-      console.log('[updateUserReadyStatus] All plans completed:', allPlansCompleted);
-
-      // Update the ready_status in users table
-      try{
-        await fetch(`${API_BASE}/api/users/${userId}`,{
-          method: 'PUT',
-          headers: {'Content-Type': 'application/json', 'X-User-ID': userId},
-          body: JSON.stringify({ ready_status: allPlansCompleted })
-        });
-        console.log('[updateUserReadyStatus] Updated user ready_status to:', allPlansCompleted);
-      } catch (e) {
-        console.error('[updateUserReadyStatus] Error updating user ready_status:', e);
-      }
-    } catch (e) {
-      console.error('[updateUserReadyStatus] Unexpected error:', e);
-    }
+    return result.data;
   };
 
-  const checkEmployeeAccess = async () => {
+  const loadDashboard = async () => {
     if (!user?.email) return;
+
     try {
-      const employeeData = await fetchUserByEmail(user.email);
-      if (!employeeData) {
+      setLoading(true);
+      const emp = await fetchUserByEmail(user.email);
+      if (!emp) {
         router.push("/login");
         return;
       }
-      setEmployee(employeeData);
-      // Learning Style Fetch
-      const { data: styleData } = await supabase
-        .from("employee_learning_style").select("learning_style").eq("user_id", employeeData.user_id).maybeSingle();
-      setLearningStyle(styleData?.learning_style || null);
 
-      // Fetch company learning style setting
-      try{
-        const compRes = await fetch(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`);
-        if (compRes.ok) {
-          const compPayload = await compRes.json().catch(() => null);
-          const compSettings = compPayload?.company ?? compPayload;
-          setCompanyLearningStyleEnabled(Boolean(compSettings?.learning_style_enabled));
-          console.log('[checkEmployeeAccess] Company learning style enabled:', Boolean(compSettings?.learning_style_enabled));
-      } else{
-        console.warn("[Welcome] failed to fetch company settings.", compRes.status, compRes.text().catch(()=>""));
-      } 
-    }catch (e) {
-      console.warn("[Welcome] error fetching company settings:", e);
-    }
-      // Fetch Plans & Progress via backend API
-      const plansRes = await fetch(
-        `${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`,
-        { headers: { 'X-User-ID': employeeData.user_id } }
-      );
-      
-      const planRows = plansRes.ok ? (await plansRes.json())?.plans || [] : [];
-      const requiresBaseline = planRows?.some((plan: any) => plan.baseline_assessment === 1) ?? true;
-      setBaselineRequired(requiresBaseline);
+      setEmployee(emp);
 
-      const assignedPlans = planRows?.filter((p: any) => p.status === 'ASSIGNED'||p.status==="IN_PROGRESS") || [];
-      // TEMP LOGS: inspect returned learning_plan rows and assigned plans
-      try {
-        console.log('[debug] learning_plan rows:', planRows);
-        console.log('[debug] assignedPlans:', assignedPlans);
-      } catch (e) {
-        /* ignore console errors */
-      }
-      const mIds = assignedPlans.map((p: any) => p.module_id).filter(Boolean);
-      
-      // Calculate Progress and resolve module titles
-      if (mIds.length > 0) {
-        // Fetch processed modules (via backend) and map to titles.
-        // Use company-level endpoint and filter locally to avoid multiple DB calls from the client.
-        let pModsByOriginal: any[] = [];
-        try {
-          const tmRes = await fetch(`${API_BASE}/api/training-modules/company/${encodeURIComponent(employeeData.company_id)}`, {
-            headers: { 'X-User-ID': employeeData.user_id }
-          });
-          if (tmRes.ok) {
-            const payload = await tmRes.json().catch(() => ({}));
-            const allModules = payload?.modules || [];
-            // Keep shape similar to previous supabase result (module_id, title, maybe original/processed ids)
-            pModsByOriginal = (allModules || []).filter((m: any) => mIds.includes(m.module_id)).map((m: any) => ({
-              module_id: m.module_id,
-              title: m.title,
-              processed_module_id: m.processed_module_id,
-              original_module_id: m.original_module_id
-            }));
-          } else {
-            console.warn('[Welcome] Failed to fetch training modules via backend', tmRes.status, await tmRes.text().catch(() => ''));
-          }
-        } catch (err) {
-          console.error('[Welcome] Error fetching training modules via backend', err);
+      const data = await fetchDashboardData(emp);
+      const plans = data?.plans || [];
+      const modules = data?.modules || [];
+      const progress = Array.isArray(data?.progress) ? data.progress : [];
+
+      const assignedPlans = plans.filter((p: any) => p.status === "ASSIGNED" || p.status === "IN_PROGRESS");
+      const moduleTitleById: Record<string, string> = {};
+      for (const m of modules) {
+        if (m?.module_id) {
+          moduleTitleById[m.module_id] = m.title || `Module ${m.module_id}`;
         }
- 
-         // const { data: pModsByProcessed } = await supabase
-         //   .from('processed_modules')
-         //   .select('processed_module_id, title, original_module_id')
-         //   .in('processed_module_id', mIds);
- 
-         const pMods = Array.from(new Map([...(pModsByOriginal || [])].map((r: any) => [r.module_id  || JSON.stringify(r), r])).values());
-         console.log(pMods)
-         // TEMP LOG: inspect processed_modules rows
-         try {
-           console.log('[debug] processed_modules (pMods combined):', pMods);
-         } catch (e) { /* ignore */ }
+      }
 
-         const pIds = pMods?.map((m: any) => m.module_id) || [];
-        
-         // Fetch module progress for this user via backend and filter to pIds
-         let pProg: any[] = [];
-         if (pIds.length > 0) {
-           try {
-             const mpRes = await fetch(`${API_BASE}/api/module-progress/user/${encodeURIComponent(employeeData.user_id)}`, {
-               headers: { 'X-User-ID': employeeData.user_id }
-             });
-             if (mpRes.ok) {
-               const mpPayload = await mpRes.json().catch(() => ({}));
-               const allProg = mpPayload?.progress || mpPayload || [];
-               pProg = (Array.isArray(allProg) ? allProg : [allProg]).filter((r: any) => pIds.includes(r.processed_module_id));
-             } else {
-               console.warn('[Welcome] failed to fetch module progress', mpRes.status);
-             }
-           } catch (e) {
-             console.error('[Welcome] error fetching module progress', e);
-           }
-         }
+      const mappedAssigned = assignedPlans.map((p: any) => ({
+        id: p.module_id,
+        title: moduleTitleById[p.module_id] || p.module_name || p.module_title || p.title || `Module ${p.module_id}`,
+        moduleName: p.module_name || p.module_title || p.title || null,
+        hasBaseline: p.baseline_assessment === 1 || p.baseline_assessment === true,
+      }));
 
-         // TEMP LOG: inspect module_progress rows
-         try { console.log('[debug] module_progress (pProg):', pProg); } catch (e) { /* ignore */ }
+      setAssignedModules(mappedAssigned);
+      setModuleProgress(progress);
+      setLearningStyle(data?.learningStyle || null);
+      setCompanyLearningStyleEnabled(Boolean(data?.company?.learning_style_enabled));
 
-         const completedCount = pProg?.filter((p: any) => p.completed_at).length || 0;
-         const prog = mIds.length > 0 ? Math.round((completedCount / mIds.length) * 100) : 0;
-         setProgressPercentage(prog);
-         if (employeeData.company_id) await fetchCompanyStats(employeeData.company_id, employeeData.user_id, prog);
+      const baselineNeeded = plans.some((plan: any) => plan.baseline_assessment === 1 || plan.baseline_assessment === true);
+      setBaselineRequired(baselineNeeded);
 
-         // Build lookups so assigned modules show proper names.
-         // processed_modules may reference the original_module_id or have a processed_module_id that
-         // matches the learning_plan.module_id depending on how data was stored — build both maps.
-         const titleByOriginal: Record<string, string> = {};
-         const titleByProcessedId: Record<string, string> = {};
-         (pMods || []).forEach((pm: any) => {
-           if (pm) {
-             if (pm.module_id) {
-               titleByOriginal[pm.module_id] = pm.title || `Module ${pm.original_module_id}`;
-             }
-             if (pm.processed_module_id) {
-               titleByProcessedId[pm.processed_module_id] = pm.title || `Module ${pm.processed_module_id}`;
-             }
-           }
-         });
+      const totalUsers = Array.isArray(data?.users) ? data.users.length : 0;
+      const completedCount = progress.filter((p: any) => p.completed_at).length;
+      const progressValue = mappedAssigned.length > 0 ? Math.round((completedCount / mappedAssigned.length) * 100) : 0;
+      setProgressPercentage(progressValue);
+      setCompanyStats({ totalEmployees: totalUsers, completedEmployees: 5, userRank: 1, topPercentile: 10 });
+      generateNudgeMessage(progressValue, 1, totalUsers, 10, 5);
+    } catch (e) {
+      console.error("[Welcome] loadDashboard failed:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-         const mappedAssigned = assignedPlans.map((p: any) => {
-           const adminName = p.module_name || p.module_title || p.title || (p.module && (p.module.name || p.module.title)) || null;
-           const resolvedTitle =
-             titleByOriginal[p.module_id] ||
-             titleByProcessedId[p.module_id] ||
-             // also try matching by processed_module_id lookup using module_id as processed id
-             titleByProcessedId[p.module_id] ||
-             adminName ||
-             `Module ${p.module_id}`;
+  useEffect(() => {
+    if (!authLoading && user) {
+      loadDashboard();
+    }
 
-           return {
-             id: p.module_id,
-             title: resolvedTitle,
-             moduleName: adminName,
-             // Preserve whether admin/learning_plan has baseline enabled for this module
-             hasBaseline: (p.baseline_assessment === 1 || p.baseline_assessment === true),
-           };
-         });
-
-         // TEMP LOG: mapped assigned modules
-         try { console.log('[debug] mappedAssignedModules:', mappedAssigned); } catch (e) {}
-
-         setAssignedModules(mappedAssigned);
-       }
-
-       // Fetch module progress via backend (includes processed_modules relation)
-       try {
-         const mpRes = await fetch(`${API_BASE}/api/module-progress/user/${encodeURIComponent(employeeData.user_id)}`, {
-           headers: { 'X-User-ID': employeeData.user_id }
-         });
-         if (mpRes.ok) {
-           const mpPayload = await mpRes.json().catch(() => ({}));
-           const progressData = mpPayload?.progress || mpPayload || [];
-           setModuleProgress(Array.isArray(progressData) ? progressData : [progressData]);
-         } else {
-           console.warn('[Welcome] failed to fetch user module progress', mpRes.status);
-           setModuleProgress([]);
-         }
-       } catch (e) {
-         console.error('[Welcome] error fetching user module progress', e);
-         setModuleProgress([]);
-       }
-
-     } catch (e) { console.error(e); } finally { setLoading(false); }
-   };
-
-   const fetchCompanyStats = async (companyId: string, userId: string, userProgress: number) => {
-     try {
-       const res = await fetch(`${API_BASE}/api/users/company/${companyId}`, {
-         headers: { 'X-User-ID': userId }
-       });
-       if (!res.ok) return;
-       const payload = await res.json();
-       const users = payload?.users ?? payload;
-       const total = Array.isArray(users) ? users.length : 0;
-       // Placeholder for your rank logic
-       setCompanyStats({ totalEmployees: total, completedEmployees: 5, userRank: 1, topPercentile: 10 });
-       generateNudgeMessage(userProgress, 1, total, 10, 5);
-     } catch (e) { console.error(e); }
-   };
+    if (!authLoading && !user) {
+      router.push("/login");
+    }
+  }, [user, authLoading]);
 
    const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
      if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint and earned the SME tag!");
