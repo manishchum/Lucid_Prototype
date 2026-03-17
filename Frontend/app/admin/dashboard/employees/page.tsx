@@ -97,7 +97,8 @@ interface TrainingModule {
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL; 
 export default function EmployeesPage() {
   const router  = useRouter();
-  const { user, loading: authLoading, isAdmin, isSuperAdmin } = useAuth();
+  const { user, loading: authLoading, isAdmin, isSuperAdmin, userRoles } = useAuth();
+  const isDeveloper = (userRoles || []).some((r: string) => (r || '').toUpperCase() === 'DEVELOPER');
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
@@ -1125,6 +1126,7 @@ export default function EmployeesPage() {
         roles={roles}
         isAdmin={isAdmin}
         isSuperAdmin={isSuperAdmin}
+        isDeveloper={isDeveloper}
         onSuccess={() => {
           loadUsers(admin.company_id);
           setSuccess("User added successfully!");
@@ -1144,6 +1146,7 @@ export default function EmployeesPage() {
           companyName={admin.company_name || ''}
           isAdmin={isAdmin}
           isSuperAdmin={isSuperAdmin}
+          isDeveloper={isDeveloper}
           currentRole={selectedEmployee.role ? [selectedEmployee.role.name] : []}
           onSuccess={() => {
             loadUsers(admin.company_id);
@@ -1712,7 +1715,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
   );
 }
 
-function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, departments, roles, isAdmin, isSuperAdmin, onSuccess }: any) {
+function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, departments, roles, isAdmin, isSuperAdmin, isDeveloper, onSuccess }: any) {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -1729,6 +1732,10 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<{[key: string]: string}>({});
   const [companies, setCompanies] = useState<any[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState('');
+  const [newCompanyName, setNewCompanyName] = useState('');
+  const [newCompanyDomain, setNewCompanyDomain] = useState('');
+  const [creatingCompany, setCreatingCompany] = useState(false);
   let temp = false;
 
   // Filter roles based on current user's role level
@@ -1737,6 +1744,10 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
   const filteredRoles = roles.filter((role: any) => {
     const roleName = (role.name || '').toLowerCase().replace(/[-_\s]/g, '');
     const roleLevel = role.level || 0;
+
+    if (isDeveloper) {
+      return true;
+    }
     
     if (isSuperAdmin) {
       // Super admin can assign user and admin roles (not super_admin)
@@ -1752,6 +1763,9 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
   useEffect(() => {
     if (isOpen) {
       loadDropdownData();
+      setSelectedCompanyId(companyId || '');
+      setNewCompanyName('');
+      setNewCompanyDomain('');
       // Auto-set company name for admin/super_admin
       if (companyName) {
         setFormData(prev => ({ ...prev, company_name: companyName }));
@@ -1869,8 +1883,9 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
   // Check if email already exists in database (excluding current user)
   const checkEmailExists = async (email: string, currentUserId: string): Promise<boolean> => {
     try {
-      if (!companyId || !adminId) return false;
-      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+      const targetCompanyId = isDeveloper ? selectedCompanyId : companyId;
+      if (!targetCompanyId || targetCompanyId === '__create_new__' || !adminId) return false;
+      const res = await fetch(`${API_URL}/api/users/company/${targetCompanyId}`, {
         headers: { 'X-User-ID': adminId }
       });
       
@@ -1892,6 +1907,10 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
 
   const validateForm = async (): Promise<boolean> => {
     const errors: {[key: string]: string} = {};
+
+    if (isDeveloper && (!selectedCompanyId || selectedCompanyId === '__create_new__')) {
+      errors.company_name = 'Please select a company';
+    }
 
     // Name validation
     if (!formData.name.trim()) {
@@ -1919,6 +1938,56 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
     return Object.keys(errors).length === 0;
   };
 
+  const handleCreateCompany = async () => {
+    setError('');
+    if (!newCompanyName.trim() || !newCompanyDomain.trim()) {
+      setError('Company name and domain are required');
+      return;
+    }
+
+    setCreatingCompany(true);
+    try {
+      const res = await fetch(`${API_URL}/api/companies/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': adminId
+        },
+        body: JSON.stringify({
+          name: newCompanyName.trim(),
+          domain: newCompanyDomain.trim().toLowerCase(),
+          learning_style: false
+        })
+      });
+
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.detail || 'Failed to create company');
+      }
+
+      const createdCompany = Array.isArray(payload?.company)
+        ? payload.company[0]
+        : payload?.company || payload;
+
+      if (!createdCompany?.company_id) {
+        throw new Error('Company created but missing company_id');
+      }
+
+      setCompanies((prev) => {
+        const next = [createdCompany, ...prev.filter((c: any) => c.company_id !== createdCompany.company_id)];
+        return next;
+      });
+      setSelectedCompanyId(createdCompany.company_id);
+      setFormData(prev => ({ ...prev, company_name: createdCompany.name || prev.company_name }));
+      setNewCompanyName('');
+      setNewCompanyDomain('');
+    } catch (e: any) {
+      setError(e?.message || 'Failed to create company');
+    } finally {
+      setCreatingCompany(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -1932,10 +2001,15 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       return;
     }
     try {
+      const targetCompanyId = isDeveloper ? selectedCompanyId : companyId;
+      if (!targetCompanyId || targetCompanyId === '__create_new__') {
+        throw new Error('Company is required');
+      }
+
       // Fetch company's learning style setting
       let learningStyleEnabled: boolean | null = null;
       try {
-        const companyRes = await fetch(`${API_URL}/api/companies/${encodeURIComponent(companyId)}`);
+        const companyRes = await fetch(`${API_URL}/api/companies/${encodeURIComponent(targetCompanyId)}`);
         if (companyRes.ok) {
           const compPayload = await companyRes.json().catch(() => null);
           const companyData = compPayload?.company ?? compPayload;
@@ -1956,7 +2030,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
         body: JSON.stringify({
           name: formData.name,
           email: formData.email.toLowerCase(),
-          company_id: companyId,
+          company_id: targetCompanyId,
           department_id: formData.department_id || null,
           position: formData.position || null,
           phone: formData.phone || null,
@@ -2015,7 +2089,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
                 user_id: userData.user_id,
                 role_id: roleId,
                 scope_type: 'COMPANY',
-                scope_id: companyId,
+                scope_id: targetCompanyId,
                 notes: 'Assigned during user creation'
               })
             });
@@ -2126,16 +2200,65 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
             {/* Company Name - Read-only for admin/super_admin */}
             <div>
               <Label htmlFor="company_name">Company Name</Label>
-              <Input
-                id="company_name"
-                name="company_name"
-                type="text"
-                value={companyName || formData.company_name}
-                readOnly
-                disabled
-                className="w-full p-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700"
-              />
-              <p className="text-xs text-gray-500 mt-1">Company is automatically set based on your account</p>
+              {isDeveloper ? (
+                <>
+                  <select
+                    id="company_name"
+                    name="company_name"
+                    value={selectedCompanyId || ''}
+                    onChange={(e) => {
+                      setSelectedCompanyId(e.target.value);
+                      if (fieldErrors.company_name) {
+                        setFieldErrors(prev => ({ ...prev, company_name: '' }));
+                      }
+                    }}
+                    className={`w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${fieldErrors.company_name ? 'border-red-500' : 'border-gray-300'}`}
+                  >
+                    <option value="">Select Company</option>
+                    {companies.map((company: any) => (
+                      <option key={company.company_id} value={company.company_id}>
+                        {company.name}
+                      </option>
+                    ))}
+                    <option value="__create_new__">+ Create New Company</option>
+                  </select>
+                  {fieldErrors.company_name && (
+                    <p className="text-red-500 text-sm mt-1">{fieldErrors.company_name}</p>
+                  )}
+
+                  {selectedCompanyId === '__create_new__' && (
+                    <div className="mt-3 space-y-2 border border-gray-200 rounded-md p-3 bg-gray-50">
+                      <Input
+                        placeholder="New company name"
+                        value={newCompanyName}
+                        onChange={(e) => setNewCompanyName(e.target.value)}
+                      />
+                      <Input
+                        placeholder="Company domain (e.g. acme.com)"
+                        value={newCompanyDomain}
+                        onChange={(e) => setNewCompanyDomain(e.target.value)}
+                      />
+                      <Button type="button" variant="outline" onClick={handleCreateCompany} disabled={creatingCompany}>
+                        {creatingCompany ? 'Creating company...' : 'Create Company'}
+                      </Button>
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-500 mt-1">Developers can create users in any company.</p>
+                </>
+              ) : (
+                <>
+                  <Input
+                    id="company_name"
+                    name="company_name"
+                    type="text"
+                    value={companyName || formData.company_name}
+                    readOnly
+                    disabled
+                    className="w-full p-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Company is automatically set based on your account</p>
+                </>
+              )}
             </div>
 
             {/* Department and Employment Status */}
@@ -2234,8 +2357,9 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
 
               <div className="text-xs text-gray-500 mt-1">
                 Selected: {formData.selected_roles.length} role{formData.selected_roles.length === 1 ? '' : 's'}
-                {isAdmin && !isSuperAdmin && <span className="ml-2 text-amber-600">(Admins can only assign User role)</span>}
-                {isSuperAdmin && <span className="ml-2 text-blue-600">(Super Admins can assign User and Admin roles)</span>}
+                {isDeveloper && <span className="ml-2 text-emerald-600">(Developers can assign all roles)</span>}
+                {isAdmin && !isSuperAdmin && !isDeveloper && <span className="ml-2 text-amber-600">(Admins can only assign User role)</span>}
+                {isSuperAdmin && !isDeveloper && <span className="ml-2 text-blue-600">(Super Admins can assign User and Admin roles)</span>}
               </div>
 
               {/* Selected Roles Preview */}
@@ -2977,6 +3101,7 @@ function UpdateEmployeeModal({
   companyName,
   isAdmin,
   isSuperAdmin,
+  isDeveloper,
   currentRole, 
   onSuccess 
 }: { 
@@ -2987,6 +3112,7 @@ function UpdateEmployeeModal({
   companyName: string;
   isAdmin: boolean;
   isSuperAdmin: boolean;
+  isDeveloper: boolean;
   currentRole: string[];
   onSuccess: () => void;
 }) {
@@ -3016,6 +3142,10 @@ function UpdateEmployeeModal({
   const filteredRoles = roles.filter((role: any) => {
     const roleName = (role.name || '').toLowerCase().replace(/[-_\s]/g, '');
     const roleLevel = role.level || 0;
+
+    if (isDeveloper) {
+      return true;
+    }
     
     if (isSuperAdmin) {
       // Super admin can assign user and admin roles (not super_admin)
@@ -3498,8 +3628,9 @@ function UpdateEmployeeModal({
 
               <div className="text-xs text-gray-500 mt-1">
                 Selected: {formData.selected_roles.length} role{formData.selected_roles.length === 1 ? '' : 's'}
-                {isAdmin && !isSuperAdmin && <span className="ml-2 text-amber-600">(Admins can only assign User role)</span>}
-                {isSuperAdmin && <span className="ml-2 text-blue-600">(Super Admins can assign User and Admin roles)</span>}
+                {isDeveloper && <span className="ml-2 text-emerald-600">(Developers can assign all roles)</span>}
+                {isAdmin && !isSuperAdmin && !isDeveloper && <span className="ml-2 text-amber-600">(Admins can only assign User role)</span>}
+                {isSuperAdmin && !isDeveloper && <span className="ml-2 text-blue-600">(Super Admins can assign User and Admin roles)</span>}
               </div>
 
               {/* Selected Roles Preview */}
