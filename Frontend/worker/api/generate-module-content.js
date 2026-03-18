@@ -17,12 +17,9 @@ console.log("Supabase client created successfully")
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY  });
 
-
 // Configs 
-const TEMPERATURE = 0.2;
+const TEMPERATURE = 0.1;
 const TOP_P = 1.0;
-
-
 
 async function generateModuleContent({ moduleId = null } = {}) {
   console.log(`[GENERATE] Starting content generation ${moduleId ? `for module: ${moduleId}` : 'for all modules'}`);
@@ -202,9 +199,10 @@ ${objectivesText}
         {
           query_embedding: queryEmbedding,
           p_module_id: mod.original_module_id,
-          match_count: 6
+          match_count: 4
         }
       );
+
       
       console.log(`[RAG] Matched chunks count: ${matchedChunks?.length || 0}`);
 
@@ -326,13 +324,44 @@ All entities present here are FACTUAL.
 ${documentContext}
 ${imageContext}
 
+ANTI-REPETITION RULE (CRITICAL)
+
+The model MUST NOT begin the module with a generic introduction to the overall subject domain.
+
+The following are STRICTLY FORBIDDEN unless explicitly required by the source context:
+- General definitions of the overall subject (e.g., "Food safety is...")
+- Broad introductory statements that apply to all modules
+- Repeated explanations of foundational concepts already implied across modules
+
+The module MUST start directly with topic-specific content derived from the provided context.
+
+If introductory context is necessary:
+→ It must be strictly limited to 1–2 sentences
+→ It must be directly tied to the module topic
+→ It must not repeat general domain definitions
+
+MODULE START RULE (MANDATORY)
+
+The module MUST begin directly with structured section content.
+
+The model MUST NOT:
+- Start with a broad paragraph introducing the entire subject
+- Provide a general overview before sections
+
+The first section must immediately address a concept specific to the module title.
 -----------------------------
 MODULE ISOLATION RULE (CRITICAL)
 -----------------------------
-This module must be fully self-contained.
+The module must be self-contained for its specific topic, 
+but must not repeat general concepts unless they are directly required.
 Do NOT reference other modules, earlier sections, or future modules.
-Do NOT assume prior learner knowledge beyond what is implied by the topics.
+Do NOT assume prior learner knowledge beyond what is required for the current module topic.
 
+If a concept is NOT central to the module topic:
+→ DO NOT introduce it as a general introduction.
+
+The module must be self-contained ONLY for its specific topic,
+NOT for the entire subject domain.
 The response MUST NEVER be empty.
 
 If any instruction conflict occurs,
@@ -589,8 +618,6 @@ If the content is shorter than 8000 characters, the model MUST:
 • Expand the module summary
 • Expand the learning activity instructions
 
-The model must continue expanding until the output length exceeds 8000 characters.
-
 ----------------------------------
 DEADLOCK RESOLUTION RULE
 ----------------------------------
@@ -777,7 +804,7 @@ Module is fully self-contained
             continue;
           }
 
-          console.log("[GEMINI] Attaching image:", img.image_url);
+          // console.log("[GEMINI] Attaching image:", img.image_url);
 
           geminiContents[0].parts.push({
             fileData: {
@@ -811,7 +838,7 @@ Module is fully self-contained
           model: 'gemini-3-pro-preview',
           contents: geminiContents,
           generationConfig: {
-            maxOutputTokens: 6000,
+            maxOutputTokens: 3000,
             temperature: TEMPERATURE,
             topP: TOP_P
           }
@@ -830,7 +857,7 @@ Module is fully self-contained
             model: 'gemini-3-pro-preview',
             contents: geminiContents,
             generationConfig: {
-              maxOutputTokens: 6000,
+              maxOutputTokens: 4000,
               temperature: TEMPERATURE,
               topP: TOP_P
             }

@@ -16,6 +16,7 @@ from fastapi import UploadFile, File, Form
 import tempfile
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
+from ingestion.parser import parse_excel_first_sheet
 
 # ✅ Gemini v1 SDK
 from google import genai  # type: ignore
@@ -39,23 +40,6 @@ def get_cloudconvert_client():
         return None
 
 router = APIRouter()
-
-# -------------------------
-# Supabase client (same role as "../../../lib/supabase")
-# -------------------------
-# supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-# supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
-
-# print(supabase_url)
-# if not supabase_url:
-#     print("[openai_upload] ERROR: NEXT_PUBLIC_SUPABASE_URL not set!")
-# if not supabase_key:
-#     print("[openai_upload] ERROR: Neither SUPABASE_SERVICE_ROLE_KEY nor SUPABASE_ANON_KEY is set!")
-# else:
-#     key_preview = f"{supabase_key[:20]}...{supabase_key[-10:]}" if len(supabase_key) > 30 else "***"
-#     print(f"[openai_upload] Using Supabase key: {key_preview}")
-
-# supabase: Client = create_client(supabase_url, supabase_key)
 
 # -------------------------
 # CloudConvert setup
@@ -569,15 +553,75 @@ async def processAndStoreResults(moduleId: str, message: str):
 # -------------------------
 # handleTextContent
 # -------------------------
+from google.genai import types
+
+def normalize_gemini_contents(contents):
+    """
+    Convert dict-based messages to Gemini Content/Part objects.
+    Keeps existing Content objects untouched.
+    """
+
+    normalized = []
+
+    for item in contents:
+
+        # already correct
+        if isinstance(item, types.Content):
+            normalized.append(item)
+            continue
+
+        # convert dict -> Content
+        if isinstance(item, dict):
+            role = item.get("role", "user")
+            parts = item.get("parts", [])
+
+            normalized_parts = []
+
+            for p in parts:
+                if isinstance(p, types.Part):
+                    normalized_parts.append(p)
+                elif isinstance(p, str):
+                    normalized_parts.append(types.Part(text=p))
+                else:
+                    normalized_parts.append(types.Part(text=str(p)))
+
+            normalized.append(types.Content(role=role, parts=normalized_parts))
+            continue
+
+        # convert raw string
+        if isinstance(item, str):
+            normalized.append(
+                types.Content(role="user", parts=[types.Part(text=item)])
+            )
+            continue
+
+        # fallback
+        normalized.append(
+            types.Content(role="user", parts=[types.Part(text=str(item))])
+        )
+
+    return normalized
+
+
 async def processTextContent(text: str, moduleId: str):
     # ✅ same logic: previously OpenAI chat completion
     # Now: Gemini text-only generation (no file upload), but flow unchanged.
+    # response = gemini_client.models.generate_content(
+    #     model="gemini-3-flash-preview",
+    #     contents=[
+    #         {"role": "user", "parts": [INSTRUCTION_PROMPT]},
+    #         {"role": "user", "parts": [f"Process the content provided here:\n\n===== BEGIN CONTENT =====\n{text}\n===== END CONTENT ====="]},
+    #     ],
+    # )
+
+    payload = [
+        {"role": "user", "parts": [INSTRUCTION_PROMPT]},
+        {"role": "user", "parts": [f"Process the content provided here:\n\n===== BEGIN CONTENT =====\n{text}\n===== END CONTENT ====="]},
+    ]
+
     response = gemini_client.models.generate_content(
         model="gemini-3-flash-preview",
-        contents=[
-            {"role": "user", "parts": [INSTRUCTION_PROMPT]},
-            {"role": "user", "parts": [f"Process the content provided here:\n\n===== BEGIN CONTENT =====\n{text}\n===== END CONTENT ====="]},
-        ],
+        contents=normalize_gemini_contents(payload)
     )
 
     message = getattr(response, "text", "") or ""
@@ -604,8 +648,32 @@ async def openai_upload_file(
 ):
     temp_files = []
     pdf_files = []
+    # excel_blocks = []
     merged_pdf_path = None
     source_file_paths = []
+
+    allowed_extensions = {"pdf", "doc", "docx", "ppt", "pptx"}
+    extensions = [f.filename.lower().split(".")[-1] for f in files]
+
+    invalid_files = [f.filename for f in files if f.filename.lower().split(".")[-1] not in allowed_extensions]
+    if invalid_files:
+        raise Exception(
+            f"Unsupported file type(s): {', '.join(invalid_files)}. "
+            "Only PDF, DOC, DOCX, PPT, and PPTX are allowed."
+        )
+
+  
+
+    # if any(ext == "xls" for ext in extensions):
+    #     raise Exception(".xls files are not supported. Please upload .xlsx")
+
+    # has_excel = any(ext == "xlsx" for ext in extensions)
+    # has_docs = any(ext in ["pdf", "doc", "docx", "ppt", "pptx"] for ext in extensions)
+
+    # if has_excel and has_docs:
+    #     raise Exception(
+    #         "Mixed uploads not allowed. Upload Excel files separately from PDF/DOC/PPT."
+    #     )
 
     try:
         print("FILES RECEIVED COUNT:", len(files))
@@ -647,14 +715,74 @@ async def openai_upload_file(
 
             filename_lower = file.filename.lower()
 
-            if filename_lower.endswith(".doc") or filename_lower.endswith(".docx"):
-                converted_pdf = temp_path.rsplit(".", 1)[0] + ".pdf"
-                await convertDocToPdf(temp_path, converted_pdf)
-                pdf_files.append(converted_pdf)
-            elif filename_lower.endswith(".pdf"):
-                pdf_files.append(temp_path)
+            # Reject legacy excel
+            if filename_lower.endswith(".xls"):
+                raise Exception(".xls files are not supported. Please upload .xlsx")
+
+            # Excel mode
+            # elif filename_lower.endswith(".xlsx"):
+
+            #     parsed_blocks = parse_excel_first_sheet(temp_path)
+
+            #     if not parsed_blocks:
+            #         raise Exception(f"No usable data found in first sheet for {file.filename}")
+
+            #     excel_blocks.extend(parsed_blocks)
+
+            # PDF-like mode
+            elif filename_lower.endswith((".pdf", ".doc", ".docx", ".ppt", ".pptx")):
+
+                # convert office docs to pdf
+                if filename_lower.endswith((".doc", ".docx", ".ppt", ".pptx")):
+                    converted_pdf = temp_path.rsplit(".", 1)[0] + ".pdf"
+                    await convertDocToPdf(temp_path, converted_pdf)
+                    pdf_files.append(converted_pdf)
+                else:
+                    pdf_files.append(temp_path)
+
             else:
                 raise Exception(f"Unsupported file type: {file.filename}")
+            
+        # Reject heterogeneous upload
+        # if excel_blocks and pdf_files:
+        #     raise Exception(
+        #         "Mixed uploads not allowed. Upload Excel files separately from PDF/DOC/PPT."
+        #     )
+        
+        # ==========================
+        # EXCEL MODE
+        # ==========================
+        # if excel_blocks:
+
+        #     combined_text = "\n\n".join(block["content"] for block in excel_blocks)
+
+        #     # update module metadata
+        #     supabase.table("training_modules").update({
+        #         "source_files": source_file_paths,
+        #         "processing_status": "summarizing"
+        #     }).eq("module_id", moduleId).execute()
+
+        #     # attach preview url of first excel file
+        #     if source_file_paths:
+
+        #         url_res = supabase.storage.from_("content library").get_public_url(
+        #             source_file_paths[0]
+        #         )
+
+        #         if isinstance(url_res, str):
+        #             source_url = url_res
+        #         elif isinstance(url_res, dict):
+        #             source_url = url_res.get("publicUrl") or url_res.get("public_url")
+        #         else:
+        #             source_url = None
+
+        #         if source_url:
+        #             supabase.table("training_modules").update({
+        #                 "content_url": source_url
+        #             }).eq("module_id", moduleId).execute()
+
+        #     # send text to Gemini
+        #     return await processTextContent(combined_text, moduleId)
 
         merged_pdf_path = os.path.join(tempDir, f"{moduleId}_combined.pdf")
 
@@ -734,11 +862,17 @@ async def openai_upload_file(
 
     finally:
         for path in temp_files:
-            if os.path.exists(path):
-                os.unlink(path)
+            try:
+                if path and os.path.exists(path):
+                    os.unlink(path)
+            except Exception as e:
+                print(f"Cleanup warning: could not delete {path} -> {e}")
 
-        if merged_pdf_path and os.path.exists(merged_pdf_path):
-            os.unlink(merged_pdf_path)
+        try:
+            if merged_pdf_path and os.path.exists(merged_pdf_path):
+                os.unlink(merged_pdf_path)
+        except Exception as e:
+            print(f"Cleanup warning: could not delete merged pdf -> {e}")
 
 @router.post("/preview-file")
 async def preview_file(payload: dict):

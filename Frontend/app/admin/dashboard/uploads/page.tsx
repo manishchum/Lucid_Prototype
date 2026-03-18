@@ -412,7 +412,7 @@ function ContentUpload({
           </p>
 
           <p className="text-xs text-gray-500 mt-1">
-            Maximum file size 4MB. PDF and DOCX only.
+            Maximum file size 4MB. PDF, PPT and DOCX only.
           </p>
 
           <input
