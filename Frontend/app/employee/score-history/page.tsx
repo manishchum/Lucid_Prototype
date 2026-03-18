@@ -6,21 +6,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ChevronDown, BookOpen } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
+import { sharedDataClient, createCacheKey } from "@/lib/data-client";
 import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import RolePlayReports from "@/components/roleplay/RolePlayReports";
 
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
-
-const fetchUserByEmail = async (email: string) => {
-  const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
-  if (!res.ok) return null;
-  const payload = await res.json();
-  let u = payload?.user ?? payload;
-  if (Array.isArray(u)) u = u[0]; 
-  return u || null;
-};
 // Helper component to format question-specific feedback
 // Robust parsing of: JSON array, comma-separated quoted tokens, or free-form sections
 const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { feedback: string; employeeName: string; totalQuestions?: number }) => {
@@ -254,7 +246,7 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
 };
 
 export default function ScoreHistoryPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, employeeData: authEmployeeData, loading: authLoading } = useAuth();
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [employeeName, setEmployeeName] = useState<string>("");
   const [scoreHistory, setScoreHistory] = useState<any[]>([]);
@@ -272,169 +264,306 @@ export default function ScoreHistoryPage() {
    useEffect(() => {
         if (!authLoading) {
           if (!user) router.push("/login");
-          else fetchEmployeeAndHistory();
+          else fetchAllData();
           
         }
       }, [user, authLoading, router]);
 
-  const fetchEmployeeAndHistory = async () => {
-    setLoading(true);
-    try {
-      const email: string = user?.email ?? '';
-      // First, get employee data including name and company_id
-      const employeeData = await fetchUserByEmail(email);
-      
-      if (!employeeData?.user_id) {
-        setLoading(false);
-        return;
-      }
-      
-      setEmployeeId(employeeData.user_id);
-      setEmployeeName(employeeData.name || "");
-
-      // Fetch company's learning_style setting
-      if (employeeData.company_id) {
-        try{
-          const compRes = await fetch(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`);
-          if (compRes.ok) {
-            const compPayload = await compRes.json().catch(() => null);
-            const companyData = compPayload?.company ?? compPayload;
-            setCompanyUsesLearningStyle(Boolean(companyData?.learning_style));
-        }
-      } catch (e) {
-        console.warn("Error fetching company data:", e);
-      }
+  const getEmployee = async () => {
+    if (authEmployeeData?.user_id) {
+      return authEmployeeData;
     }
 
-      // Fetch assessment history via backend API
-      let enriched: any[] = [];
-      try {
-        console.log(employeeData.user_id);
-        const empAssessRes = await fetch(
-          `${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeData.user_id)}`,
+    const email = user?.email ?? "";
+    if (!email) {
+      return null;
+    }
+
+    const userCacheId =
+      (user as any)?.uid ||
+      (user as any)?.id ||
+      authEmployeeData?.user_id ||
+      email;
+
+    const { data: employeePayload } = await sharedDataClient.query(
+      createCacheKey({
+        namespace: "employee",
+        userId: String(userCacheId),
+        path: "/employee/me",
+      }),
+      async () => {
+        const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+        if (!res.ok) {
+          throw new Error("Failed to fetch employee");
+        }
+        return res.json();
+      },
+      {
+        ttlMs: 10 * 60 * 1000,
+      },
+    );
+
+    let employee = (employeePayload as any)?.user ?? employeePayload;
+    if (Array.isArray(employee)) {
+      employee = employee[0];
+    }
+
+    return employee || null;
+  };
+
+  const getCompany = async (employee: any) => {
+    if (!employee?.company_id) {
+      return null;
+    }
+
+    const { data: companyPayload } = await sharedDataClient.query(
+      createCacheKey({
+        namespace: "company",
+        tenantId: String(employee.company_id),
+        path: `/company/${employee.company_id}`,
+      }),
+      async () => {
+        const res = await fetch(`${API_BASE}/api/companies/${encodeURIComponent(employee.company_id)}`);
+        if (!res.ok) {
+          throw new Error("Failed to fetch company");
+        }
+        return res.json();
+      },
+      {
+        ttlMs: 10 * 60 * 1000,
+      },
+    );
+
+    return (companyPayload as any)?.company ?? companyPayload;
+  };
+
+  const getAssessments = async (employee: any) => {
+    const { data: assessmentsPayload } = await sharedDataClient.query(
+      createCacheKey({
+        namespace: "assessments",
+        userId: String(employee.user_id),
+        path: "/employee-assessments",
+      }),
+      async () => {
+        const res = await fetch(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employee.user_id)}`,
           {
-            headers: {
-              'X-User-ID': employeeData.user_id
-            }
-          }
+            headers: { "X-User-ID": employee.user_id },
+          },
         );
-        console.log(empAssessRes);
-        
-        if (empAssessRes.ok) {
-          const empAssessPayload = await empAssessRes.json().catch(() => ({}));
-          let assessments = Array.isArray(empAssessPayload?.assessments) 
-            ? empAssessPayload.assessments 
-            : (Array.isArray(empAssessPayload?.data) ? empAssessPayload.data : []);
-
-          console.log("Payload", empAssessPayload);
-
-          // Extract unique assessment_ids and fetch assessment details
-          const uniqueIds = new Set<string>();
-          assessments.forEach((ea: any) => {
-            if (ea.assessment_id) {
-              uniqueIds.add(String(ea.assessment_id));
-            }
-          });
-          const assessmentIds = Array.from(uniqueIds);
-
-          if (assessmentIds.length > 0) {
-            // Fetch all assessment details in parallel
-            const assessmentDetailsPromises = assessmentIds.map(async (assessmentId) => {
-              try {
-                const res = await fetch(
-                  `${API_BASE}/api/assessments/${encodeURIComponent(assessmentId)}`,
-                  {
-                    headers: {
-                      'X-User-ID': employeeData.user_id
-                    }
-                  }
-                );
-                if (res.ok) {
-                  const payload = await res.json().catch(() => ({}));
-                  return payload?.assessment || payload;
-                }
-              } catch (e) {
-                console.warn(`Failed to fetch assessment ${assessmentId}:`, e);
-              }
-              return null;
-            });
-
-            const assessmentDetails = await Promise.all(assessmentDetailsPromises);
-            const assessmentMap = new Map();
-            assessmentDetails.forEach((assessment: any) => {
-              if (assessment?.assessment_id) {
-                assessmentMap.set(assessment.assessment_id, assessment);
-              }
-            });
-
-            // Enrich employee_assessments with assessment details
-            enriched = assessments.map((ea: any) => {
-              const assessmentDetail = assessmentMap.get(ea.assessment_id);
-              return {
-                ...ea,
-                assessments: assessmentDetail || null
-              };
-            });
-          } else {
-            enriched = assessments;
-          }
+        if (!res.ok) {
+          throw new Error("Failed to fetch employee assessments");
         }
-      } catch (e) {
-        console.warn('[score-history] Failed to fetch employee assessments via backend:', e);
-      }
+        return res.json();
+      },
+      {
+        ttlMs: 2 * 60 * 1000,
+        swr: true,
+      },
+    );
 
-      // Enrich with module titles for non-baseline assessments
-      const moduleIds = (enriched || [])
-        .filter((a: any) => a?.assessments?.type === 'module' && a.assessments?.processed_module_id)
-        .map((a: any) => String(a.assessments.processed_module_id));
-      if (moduleIds.length) {
-        // Fetch processed_modules via backend batch endpoint instead of direct Supabase call
-        try {
-          const pmRes = await fetch(`${API_BASE}/api/processed-modules/batch`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(employeeData?.user_id ? { 'X-User-ID': employeeData.user_id } : {})
-            },
-            body: JSON.stringify({ processed_module_ids: moduleIds })
-          });
-          const pmPayload = await pmRes.json().catch(() => ({}));
-          const mods = Array.isArray(pmPayload?.data) ? pmPayload.data : [];
-          const titleMap = new Map<string, string>();
-          (mods || []).forEach((m: any) => {
-            if (m?.processed_module_id && m?.title) {
-              titleMap.set(String(m.processed_module_id), m.title);
-            }
-          });
-          enriched = enriched.map((a: any) => {
-            if (a?.assessments?.type === 'module') {
-              const pid = String(a.assessments?.processed_module_id || '');
-              const title = pid ? titleMap.get(pid) : undefined;
-              return { ...a, assessments: { ...a.assessments, module_title: title } };
-            }
-            return a;
-          });
-        } catch (e) {
-          console.warn('[score-history] failed to fetch processed module titles via backend', e);
+    const assessments = Array.isArray((assessmentsPayload as any)?.assessments)
+      ? (assessmentsPayload as any).assessments
+      : (Array.isArray((assessmentsPayload as any)?.data) ? (assessmentsPayload as any).data : []);
+
+    const assessmentIds: string[] = Array.from(
+      new Set<string>(
+        assessments
+          .map((ea: any) => ea?.assessment_id)
+          .filter(Boolean)
+          .map((id: any) => String(id)),
+      ),
+    );
+
+    if (!assessmentIds.length) {
+      return assessments;
+    }
+
+    const { data: detailsPayload } = await sharedDataClient.query(
+      createCacheKey({
+        namespace: "assessment-details",
+        userId: String(employee.user_id),
+        path: "/assessments/batch",
+        query: { ids: assessmentIds },
+      }),
+      async () => {
+        const promises = assessmentIds.map((id) =>
+          fetch(`${API_BASE}/api/assessments/${encodeURIComponent(id)}`, {
+            headers: { "X-User-ID": employee.user_id },
+          }).then((r) => (r.ok ? r.json() : null)),
+        );
+
+        return Promise.all(promises);
+      },
+      {
+        ttlMs: 5 * 60 * 1000,
+      },
+    );
+
+    const assessmentMap = new Map<string, any>();
+    (Array.isArray(detailsPayload) ? detailsPayload : []).forEach((payload: any) => {
+      const assessment = payload?.assessment || payload;
+      if (assessment?.assessment_id) {
+        assessmentMap.set(String(assessment.assessment_id), assessment);
+      }
+    });
+
+    return assessments.map((ea: any) => ({
+      ...ea,
+      assessments: assessmentMap.get(String(ea.assessment_id)) || null,
+    }));
+  };
+
+  const getModules = async (employee: any, assessments: any[]) => {
+    const moduleIds = (assessments || [])
+      .filter((a: any) => a?.assessments?.type === "module" && a.assessments?.processed_module_id)
+      .map((a: any) => String(a.assessments.processed_module_id));
+
+    if (!moduleIds.length) {
+      return assessments;
+    }
+
+    const { data: modulesPayload } = await sharedDataClient.query(
+      createCacheKey({
+        namespace: "modules",
+        userId: String(employee.user_id),
+        path: "/processed-modules/batch",
+        query: { ids: moduleIds },
+      }),
+      async () => {
+        const res = await fetch(`${API_BASE}/api/processed-modules/batch`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-ID": employee.user_id,
+          },
+          body: JSON.stringify({ processed_module_ids: moduleIds }),
+        });
+
+        if (!res.ok) {
+          throw new Error("Failed to fetch module titles");
         }
-      }
-      
-      setScoreHistory(enriched);
 
-      // Fetch learning style data
-      const { data: learningStyle, error: learningStyleError } = await supabase
-        .from("employee_learning_style")
-        .select("user_id, answers, learning_style, gpt_analysis, created_at, updated_at")
-        .eq("user_id", employeeData.user_id)
-        .single();
-      
-      if (learningStyleError) {
-        console.warn("Learning style fetch error:", learningStyleError);
-        setLearningStyleData(null);
-      } else {
-        setLearningStyleData(learningStyle);
+        return res.json();
+      },
+      {
+        ttlMs: 10 * 60 * 1000,
+      },
+    );
+
+    const mods = Array.isArray((modulesPayload as any)?.data) ? (modulesPayload as any).data : [];
+    const titleMap = new Map<string, string>();
+    mods.forEach((m: any) => {
+      if (m?.processed_module_id && m?.title) {
+        titleMap.set(String(m.processed_module_id), m.title);
       }
-      
+    });
+
+    return assessments.map((a: any) => {
+      if (a?.assessments?.type !== "module") {
+        return a;
+      }
+
+      const pid = String(a.assessments?.processed_module_id || "");
+      const title = pid ? titleMap.get(pid) : undefined;
+      return { ...a, assessments: { ...a.assessments, module_title: title } };
+    });
+  };
+
+  const getLearningStyle = async (employee: any) => {
+    const { data: learningStyle } = await sharedDataClient.query(
+      createCacheKey({
+        namespace: "learning-style",
+        userId: String(employee.user_id),
+        path: "/learning-style",
+      }),
+      async () => {
+        const { data } = await supabase
+          .from("employee_learning_style")
+          .select("*")
+          .eq("user_id", employee.user_id)
+          .single();
+
+        return data ?? null;
+      },
+      {
+        ttlMs: 10 * 60 * 1000,
+      },
+    );
+
+    return learningStyle;
+  };
+
+  const consumePendingAssessment = () => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    try {
+      const raw = sessionStorage.getItem("pending_score_history_assessment");
+      if (!raw) {
+        return null;
+      }
+
+      sessionStorage.removeItem("pending_score_history_assessment");
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  };
+
+  const fetchAllData = async () => {
+    setLoading(true);
+    try {
+      const employee = await getEmployee();
+      if (!employee?.user_id) {
+        return;
+      }
+
+      setEmployeeId(employee.user_id);
+      setEmployeeName(employee.name || "");
+
+      const company = await getCompany(employee);
+      const assessments = await getAssessments(employee);
+      const assessmentsWithModules = await getModules(employee, assessments);
+      const learningStyle = await getLearningStyle(employee);
+
+      const pending = consumePendingAssessment();
+      const mergedAssessments = (() => {
+        if (!pending) {
+          return assessmentsWithModules;
+        }
+
+        const pendingAssessmentId = String(pending.assessment_id || "");
+        const alreadyExists = (assessmentsWithModules || []).some((item: any) => {
+          const topLevelId = String(item?.assessment_id || "");
+          const nestedId = String(item?.assessments?.assessment_id || "");
+          return Boolean(pendingAssessmentId) && (topLevelId === pendingAssessmentId || nestedId === pendingAssessmentId);
+        });
+
+        if (alreadyExists) {
+          return assessmentsWithModules;
+        }
+
+        const optimistic = {
+          assessment_id: pending.assessment_id || null,
+          score: pending.score || 0,
+          max_score: pending.max_score || null,
+          feedback: pending.feedback || "",
+          question_feedback: pending.question_feedback || null,
+          created_at: pending.created_at || new Date().toISOString(),
+          assessments: {
+            assessment_id: pending.assessment_id || null,
+            type: pending.type || "module",
+            module_title: pending.module_title || "Module Assessment",
+          },
+        };
+
+        return [optimistic, ...(assessmentsWithModules || [])];
+      })();
+
+      setCompanyUsesLearningStyle(Boolean(company?.learning_style));
+      setScoreHistory(mergedAssessments);
+      setLearningStyleData(learningStyle || null);
     } catch (err) {
       console.error("Error fetching data:", err);
     } finally {
