@@ -49,6 +49,8 @@ app.add_middleware(
         FRONTEND_URL,
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "localhost:3000",
+        "127.0.0.1:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -74,7 +76,7 @@ async def debug_user(user_id: str):
     user = supabase.table('users').select('company_id, name').eq('user_id', user_id).single().execute()
     
     # Get role assignments
-    roles = supabase.table('user_role_assignments').select('*, role:roles(*)').eq('user_id', user_id).eq('is_active', True).execute()
+    roles = supabase.table('user_role_assignments').select(', role:roles()').eq('user_id', user_id).eq('is_active', True).execute()
     
     # Check permissions
     has_manager = await check_user_permission(user_id, 'manager')
@@ -132,8 +134,3 @@ if __name__ == "__main__":
     import uvicorn
     from config import HOST, PORT
     uvicorn.run("main:app", host=HOST, port=PORT, reload=True)
-
-
-
-
-

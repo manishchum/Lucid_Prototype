@@ -336,7 +336,7 @@ async def update_content_generation_data(
     requesting_user_id: str,
     processed_module_id: str,
     mindmap_data: Optional[dict] = None,
-    flashcard_data: Optional[dict] = None,
+    flashcard_data: Optional[list] = None,
     infographic_data: Optional[dict] = None
 ) -> Dict[str, Any]:
     """
@@ -344,11 +344,14 @@ async def update_content_generation_data(
     Permission: User must have access to the original training module.
     """
     try:
+        print(f"Starting update_content_generation_data for processed_module_id: {processed_module_id} by user: {requesting_user_id}")
         # Get the processed module to check access
         module_resp = supabase.table('processed_modules').select(
             'original_module_id'
         ).eq('processed_module_id', processed_module_id).maybe_single().execute()
         
+
+        print(f"Fetched module for update_content_generation_data: {module_resp.data}")
         if not module_resp.data:
             return {"data": None, "error": "Processed module not found"}
         
@@ -376,6 +379,7 @@ async def update_content_generation_data(
         if not updates:
             return {"data": None, "error": "No data provided for update"}
         
+        print(f"Updating processed_module_id {processed_module_id} with data: {updates}")
         # Update the module
         response = supabase.table('processed_modules').update(updates).eq(
             'processed_module_id', processed_module_id

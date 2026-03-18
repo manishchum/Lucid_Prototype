@@ -55,7 +55,7 @@ class ScheduleEmailRequest(BaseModel):
 
 
 class NotifyEmailRequest(BaseModel):
-    module_id: str
+    module_id: Optional[str] = None                           # For backward compatibility (single module)
     selected_content: List[str]   # e.g. ["flashcards", "audio"]
     scheduled_date: Optional[str] = None
     scheduled_time: Optional[str] = None
@@ -63,6 +63,7 @@ class NotifyEmailRequest(BaseModel):
     customAudioUrl: Optional[str] = None                      # overrides module audio_url
     dry_run: bool = False                                     # True = build + return full HTML, no send
     blocks_only: bool = False                                 # True = return only the inner content block HTML
+    module_ids: Optional[List[str]] = None                    # For multi-module: list of specific modules to include
 
 
 # ── Content-block email builder ─────────────────────────────────
@@ -854,37 +855,101 @@ async def notify_email(
       ["audio"]                → audio only
       ["flashcards"]           → flashcards only
       []                       → header + footer only
+    
+    When module_ids are provided, only include flashcards/audio from those specific modules.
+    When module_ids is None, use module_id (backward compatibility - aggregates all modules).
     """
+
+    print(f"\n[NOTIFY-EMAIL DEBUG] Received request: {request}")
+    # Determine which module IDs to fetch content for
+    target_module_ids = request.module_ids if request.module_ids else [request.module_id] if request.module_id else []
+    
+    if not target_module_ids:
+        raise HTTPException(status_code=400, detail="Either module_id or module_ids must be provided")
+
     # 1a. Fetch sprint title from training_modules
-    sprint_result = supabase.table("training_modules") \
+    first_module_id = target_module_ids[0]
+    print(f"\n[NOTIFY-EMAIL DEBUG] Fetching sprint title for module: {first_module_id}")
+    sprint_result = supabase.table("processed_modules") \
         .select("title") \
-        .eq("module_id", request.module_id) \
+        .eq("processed_module_id", first_module_id) \
         .single() \
         .execute()
 
     if not sprint_result.data:
         raise HTTPException(status_code=404, detail="Module not found")
 
-    # 1b. Fetch flashcard_data and audio_url from processed_modules for this sprint
-    fc_result = supabase.table("processed_modules") \
-        .select("flashcard_data, audio_url") \
-        .eq("original_module_id", request.module_id) \
-        .execute()
-
-    # Aggregate flashcard_data arrays and pick the first available audio_url
+    # 1b. Fetch flashcard_data and audio_url ONLY from the specified modules
     combined_flashcards: List[Dict[str, Any]] = []
     audio_url_from_db = ""
-    for row in (fc_result.data or []):
-        if row.get("flashcard_data"):
-            combined_flashcards.extend(row["flashcard_data"])
-        if not audio_url_from_db and row.get("audio_url"):
-            audio_url_from_db = row["audio_url"]
+    
+    for target_id in target_module_ids:
+        print(f"\n[NOTIFY-EMAIL DEBUG] Fetching content for module: {target_id}")
+        
+        # If module_ids provided, fetch by processed_module_id; otherwise use original_module_id
+        if request.module_ids:
+            # Fetching specific processed modules
+            print(f"[NOTIFY-EMAIL DEBUG] Using module_ids approach (specific module ID)")
+            fc_result = supabase.table("processed_modules") \
+                .select("flashcard_data, audio_url, title") \
+                .eq("processed_module_id", target_id) \
+                .single() \
+                .execute()
+            print(f"[NOTIFY-EMAIL DEBUG] Query result: {fc_result.data}")
+        else:
+            # Backward compatibility: fetch all processed modules for original module
+            print(f"[NOTIFY-EMAIL DEBUG] Using backward compatibility approach (original module ID)")
+            fc_result = supabase.table("processed_modules") \
+                .select("flashcard_data, audio_url, title") \
+                .eq("original_module_id", target_id) \
+                .execute()
+            print(f"[NOTIFY-EMAIL DEBUG] Query result: {fc_result.data}")
+        
+        # Aggregate flashcard_data and pick first audio_url
+        if fc_result.data:
+            print(f"[NOTIFY-EMAIL DEBUG] Data found for {target_id}")
+            if isinstance(fc_result.data, list):
+                # Multiple rows
+                print(f"[NOTIFY-EMAIL DEBUG] Multiple rows returned: {len(fc_result.data)}")
+                for row in fc_result.data:
+                    print(f"[NOTIFY-EMAIL DEBUG] Row: {row.get('title')} - flashcards: {len(row.get('flashcard_data') or [])}")
+                    if row.get("flashcard_data"):
+                        combined_flashcards.extend(row["flashcard_data"])
+                    if not audio_url_from_db and row.get("audio_url"):
+                        audio_url_from_db = row["audio_url"]
+            else:
+                # Single row
+                print(f"[NOTIFY-EMAIL DEBUG] Single row returned: {fc_result.data.get('title')}")
+                print(f"[NOTIFY-EMAIL DEBUG] Flashcard data: {fc_result.data.get('flashcard_data')}")
+                if fc_result.data.get("flashcard_data"):
+                    fc_list = fc_result.data["flashcard_data"]
+                    print(f"[NOTIFY-EMAIL DEBUG] Adding {len(fc_list)} flashcards")
+                    combined_flashcards.extend(fc_list)
+                else:
+                    print(f"[NOTIFY-EMAIL DEBUG] No flashcard_data found in row")
+                if not audio_url_from_db and fc_result.data.get("audio_url"):
+                    audio_url_from_db = fc_result.data["audio_url"]
+                print(f"[NOTIFY-EMAIL DEBUG] Current audio_url_from_db: {audio_url_from_db or 'NONE'}")
+        else:
+            print(f"[NOTIFY-EMAIL DEBUG] No data found for {target_id}")
 
+    print(f"\n[NOTIFY-EMAIL DEBUG] Total flashcards aggregated: {len(combined_flashcards)}")
+    print(f"[NOTIFY-EMAIL DEBUG] Audio URL from DB: {audio_url_from_db or 'NONE'}")
+    
     module = {
         "title": sprint_result.data.get("title", ""),
         "audio_url": audio_url_from_db,
         "flashcard_data": combined_flashcards,
     }
+
+    print(f"\n[NOTIFY-EMAIL DEBUG] === FINAL MODULE DATA ===")
+    print(f"[NOTIFY-EMAIL DEBUG] Title: {module['title']}")
+    print(f"[NOTIFY-EMAIL DEBUG] Total flashcards aggregated: {len(combined_flashcards)}")
+    print(f"[NOTIFY-EMAIL DEBUG] Audio URL: {audio_url_from_db or 'NONE'}")
+    print(f"[NOTIFY-EMAIL DEBUG] Selected content types: {request.selected_content}")
+    if combined_flashcards:
+        for i, fc in enumerate(combined_flashcards[:3]):
+            print(f"[NOTIFY-EMAIL DEBUG] Flashcard {i+1}: {fc.get('heading', 'NO HEADING')}")
 
     # 2. Build the dynamic HTML body (use custom overrides when provided)
     html_body = build_email_body(
@@ -910,8 +975,9 @@ async def notify_email(
     if request.dry_run:
         return {"subject": subject, "body": html_body}
 
-    # 3. Get assigned users
-    users_result = await get_assigned_users_for_sprint(request.module_id)
+    # 3. Get assigned users (use first module's sprint info)
+    sprint_id_for_users = request.module_id or target_module_ids[0]
+    users_result = await get_assigned_users_for_sprint(sprint_id_for_users)
     if users_result["error"]:
         raise HTTPException(status_code=400, detail=users_result["error"])
 
@@ -1036,19 +1102,68 @@ def _next_weekday(day_name: str, hour: int, minute: int) -> datetime:
     return candidate
 
 
-class ScheduleMultiModuleRequest(BaseModel):
-    """Schedule one email per module on successive occurrences of a weekday.
+class ScheduleMultiModuleItem(BaseModel):
+    """One entry: module + content type + scheduling info (recurring or one-time)."""
+    module_id: str                                  # processed_module_id
+    content_type: str                               # e.g. "flashcards" or "audio"
+    
+    # ── SCHEDULING: choose one ──
+    day_of_week: Optional[str] = None               # For recurring: "Mon" | "Tue" | … | "Sun"
+    scheduled_date: Optional[str] = None            # For one-time: "YYYY-MM-DD"
+    
+    customFlashcards: Optional[List[Dict[str, Any]]] = None  # Module-specific custom flashcards
+    customAudioUrl: Optional[str] = None            # Module-specific custom audio URL
 
-    Example: module_ids = [A, B], scheduled_day = "Mon", scheduled_time = "09:00"
-      → Module A sent on the first upcoming Monday at 09:00 UTC
-      → Module B sent on the Monday after that (+ 7 days)
+
+class ScheduleMultiModuleRequest(BaseModel):
+    """Schedule emails with paired module-content-scheduling mappings.
+    
+    Supports TWO modes:
+    
+    1. RECURRING (day-of-week):
+       - Each item has day_of_week: "Mon", "Tue", etc
+       - scheduled_date is null/omitted
+       - scheduled_time: shared time (e.g. "09:00")
+       - Emails send on that day every week at that time
+    
+    2. ONE-TIME (specific date):
+       - Each item has scheduled_date: "YYYY-MM-DD"
+       - day_of_week is null/omitted
+       - scheduled_time: shared time (e.g. "09:00")
+       - Emails send once on that exact date/time
+
+    Example 1 (Recurring):
+      [
+        { 
+          module_id: "A", 
+          content_type: "flashcards", 
+          day_of_week: "Tue"
+        },
+        { 
+          module_id: "B", 
+          content_type: "audio", 
+          day_of_week: "Tue"
+        }
+      ]
+      scheduled_time: "09:00"
+    
+    Example 2 (One-time):
+      [
+        { 
+          module_id: "A", 
+          content_type: "flashcards", 
+          scheduled_date: "2026-03-20"
+        },
+        { 
+          module_id: "B", 
+          content_type: "audio", 
+          scheduled_date: "2026-03-20"
+        }
+      ]
+      scheduled_time: "09:00"
     """
-    module_ids: List[str]           # ordered list of module IDs (sprint sub-modules)
-    selected_content: List[str]     # e.g. ["flashcards", "audio"]
-    scheduled_day: str              # "Mon" | "Tue" | … | "Sun"
-    scheduled_time: str             # "HH:MM" in UTC
-    customFlashcards: Optional[List[Dict[str, Any]]] = None
-    customAudioUrl: Optional[str] = None
+    schedule_items: List[ScheduleMultiModuleItem]   # module + content + day/date + per-module custom content pairings
+    scheduled_time: str                             # "HH:MM" in UTC (applied to all items)
 
 
 @router.post("/schedule-multi-module")
@@ -1057,38 +1172,121 @@ async def schedule_multi_module(
     user_id: str = Header(..., alias="X-User-ID"),
 ):
     """
-    Schedule one flashcard/content email per module, staggered by one week each.
-
-    Returns a list of scheduled jobs with their run dates so the frontend
-    can show a preview like:
-      Module 1 → Mon 17 Mar 2026 09:00 UTC
-      Module 2 → Mon 24 Mar 2026 09:00 UTC
+    Schedule emails with paired module-content-scheduling mappings.
+    
+    Supports TWO modes:
+    
+    MODE 1 - RECURRING (day-of-week):
+      All items have day_of_week (e.g., "Tue")
+      Emails send on that day every week at scheduled_time
+      Example:
+        Module A → Flashcards → Every Tuesday 09:00 UTC
+        Module B → Audio       → Every Tuesday 09:00 UTC
+    
+    MODE 2 - ONE-TIME (specific date):
+      All items have scheduled_date (e.g., "2026-03-20")
+      Emails send once on that date at scheduled_time
+      Example:
+        Module A → Flashcards → 2026-03-20 09:00 UTC (one-time)
+        Module B → Audio       → 2026-03-20 09:00 UTC (one-time)
     """
     try:
-        if not request.module_ids:
-            raise HTTPException(status_code=400, detail="module_ids must not be empty")
-
-        if request.scheduled_day not in _DAY_MAP:
-            raise HTTPException(
-                status_code=400,
-                detail=f"scheduled_day must be one of {list(_DAY_MAP.keys())}",
-            )
+        if not request.schedule_items:
+            raise HTTPException(status_code=400, detail="schedule_items must not be empty")
 
         try:
             hour, minute = [int(x) for x in request.scheduled_time.split(":")]
         except ValueError:
             raise HTTPException(status_code=400, detail="scheduled_time must be HH:MM")
 
-        # Compute base run date (first upcoming occurrence of the chosen weekday/time)
-        base_dt = _next_weekday(request.scheduled_day, hour, minute)
+        # ── Determine scheduling mode ──
+        has_day_of_week = any(item.day_of_week for item in request.schedule_items)
+        has_scheduled_date = any(item.scheduled_date for item in request.schedule_items)
+        
+        if has_day_of_week and has_scheduled_date:
+            raise HTTPException(
+                status_code=400,
+                detail="Mixed scheduling: cannot mix day_of_week and scheduled_date. Choose one mode.",
+            )
+        
+        if not has_day_of_week and not has_scheduled_date:
+            raise HTTPException(
+                status_code=400,
+                detail="No scheduling provided: either all items need day_of_week (recurring) OR all need scheduled_date (one-time)",
+            )
+        
+        is_recurring_mode = has_day_of_week
+        
+        print(f"\n[SCHEDULE DEBUG] {'='*80}")
+        print(f"[SCHEDULE DEBUG] MODE: {'RECURRING (day-of-week)' if is_recurring_mode else 'ONE-TIME (specific date)'}")
+        print(f"[SCHEDULE DEBUG] Total items: {len(request.schedule_items)}")
+        print(f"[SCHEDULE DEBUG] Scheduled time: {request.scheduled_time} UTC")
+        print(f"[SCHEDULE DEBUG] {'='*80}")
 
         scheduled_jobs = []
 
-        for idx, module_id in enumerate(request.module_ids):
-            run_dt = base_dt + timedelta(weeks=idx)
+        for idx, item in enumerate(request.schedule_items):
+            module_id = item.module_id
+            content_type = item.content_type
+            
+            # ── Determine run_date based on mode ──
+            if is_recurring_mode:
+                # RECURRING MODE: day_of_week
+                day_of_week = item.day_of_week
+                if not day_of_week:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Item {idx}: day_of_week required in recurring mode",
+                    )
+                
+                if day_of_week not in _DAY_MAP:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Item {idx}: day_of_week must be one of {list(_DAY_MAP.keys())}, got {day_of_week}",
+                    )
+                
+                run_dt = _next_weekday(day_of_week, hour, minute)
+                print(f"[SCHEDULE DEBUG] Item {idx}: {module_id} → Every {day_of_week} @ {hour:02d}:{minute:02d} UTC → Next: {run_dt}")
+            else:
+                # ONE-TIME MODE: scheduled_date
+                scheduled_date = item.scheduled_date
+                if not scheduled_date:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Item {idx}: scheduled_date required in one-time mode",
+                    )
+                
+                try:
+                    run_dt = datetime.strptime(
+                        f"{scheduled_date} {request.scheduled_time}", "%Y-%m-%d %H:%M"
+                    )
+                    # Make timezone-aware (UTC)
+                    from datetime import timezone as _tz
+                    run_dt = run_dt.replace(tzinfo=_tz.utc)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Item {idx}: Invalid date/time. Expected scheduled_date='YYYY-MM-DD' and scheduled_time='HH:MM'",
+                    )
+                
+                # Validate it's in the future
+                from datetime import timezone as _tz
+                if run_dt <= datetime.now(_tz.utc):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Item {idx}: Scheduled time must be in the future (UTC)",
+                    )
+                
+                print(f"[SCHEDULE DEBUG] Item {idx}: {module_id} → One-time on {scheduled_date} @ {hour:02d}:{minute:02d} UTC → {run_dt}")
 
-            # ── Fetch processed_module row (title, flashcard_data, audio_url,
-            #    AND the parent original_module_id for user lookup) ──
+            # Validate content type
+            if content_type not in ["flashcards", "audio"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Item {idx}: content_type must be 'flashcards' or 'audio', got {content_type}",
+                )
+
+            # ── Fetch processed_module row ──
             pm_result = supabase.table("processed_modules") \
                 .select("processed_module_id, title, flashcard_data, audio_url, original_module_id") \
                 .eq("processed_module_id", module_id) \
@@ -1114,17 +1312,46 @@ async def schedule_multi_module(
                 "flashcard_data": combined_flashcards,
             }
 
-            # ── Build email HTML ──
+            # ── Build email with ONLY the paired content type ──
+            selected_content = [content_type]  # Only include this specific content type
+            
+            # Debug logging - Comprehensive audio and flashcard tracking
+            print(f"\n{'='*80}")
+            print(f"[MODULE {idx}] Processing: {module_id}")
+            print(f"{'='*80}")
+            print(f"  Module Title: {module_title}")
+            print(f"  Content Type: {content_type}")
+            print(f"  Day of Week: {day_of_week}")
+            print(f"  Run Date: {run_dt}")
+            print(f"\n  📚 FLASHCARDS:")
+            print(f"    - From DB: {len(combined_flashcards)} flashcards found")
+            if combined_flashcards:
+                for i, fc in enumerate(combined_flashcards[:2]):  # Show first 2
+                    print(f"      [{i+1}] {fc.get('heading', 'No heading')}")
+            print(f"    - Custom from item: {item.customFlashcards is not None}")
+            if item.customFlashcards:
+                print(f"      Using CUSTOM flashcards ({len(item.customFlashcards)} cards)")
+            print(f"    - Will include in email: {content_type == 'flashcards'}")
+            
+            print(f"\n  🎵 AUDIO:")
+            print(f"    - From DB: {audio_url_from_db if audio_url_from_db else 'NO AUDIO'}")
+            print(f"    - Custom from item: {item.customAudioUrl if item.customAudioUrl else 'None'}")
+            if item.customAudioUrl:
+                print(f"      Using CUSTOM audio URL")
+            final_audio_url = item.customAudioUrl if item.customAudioUrl else audio_url_from_db
+            print(f"    - Final audio URL to use: {final_audio_url if final_audio_url else 'NO AUDIO'}")
+            print(f"    - Will include in email: {content_type == 'audio'}")
+            print(f"{'='*80}\n")
+            
             html_body = build_email_body(
                 module_data,
-                request.selected_content,
-                custom_flashcards=request.customFlashcards,
-                custom_audio_url=request.customAudioUrl,
+                selected_content,
+                custom_flashcards=item.customFlashcards if content_type == "flashcards" else None,
+                custom_audio_url=item.customAudioUrl if content_type == "audio" else None,
             )
             subject = f"Your training module is ready: {module_title}"
 
-            # ── Fetch assigned users via the parent sprint (original_module_id) ──
-            # Users are assigned at the training_module (sprint) level, not per sub-module.
+            # ── Fetch assigned users via the parent sprint ──
             lookup_id = original_module_id or module_id
             users_result = await get_assigned_users_for_sprint(lookup_id)
             if users_result["error"]:
@@ -1136,9 +1363,10 @@ async def schedule_multi_module(
             if not recipient_emails:
                 # Still record the entry but flag no recipients
                 scheduled_jobs.append({
-                    "week": idx + 1,
                     "module_id": module_id,
                     "module_title": module_title,
+                    "content_type": content_type,
+                    "day_of_week": day_of_week,
                     "run_date": run_dt.isoformat(),
                     "recipient_count": 0,
                     "job_id": None,
@@ -1147,7 +1375,7 @@ async def schedule_multi_module(
                 continue
 
             # ── Create APScheduler job ──
-            job_id = f"multi_notify_{module_id}_{uuid.uuid4().hex[:8]}"
+            job_id = f"multi_notify_{module_id}_{content_type}_{uuid.uuid4().hex[:8]}"
             scheduler.add_job(
                 send_smtp_job,
                 trigger="date",
@@ -1158,9 +1386,10 @@ async def schedule_multi_module(
             )
 
             scheduled_jobs.append({
-                "week": idx + 1,
                 "module_id": module_id,
                 "module_title": module_title,
+                "content_type": content_type,
+                "day_of_week": day_of_week,
                 "run_date": run_dt.isoformat(),
                 "recipient_count": len(recipient_emails),
                 "job_id": job_id,
@@ -1168,9 +1397,8 @@ async def schedule_multi_module(
 
         return {
             "status": "multi_module_scheduled",
-            "scheduled_day": request.scheduled_day,
             "scheduled_time": request.scheduled_time,
-            "total_modules": len(request.module_ids),
+            "total_items": len(request.schedule_items),
             "jobs": scheduled_jobs,
         }
 

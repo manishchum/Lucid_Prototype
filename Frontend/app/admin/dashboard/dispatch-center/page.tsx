@@ -549,11 +549,13 @@ export default function AdminDispatchCenterPage() {
         // Gemini-written message AND the real flashcard/audio content
         if (selectedContent.length > 0 && selectedSprintId) {
           try {
+            console.log(currentUser)
             const notifyRes = await fetch(`${API_BASE}/api/dispatch/notify-email`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
               body: JSON.stringify({
                 module_id: selectedSprintId,
+                module_ids: selectedSubModuleIds,  // Pass specific module IDs to fetch only their content
                 selected_content: selectedContent,
                 blocks_only: true,
                 ...(customFlashcards ? { customFlashcards } : {}),
@@ -708,21 +710,49 @@ export default function AdminDispatchCenterPage() {
     localDate.setHours(localH, localM, 0, 0);
     const utcTime = `${String(localDate.getUTCHours()).padStart(2, '0')}:${String(localDate.getUTCMinutes()).padStart(2, '0')}`;
 
-    // Use the first selected day
-    const scheduledDay = selectedDays[0];
+    // Build paired schedule_items: pair each module with its corresponding day and content type
+    // Each module uses its own generated audio_url/flashcard_data from the database
+    // No global custom audio/flashcards for multi-module pairing
+    const schedule_items = selectedSubModuleIds.map((moduleId, idx) => ({
+      module_id: moduleId,
+      content_type: selectedContent[idx % selectedContent.length], // Cycle if needed
+      day_of_week: selectedDays[idx % selectedDays.length], // Cycle if needed
+      // customFlashcards and customAudioUrl are omitted - each module uses its own from DB
+    }));
+
+    console.log('[FRONTEND DEBUG] Selected modules:', selectedSubModuleIds);
+    console.log('[FRONTEND DEBUG] Selected content:', selectedContent);
+    console.log('[FRONTEND DEBUG] Selected days:', selectedDays);
+    console.log('[FRONTEND DEBUG] Schedule items built:', schedule_items);
 
     try {
+      const requestBody = {
+        schedule_items,
+        scheduled_time: utcTime,
+      };
+      
+      // Comprehensive logging for audio and flashcards
+      console.log('\n========== FRONTEND REQUEST DETAILS ==========');
+      console.log('Total modules:', selectedSubModuleIds.length);
+      console.log('Content types:', selectedContent);
+      console.log('Days selected:', selectedDays);
+      
+      selectedSubModuleIds.forEach((moduleId, idx) => {
+        const contentType = selectedContent[idx % selectedContent.length];
+        const day = selectedDays[idx % selectedDays.length];
+        console.log(`\nModule ${idx + 1}:`);
+        console.log(`  - ID: ${moduleId}`);
+        console.log(`  - Content: ${contentType}`);
+        console.log(`  - Day: ${day}`);
+      });
+      console.log('==============================================\n');
+      
+      console.log('[FRONTEND DEBUG] Full request body:', JSON.stringify(requestBody, null, 2));
+      
       const res = await fetch(`${API_BASE}/api/dispatch/schedule-multi-module`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
-        body: JSON.stringify({
-          module_ids: selectedSubModuleIds,
-          selected_content: selectedContent,
-          scheduled_day: scheduledDay,
-          scheduled_time: utcTime,
-          ...(customFlashcards ? { customFlashcards } : {}),
-          ...(customAudioUrl ? { customAudioUrl } : {}),
-        }),
+        body: JSON.stringify(requestBody),
       });
       if (res.ok) {
         setMultiModuleResult(await res.json());
@@ -969,7 +999,7 @@ export default function AdminDispatchCenterPage() {
                                   ? 'bg-white shadow text-slate-800'
                                   : 'text-slate-500 hover:text-slate-700'
                               }`}
-                            >
+                              >
                               Import JSON
                             </button>
                           </div>
@@ -1195,56 +1225,69 @@ export default function AdminDispatchCenterPage() {
                   </div>
 
                   {scheduleEnabled && (
-                    <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="space-y-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
 
-                      {/* Mode toggle: Once vs Recurring — One-time hidden */}
-                      {/* <div className="inline-flex rounded-full bg-slate-200 p-1 gap-1">
+                      {/* Mode toggle: Once vs Recurring */}
+                      <div className="flex gap-3">
                         <button
                           onClick={() => setScheduleMode('once')}
-                          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                          className={`flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all border-2 flex items-center justify-center gap-2 ${
                             scheduleMode === 'once'
-                              ? 'bg-white shadow text-slate-800'
-                              : 'text-slate-500 hover:text-slate-700'
+                              ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-sm'
+                              : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
                           }`}
                         >
-                          One-time
+                          <Calendar size={16} />
+                          One-Time
                         </button>
                         <button
                           onClick={() => setScheduleMode('recurring')}
-                          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                          className={`flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all border-2 flex items-center justify-center gap-2 ${
                             scheduleMode === 'recurring'
-                              ? 'bg-white shadow text-slate-800'
-                              : 'text-slate-500 hover:text-slate-700'
+                              ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-sm'
+                              : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
                           }`}
                         >
-                          <RefreshCw size={11} /> Recurring
+                          <RefreshCw size={16} />
+                          Recurring
                         </button>
-                      </div> */}
+                      </div>
 
                       {/* ONE-TIME: date + time */}
                       {scheduleMode === 'once' && (
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Date</label>
-                            <input
-                              type="date"
-                              value={scheduledDate}
-                              onChange={(e) => setScheduledDate(e.target.value)}
-                              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
-                            />
+                        <div className="space-y-4 p-4 bg-white rounded-lg border border-blue-100">
+                          <div className="flex items-center gap-2 text-blue-700 text-sm font-semibold">
+                            <Calendar size={16} />
+                            Send Once on Specific Date
                           </div>
-                          <div>
-                            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Time</label>
-                            <div className="relative">
-                              <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Date</label>
                               <input
-                                type="time"
-                                value={scheduledTime}
-                                onChange={(e) => setScheduledTime(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
+                                type="date"
+                                value={scheduledDate}
+                                onChange={(e) => setScheduledDate(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
                               />
                             </div>
+                            <div>
+                              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Time (UTC)</label>
+                              <div className="relative">
+                                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                <input
+                                  type="time"
+                                  value={scheduledTime}
+                                  onChange={(e) => setScheduledTime(e.target.value)}
+                                  className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
+                                />
+                              </div>
+                            </div>
                           </div>
+                          {scheduledDate && scheduledTime && (
+                            <div className="p-2 bg-blue-50 rounded text-xs text-blue-700 font-medium">
+                              ✓ Will send on {new Date(scheduledDate + 'T' + scheduledTime).toLocaleDateString()} at {scheduledTime} UTC
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -1265,20 +1308,24 @@ export default function AdminDispatchCenterPage() {
                           );
                         };
                         return (
-                          <div className="space-y-4">
+                          <div className="space-y-4 p-4 bg-white rounded-lg border border-blue-100">
+                            <div className="flex items-center gap-2 text-blue-700 text-sm font-semibold">
+                              <RefreshCw size={16} />
+                              Send Every Week
+                            </div>
                             <div>
-                              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">
+                              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3 block">
                                 Days of Week
                               </label>
-                              <div className="flex gap-1.5 flex-wrap">
+                              <div className="flex gap-2 flex-wrap">
                                 {days.map((d) => (
                                   <button
                                     key={d.key}
                                     onClick={() => toggleDay(d.key)}
-                                    className={`w-11 h-11 rounded-xl text-xs font-bold transition-all border-2 ${
+                                    className={`w-12 h-12 rounded-lg text-xs font-bold transition-all border-2 flex items-center justify-center ${
                                       selectedDays.includes(d.key)
-                                        ? 'bg-blue-500 border-blue-500 text-white shadow'
-                                        : 'bg-white border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-500'
+                                        ? 'bg-blue-500 border-blue-500 text-white shadow-sm'
+                                        : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600'
                                     }`}
                                   >
                                     {d.label}
@@ -1286,14 +1333,14 @@ export default function AdminDispatchCenterPage() {
                                 ))}
                               </div>
                               {selectedDays.length > 0 && (
-                                <p className="text-xs text-blue-600 font-semibold mt-2">
-                                  Sends every: {selectedDays.join(', ')}
+                                <p className="text-xs text-blue-600 font-semibold mt-3 p-2 bg-blue-50 rounded">
+                                  🔄 Sends every: <span className="uppercase tracking-wide">{selectedDays.join(', ')}</span>
                                 </p>
                               )}
                             </div>
                             <div>
                               <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">
-                                Time (your local time)
+                                Time (UTC)
                               </label>
                               <div className="relative w-44">
                                 <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -1305,33 +1352,39 @@ export default function AdminDispatchCenterPage() {
                                 />
                               </div>
                               {recurringTime && (
-                                <p className="text-xs text-slate-400 mt-1.5">
-                                  Emails will be sent at <span className="font-semibold text-slate-600">{recurringTime} IST</span>
+                                <p className="text-xs text-slate-600 mt-2 p-2 bg-blue-50 rounded">
+                                  ✓ Emails will send at <span className="font-semibold">{recurringTime} UTC</span> every selected day
                                 </p>
                               )}
                             </div>
 
                             {/* ── Stagger preview (multi-module) ── */}
                             {selectedSubModuleIds.length >= 2 && selectedDays.length > 0 && (() => {
-                              // Mirror exactly what handleScheduleMultiModule sends to the backend:
-                              // 1. Convert local recurringTime → UTC HH:MM
-                              // 2. Use UTC HH:MM for date arithmetic (same as Python _next_weekday)
+                              // Build paired schedule items to show in preview
+                              const schedule_items = selectedSubModuleIds.map((moduleId, idx) => {
+                                const contentType = selectedContent[idx % selectedContent.length];
+                                const dayOfWeek = selectedDays[idx % selectedDays.length];
+                                return { moduleId, contentType, dayOfWeek };
+                              });
+
+                              // Check if single day or multiple days
+                              const uniqueDays = new Set(schedule_items.map(item => item.dayOfWeek));
+                              const isSingleDay = uniqueDays.size === 1;
+
+                              // For each schedule item, compute the next occurrence of that day
+                              const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+                              const jsDayToPython: Record<number, number> = { 0: 6, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5 };
+
+                              // Convert local time → UTC for date arithmetic
                               const [lh, lm] = recurringTime.split(':').map(Number);
                               const localDate = new Date();
                               localDate.setHours(lh, lm, 0, 0);
                               const utcH = localDate.getUTCHours();
                               const utcM = localDate.getUTCMinutes();
 
-                              // Python weekday: Mon=0 … Sun=6  (same as JS getUTCDay offset below)
-                              const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
-                              // JS getUTCDay: Sun=0, Mon=1 … Sat=6  → map to Python weekday
-                              const jsDayToPython: Record<number, number> = { 0: 6, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5 };
-
-                              const targetPythonDay = dayMap[selectedDays[0]] ?? 0;
-
-                              const getNextWeekday = (offset: number): Date => {
+                              const getNextDayOfWeek = (dayName: string): Date => {
                                 const now = new Date();
-                                // Build today's candidate at utcH:utcM UTC
+                                const targetPythonDay = dayMap[dayName] ?? 0;
                                 const candidate = new Date(Date.UTC(
                                   now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
                                   utcH, utcM, 0
@@ -1339,10 +1392,7 @@ export default function AdminDispatchCenterPage() {
                                 const currentPythonDay = jsDayToPython[now.getUTCDay()];
                                 let daysAhead = (targetPythonDay - currentPythonDay + 7) % 7;
                                 candidate.setUTCDate(candidate.getUTCDate() + daysAhead);
-                                // If not strictly in the future, push one week
                                 if (candidate <= now) candidate.setUTCDate(candidate.getUTCDate() + 7);
-                                // Apply weekly offset for subsequent modules
-                                candidate.setUTCDate(candidate.getUTCDate() + offset * 7);
                                 return candidate;
                               };
 
@@ -1356,15 +1406,28 @@ export default function AdminDispatchCenterPage() {
                                   <div className="px-4 py-2.5 bg-blue-500 flex items-center gap-2">
                                     <Calendar size={14} className="text-white" />
                                     <span className="text-xs font-bold text-white uppercase tracking-wide">
-                                      Staggered Send Plan — {selectedModules.length} modules
+                                      {isSingleDay ? 'Staggered Send Plan' : 'Paired Send Plan'} — {selectedModules.length} modules
                                     </span>
                                   </div>
                                   <div className="divide-y divide-blue-100">
                                     {selectedModules.map((mod, idx) => {
-                                      const runDate = getNextWeekday(idx);
+                                      const item = schedule_items[idx];
+                                      
+                                      // If single day: stagger by weeks
+                                      let runDate: Date;
+                                      if (isSingleDay) {
+                                        const baseDate = getNextDayOfWeek(item.dayOfWeek);
+                                        runDate = new Date(baseDate);
+                                        runDate.setUTCDate(runDate.getUTCDate() + idx * 7); // Add weeks
+                                      } else {
+                                        // Multiple days: each module gets its specific day
+                                        runDate = getNextDayOfWeek(item.dayOfWeek);
+                                      }
+                                      
                                       const dateLabel = runDate.toLocaleDateString('en-GB', {
                                         weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
                                       });
+                                      const contentIcon = item.contentType === 'flashcards' ? '📋' : '🎵';
                                       return (
                                         <div key={mod.processed_module_id} className="flex items-center gap-3 px-4 py-2.5">
                                           <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-[11px] font-bold text-white shrink-0">
@@ -1373,8 +1436,10 @@ export default function AdminDispatchCenterPage() {
                                           <span className="text-sm font-semibold text-slate-800 flex-1 truncate">
                                             {mod.title}
                                           </span>
-                                          <span className="text-xs font-semibold text-blue-700 shrink-0">
-                                            {dateLabel} · {istTimeLabel}
+                                          <span className="text-xs font-semibold text-blue-700 shrink-0 flex items-center gap-1">
+                                            <span>{contentIcon} {item.contentType}</span>
+                                            <span>•</span>
+                                            <span>{dateLabel} · {istTimeLabel}</span>
                                           </span>
                                         </div>
                                       );
@@ -1382,7 +1447,10 @@ export default function AdminDispatchCenterPage() {
                                   </div>
                                   <div className="px-4 py-2 bg-blue-50 border-t border-blue-100">
                                     <p className="text-[11px] text-blue-500">
-                                      Each module's flashcards will be sent on successive {selectedDays[0]}s at {istTimeLabel}, one week apart.
+                                      {isSingleDay 
+                                        ? `Each module will be sent on ${selectedDays[0]}, one week apart starting at ${istTimeLabel}.`
+                                        : `Each module's content will be sent on its specified day at ${istTimeLabel}.`
+                                      }
                                     </p>
                                   </div>
                                 </div>

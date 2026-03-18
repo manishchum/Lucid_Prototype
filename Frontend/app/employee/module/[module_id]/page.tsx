@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/auth-context";
 import jsPDF from 'jspdf';
 import VoiceInput from '@/components/VoiceInput';
 import VoiceOutput from '@/components/VoiceOutput';
+import { callGemini } from "@/lib/gemini-helper";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -999,7 +1000,6 @@ function extractPlainText(content: string) {
     .replace(/\s+/g, ' ')
     .trim();
 }
-
 // function parseChatFromTranscript(transcript: string): Array<{ speaker: string; text: string }> {
 //   const messages: Array<{ speaker: string; text: string }> = [];
 
@@ -1430,6 +1430,10 @@ function ContentTransformer({
                     // Save flashcard data via backend API
                     try {
                       if (employee?.user_id) {
+
+                      console.log('[mindmap] Saving mindmap to database for module', module.processed_module_id);
+                      console.log('[mindmap] mindmap data size:', JSON.stringify(data).length);
+                      console.log(data)
                         const updateRes = await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
                           method: 'PATCH',
                           headers: {
@@ -1996,7 +2000,6 @@ function ContentTransformer({
                               <div className="text-gray-600 text-sm">{point.text}</div>
                             </div>
                           ))}
-                          
                           {/* Sub-sections */}
                           {section.subSections && (
                             <div className="grid grid-cols-3 gap-4 mt-6 ml-12">
