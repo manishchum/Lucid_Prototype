@@ -59,7 +59,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
           if (!authLoading) {
             if (!user) router.push("/login");
             // else checkAdminAccess();
-            
+           
           }
         }, [user, authLoading, router]);
   useEffect(() => {
@@ -155,7 +155,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
             // });
             // if (genResponse.ok) {
               await new Promise(resolve => setTimeout(resolve, 2000));
-              
+             
               let refreshedData = null;
               if (empObj?.user_id) {
                 try {
@@ -224,7 +224,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
            
          }
 
-    
+   
   // fetchModule();
   }, [moduleId,user,authLoading]);
 
@@ -243,7 +243,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   // If overrideInput is present, it means voice input was used
   const isVoiceInput = !!overrideInput;
   setLastUserInputWasVoice(isVoiceInput);
-  
+ 
   if (isVoiceInput) {
     setVoiceLoopActive(true);
   } else {
@@ -295,18 +295,18 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const handleVoiceTranscription = (text: string) => {
   setChatInput(text);
   setLastUserInputWasVoice(true);
-  
+ 
   // Check if user said "bye" or similar exit phrases
   const exitPhrases = ['bye', 'goodbye', 'stop', 'exit', 'quit'];
   const lowerText = text.toLowerCase().trim();
   const shouldExit = exitPhrases.some(phrase => lowerText === phrase || lowerText.endsWith(phrase));
-  
+ 
   if (shouldExit) {
     setVoiceLoopActive(false);
     console.log('[ModuleChat] Voice loop stopped - exit phrase detected:', text);
     return; // Don't auto-send, let user decide
   }
-  
+ 
   setVoiceLoopActive(true);
     console.log('[ModuleChat] handleVoiceTranscription called. text:', text, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
     // Auto-send after transcription
@@ -335,8 +335,8 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
     <div className="min-h-screen">
       {/* Module Side Navigation */}
       {employee?.user_id && (
-        <ModuleSideNav 
-          userId={employee.user_id} 
+        <ModuleSideNav
+          userId={employee.user_id}
           currentModuleId={moduleId}
           sprintModuleId={module?.original_module_id}
         />
@@ -419,7 +419,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       <div className="space-y-4">
                         {userChatHistory.map((msg, idx) => {
                           // Determine if TTS should be enabled for this bot reply
-                          // TTS is enabled if this is the most recent assistant message 
+                          // TTS is enabled if this is the most recent assistant message
                           // AND it follows a voice user message
                           let ttsEnabled = false;
                           if (msg.role === 'assistant' && idx === userChatHistory.length - 1) {
@@ -431,7 +431,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                               }
                             }
                           }
-                          
+                         
                           return (
                             <div
                               key={idx}
@@ -441,7 +441,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                               )}
                             >
                               {msg.role === 'assistant' && (
-                                <VoiceOutput text={msg.content} disabled={chatLoading || !ttsEnabled} 
+                                <VoiceOutput text={msg.content} disabled={chatLoading || !ttsEnabled}
                                 onTTSComplete={() => {
                                 if (voiceLoopActive && idx === userChatHistory.length - 1) {
                                 setTimeout(() => setAutoStartMic(true), 300);
@@ -493,7 +493,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       >
                         📎
                       </button> */}
-                      <VoiceInput 
+                      <VoiceInput
                         onTranscription={handleVoiceTranscription}
                         disabled={chatLoading}
                         autoStart={autoStartMic}
@@ -853,7 +853,7 @@ function parseMarkdownContent(content: string) {
     if (currentSection) sections.push(currentSection);
     currentSection = section;
   };
-  
+ 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
 
@@ -869,20 +869,20 @@ function parseMarkdownContent(content: string) {
 
     const sectionMatch = line.match(/^Section\s+(\d+)\s*:\s*(.+)$/i);
     if (sectionMatch) {
-      startSection({ 
-        type: 'section', 
-        title: line, 
-        content: '' 
+      startSection({
+        type: 'section',
+        title: line,
+        content: ''
       });
       continue;
     }
 
     const activityMatch = line.match(/^Activity\s+(\d+)\s*:\s*(.+)$/i);
     if (activityMatch) {
-      startSection({ 
-        type: 'activity', 
-        title: line, 
-        content: '' 
+      startSection({
+        type: 'activity',
+        title: line,
+        content: ''
       });
       continue;
     }
@@ -896,7 +896,7 @@ function parseMarkdownContent(content: string) {
       startSection({ type: 'discussion', title: 'Discussion Prompts', content: '' });
       continue;
     }
-    
+   
     const bulletMatch = line.match(/^[-\*•]\s+(.*)$/);
     const numberedMatch = line.match(/^(\d+)\.\s+(.*)$/);
 
@@ -923,7 +923,7 @@ function parseMarkdownContent(content: string) {
       currentSection = { type: 'intro', title: '', content: lines[i] + '\n' };
     }
   }
-  
+ 
   flushList();
   if (currentSection && currentSection.content.trim()) {
     sections.push(currentSection);
@@ -1045,7 +1045,7 @@ function ContentTransformer({
   const hasEnglishAudio = !!(module.audio_url && module.podcast_transcript && module.podcast_timeline);
   const hasHinglishAudio = !!(module.audio_url_hinglish && module.podcast_transcript_hinglish && module.podcast_timeline_hinglish);
   const hasAudio = hasEnglishAudio || hasHinglishAudio;
-  
+ 
   // Check if current language audio is available
   const hasCurrentLanguageAudio = (language: 'en' | 'hinglish') => {
     if (language === 'hinglish') {
@@ -1053,7 +1053,7 @@ function ContentTransformer({
     }
     return hasEnglishAudio;
   };
-  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
+  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]);
   const [language, setLanguage] = useState<'en' | 'hinglish'>('en');
   const [selectedOption, setSelectedOption] = useState<'audio' | 'video' | 'chat' | 'flashcard' | 'flashcards' | 'mindmap' | 'roleplay' | 'infographic' | null>(null);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
@@ -1095,7 +1095,7 @@ function ContentTransformer({
   useEffect(() => {
     const timelineField = language === 'hinglish' ? 'podcast_timeline_hinglish' : 'podcast_timeline';
     const timelineData = language === 'hinglish' ? module?.podcast_timeline_hinglish : module?.podcast_timeline;
-    
+   
     if (!timelineData) {
       console.log(`[ContentTransformer] No ${timelineField} in module data`);
       return;
@@ -1283,7 +1283,7 @@ function ContentTransformer({
             onClick={async () => {
               setSelectedOption('mindmap');
               setMindmapLoading(true);
-              
+             
               try {
                 // Check if mindmap data already exists in the module
                 if (module.mindmap_data) {
@@ -1317,7 +1317,7 @@ function ContentTransformer({
 
                 if (res.ok && data && data.nodes && data.edges) {
                   setMindmapData(data);
-                  
+                 
                   // Save mindmap data via backend API
                   try {
                     if (employee?.user_id) {
@@ -1329,7 +1329,7 @@ function ContentTransformer({
                         },
                         body: JSON.stringify({ mindmap_data: data })
                       });
-                      
+                     
                       if (!updateRes.ok) {
                         console.error('[mindmap] Failed to save mindmap to database:', await updateRes.text());
                       } else {
@@ -1378,7 +1378,7 @@ function ContentTransformer({
               try {
                 setFlashcardLoading(true);
                 setSelectedOption('flashcard');
-                
+               
                 // Check if flashcard data already exists in the module (cache)
                 if (module.flashcard_data) {
                   console.log('[flashcards] Using cached flashcard data');
@@ -1426,7 +1426,7 @@ function ContentTransformer({
                   // Expecting an array of { heading, points }
                   if (Array.isArray(data)) {
                     setFlashcardSections(data);
-                    
+                   
                     // Save flashcard data via backend API
                     try {
                       if (employee?.user_id) {
@@ -1442,7 +1442,7 @@ function ContentTransformer({
                           },
                           body: JSON.stringify({ flashcard_data: data })
                         });
-                        
+                       
                         if (!updateRes.ok) {
                           console.error('[flashcards] Failed to save flashcards to database:', await updateRes.text());
                         } else {
@@ -1496,12 +1496,12 @@ function ContentTransformer({
               try {
                 setInfographicLoading(true);
                 setSelectedOption('infographic');
-                
+               
                 console.log('[infographic] Starting generation...');
                 console.log('[infographic] Module title:', module.title);
                 console.log('[infographic] Content length:', (module.content || '').length);
                 console.log('[infographic] Processed module ID:', module.processed_module_id);
-                
+               
                 // Check if infographic data already exists in the module (cache)
                 if (module.infographic_data) {
                   console.log('[infographic] Using cached infographic data');
@@ -1515,29 +1515,29 @@ function ContentTransformer({
                     return;
                   }
                 }
-                
+               
                 const contentText = module.content || '';
-                
+               
                 if (!contentText) {
                   console.error('[infographic] No content available');
                   alert('No content available to generate visual guide');
                   setInfographicLoading(false);
                   return;
                 }
-                
+               
                 console.log('[infographic] Calling API...');
                 const res = await fetch(`${API_BASE}/api/generate-infographic`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ 
-                    content: contentText, 
+                  body: JSON.stringify({
+                    content: contentText,
                     title: module.title,
-                    processed_module_id: module.processed_module_id 
+                    processed_module_id: module.processed_module_id
                   }),
                 });
 
                 console.log('[infographic] API response status:', res.status);
-                
+               
                 const raw = await res.clone().text();
                 console.log('[infographic] Raw response preview:', raw.slice(0, 500));
 
@@ -1876,7 +1876,7 @@ function ContentTransformer({
                               if (infographicData.sections) {
                                 infographicData.sections.forEach((section: any) => {
                                   checkPageBreak(40);
-                                  
+                                 
                                   // Section title
                                   pdf.setFontSize(14);
                                   pdf.setFont('helvetica', 'bold');
@@ -1892,7 +1892,7 @@ function ContentTransformer({
                                       const pointTitle = pdf.splitTextToSize(`• ${point.title}`, pageWidth - 2 * margin - 10);
                                       pdf.text(pointTitle, margin + 5, yPosition);
                                       yPosition += pointTitle.length * 5 + 2;
-                                      
+                                     
                                       pdf.setFont('helvetica', 'normal');
                                       const pointText = pdf.splitTextToSize(point.text, pageWidth - 2 * margin - 10);
                                       pdf.text(pointText, margin + 5, yPosition);
@@ -1904,7 +1904,7 @@ function ContentTransformer({
                                   if (section.subSections) {
                                     section.subSections.forEach((sub: any) => {
                                       checkPageBreak(30);
-                                      
+                                     
                                       pdf.setFontSize(12);
                                       pdf.setFont('helvetica', 'bold');
                                       pdf.text(sub.title, margin + 10, yPosition);
@@ -1918,7 +1918,7 @@ function ContentTransformer({
                                           const subTitle = pdf.splitTextToSize(`  - ${subPoint.title}`, pageWidth - 2 * margin - 15);
                                           pdf.text(subTitle, margin + 15, yPosition);
                                           yPosition += subTitle.length * 4 + 2;
-                                          
+                                         
                                           pdf.setFont('helvetica', 'normal');
                                           const subText = pdf.splitTextToSize(subPoint.text, pageWidth - 2 * margin - 15);
                                           pdf.text(subText, margin + 15, yPosition);
@@ -1935,7 +1935,7 @@ function ContentTransformer({
                               // Critical flags
                               if (infographicData.criticalFlags && infographicData.criticalFlags.flags) {
                                 checkPageBreak(40);
-                                
+                               
                                 pdf.setFontSize(14);
                                 pdf.setFont('helvetica', 'bold');
                                 pdf.setTextColor(220, 38, 38); // Red color
@@ -1946,7 +1946,7 @@ function ContentTransformer({
                                 pdf.setFontSize(10);
                                 infographicData.criticalFlags.flags.forEach((flag: any) => {
                                   checkPageBreak(25);
-                                  
+                                 
                                   pdf.setFont('helvetica', 'bold');
                                   const flagTitle = pdf.splitTextToSize(`⚠ ${flag.title}`, pageWidth - 2 * margin - 5);
                                   pdf.text(flagTitle, margin + 5, yPosition);
@@ -1985,7 +1985,7 @@ function ContentTransformer({
                         <div className="mb-4 text-center">
                           <h3 className="text-2xl font-bold">{infographicData.title}</h3>
                         </div>
-                      
+                     
                       {/* Main sections */}
                       {infographicData.sections && infographicData.sections.map((section: any, sIdx: number) => (
                         <div key={sIdx} className="mb-8 pb-8">
@@ -1993,7 +1993,7 @@ function ContentTransformer({
                             <div className="text-3xl">{section.icon === 'umbrella' ? '☂️' : '📋'}</div>
                             <h4 className="text-xl font-bold text-gray-900">{section.title}</h4>
                           </div>
-                          
+                         
                           {section.points && section.points.map((point: any, pIdx: number) => (
                             <div key={pIdx} className="ml-12 mb-3">
                               <div className="font-semibold text-gray-800">{point.title}</div>
@@ -2004,8 +2004,8 @@ function ContentTransformer({
                           {section.subSections && (
                             <div className="grid grid-cols-3 gap-4 mt-6 ml-12">
                               {section.subSections.map((sub: any, subIdx: number) => (
-                                <div 
-                                  key={subIdx} 
+                                <div
+                                  key={subIdx}
                                   className={clsx(
                                     'rounded-xl p-5',
                                     sub.color === 'blue' ? 'bg-blue-50' :
@@ -2029,7 +2029,7 @@ function ContentTransformer({
                           )}
                         </div>
                       ))}
-                      
+                     
                       {/* Critical Flags */}
                       {infographicData.criticalFlags && (
                         <div className="mt-8 pt-8">
@@ -2234,7 +2234,7 @@ function styleHTMLContent(content: string): string {
     tables.forEach((table) => {
       table.className = 'w-full  border-2 border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
       table.setAttribute('style', 'border-collapse: collapse; border: 2px solid rgb(0, 0, 0);');
-      
+     
       // Style table headers
       const headers = table.querySelectorAll('thead th, thead td');
       headers.forEach((header) => {
@@ -2327,7 +2327,7 @@ function styleHTMLContent(content: string): string {
         }
 
         div.className = `${bgColor} border-l-4 ${borderColor} p-4 rounded-r-lg mb-4`;
-        
+       
         // Style strong tags inside callouts as titles
         const strong = div.querySelector('strong');
         if (strong) {

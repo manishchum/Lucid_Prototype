@@ -130,6 +130,43 @@ app.include_router(dispatch.router)  # dispatch router
 app.include_router(module_progress.router)  # module progress router
 app.include_router(employee_assessment.router)  # employee assessment router
 
+
+# ── Initialize WhatsApp Cron Job ────────────────────────────────────
+
+# @app.on_event("startup")
+# async def startup_event():
+#     """
+#     Initialize background jobs on application startup.
+#     """
+#     from apscheduler.triggers.interval import IntervalTrigger
+#     from whatsapp.cron import run_whatsapp_cron
+    
+#     # Add WhatsApp cron job to run every 5 minutes
+#     scheduler.add_job(
+#         run_whatsapp_cron,
+#         trigger=IntervalTrigger(minutes=5),
+#         id="whatsapp_cron_worker",
+#         name="WhatsApp Message Dispatch Worker",
+#         replace_existing=True,
+#     )
+    
+#     # Start the scheduler
+#     if not scheduler.running:
+#         scheduler.start()
+    
+#     print("✅ WhatsApp cron job initialized and scheduler started")
+
+
+# @app.on_event("shutdown")
+# async def shutdown_event():
+#     """
+#     Gracefully shutdown background jobs.
+#     """
+#     if scheduler.running:
+#         scheduler.shutdown()
+#     print("🛑 Scheduler shutdown complete")
+
+
 if __name__ == "__main__":
     import uvicorn
     from config import HOST, PORT
