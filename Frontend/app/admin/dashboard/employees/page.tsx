@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
+import { sharedDataClient } from '@/lib/data-client';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -2564,6 +2565,9 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
           console.error('Error creating assignment:', e);
         }
       }
+      
+      // Invalidate the cache for user dashboards globally when assignments change
+      sharedDataClient.invalidateByPrefix("v1|dashboard");
 
       if (failCount > 0) {
         setError(`Created ${successCount} assignments, ${failCount} failed`);

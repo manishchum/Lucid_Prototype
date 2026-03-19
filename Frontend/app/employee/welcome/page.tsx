@@ -113,9 +113,9 @@ export default function EmployeeWelcome() {
         };
       },
       {
-        ttlMs: 60 * 1000,
+        ttlMs: 5 * 1000, // Short fallback TTL because assignments/progress change externally
         swr: true,
-        swrMs: 5 * 60 * 1000,
+        swrMs: 30 * 1000,
       }
     );
 
