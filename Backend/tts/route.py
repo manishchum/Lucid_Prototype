@@ -28,6 +28,12 @@ router = APIRouter()
 # print("[TTS API] supabaseUrl:", supabaseUrl)
 # print("[TTS API] serviceKey", (serviceKey or ""))
 
+SUPABASE_URL = (
+    os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+    or os.getenv("SUPABASE_URL")
+    or ""
+).rstrip("/")
+
 base64Key = os.getenv("GOOGLE_TTS_JSON")
 credentialsPath: Optional[str] = None
 
@@ -576,7 +582,8 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
 
     # fallback (always correct for public bucket)
     if not audioUrl:
-        audioUrl = f"{supabaseUrl}/storage/v1/object/public/{BUCKET}/{fileName}"
+        if SUPABASE_URL:
+            audioUrl = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET}/{fileName}"
 
     if not audioUrl:
         return {"error": "Failed to get public URL from Supabase storage", "status": 500}
