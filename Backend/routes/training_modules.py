@@ -134,7 +134,10 @@ async def create_module(
     result = await create_training_module(user_id, module_data)
     
     if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+        error_message = result["error"]
+        if isinstance(error_message, str) and error_message.startswith("RATE_LIMIT_EXCEEDED:"):
+            raise HTTPException(status_code=429, detail=error_message.replace("RATE_LIMIT_EXCEEDED:", "").strip())
+        raise HTTPException(status_code=403, detail=error_message)
     
     return {
         "message": "Training module created successfully",
