@@ -6,7 +6,11 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "next lint",
-    "start": "next start -p $PORT"
+    "start": "next start -p $PORT",
+    "worker:content": "node worker/contentJobWorker.js",
+    "worker:video": "node worker/videoJobWorker.js",
+    "worker:audio": "node worker/audioJobWorker.js",
+    "worker:audio:poll": "node worker/api/generate-module-audio.js --poll"
   },
   "dependencies": {
     "@firebase/auth": "^1.11.0",
