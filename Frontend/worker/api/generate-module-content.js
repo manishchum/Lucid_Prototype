@@ -21,6 +21,27 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY  });
 const TEMPERATURE = 0.1;
 const TOP_P = 1.0;
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+async function generateWithRetry(callFn, retries = 3) {
+  let lastErr;
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      console.log(`[GEMINI] generateContent attempt ${attempt}/${retries}`);
+      return await callFn();
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[GEMINI] Attempt ${attempt} failed: ${err?.message || err}`);
+
+      if (attempt < retries) {
+        const delay = attempt * 4000;
+        console.log(`[GEMINI] Waiting ${delay}ms before retry...`);
+        await sleep(delay);
+      }
+    }
+  }
+
+  throw lastErr;
+}
 
 async function generateModuleContent({ moduleId = null } = {}) {
   console.log(`[GENERATE] Starting content generation ${moduleId ? `for module: ${moduleId}` : 'for all modules'}`);
@@ -904,56 +925,7 @@ Module is fully self-contained
         isFirstGeminiCall = false;
       }
 
-      try {
-        response = await ai.models.generateContent({
-          model: 'gemini-3-pro-preview',
-          contents: geminiContents,
-          generationConfig: {
-            maxOutputTokens: 3000,
-            temperature: TEMPERATURE,
-            topP: TOP_P
-          }
-        });
-
-      } catch (err) {
-      const msg = err?.message || "";
-
-      console.warn("[GEMINI] First attempt failed:", msg);
-      console.warn("[GEMINI] Error cause:", err?.cause || "No cause available");
-
-      const shouldRetryWithoutImages =
-        /fetch failed|sending request|cannot fetch content/i.test(msg);
-
-      if (shouldRetryWithoutImages) {
-        console.warn("[GEMINI] Retrying without images after 3 seconds...");
-
-        await sleep(3000);
-
-        // remove all image parts
-        geminiContents[0].parts = geminiContents[0].parts.filter(p => !p.fileData);
-
-        try {
-          response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: geminiContents,
-            generationConfig: {
-              maxOutputTokens: 4000,
-              temperature: TEMPERATURE,
-              topP: TOP_P
-            }
-          });
-        } catch (retryErr) {
-          console.error("[GEMINI] Retry without images also failed:", retryErr?.message || retryErr);
-          console.error("[GEMINI] Retry error cause:", retryErr?.cause || "No cause available");
-          throw retryErr;
-        }
-      } else {
-        throw err;
-      }
-    }
-
       // try {
-
       //   response = await ai.models.generateContent({
       //     model: 'gemini-3-pro-preview',
       //     contents: geminiContents,
@@ -965,14 +937,23 @@ Module is fully self-contained
       //   });
 
       // } catch (err) {
+      // const msg = err?.message || "";
 
-      //   if (err.message && err.message.includes("Cannot fetch content")) {
+      // console.warn("[GEMINI] First attempt failed:", msg);
+      // console.warn("[GEMINI] Error cause:", err?.cause || "No cause available");
 
-      //     console.warn("[GEMINI] Retrying generation without images");
+      // const shouldRetryWithoutImages =
+      //   /fetch failed|sending request|cannot fetch content/i.test(msg);
 
-      //     geminiContents[0].parts =
-      //       geminiContents[0].parts.filter(p => !p.fileData);
+      // if (shouldRetryWithoutImages) {
+      //   console.warn("[GEMINI] Retrying without images after 3 seconds...");
 
+      //   await sleep(3000);
+
+      //   // remove all image parts
+      //   geminiContents[0].parts = geminiContents[0].parts.filter(p => !p.fileData);
+
+      //   try {
       //     response = await ai.models.generateContent({
       //       model: 'gemini-3-pro-preview',
       //       contents: geminiContents,
@@ -982,12 +963,57 @@ Module is fully self-contained
       //         topP: TOP_P
       //       }
       //     });
-
-      //   } else {
-      //     throw err;
+      //   } catch (retryErr) {
+      //     console.error("[GEMINI] Retry without images also failed:", retryErr?.message || retryErr);
+      //     console.error("[GEMINI] Retry error cause:", retryErr?.cause || "No cause available");
+      //     throw retryErr;
       //   }
-
+      // } else {
+      //   throw err;
       // }
+      // }
+
+      try {
+        response = await generateWithRetry(() =>
+          ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: geminiContents,
+            generationConfig: {
+              maxOutputTokens: 2000,
+              temperature: TEMPERATURE,
+              topP: TOP_P
+            }
+          })
+        );
+      } catch (err) {
+        const msg = err?.message || "";
+        console.warn("[GEMINI] Full request failed:", msg);
+        console.warn("[GEMINI] Error cause:", err?.cause || "No cause available");
+
+        const shouldRetryWithoutImages =
+          /fetch failed|sending request|cannot fetch content/i.test(msg);
+
+        if (shouldRetryWithoutImages) {
+          console.warn("[GEMINI] Retrying without images after 3 seconds...");
+          await sleep(3000);
+
+          geminiContents[0].parts = geminiContents[0].parts.filter(p => !p.fileData);
+
+          response = await generateWithRetry(() =>
+            ai.models.generateContent({
+              model: 'gemini-3-pro-preview',
+              contents: geminiContents,
+              generationConfig: {
+                maxOutputTokens: 2000,
+                temperature: TEMPERATURE,
+                topP: TOP_P
+              }
+            })
+          );
+        } else {
+          throw err;
+        }
+      }
 
 
       
