@@ -189,7 +189,10 @@ def buildGeminiPodcastPrompt(moduleTitle: str, moduleContent: str, language: Lit
 - Example WRONG format (DO NOT USE): "Today we are going to talk about financial ratios which help in checking company health"
 - Pooja aur Rahul dono ko Hindi mein hi baat karni hai"""
         if language == "hinglish"
-        else "Generate the entire podcast script in English."
+        else (
+            "Generate the entire podcast script in English only. "
+            "Do NOT use Hindi words, Hinglish phrases, or Devanagari script."
+        )
     )
 
     dialogueCount = "48" if language == "hinglish" else "30"
@@ -221,7 +224,27 @@ def buildGeminiPodcastPrompt(moduleTitle: str, moduleContent: str, language: Lit
     english_transitions = '"That reminds me...", "Speaking of...", "And another thing..."'
     transitions = hinglish_transitions if language == "hinglish" else english_transitions
 
-    language_reminder = "REMINDER: WRITE IN HINDI! Use romanized Hindi or Devanagari. English sirf technical terms ke liye." if language == "hinglish" else ""
+    language_reminder = (
+        "REMINDER: WRITE IN HINDI! Use romanized Hindi or Devanagari. English sirf technical terms ke liye."
+        if language == "hinglish"
+        else "REMINDER: WRITE ONLY IN ENGLISH. No Hindi or Hinglish words."
+    )
+
+    greeting_instruction = (
+        "Line 1 ONLY - One speaker says a single brief greeting line (max 1 sentence). "
+        "NO 'Namaste aur swagat'. Start like: 'Aaj hum discuss karenge [topic]' or similar."
+        if language == "hinglish"
+        else (
+            "Line 1 ONLY - One speaker says a single brief greeting line (max 1 sentence). "
+            "NO Hindi/Hinglish greeting. Start like: 'Today we're discussing [topic]' or similar."
+        )
+    )
+
+    structure_line_1 = (
+        "Single brief greeting (e.g., 'Aaj hum discuss karenge [topic]')"
+        if language == "hinglish"
+        else "Single brief greeting (e.g., 'Today we're discussing [topic]')"
+    )
 
     return f"""Create a natural, engaging podcast conversation between two people:
 {speakers}
@@ -233,7 +256,7 @@ Content to cover:
 
 CRITICAL REQUIREMENTS - FOLLOW EXACTLY:
 1. DIALOGUE COUNT: Generate EXACTLY {dialogueCount} dialogue exchanges total (count each speaker turn)
-2. MINIMAL GREETING: Line 1 ONLY - One speaker says a single brief greeting line (max 1 sentence). NO "Namaste aur swagat", NO "welcome to podcast". Just start: "Aaj hum discuss karenge..." or similar.
+2. MINIMAL GREETING: {greeting_instruction}
 3. DIVE INTO CONTENT: From Line 2 onwards, immediately start discussing the actual topic
 4. PROPER ENDING: Last 3 lines MUST wrap up with summary and sign-off. DO NOT end mid-sentence.
 5. COMPLETE ALL {dialogueCount} LINES - Do not stop early
@@ -253,7 +276,7 @@ IMPORTANT - Make it sound like a real conversation:
 {language_reminder}
 
 STRUCTURE:
-- Line 1: Single brief greeting (e.g., "Aaj hum discuss karenge [topic]" for Hindi, or "Today we're discussing [topic]" for English)
+- Line 1: {structure_line_1}
 - Lines 2 to {dialogueCount}-3: Deep dive into main content
 - Last 3 lines: Wrap-up with key takeaways and sign-off
 

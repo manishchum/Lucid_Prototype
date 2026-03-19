@@ -38,14 +38,13 @@ function uniqueNonEmpty(values) {
 
 const API_BASE_URLS = uniqueNonEmpty([
   process.env.AUDIO_WORKER_API_BASE_URL,
+  process.env.INTERNAL_API_BASE_URL,
   process.env.NEXT_PUBLIC_BACKEND_URL,
   process.env.BACKEND_URL,
-  process.env.INTERNAL_API_BASE_URL,
 ]);
 
 const POLL_INTERVAL_MS = Number(process.env.AUDIO_WORKER_POLL_INTERVAL_MS || 15000);
-const TTS_TIMEOUT_MS = Number(process.env.AUDIO_WORKER_TTS_TIMEOUT_MS || 900000);
-const MIN_CONTENT_LENGTH = Number(process.env.AUDIO_WORKER_MIN_CONTENT_LENGTH || 50);
+const MIN_CONTENT_LENGTH = Number(process.env.AUDIO_WORKER_MIN_CONTENT_LENGTH || 1);
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error('[AUDIO WORKER] FATAL: Supabase env vars are missing.');
@@ -94,16 +93,13 @@ async function callTtsForLanguage(processedModuleId, language) {
   let lastError = null;
 
   for (const baseUrl of API_BASE_URLS) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), TTS_TIMEOUT_MS);
     const url = `${baseUrl}/api/tts`;
 
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ processed_module_id: processedModuleId, language: normalizedLanguage }),
-        signal: controller.signal,
+        body: JSON.stringify({ processed_module_id: processedModuleId, language: normalizedLanguage })
       });
 
       const text = await response.text();
@@ -115,6 +111,28 @@ async function callTtsForLanguage(processedModuleId, language) {
       }
 
       if (!response.ok) {
+        if ([502, 503, 504].includes(response.status)) {
+          console.log(`[AUDIO WORKER] HTTP ${response.status} from ${baseUrl}. Nginx disconnected but Backend is likely still generating ${normalizedLanguage} audio! Entering wait-and-poll loop...`);
+          const maxWaitMs = 15 * 60 * 1000; // wait up to 15 minutes
+          const startMs = Date.now();
+          const col = normalizedLanguage === 'hinglish' ? 'audio_url_hinglish' : 'audio_url';
+          
+          while (Date.now() - startMs < maxWaitMs) {
+            await sleep(15000);
+            const { data, error } = await supabase
+              .from('processed_modules')
+              .select(col)
+              .eq('processed_module_id', processedModuleId)
+              .single();
+              
+            if (!error && data && data[col]) {
+              console.log(`[AUDIO WORKER] Recovered from HTTP ${response.status}! ${normalizedLanguage} audio successfully found in DB for ${processedModuleId}`);
+              return { success: true, recovered: true, url: data[col] };
+            }
+          }
+          throw new Error(`HTTP ${response.status}: Polled DB for 15 minutes but ${col} was never updated.`);
+        }
+
         const message = payload?.error || payload?.raw || `HTTP ${response.status}`;
         throw new Error(`HTTP ${response.status}: ${message}`);
       }
@@ -122,14 +140,8 @@ async function callTtsForLanguage(processedModuleId, language) {
       console.log(`[AUDIO WORKER] ${normalizedLanguage} audio done for ${processedModuleId} via ${baseUrl}`);
       return payload;
     } catch (error) {
-      if (error && error.name === 'AbortError') {
-        lastError = new Error(`Timeout after ${TTS_TIMEOUT_MS}ms via ${baseUrl}`);
-      } else {
-        lastError = error;
-      }
-      console.warn(`[AUDIO WORKER] ${normalizedLanguage} request failed via ${baseUrl}: ${lastError.message || lastError}`);
-    } finally {
-      clearTimeout(timeoutId);
+      lastError = error;
+      console.warn(`[AUDIO WORKER] ${normalizedLanguage} request failed via ${baseUrl}: ${error.message || error}`);
     }
   }
 
@@ -189,15 +201,23 @@ async function fetchNextPendingRow() {
     .from('processed_modules')
     .select('processed_module_id, content, audio_url, audio_url_hinglish, created_at')
     .not('content', 'is', null)
+    .neq('content', '')
+    .or('audio_url.is.null,audio_url.eq."",audio_url_hinglish.is.null,audio_url_hinglish.eq.""')
     .order('created_at', { ascending: true })
-    .limit(25);
+    .limit(50);
 
   if (error) {
     throw new Error(`Pending row fetch failed: ${error.message}`);
   }
 
   const rows = Array.isArray(data) ? data : [];
-  return rows.find(isEligible) || null;
+  const next = rows.find(isEligible) || null;
+
+  if (!next && rows.length > 0) {
+    console.log(`[AUDIO WORKER] Pending rows fetched=${rows.length}, but none passed local eligibility (min content length=${MIN_CONTENT_LENGTH}).`);
+  }
+
+  return next;
 }
 
 async function generateModuleAudio({ moduleId = null, processedModuleId = null, language = null } = {}) {
