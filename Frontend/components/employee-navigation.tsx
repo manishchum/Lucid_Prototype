@@ -16,13 +16,11 @@ interface EmployeeNavigationProps {
   customBackPath?: string;
   customForwardPath?: string;
   className?: string;
-  user?: any;
   onLogout?: () => void;
   forceCollapsed?: boolean;
 }
 
 const EmployeeNavigation = ({ 
-  user: providedUser,
   onLogout: providedOnLogout,
   forceCollapsed = false
 }: EmployeeNavigationProps) => {
@@ -39,7 +37,7 @@ const EmployeeNavigation = ({
   const [isNavigating, setIsNavigating] = useState(false);
   const [showReportToast, setShowReportToast] = useState(false);
 
-  const displayUser = providedUser || employeeData;
+  const displayUser = employeeData || authUser;
 
   // Update isCollapsed when forceCollapsed prop changes
   useEffect(() => {

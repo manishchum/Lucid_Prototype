@@ -4,9 +4,8 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import AudioPlayer from "./AudioPlayer";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { supabase } from "@/lib/supabase";
+import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 import { Button } from "@/components/ui/button";
-import ModuleSideNav from "@/components/ModuleSideNav";
 import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download } from "lucide-react";
 import FlashcardCards from '@/components/FlashcardCards'
 import MindmapViewer from '@/components/MindmapViewer'
@@ -19,214 +18,117 @@ import { callGemini } from "@/lib/gemini-helper";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-const fetchUserByEmail = async (email: string) => {
-  try{
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
-    console.log(res);
-    if(!res.ok) return null;
-    const payload = await res.json();
-    let u = payload?.user ?? payload;
-    if (Array.isArray(u)) u = u[0];
-    return u || null;
-  } catch (e) {
-    console.error("Error fetching user by email:", e);
-    return null;
-  }
+const normalizeModulePayload = (raw: any, moduleId: string) => {
+  const payload = raw?.data ?? raw;
+  if (!payload) return null;
+
+  const base = Array.isArray(payload) ? payload[0] : (payload?.module ?? payload);
+  if (!base) return null;
+
+  return {
+    ...base,
+    processed_module_id: base.processed_module_id ?? base.module_id ?? moduleId,
+    original_module_id: base.original_module_id ?? base.module_id ?? base.id ?? moduleId,
+  };
+};
+
+const fetchModuleData = async (employee: any, moduleId: string) => {
+  return sharedDataClient.query(
+    createCacheKey({
+      namespace: "module",
+      userId: employee.user_id,
+      path: `/module/${moduleId}`,
+    }),
+    async () => {
+      const headers = {
+        "X-User-ID": employee.user_id,
+      };
+
+      const res = await fetch(`${API_BASE}/api/processed-modules/${moduleId}`, {
+        headers,
+      });
+
+      if (res.ok) {
+        return res.json();
+      }
+
+      // Fallback for cases where navigation passes original_module_id instead of processed_module_id.
+      if (res.status === 404) {
+        const originalRes = await fetch(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
+          headers,
+        });
+
+        if (originalRes.ok) {
+          const originalPayload = await originalRes.json();
+          const modules = originalPayload?.data || [];
+          if (Array.isArray(modules) && modules.length > 0) {
+            return { data: modules[0] };
+          }
+        }
+      }
+
+      throw new Error(`Failed to load module: ${res.status}`);
+    },
+    {
+      ttlMs: 5 * 60 * 1000,
+      swr: true,
+    }
+  );
 };
 
 export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
   const [lastUserInputWasVoice, setLastUserInputWasVoice] = useState(false);
-  const { user, loading: authLoading, logout } = useAuth()
+  const { user, employeeData, loading: authLoading } = useAuth();
   const moduleId = params.module_id;
   const [module, setModule] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [generatingContent, setGeneratingContent] = useState(false);
-  const [employee, setEmployee] = useState<any>(null);
-  const [learningStyle, setLearningStyle] = useState<string | null>(null);
   const [audioExpanded, setAudioExpanded] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
-  const [plainTranscript, setPlainTranscript] = useState("");
-  const [hasVideo, setHasVideo] = useState(false);
   const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string; isVoice?: boolean }>>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const router = useRouter();
-  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading || generatingContent);
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   const [voiceLoopActive, setVoiceLoopActive] = useState(false);
   const [autoStartMic, setAutoStartMic] = useState(false);
 
   useEffect(() => {
-          if (!authLoading) {
-            if (!user) router.push("/login");
-            // else checkAdminAccess();
-           
-          }
-        }, [user, authLoading, router]);
-  useEffect(() => {
-    const fetchModule = async () => {
-      setLoading(true);
-      if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
-        console.error('[module] Invalid module id:', moduleId);
+    if (!authLoading && !user) {
+      router.push("/login");
+    }
+  }, [user, authLoading, router]);
+
+  const loadModule = async () => {
+    if (!employeeData || !moduleId || moduleId === "undefined" || moduleId === "null") {
+      setModule(null);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await fetchModuleData(employeeData, moduleId);
+      const normalizedModule = normalizeModulePayload(result.data, moduleId);
+
+      if (!normalizedModule) {
+        console.error("[module] No module data found for id:", moduleId);
         setModule(null);
-        setLoading(false);
         return;
       }
-      let empObj = null;
-      let style = null;
-      try {
-        if(user?.email) {
-          const emp = await fetchUserByEmail(user.email);
-          if (emp?.user_id){
-            empObj = emp;
-            setEmployee(emp);
-            const { data: styleData } = await supabase
-            .from("employee_learning_style")
-            .select("learning_style")
-            .eq("user_id", emp.user_id)
-            .maybeSingle();
-          if (styleData?.learning_style) {
-            style = styleData.learning_style;
-            setLearningStyle(style);
-          }
-        }
-      }
-      } catch (e) {
-        console.error('[module] employee fetch error', e);
-      }
-      const selectCols = "processed_module_id, title, content, audio_url, audio_url_hinglish, original_module_id, learning_style, podcast_timeline, podcast_timeline_hinglish, podcast_transcript, podcast_transcript_hinglish,video_url, mindmap_data, flashcard_data, infographic_data";
-      let data: any = null;
 
-      // First try: direct lookup by processed_module_id (this is what we pass from training plan)
-      // console.log('[module] Attempting direct fetch by processed_module_id:', moduleId);
-      // console.log(empObj);
-
-      let directData = null;
-      if (empObj?.user_id) {
-        try {
-          const res = await fetch(`${API_BASE}/api/processed-modules/${moduleId}`, {
-            headers: {
-              'X-User-ID': empObj.user_id
-            }
-          });
-
-          if (res.ok) {
-            const payload = await res.json();
-            directData = payload?.data || payload;
-          } else {
-            console.error('[module] Error fetching by processed_module_id:', await res.text());
-          }
-        } catch (error) {
-          console.error('[module] Error fetching by processed_module_id:', error);
-        }
-      }
-
-      if (directData) {
-        data = directData;
-      } else if (empObj?.user_id && style) {
-        try {
-          const res = await fetch(`${API_BASE}/api/processed-modules/original-module/${moduleId}?learning_style=${encodeURIComponent(style)}`, {
-            headers: {
-              'X-User-ID': empObj.user_id
-            }
-          });
-
-          if (res.ok) {
-            const payload = await res.json();
-            const modules = payload?.data || payload || [];
-            // Take the first match since we're filtering by learning_style
-            data = modules[0] || null;
-          } else {
-            console.error('[module] Error fetching by original_module_id:', await res.text());
-          }
-        } catch (error) {
-          console.error('[module] Error fetching by original_module_id:', error);
-        }
-      }
-      if (data) {
-        if (!data.content || data.content.trim() === '') {
-          setGeneratingContent(true);
-          try {
-            // const genResponse = await fetch('/api/generate-module-content', {
-            //   method: 'POST',
-            //   headers: { 'Content-Type': 'application/json' },
-            //   body: JSON.stringify({
-            //     moduleId: data.original_module_id
-            //   }),
-            // });
-            // if (genResponse.ok) {
-              await new Promise(resolve => setTimeout(resolve, 2000));
-             
-              let refreshedData = null;
-              if (empObj?.user_id) {
-                try {
-                  const res = await fetch(`${API_BASE}/api/processed-modules/${moduleId}`, {
-                    headers: {
-                      'X-User-ID': empObj.user_id
-                    }
-                  });
-
-                  if (res.ok) {
-                    const payload = await res.json();
-                    refreshedData = payload?.data || payload;
-                  }
-                } catch (error) {
-                  console.error('[module] Error refreshing module data:', error);
-                }
-              }
-
-              if (refreshedData && refreshedData.content) {
-                data = refreshedData;
-              // }
-            }
-
-            console.log(refreshedData);
-          } catch (genError) {
-            console.error('[module] Error triggering content generation:', genError);
-          } finally {
-            setGeneratingContent(false);
-          }
-        }
-        if(data.video_url){
-          setHasVideo(true);
-        }
-        setModule(data as any);
-        setPlainTranscript(extractPlainText(data.content || ''));
-        try {
-          if (empObj?.user_id) {
-            console.log("Inside the module progress log 2")
-            console.log(data)
-            await fetch(`${API_BASE}/api/module-progress`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                user_id: empObj.user_id,
-                processed_module_id: data.processed_module_id,
-                module_id: data.original_module_id,
-                started_at: new Date().toISOString(),
-                audio_url: data.audio_url,
-                completed_at: new Date().toISOString(),
-                viewOnly: true,
-              }),
-            });
-          }
-        } catch (e) {
-          console.error('[module] progress log error', e);
-        }
-      } else {
-        console.error('[module] No module data found for id:', moduleId);
-        setModule(null);
-      }
+      setModule(normalizedModule);
+    } catch (error) {
+      console.error("[module] Failed to load module:", error);
+      setModule(null);
+    } finally {
       setLoading(false);
-    };
-         if (!authLoading) {
-           if (!user) router.push("/login");
-           else fetchModule();
-           
-         }
+    }
+  };
 
-   
-  // fetchModule();
-  }, [moduleId,user,authLoading]);
+  useEffect(() => {
+    if (!authLoading && employeeData && moduleId) {
+      loadModule();
+    }
+  }, [employeeData, moduleId, authLoading]);
 
   const handleSendChat = async (e: FormEvent<HTMLFormElement>, overrideInput?: string) => {
     e.preventDefault();
@@ -323,7 +225,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   };
 
   if (showLoadingProgress) {
-    const label = generatingContent ? "Generating personalized content" : "Loading module content";
+    const label = "Loading module content";
     return <LoadingProgress label={label} progress={loadingProgress} />;
   }
 
@@ -333,16 +235,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
 
   return (
     <div className="min-h-screen">
-      {/* Module Side Navigation */}
-      {employee?.user_id && (
-        <ModuleSideNav
-          userId={employee.user_id}
-          currentModuleId={moduleId}
-          sprintModuleId={module?.original_module_id}
-        />
-      )}
-
-      <div className="px-12 py-8" style={{ marginLeft: '16rem' }}>
+      <div className="px-12 py-8">
         <div className="w-full mx-auto">
           <div>
             <main className="w-full">
@@ -352,7 +245,10 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                     variant="outline"
                     size="sm"
                     className="flex items-center gap-2 hover:bg-gray-100"
-                    onClick={() => router.back()}
+                    onClick={() => {
+                      const targetModuleId = module?.original_module_id || moduleId;
+                      router.push('/employee/training-plan?module_id=' + encodeURIComponent(String(targetModuleId)));
+                    }}
                   >
                     <ChevronLeft className="w-4 h-4" />
                     Back
@@ -366,43 +262,39 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
 
                 <ContentTransformer
                   module={module}
-                  employee={employee}
+                  employeeId={employeeData?.user_id || ""}
                   audioExpanded={audioExpanded}
                   setAudioExpanded={setAudioExpanded}
                   liveTranscript={liveTranscript}
-                  plainTranscript={plainTranscript}
                   setLiveTranscript={setLiveTranscript}
-                  onAudioGenerated={(url: string, data?: { transcript?: string; timeline?: any; language?: 'en' | 'hinglish' }) => {
-                    setModule((m: any) => {
-                      const language = data?.language || 'en';
-                      if (language === 'hinglish') {
-                        return {
-                          ...m,
-                          audio_url_hinglish: url,
-                          podcast_transcript_hinglish: data?.transcript || m.podcast_transcript_hinglish,
-                          podcast_timeline_hinglish: data?.timeline ? JSON.stringify(data.timeline) : m.podcast_timeline_hinglish,
-                        };
-                      } else {
-                        return {
-                          ...m,
-                          audio_url: url,
-                          podcast_transcript: data?.transcript || m.podcast_transcript,
-                          podcast_timeline: data?.timeline ? JSON.stringify(data.timeline) : m.podcast_timeline,
-                        };
-                      }
+                  userChatHistory={userChatHistory}
+                  chatLoading={chatLoading}
+                  onModuleUpdate={(update: any) => {
+                    setModule((prev: any) => {
+                      const nextData = typeof update === "function" ? update(prev) : update;
+                      const normalized = normalizeModulePayload({ data: nextData }, moduleId);
+                      return normalized || nextData;
                     });
                   }}
-                  hasVideo={hasVideo}
-                  setHasVideo={setHasVideo}
-                  onVideoGenerated={(url: string) => {
-                    setModule((m: any) => ({ ...m, video_url: url }));
-                    setHasVideo(true);
+                  onAudioGenerated={(url: string, data?: any) => {
+                    setModule((prev: any) => {
+                      if (!prev) return prev;
+                      const isHinglish = data?.language === "hinglish";
+                      return {
+                        ...prev,
+                        [isHinglish ? "audio_url_hinglish" : "audio_url"]: url,
+                        [isHinglish ? "podcast_transcript_hinglish" : "podcast_transcript"]:
+                          data?.transcript || prev[isHinglish ? "podcast_transcript_hinglish" : "podcast_transcript"],
+                        [isHinglish ? "podcast_timeline_hinglish" : "podcast_timeline"]:
+                          data?.timeline
+                            ? JSON.stringify(data.timeline)
+                            : prev[isHinglish ? "podcast_timeline_hinglish" : "podcast_timeline"],
+                      };
+                    });
                   }}
-                  onModuleUpdate={setModule}
-                  userChatHistory={userChatHistory}
-                  setChatInput={setChatInput}
-                  setUserChatHistory={setUserChatHistory}
-                  chatLoading={chatLoading}
+                  onVideoGenerated={(url: string) => {
+                    setModule((prev: any) => (prev ? { ...prev, video_url: url } : prev));
+                  }}
                 />
 
                 <ContentCards content={module.content || ''} />
@@ -993,13 +885,6 @@ function groupSectionsForTabs(sections: SectionBlock[]): TabGroup[] {
   return groups.filter((g) => g.items.length > 0);
 }
 
-function extractPlainText(content: string) {
-  return content
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/[#*>`_\-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 // function parseChatFromTranscript(transcript: string): Array<{ speaker: string; text: string }> {
 //   const messages: Array<{ speaker: string; text: string }> = [];
 
@@ -1025,21 +910,16 @@ function extractPlainText(content: string) {
 
 function ContentTransformer({
   module,
-  employee,
+  employeeId,
   audioExpanded,
   setAudioExpanded,
   liveTranscript,
-  plainTranscript,
   setLiveTranscript,
-  onAudioGenerated,
-  hasVideo,
-  setHasVideo,
-  onVideoGenerated,
-  onModuleUpdate,
   userChatHistory,
-  setChatInput,
-  setUserChatHistory,
   chatLoading,
+  onModuleUpdate,
+  onAudioGenerated,
+  onVideoGenerated,
 }: any) {
   // Check if audio exists for each language
   const hasEnglishAudio = !!(module.audio_url && module.podcast_transcript && module.podcast_timeline);
@@ -1066,6 +946,28 @@ function ContentTransformer({
   const mindmapDownloadRef = useRef<(() => void) | null>(null);
   const [infographicData, setInfographicData] = useState<any | null>(null);
   const [infographicLoading, setInfographicLoading] = useState(false);
+
+  useEffect(() => {
+    const parseMaybeJson = (value: any) => {
+      if (!value) return null;
+      if (typeof value === "string") {
+        try {
+          return JSON.parse(value);
+        } catch {
+          return null;
+        }
+      }
+      return value;
+    };
+
+    const flashcards = parseMaybeJson(module?.flashcard_data);
+    setFlashcardSections(Array.isArray(flashcards) ? flashcards : null);
+    setMindmapData(parseMaybeJson(module?.mindmap_data));
+    setInfographicData(parseMaybeJson(module?.infographic_data));
+    setFlashcardLoading(false);
+    setMindmapLoading(false);
+    setInfographicLoading(false);
+  }, [module?.flashcard_data, module?.mindmap_data, module?.infographic_data]);
 
   // Roleplay-specific state
   const [roleplayPersona, setRoleplayPersona] = useState<string>('Coach');
@@ -1282,70 +1184,34 @@ function ContentTransformer({
           <div
             onClick={async () => {
               setSelectedOption('mindmap');
-              setMindmapLoading(true);
-             
-              try {
-                // Check if mindmap data already exists in the module
-                if (module.mindmap_data) {
-                  console.log('[mindmap] Using cached mindmap data');
-                  let cachedData = module.mindmap_data;
-                  if (typeof cachedData === 'string') {
-                    cachedData = JSON.parse(cachedData);
-                  }
-                  setMindmapData(cachedData);
-                  setMindmapLoading(false);
-                  return;
-                }
 
-                // Generate new mindmap if not cached
-                console.log('[mindmap] Generating new mindmap');
-                setMindmapData(null);
-                const studyText = plainTranscript || module.content || '';
+              if (mindmapData || module.mindmap_data) return;
+
+              setMindmapLoading(true);
+              try {
+                const studyText = module.content || '';
                 const res = await fetch(`${API_BASE}/api/generate-mindmap`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ content: studyText, title: module.title }),
                 });
-                let data: any = null;
-                try {
-                  data = await res.json();
-                } catch (err) {
-                  const raw = await res.clone().text();
-                  console.error('[mindmap] parse error, raw:', raw.slice(0, 400));
-                  data = null;
-                }
+
+                const data = await res.json();
 
                 if (res.ok && data && data.nodes && data.edges) {
                   setMindmapData(data);
-                 
-                  // Save mindmap data via backend API
-                  try {
-                    if (employee?.user_id) {
-                      const updateRes = await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
-                        method: 'PATCH',
-                        headers: {
-                          'Content-Type': 'application/json',
-                          'X-User-ID': employee.user_id
-                        },
-                        body: JSON.stringify({ mindmap_data: data })
-                      });
-                     
-                      if (!updateRes.ok) {
-                        console.error('[mindmap] Failed to save mindmap to database:', await updateRes.text());
-                      } else {
-                        console.log('[mindmap] Mindmap saved to database successfully');
-                        // Update local module state
-                        if (onModuleUpdate) {
-                          onModuleUpdate((prev: any) => ({ ...prev, mindmap_data: data }));
-                        }
-                      }
+
+                  if (employeeId) {
+                    await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
+                      body: JSON.stringify({ mindmap_data: data }),
+                    });
+
+                    if (onModuleUpdate) {
+                      onModuleUpdate((prev: any) => ({ ...prev, mindmap_data: data }));
                     }
-                  } catch (saveError) {
-                    console.error('[mindmap] Error saving mindmap:', saveError);
                   }
-                } else {
-                  console.error('[mindmap] generation failed', data);
-                  setMindmapData(null);
                 }
               } catch (e) {
                 console.error('Error generating mindmap', e);
@@ -1369,102 +1235,44 @@ function ContentTransformer({
           {/* Flash cards */}
           <div
             onClick={async () => {
-              // If already generated, just open the view
-              if (flashcardSections && flashcardSections.length > 0) {
-                setSelectedOption('flashcard');
-                return;
-              }
+              setSelectedOption('flashcard');
+
+              if (flashcardSections && flashcardSections.length > 0) return;
 
               try {
                 setFlashcardLoading(true);
-                setSelectedOption('flashcard');
-               
-                // Check if flashcard data already exists in the module (cache)
-                if (module.flashcard_data) {
-                  console.log('[flashcards] Using cached flashcard data');
-                  let cachedData = module.flashcard_data;
-                  if (typeof cachedData === 'string') {
-                    cachedData = JSON.parse(cachedData);
-                  }
-                  if (Array.isArray(cachedData) && cachedData.length > 0) {
-                    setFlashcardSections(cachedData);
-                    setFlashcardLoading(false);
-                    return;
-                  }
-                }
 
-                // Generate new flashcards if not cached
-                console.log('[flashcards] Generating new flashcards');
-                const studyText = plainTranscript || module.content || '';
-                console.log('[flashcards] starting fetch, studyText length:', (studyText || '').length);
+                const studyText = module.content || '';
                 const res = await fetch(`${API_BASE}/api/generate-flashcards-gemini`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ content: studyText }),
                 });
 
-                // Read raw text for debugging first, then attempt to parse JSON
                 const raw = await res.clone().text();
-                console.log('[flashcards] fetch status:', res.status, 'raw preview:', raw.slice(0, 400));
-
                 let data: any = null;
                 try {
                   data = await res.json();
-                } catch (parseErr) {
-                  console.error('[flashcards] failed to parse JSON from response, parseErr:', parseErr);
-                  // fallback: try to parse raw substring
-                  try {
-                    data = JSON.parse(raw);
-                  } catch (e2) {
-                    data = { raw };
-                  }
+                } catch {
+                  data = JSON.parse(raw);
                 }
 
-                console.log('[flashcards] parsed response:', data);
+                if (res.ok && Array.isArray(data)) {
+                  setFlashcardSections(data);
 
-                if (res.ok) {
-                  // Expecting an array of { heading, points }
-                  if (Array.isArray(data)) {
-                    setFlashcardSections(data);
-                   
-                    // Save flashcard data via backend API
-                    try {
-                      if (employee?.user_id) {
+                  if (employeeId) {
+                    await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
+                      body: JSON.stringify({ flashcard_data: data }),
+                    });
 
-                      console.log('[mindmap] Saving mindmap to database for module', module.processed_module_id);
-                      console.log('[mindmap] mindmap data size:', JSON.stringify(data).length);
-                      console.log(data)
-                        const updateRes = await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
-                          method: 'PATCH',
-                          headers: {
-                            'Content-Type': 'application/json',
-                            'X-User-ID': employee.user_id
-                          },
-                          body: JSON.stringify({ flashcard_data: data })
-                        });
-                       
-                        if (!updateRes.ok) {
-                          console.error('[flashcards] Failed to save flashcards to database:', await updateRes.text());
-                        } else {
-                          console.log('[flashcards] Flashcards saved to database successfully');
-                          // Update local module state
-                          if (onModuleUpdate) {
-                            onModuleUpdate((prev: any) => ({ ...prev, flashcard_data: data }));
-                          }
-                        }
-                      }
-                    } catch (saveError) {
-                      console.error('[flashcards] Error saving flashcards:', saveError);
+                    if (onModuleUpdate) {
+                      onModuleUpdate((prev: any) => ({ ...prev, flashcard_data: data }));
                     }
-                  } else if (data && data.error) {
-                    setFlashcardSections([{ heading: 'Flashcard generation failed', points: [data.error || data.detail || 'See console for details'] }]);
-                  } else {
-                    setFlashcardSections([{ heading: 'Flashcard: unexpected response', points: [JSON.stringify(data).slice(0, 300)] }]);
                   }
                 } else {
-                  // Surface error to the UI so the user sees feedback instead of a silent failure
-                  setFlashcardSections([{ heading: 'Flashcard generation failed', points: [data?.error || data?.detail || 'See console for details'] }]);
-                  console.error('Flashcard generation failed', data);
+                  setFlashcardSections([{ heading: 'Generation failed', points: [data?.error || 'Check console'] }]);
                 }
               } catch (e) {
                 console.error('Error generating flashcards', e);
@@ -1487,83 +1295,51 @@ function ContentTransformer({
           {/* Infographic button */}
           <div
             onClick={async () => {
-              // If already generated, just open the view
-              if (infographicData) {
-                setSelectedOption('infographic');
-                return;
-              }
+              setSelectedOption('infographic');
+
+              if (infographicData) return;
 
               try {
                 setInfographicLoading(true);
-                setSelectedOption('infographic');
-               
-                console.log('[infographic] Starting generation...');
-                console.log('[infographic] Module title:', module.title);
-                console.log('[infographic] Content length:', (module.content || '').length);
-                console.log('[infographic] Processed module ID:', module.processed_module_id);
-               
-                // Check if infographic data already exists in the module (cache)
-                if (module.infographic_data) {
-                  console.log('[infographic] Using cached infographic data');
-                  let cachedData = module.infographic_data;
-                  if (typeof cachedData === 'string') {
-                    cachedData = JSON.parse(cachedData);
-                  }
-                  if (cachedData && (cachedData.title || cachedData.sections)) {
-                    setInfographicData(cachedData);
-                    setInfographicLoading(false);
-                    return;
-                  }
-                }
-               
                 const contentText = module.content || '';
-               
-                if (!contentText) {
-                  console.error('[infographic] No content available');
-                  alert('No content available to generate visual guide');
-                  setInfographicLoading(false);
-                  return;
-                }
-               
-                console.log('[infographic] Calling API...');
+
                 const res = await fetch(`${API_BASE}/api/generate-infographic`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     content: contentText,
                     title: module.title,
-                    processed_module_id: module.processed_module_id
+                    processed_module_id: module.processed_module_id,
                   }),
                 });
-
-                console.log('[infographic] API response status:', res.status);
-               
-                const raw = await res.clone().text();
-                console.log('[infographic] Raw response preview:', raw.slice(0, 500));
 
                 let data: any = null;
                 try {
                   data = await res.json();
-                  console.log('[infographic] Parsed data:', data);
-                } catch (parseErr) {
-                  console.error('[infographic] Failed to parse JSON:', parseErr);
-                  console.error('[infographic] Raw response:', raw);
-                  alert('Failed to parse server response. Check console for details.');
-                  data = null;
+                } catch {
+                  console.error('Failed to parse JSON');
                 }
 
                 if (res.ok && data && !data.error) {
-                  console.log('[infographic] Successfully generated!');
                   setInfographicData(data);
+
+                  if (employeeId) {
+                    await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
+                      body: JSON.stringify({ infographic_data: data }),
+                    });
+
+                    if (onModuleUpdate) {
+                      onModuleUpdate((prev: any) => ({ ...prev, infographic_data: data }));
+                    }
+                  }
                 } else {
-                  console.error('[infographic] Generation failed:', data);
                   alert(`Failed to generate visual guide: ${data?.error || 'Unknown error'}`);
-                  setInfographicData(null);
                 }
               } catch (e: any) {
                 console.error('[infographic] Error:', e);
                 alert(`Error generating visual guide: ${e.message || 'Unknown error'}`);
-                setInfographicData(null);
               } finally {
                 setInfographicLoading(false);
               }
@@ -1608,32 +1384,13 @@ function ContentTransformer({
                 <option value="en">English</option>
                 <option value="hinglish">हिंदी</option>
               </select>
-
-              {!hasCurrentLanguageAudio(language) && (
-                <GenerateAudioButton
-                  moduleId={module.processed_module_id}
-                  onAudioGenerated={(url, data) => {
-                    onAudioGenerated(url, data);
-                    if (data?.timeline && Array.isArray(data.timeline)) {
-                      // console.log('[ContentTransformer] Timeline received from audio generation:', {
-                      //   segmentCount: data.timeline.length,
-                      //   totalDuration: data.timeline.length > 0 ? data.timeline[data.timeline.length - 1].endSec : 0,
-                      // });
-                      setPodcastTimeline(data.timeline);
-                    } else if (!data?.timeline) {
-                      // console.warn('[ContentTransformer] No timeline returned from audio generation');
-                    }
-                  }}
-                  language={language}
-                />
-              )}
             </div>
 
             {hasCurrentLanguageAudio(language) && (
               <>
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                   <AudioPlayer
-                    employeeId={employee?.user_id}
+                    employeeId={employeeId}
                     processedModuleId={module.processed_module_id}
                     moduleId={module.original_module_id}
                     audioUrl={language === 'hinglish' ? (module.audio_url_hinglish || module.audio_url) : module.audio_url}
@@ -1731,24 +1488,45 @@ function ContentTransformer({
                 </div>
               </>
             )}
+
+            {!hasCurrentLanguageAudio(language) && (
+              <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 space-y-4">
+                <div>Audio for this language is not available yet.</div>
+                <GenerateAudioButton
+                  moduleId={module.processed_module_id}
+                  language={language}
+                  onAudioGenerated={(url, data) => {
+                    if (onAudioGenerated) onAudioGenerated(url, data);
+                    if (data?.timeline && Array.isArray(data.timeline)) {
+                      setPodcastTimeline(data.timeline);
+                    }
+                  }}
+                />
+              </div>
+            )}
           </div>
         )}
 
         {selectedOption === 'video' && (
           <div className="space-y-3 flex flex-col">
-            {!hasVideo && (
-              <GenerateVideoButton
-                moduleId={module.processed_module_id}
-                onVideoGenerated={onVideoGenerated}
-              />
-            )}
-
-            {hasVideo && module.video_url && (
+            {module.video_url && (
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <video controls className="w-full rounded-lg">
                   <source src={module.video_url} type="video/mp4" />
                   Your browser does not support video playback.
                 </video>
+              </div>
+            )}
+
+            {!module.video_url && (
+              <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 space-y-4">
+                <div>Video is not available yet.</div>
+                <GenerateVideoButton
+                  moduleId={module.processed_module_id}
+                  onVideoGenerated={(url) => {
+                    if (onVideoGenerated) onVideoGenerated(url);
+                  }}
+                />
               </div>
             )}
           </div>
@@ -1763,7 +1541,7 @@ function ContentTransformer({
                       {flashcardLoading && (
                         <div className="rounded-xl border border-slate-200 bg-white p-12 text-left flex flex-col items-center">
                           <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
-                          <div>Generating flashcards...</div>
+                          <div>Loading flashcards...</div>
                         </div>
                       )}
 
@@ -1799,7 +1577,7 @@ function ContentTransformer({
                   {mindmapLoading && (
                     <div className="rounded-xl border border-slate-200 bg-white p-12 text-left flex flex-col items-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
-                      <div>Generating mindmap...</div>
+                      <div>Loading mindmap...</div>
                     </div>
                   )}
 
@@ -1826,7 +1604,7 @@ function ContentTransformer({
                   )}
 
                   {!mindmapLoading && !mindmapData && (
-                    <div className="rounded-xl border border-slate-200 bg-white p-12 text-left text-sm text-gray-500">Click the Mindmap tile to generate and view the mindmap.</div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-12 text-left text-sm text-gray-500">Mindmap is not available for this module yet.</div>
                   )}
 
                   {/* Debug preview removed */}
@@ -1838,7 +1616,7 @@ function ContentTransformer({
                   {infographicLoading && (
                     <div className="rounded-xl border border-slate-200 bg-white p-12 text-left flex flex-col items-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
-                      <div>Generating visual guide...</div>
+                      <div>Loading visual guide...</div>
                     </div>
                   )}
 
@@ -2055,7 +1833,7 @@ function ContentTransformer({
                   )}
 
                   {!infographicLoading && !infographicData && (
-                    <div className="rounded-xl border border-slate-200 bg-white p-12 text-left text-sm text-gray-500">Click the Visual Guide tile to generate the structured overview.</div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-12 text-left text-sm text-gray-500">Visual guide is not available for this module yet.</div>
                   )}
                 </div>
               )}
@@ -2415,6 +2193,98 @@ function styleMarkdownContent(content: string): string {
   return formatted;
 }
 
+function GenerateAudioButton({
+  moduleId,
+  onAudioGenerated,
+  language = 'en',
+}: {
+  moduleId: string;
+  onAudioGenerated: (url: string, data?: any) => void;
+  language?: 'en' | 'hinglish';
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=${language}`);
+      const data = await res.json();
+      if (res.ok && data.audioUrl) {
+        onAudioGenerated(data.audioUrl, {
+          transcript: data.podcastTranscript,
+          timeline: data.podcastTimeline,
+          language,
+        });
+      } else {
+        setError(data.error || 'Failed to generate audio');
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Error generating audio');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="flex flex-col items-start">
+      <button
+        className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 disabled:opacity-50"
+        onClick={handleGenerate}
+        disabled={loading}
+      >
+        {loading ? 'Generating Audio...' : 'Generate Audio'}
+      </button>
+      {error && <div className="text-red-600 mt-2 text-sm">{error}</div>}
+    </div>
+  );
+}
+
+function GenerateVideoButton({
+  moduleId,
+  onVideoGenerated,
+}: {
+  moduleId: string;
+  onVideoGenerated: (url: string) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/gpt-video`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ processed_module_id: moduleId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.videoUrl) {
+        onVideoGenerated(data.videoUrl);
+      } else {
+        setError(data.error || 'Failed to generate video');
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Error generating video');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="flex flex-col items-start">
+      <button
+        className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 disabled:opacity-50"
+        onClick={handleGenerate}
+        disabled={loading}
+      >
+        {loading ? 'Generating Video...' : 'Generate Video'}
+      </button>
+      {error && <div className="text-red-600 mt-2 text-sm">{error}</div>}
+    </div>
+  );
+}
+
 function sanitizeHTML(html: string): string {
   // Create a temporary container to parse and clean HTML
   if (typeof window === 'undefined') {
@@ -2443,104 +2313,6 @@ function sanitizeHTML(html: string): string {
     console.error('Error sanitizing HTML:', error);
     return html;
   }
-}
-
-// Add GenerateAudioButton component
-
-// const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
-
-function GenerateAudioButton({ moduleId, onAudioGenerated, language = 'en' }: { moduleId: string, onAudioGenerated: (url: string, data?: { transcript?: string; timeline?: any; language?: 'en' | 'hinglish' }) => void, language?: 'en' | 'hinglish' }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleGenerate = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      if (language === 'hinglish') {
-        // Hinglish generation implementation
-        const res = await fetch(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=hinglish`);
-        const data = await res.json();
-        if (res.ok && data.audioUrl) {
-          onAudioGenerated(data.audioUrl, {
-            transcript: data.podcastTranscript,
-            timeline: data.podcastTimeline,
-            language: 'hinglish'
-          });
-        } else {
-          setError(data.error || 'Failed to generate Hinglish audio');
-        }
-      } else {
-        const res = await fetch(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=en`);
-        const data = await res.json();
-        if (res.ok && data.audioUrl) {
-          onAudioGenerated(data.audioUrl, {
-            transcript: data.podcastTranscript,
-            timeline: data.podcastTimeline,
-            language: 'en'
-          });
-        } else {
-          setError(data.error || 'Failed to generate audio');
-        }
-      }
-    } catch (e: any) {
-      setError(e?.message || 'Error generating audio');
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div className="flex flex-col items-center">
-      <button
-        className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 disabled:opacity-50"
-        onClick={handleGenerate}
-        disabled={loading}
-      >
-        {loading ? 'Generating Audio...' : 'Generate Audio'}
-      </button>
-      {error && <div className="text-red-600 mt-2">{error}</div>}
-    </div>
-  );
-}
-
-function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string, onVideoGenerated: (url: string) => void }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleGenerate = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/gpt-video`, {
-      // const res = await fetch(`/api/gpt-video-generation`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ processed_module_id: moduleId }),
-      });
-      const data = await res.json();
-      if (res.ok && data.videoUrl) {
-        onVideoGenerated(data.videoUrl);
-      } else {
-        setError(data.error || 'Failed to generate video');
-      }
-    } catch (e: any) {
-      setError(e?.message || 'Error generating video');
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div className="flex flex-col items-center">
-      <button
-        className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 disabled:opacity-50"
-        onClick={handleGenerate}
-        disabled={loading}
-      >
-        {loading ? 'Generating Video...' : 'Generate Video'}
-      </button>
-      {error && <div className="text-red-600 mt-2">{error}</div>}
-    </div>
-  );
 }
 
 // Helper: escape XML-sensitive characters for safe insertion into SVG

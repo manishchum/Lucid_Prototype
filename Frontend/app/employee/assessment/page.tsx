@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 import React, { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from "@/lib/supabase";
+import { sharedDataClient, createCacheKey } from "@/lib/data-client";
 import MCQQuiz from "./mcq-quiz";
 import { useAuth } from "@/contexts/auth-context";
 import { ChevronLeft, CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
@@ -392,6 +393,67 @@ const AssessmentContent = () => {
       // console.log("Response from the /api/gpt-feedback endpoint:");
       // console.log(res)
       setFeedback(data.feedback || "");
+
+      try {
+        const moduleTitle = mcqQuestionsByModule[0]?.title || (moduleId === 'baseline' ? 'Baseline Assessment' : 'Module Assessment');
+        sessionStorage.setItem(
+          'pending_score_history_assessment',
+          JSON.stringify({
+            assessment_id: assessmentId,
+            score: result.score,
+            max_score: (mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []).length,
+            feedback: data.feedback || '',
+            question_feedback: data.question_feedback || null,
+            type: moduleId === 'baseline' ? 'baseline' : 'module',
+            module_title: moduleTitle,
+            created_at: new Date().toISOString(),
+          }),
+        );
+      } catch {
+        // Ignore storage errors in private browsing or restricted contexts.
+      }
+
+      if (employeeId) {
+        const assessmentsKey = createCacheKey({
+          namespace: "assessments",
+          userId: String(employeeId),
+          path: "/employee-assessments",
+        });
+        const detailsPrefix = createCacheKey({
+          namespace: "assessment-details",
+          userId: String(employeeId),
+          path: "/assessments/batch",
+        });
+        const modulesPrefix = createCacheKey({
+          namespace: "modules",
+          userId: String(employeeId),
+          path: "/processed-modules/batch",
+        });
+
+        // Remove stale cache immediately after successful submit.
+        sharedDataClient.invalidate(assessmentsKey);
+        sharedDataClient.invalidateByPrefix(detailsPrefix);
+        sharedDataClient.invalidateByPrefix(modulesPrefix);
+
+        // Warm fresh data so score-history sees latest without waiting for TTL.
+        await sharedDataClient.query(
+          assessmentsKey,
+          async () => {
+            const freshRes = await fetch(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeId)}`, {
+              headers: { "X-User-ID": employeeId },
+            });
+            if (!freshRes.ok) {
+              throw new Error("Failed to refetch employee assessments");
+            }
+            return freshRes.json();
+          },
+          {
+            ttlMs: 2 * 60 * 1000,
+            swr: true,
+            forceRefresh: true,
+          },
+        );
+      }
       
       setQuizQuestions(mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []);
       
