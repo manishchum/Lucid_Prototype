@@ -124,113 +124,7 @@ def extract_vector_drawings(pdf_path: str, zoom: float = 2.0):
     print("Total vector images:", len(vector_images))
 
     return vector_images
-# def extract_images_per_page(pdf_path: str):
 
-    print("\n--- Extracting Images (PyMuPDF) ---")
-
-    doc = fitz.open(pdf_path)
-    images = []
-
-    for page_index in range(len(doc)):
-        page = doc[page_index]
-        image_list = page.get_images(full=True)
-
-        for img in image_list:
-            xref = img[0]
-            width = img[2]
-            height = img[3]
-
-            # Filter tiny images
-            if width < 20 or height < 20:
-                print(f"Skipping tiny image on page {page_index+1} with size {width}x{height}")
-                continue
-
-            base_image = doc.extract_image(xref)
-            image_bytes = base_image["image"]
-
-            if width*height < 2500:
-                print(f"Skipping small image on page {page_index+1} with byte size {len(image_bytes)}")
-                continue
-
-            try:
-                
-                Image.open(io.BytesIO(image_bytes))
-            except Exception as e:
-                print(f"except ke andr hai: {e}")
-                continue
-
-            images.append({
-                
-                "page_number": page_index + 1,
-                "bytes": image_bytes,
-                "ext": base_image["ext"]
-            })
-            print(f"Extracted image from page {page_index+1} with size {width}x{height} and byte size {len(image_bytes)}")
-            print(f"Total images so far: {len(images)}")
-
-    print("Total filtered images:", len(images))
-
-    return images
-# def extract_images_per_page(pdf_path: str):
-
-    print("\n--- Extracting Raster Images (White Background Safe) ---")
-
-    doc = fitz.open(pdf_path)
-    images = []
-
-    for page_index in range(len(doc)):
-        page = doc[page_index]
-        image_list = page.get_images(full=True)
-
-        for img in image_list:
-            xref = img[0]
-            smask = img[1]
-            width = img[2]
-            height = img[3]
-
-            # Skip tiny images
-            if width < 20 or height < 20:
-                continue
-
-            try:
-                # Base image pixmap
-                base_pix = fitz.Pixmap(doc, xref)
-
-                # If image has soft mask, combine it properly
-                if smask > 0:
-                    mask_pix = fitz.Pixmap(doc, smask)
-                    pix = fitz.Pixmap(base_pix, mask_pix)
-                else:
-                    pix = base_pix
-
-                # 🔥 FORCE WHITE BACKGROUND FLATTENING
-                if pix.alpha:
-                    white_bg = fitz.Pixmap(fitz.csRGB, pix.width, pix.height)
-                    white_bg.clear_with(255)  # fill white
-                    white_bg.copy(pix, pix.irect)
-                    pix = white_bg
-                else:
-                    # Convert CMYK or others to RGB safely
-                    if pix.n != 3:
-                        pix = fitz.Pixmap(fitz.csRGB, pix)
-
-                image_bytes = pix.tobytes("png")
-
-            except Exception as e:
-                print(f"Image error on page {page_index+1}: {e}")
-                continue
-
-            images.append({
-                "page_number": page_index + 1,
-                "bytes": image_bytes,
-                "ext": "png"
-            })
-
-            print(f"[Raster] Page {page_index+1} | Size: {width}x{height}")
-
-    print("Total raster images:", len(images))
-
-    return images
 def extract_images_per_page(pdf_path: str, zoom: float = 2.0):
 
     print("\n--- Extracting Raster Images (Rendered Clip Mode) ---")
@@ -285,6 +179,159 @@ def extract_images_per_page(pdf_path: str, zoom: float = 2.0):
     print("Total rendered raster images:", len(images))
 
     return images
+
+# ==============================
+# EXCEL HELPERS
+# ==============================
+
+def _excel_cell_to_str(value):
+    if pd.isna(value):
+        return ""
+
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        return str(value)
+
+    return str(value).strip()
+
+
+def _normalize_headers(headers):
+
+    clean_headers = []
+    seen = {}
+
+    for i, h in enumerate(headers, start=1):
+
+        name = _excel_cell_to_str(h)
+        name = re.sub(r"\s+", " ", name).strip()
+
+        if not name or name.lower().startswith("unnamed"):
+            name = f"column_{i}"
+
+        base = name
+        count = seen.get(base, 0)
+
+        if count > 0:
+            name = f"{base}_{count+1}"
+
+        seen[base] = count + 1
+
+        clean_headers.append(name)
+
+    return clean_headers
+
+def _find_header_row(df):
+
+    for idx, row in df.iterrows():
+
+        non_empty = sum(1 for v in row if _excel_cell_to_str(v))
+
+        if non_empty >= 2:
+            return idx
+
+    return 0
+
+# ==============================
+# EXCEL PARSER (FIRST SHEET ONLY)
+# ==============================
+
+def parse_excel_first_sheet(
+    excel_path: str,
+    rows_per_chunk: int = 30,
+    overlap: int = 5
+):
+
+    print("\n--- Parsing Excel First Sheet ---")
+
+    # workbook = pd.ExcelFile(excel_path)
+    # sheet_name = workbook.sheet_names[0]
+    raw_df = pd.read_excel(
+        excel_path,
+        sheet_name=0,
+        header=None,
+        dtype=object
+    )
+
+    sheet_name = "Sheet1"
+
+    if raw_df.empty:
+        return []
+
+    raw_df = raw_df.dropna(how="all").dropna(axis=1, how="all")
+
+    raw_df = raw_df.apply(lambda col: col.map(_excel_cell_to_str))
+
+    header_row_idx = _find_header_row(raw_df)
+
+    headers = _normalize_headers(raw_df.loc[header_row_idx].tolist())
+
+    data_df = raw_df.loc[header_row_idx + 1:].reset_index(drop=True)
+
+    data_df.columns = headers
+
+    data_df = data_df[
+        data_df.apply(lambda r: any(str(v).strip() for v in r), axis=1)
+    ]
+
+    blocks = []
+
+    step = max(rows_per_chunk - overlap, 1)
+
+    for start in range(0, len(data_df), step):
+
+        chunk_df = data_df.iloc[start:start + rows_per_chunk]
+
+        if chunk_df.empty:
+            continue
+
+        row_lines = []
+
+        excel_row_start = header_row_idx + 2 + start
+        excel_row_end = header_row_idx + 1 + start + len(chunk_df)
+
+        for i, (_, row) in enumerate(chunk_df.iterrows()):
+
+            excel_row_num = excel_row_start + i
+
+            pairs = []
+
+            for col in headers:
+
+                val = str(row[col]).strip()
+
+                if val:
+                    pairs.append(f"{col}: {val}")
+
+            if pairs:
+                row_lines.append(
+                    f"Row {excel_row_num} -> " + " | ".join(pairs)
+                )
+
+        if not row_lines:
+            continue
+
+        content = f"""
+File Type: Excel
+Sheet: {sheet_name}
+Rows: {excel_row_start}-{excel_row_end}
+Headers: {", ".join(headers)}
+
+""" + "\n".join(row_lines)
+
+        blocks.append({
+            "sheet_name": sheet_name,
+            "row_start": excel_row_start,
+            "row_end": excel_row_end,
+            "headers": headers,
+            "content": clean_text(content)
+        })
+
+    print("Excel sheet:", sheet_name)
+    print("Headers:", headers)
+    print("Total blocks:", len(blocks))
+
+    return blocks
 # ==============================
 # COMBINED PARSER ENTRY
 # ==============================
@@ -295,5 +342,15 @@ def parse_pdf(pdf_path: str):
     # vector_images = extract_vector_drawings(pdf_path)
     images = raster_images 
     
+
+    return text_blocks, images
+
+
+
+def parse_excel(excel_path: str):
+
+    text_blocks = parse_excel_first_sheet(excel_path)
+
+    images = []  # excel does not produce images
 
     return text_blocks, images

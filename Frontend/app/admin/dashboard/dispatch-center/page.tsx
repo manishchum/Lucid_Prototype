@@ -183,6 +183,25 @@ export default function AdminDispatchCenterPage() {
     scheduled_time?: string;
   } | null>(null);
 
+  // WhatsApp draft state
+  const [draftedWhatsApp, setDraftedWhatsApp] = useState<{ message: string } | null>(null);
+  const [isEditingWhatsApp, setIsEditingWhatsApp] = useState(false);
+  const [editWhatsAppMessage, setEditWhatsAppMessage] = useState('');
+
+  // WhatsApp result state
+  const [whatsappResult, setWhatsappResult] = useState<{
+    status: string;
+    total_messages: number;
+    unique_recipients: number;
+    messages?: Array<{
+      scheduled_whatsapp_id: string;
+      module_title: string;
+      content_type: string;
+      day_offset: number;
+      recipient_count: number;
+    }>;
+  } | null>(null);
+
   // Assigned users
   const [assignedUsers, setAssignedUsers] = useState<AssignedUser[]>([]);
 
@@ -549,11 +568,13 @@ export default function AdminDispatchCenterPage() {
         // Gemini-written message AND the real flashcard/audio content
         if (selectedContent.length > 0 && selectedSprintId) {
           try {
+            console.log(currentUser)
             const notifyRes = await fetch(`${API_BASE}/api/dispatch/notify-email`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
               body: JSON.stringify({
                 module_id: selectedSprintId,
+                module_ids: selectedSubModuleIds,  // Pass specific module IDs to fetch only their content
                 selected_content: selectedContent,
                 blocks_only: true,
                 ...(customFlashcards ? { customFlashcards } : {}),
@@ -595,6 +616,49 @@ export default function AdminDispatchCenterPage() {
     } catch (e) {
       console.error('Error generating email:', e);
       alert('Failed to generate email');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  // ── Generate WhatsApp nudge message ──────────────────────────
+  const handleGenerateWhatsApp = async () => {
+    if (!selectedSprint || selectedSubModuleIds.length === 0) return;
+    setGenerating(true);
+    setDraftedWhatsApp(null);
+    setWhatsappResult(null);
+    setIsEditingWhatsApp(false);
+    setEditWhatsAppMessage('');
+
+    const selectedTitles = subModules
+      .filter((m) => selectedSubModuleIds.includes(m.processed_module_id))
+      .map((m) => m.title);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/dispatch/generate-whatsapp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': currentUser.user_id,
+        },
+        body: JSON.stringify({
+          sprint_title: selectedSprint.title,
+          sub_module_titles: selectedTitles,
+          engagement_question: engagementQuestion || undefined,
+          scheduled_date: scheduleEnabled ? scheduledDate : undefined,
+          scheduled_time: scheduleEnabled ? scheduledTime : undefined,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDraftedWhatsApp(data.whatsapp);
+      } else {
+        const err = await res.json().catch(() => null);
+        alert(err?.detail || 'Failed to generate WhatsApp message');
+      }
+    } catch (e) {
+      console.error('Error generating WhatsApp message:', e);
+      alert('Failed to generate WhatsApp message');
     } finally {
       setGenerating(false);
     }
@@ -708,21 +772,49 @@ export default function AdminDispatchCenterPage() {
     localDate.setHours(localH, localM, 0, 0);
     const utcTime = `${String(localDate.getUTCHours()).padStart(2, '0')}:${String(localDate.getUTCMinutes()).padStart(2, '0')}`;
 
-    // Use the first selected day
-    const scheduledDay = selectedDays[0];
+    // Build paired schedule_items: pair each module with its corresponding day and content type
+    // Each module uses its own generated audio_url/flashcard_data from the database
+    // No global custom audio/flashcards for multi-module pairing
+    const schedule_items = selectedSubModuleIds.map((moduleId, idx) => ({
+      module_id: moduleId,
+      content_type: selectedContent[idx % selectedContent.length], // Cycle if needed
+      day_of_week: selectedDays[idx % selectedDays.length], // Cycle if needed
+      // customFlashcards and customAudioUrl are omitted - each module uses its own from DB
+    }));
+
+    console.log('[FRONTEND DEBUG] Selected modules:', selectedSubModuleIds);
+    console.log('[FRONTEND DEBUG] Selected content:', selectedContent);
+    console.log('[FRONTEND DEBUG] Selected days:', selectedDays);
+    console.log('[FRONTEND DEBUG] Schedule items built:', schedule_items);
 
     try {
+      const requestBody = {
+        schedule_items,
+        scheduled_time: utcTime,
+      };
+     
+      // Comprehensive logging for audio and flashcards
+      console.log('\n========== FRONTEND REQUEST DETAILS ==========');
+      console.log('Total modules:', selectedSubModuleIds.length);
+      console.log('Content types:', selectedContent);
+      console.log('Days selected:', selectedDays);
+     
+      selectedSubModuleIds.forEach((moduleId, idx) => {
+        const contentType = selectedContent[idx % selectedContent.length];
+        const day = selectedDays[idx % selectedDays.length];
+        console.log(`\nModule ${idx + 1}:`);
+        console.log(`  - ID: ${moduleId}`);
+        console.log(`  - Content: ${contentType}`);
+        console.log(`  - Day: ${day}`);
+      });
+      console.log('==============================================\n');
+     
+      console.log('[FRONTEND DEBUG] Full request body:', JSON.stringify(requestBody, null, 2));
+     
       const res = await fetch(`${API_BASE}/api/dispatch/schedule-multi-module`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
-        body: JSON.stringify({
-          module_ids: selectedSubModuleIds,
-          selected_content: selectedContent,
-          scheduled_day: scheduledDay,
-          scheduled_time: utcTime,
-          ...(customFlashcards ? { customFlashcards } : {}),
-          ...(customAudioUrl ? { customAudioUrl } : {}),
-        }),
+        body: JSON.stringify(requestBody),
       });
       if (res.ok) {
         setMultiModuleResult(await res.json());
@@ -733,6 +825,73 @@ export default function AdminDispatchCenterPage() {
     } catch (e) {
       console.error('Error scheduling multi-module dispatch:', e);
       alert('Failed to schedule multi-module dispatch');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // ── Send WhatsApp Messages ───────────────────────────────────
+  const handleSendWhatsApp = async () => {
+    if (!selectedSprintId || !currentUser?.company_id) return;
+    setSending(true);
+    setWhatsappResult(null);
+
+    // Determine scheduled time (use scheduledTime if provided, otherwise default to 09:00)
+   
+    let scheduledTime = scheduleEnabled ? (scheduleMode === 'once' ? scheduledTime : recurringTime) : '09:00';
+
+    const whatsappPayload: Record<string, any> = {
+      company_id: currentUser.company_id,
+      module_ids: selectedSubModuleIds.length > 0 ? selectedSubModuleIds : [selectedSprintId],
+      selected_content: selectedContent,
+      schedule_type: scheduleEnabled ? (scheduleMode === 'once' ? 'one_time' : 'recurring') : 'one_time',
+      scheduled_time: scheduledTime,
+    };
+
+    // Add scheduling details if enabled
+    if (scheduleEnabled) {
+      if (scheduleMode === 'once') {
+        if (!scheduledDate) {
+          alert('Please pick a date before scheduling.');
+          setSending(false);
+          return;
+        }
+        whatsappPayload.scheduled_date = scheduledDate;
+      } else {
+        if (selectedDays.length === 0) {
+          alert('Please select at least one day of the week.');
+          setSending(false);
+          return;
+        }
+        // Convert local time to UTC
+        const [localH, localM] = recurringTime.split(':').map(Number);
+        const localDate = new Date();
+        localDate.setHours(localH, localM, 0, 0);
+        const utcTime = `${String(localDate.getUTCHours()).padStart(2, '0')}:${String(localDate.getUTCMinutes()).padStart(2, '0')}`;
+       
+        whatsappPayload.days_of_week = selectedDays.map((day) => {
+          const dayMap: Record<string, number> = { 'Mon': 0, 'Tue': 1, 'Wed': 2, 'Thu': 3, 'Fri': 4, 'Sat': 5, 'Sun': 6 };
+          return dayMap[day] ?? 0;
+        });
+        whatsappPayload.scheduled_time = utcTime;
+      }
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/dispatch/notify-whatsapp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
+        body: JSON.stringify(whatsappPayload),
+      });
+      if (res.ok) {
+        setWhatsappResult(await res.json());
+      } else {
+        const err = await res.json().catch(() => null);
+        alert(err?.detail || 'Failed to send WhatsApp messages');
+      }
+    } catch (e) {
+      console.error('Error sending WhatsApp messages:', e);
+      alert('Failed to send WhatsApp messages');
     } finally {
       setSending(false);
     }
@@ -771,7 +930,7 @@ export default function AdminDispatchCenterPage() {
               Admin Dispatch Center
             </h1>
             <p className="text-slate-500">
-              Send nudge emails to employees assigned to a sprint.
+              Send nudge emails or WhatsApp messages to employees assigned to a sprint.
             </p>
           </div>
 
@@ -888,8 +1047,8 @@ export default function AdminDispatchCenterPage() {
                 </div>
               )}
 
-              {/* 4. Engagement Question */}
-              {selectedSprintId && (
+              {/* 4. Engagement Question - Email only */}
+              {selectedSprintId && selectedChannel === 'email' && (
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
                     4. Engagement Question (optional)
@@ -969,7 +1128,7 @@ export default function AdminDispatchCenterPage() {
                                   ? 'bg-white shadow text-slate-800'
                                   : 'text-slate-500 hover:text-slate-700'
                               }`}
-                            >
+                              >
                               Import JSON
                             </button>
                           </div>
@@ -1119,12 +1278,93 @@ export default function AdminDispatchCenterPage() {
                       )}
                     </div>
 
+                    {/* ── WhatsApp-only: Video card ── */}
+                    {selectedChannel === 'whatsapp' && (
+                      <div className={`rounded-xl border-2 transition-all overflow-hidden ${
+                        selectedContent.includes('video')
+                          ? 'border-red-400 bg-red-50'
+                          : 'border-slate-200 bg-white'
+                      }`}>
+                        <button
+                          onClick={() => toggleContent('video')}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                        >
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                            selectedContent.includes('video') ? 'bg-red-500' : 'bg-slate-100'
+                          }`}>
+                            <span className={selectedContent.includes('video') ? 'text-white' : 'text-slate-500'}>📹</span>
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-sm text-slate-800">Video Lesson</p>
+                            <p className="text-xs text-slate-500">Send video learning materials via WhatsApp</p>
+                          </div>
+                          {selectedContent.includes('video') && (
+                            <Check size={16} className="text-red-500 shrink-0" />
+                          )}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* ── WhatsApp-only: Mindmap card ── */}
+                    {selectedChannel === 'whatsapp' && (
+                      <div className={`rounded-xl border-2 transition-all overflow-hidden ${
+                        selectedContent.includes('mindmap')
+                          ? 'border-cyan-400 bg-cyan-50'
+                          : 'border-slate-200 bg-white'
+                      }`}>
+                        <button
+                          onClick={() => toggleContent('mindmap')}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                        >
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                            selectedContent.includes('mindmap') ? 'bg-cyan-500' : 'bg-slate-100'
+                          }`}>
+                            <span className={selectedContent.includes('mindmap') ? 'text-white' : 'text-slate-500'}>🧠</span>
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-sm text-slate-800">Mind Map</p>
+                            <p className="text-xs text-slate-500">Send mind map diagrams as images</p>
+                          </div>
+                          {selectedContent.includes('mindmap') && (
+                            <Check size={16} className="text-cyan-500 shrink-0" />
+                          )}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* ── WhatsApp-only: Infographic card ── */}
+                    {selectedChannel === 'whatsapp' && (
+                      <div className={`rounded-xl border-2 transition-all overflow-hidden ${
+                        selectedContent.includes('infographic')
+                          ? 'border-pink-400 bg-pink-50'
+                          : 'border-slate-200 bg-white'
+                      }`}>
+                        <button
+                          onClick={() => toggleContent('infographic')}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                        >
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                            selectedContent.includes('infographic') ? 'bg-pink-500' : 'bg-slate-100'
+                          }`}>
+                            <span className={selectedContent.includes('infographic') ? 'text-white' : 'text-slate-500'}>📊</span>
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-sm text-slate-800">Infographic</p>
+                            <p className="text-xs text-slate-500">Send infographic images for visual learning</p>
+                          </div>
+                          {selectedContent.includes('infographic') && (
+                            <Check size={16} className="text-pink-500 shrink-0" />
+                          )}
+                        </button>
+                      </div>
+                    )}
+
                   </div>
                 </div>
               )}
 
-              {/* 6. Sprint Image */}
-              {selectedSprintId && (
+              {/* 6. Sprint Image - Email only */}
+              {selectedSprintId && selectedChannel === 'email' && (
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
                     6. Sprint Image (for email hero)
@@ -1195,56 +1435,69 @@ export default function AdminDispatchCenterPage() {
                   </div>
 
                   {scheduleEnabled && (
-                    <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="space-y-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
 
-                      {/* Mode toggle: Once vs Recurring — One-time hidden */}
-                      {/* <div className="inline-flex rounded-full bg-slate-200 p-1 gap-1">
+                      {/* Mode toggle: Once vs Recurring */}
+                      <div className="flex gap-3">
                         <button
                           onClick={() => setScheduleMode('once')}
-                          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                          className={`flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all border-2 flex items-center justify-center gap-2 ${
                             scheduleMode === 'once'
-                              ? 'bg-white shadow text-slate-800'
-                              : 'text-slate-500 hover:text-slate-700'
+                              ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-sm'
+                              : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
                           }`}
                         >
-                          One-time
+                          <Calendar size={16} />
+                          One-Time
                         </button>
                         <button
                           onClick={() => setScheduleMode('recurring')}
-                          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                          className={`flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all border-2 flex items-center justify-center gap-2 ${
                             scheduleMode === 'recurring'
-                              ? 'bg-white shadow text-slate-800'
-                              : 'text-slate-500 hover:text-slate-700'
+                              ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-sm'
+                              : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
                           }`}
                         >
-                          <RefreshCw size={11} /> Recurring
+                          <RefreshCw size={16} />
+                          Recurring
                         </button>
-                      </div> */}
+                      </div>
 
                       {/* ONE-TIME: date + time */}
                       {scheduleMode === 'once' && (
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Date</label>
-                            <input
-                              type="date"
-                              value={scheduledDate}
-                              onChange={(e) => setScheduledDate(e.target.value)}
-                              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
-                            />
+                        <div className="space-y-4 p-4 bg-white rounded-lg border border-blue-100">
+                          <div className="flex items-center gap-2 text-blue-700 text-sm font-semibold">
+                            <Calendar size={16} />
+                            Send Once on Specific Date
                           </div>
-                          <div>
-                            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Time</label>
-                            <div className="relative">
-                              <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Date</label>
                               <input
-                                type="time"
-                                value={scheduledTime}
-                                onChange={(e) => setScheduledTime(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
+                                type="date"
+                                value={scheduledDate}
+                                onChange={(e) => setScheduledDate(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
                               />
                             </div>
+                            <div>
+                              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Time (UTC)</label>
+                              <div className="relative">
+                                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                <input
+                                  type="time"
+                                  value={scheduledTime}
+                                  onChange={(e) => setScheduledTime(e.target.value)}
+                                  className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
+                                />
+                              </div>
+                            </div>
                           </div>
+                          {scheduledDate && scheduledTime && (
+                            <div className="p-2 bg-blue-50 rounded text-xs text-blue-700 font-medium">
+                              ✓ Will send on {new Date(scheduledDate + 'T' + scheduledTime).toLocaleDateString()} at {scheduledTime} UTC
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -1265,20 +1518,24 @@ export default function AdminDispatchCenterPage() {
                           );
                         };
                         return (
-                          <div className="space-y-4">
+                          <div className="space-y-4 p-4 bg-white rounded-lg border border-blue-100">
+                            <div className="flex items-center gap-2 text-blue-700 text-sm font-semibold">
+                              <RefreshCw size={16} />
+                              Send Every Week
+                            </div>
                             <div>
-                              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">
+                              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3 block">
                                 Days of Week
                               </label>
-                              <div className="flex gap-1.5 flex-wrap">
+                              <div className="flex gap-2 flex-wrap">
                                 {days.map((d) => (
                                   <button
                                     key={d.key}
                                     onClick={() => toggleDay(d.key)}
-                                    className={`w-11 h-11 rounded-xl text-xs font-bold transition-all border-2 ${
+                                    className={`w-12 h-12 rounded-lg text-xs font-bold transition-all border-2 flex items-center justify-center ${
                                       selectedDays.includes(d.key)
-                                        ? 'bg-blue-500 border-blue-500 text-white shadow'
-                                        : 'bg-white border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-500'
+                                        ? 'bg-blue-500 border-blue-500 text-white shadow-sm'
+                                        : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600'
                                     }`}
                                   >
                                     {d.label}
@@ -1286,14 +1543,14 @@ export default function AdminDispatchCenterPage() {
                                 ))}
                               </div>
                               {selectedDays.length > 0 && (
-                                <p className="text-xs text-blue-600 font-semibold mt-2">
-                                  Sends every: {selectedDays.join(', ')}
+                                <p className="text-xs text-blue-600 font-semibold mt-3 p-2 bg-blue-50 rounded">
+                                  🔄 Sends every: <span className="uppercase tracking-wide">{selectedDays.join(', ')}</span>
                                 </p>
                               )}
                             </div>
                             <div>
                               <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">
-                                Time (your local time)
+                                Time (UTC)
                               </label>
                               <div className="relative w-44">
                                 <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -1305,33 +1562,39 @@ export default function AdminDispatchCenterPage() {
                                 />
                               </div>
                               {recurringTime && (
-                                <p className="text-xs text-slate-400 mt-1.5">
-                                  Emails will be sent at <span className="font-semibold text-slate-600">{recurringTime} IST</span>
+                                <p className="text-xs text-slate-600 mt-2 p-2 bg-blue-50 rounded">
+                                  ✓ Emails will send at <span className="font-semibold">{recurringTime} UTC</span> every selected day
                                 </p>
                               )}
                             </div>
 
                             {/* ── Stagger preview (multi-module) ── */}
                             {selectedSubModuleIds.length >= 2 && selectedDays.length > 0 && (() => {
-                              // Mirror exactly what handleScheduleMultiModule sends to the backend:
-                              // 1. Convert local recurringTime → UTC HH:MM
-                              // 2. Use UTC HH:MM for date arithmetic (same as Python _next_weekday)
+                              // Build paired schedule items to show in preview
+                              const schedule_items = selectedSubModuleIds.map((moduleId, idx) => {
+                                const contentType = selectedContent[idx % selectedContent.length];
+                                const dayOfWeek = selectedDays[idx % selectedDays.length];
+                                return { moduleId, contentType, dayOfWeek };
+                              });
+
+                              // Check if single day or multiple days
+                              const uniqueDays = new Set(schedule_items.map(item => item.dayOfWeek));
+                              const isSingleDay = uniqueDays.size === 1;
+
+                              // For each schedule item, compute the next occurrence of that day
+                              const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+                              const jsDayToPython: Record<number, number> = { 0: 6, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5 };
+
+                              // Convert local time → UTC for date arithmetic
                               const [lh, lm] = recurringTime.split(':').map(Number);
                               const localDate = new Date();
                               localDate.setHours(lh, lm, 0, 0);
                               const utcH = localDate.getUTCHours();
                               const utcM = localDate.getUTCMinutes();
 
-                              // Python weekday: Mon=0 … Sun=6  (same as JS getUTCDay offset below)
-                              const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
-                              // JS getUTCDay: Sun=0, Mon=1 … Sat=6  → map to Python weekday
-                              const jsDayToPython: Record<number, number> = { 0: 6, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5 };
-
-                              const targetPythonDay = dayMap[selectedDays[0]] ?? 0;
-
-                              const getNextWeekday = (offset: number): Date => {
+                              const getNextDayOfWeek = (dayName: string): Date => {
                                 const now = new Date();
-                                // Build today's candidate at utcH:utcM UTC
+                                const targetPythonDay = dayMap[dayName] ?? 0;
                                 const candidate = new Date(Date.UTC(
                                   now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
                                   utcH, utcM, 0
@@ -1339,10 +1602,7 @@ export default function AdminDispatchCenterPage() {
                                 const currentPythonDay = jsDayToPython[now.getUTCDay()];
                                 let daysAhead = (targetPythonDay - currentPythonDay + 7) % 7;
                                 candidate.setUTCDate(candidate.getUTCDate() + daysAhead);
-                                // If not strictly in the future, push one week
                                 if (candidate <= now) candidate.setUTCDate(candidate.getUTCDate() + 7);
-                                // Apply weekly offset for subsequent modules
-                                candidate.setUTCDate(candidate.getUTCDate() + offset * 7);
                                 return candidate;
                               };
 
@@ -1356,15 +1616,28 @@ export default function AdminDispatchCenterPage() {
                                   <div className="px-4 py-2.5 bg-blue-500 flex items-center gap-2">
                                     <Calendar size={14} className="text-white" />
                                     <span className="text-xs font-bold text-white uppercase tracking-wide">
-                                      Staggered Send Plan — {selectedModules.length} modules
+                                      {isSingleDay ? 'Staggered Send Plan' : 'Paired Send Plan'} — {selectedModules.length} modules
                                     </span>
                                   </div>
                                   <div className="divide-y divide-blue-100">
                                     {selectedModules.map((mod, idx) => {
-                                      const runDate = getNextWeekday(idx);
+                                      const item = schedule_items[idx];
+                                     
+                                      // If single day: stagger by weeks
+                                      let runDate: Date;
+                                      if (isSingleDay) {
+                                        const baseDate = getNextDayOfWeek(item.dayOfWeek);
+                                        runDate = new Date(baseDate);
+                                        runDate.setUTCDate(runDate.getUTCDate() + idx * 7); // Add weeks
+                                      } else {
+                                        // Multiple days: each module gets its specific day
+                                        runDate = getNextDayOfWeek(item.dayOfWeek);
+                                      }
+                                     
                                       const dateLabel = runDate.toLocaleDateString('en-GB', {
                                         weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
                                       });
+                                      const contentIcon = item.contentType === 'flashcards' ? '📋' : '🎵';
                                       return (
                                         <div key={mod.processed_module_id} className="flex items-center gap-3 px-4 py-2.5">
                                           <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-[11px] font-bold text-white shrink-0">
@@ -1373,8 +1646,10 @@ export default function AdminDispatchCenterPage() {
                                           <span className="text-sm font-semibold text-slate-800 flex-1 truncate">
                                             {mod.title}
                                           </span>
-                                          <span className="text-xs font-semibold text-blue-700 shrink-0">
-                                            {dateLabel} · {istTimeLabel}
+                                          <span className="text-xs font-semibold text-blue-700 shrink-0 flex items-center gap-1">
+                                            <span>{contentIcon} {item.contentType}</span>
+                                            <span>•</span>
+                                            <span>{dateLabel} · {istTimeLabel}</span>
                                           </span>
                                         </div>
                                       );
@@ -1382,7 +1657,10 @@ export default function AdminDispatchCenterPage() {
                                   </div>
                                   <div className="px-4 py-2 bg-blue-50 border-t border-blue-100">
                                     <p className="text-[11px] text-blue-500">
-                                      Each module's flashcards will be sent on successive {selectedDays[0]}s at {istTimeLabel}, one week apart.
+                                      {isSingleDay
+                                        ? `Each module will be sent on ${selectedDays[0]}, one week apart starting at ${istTimeLabel}.`
+                                        : `Each module's content will be sent on its specified day at ${istTimeLabel}.`
+                                      }
                                     </p>
                                   </div>
                                 </div>
@@ -1397,8 +1675,8 @@ export default function AdminDispatchCenterPage() {
                 </div>
               )}
 
-              {/* Draft Button — always visible so admin can preview the email */}
-              {canDraft && (
+              {/* Draft Button — Email only */}
+              {canDraft && selectedChannel === 'email' && (
                 <button
                   onClick={handleGenerateEmail}
                   disabled={generating}
@@ -1418,8 +1696,29 @@ export default function AdminDispatchCenterPage() {
                 </button>
               )}
 
-              {/* Multi-module stagger schedule button — shown alongside Draft when applicable */}
-              {canDraft && scheduleEnabled && scheduleMode === 'recurring' && selectedSubModuleIds.length >= 2 && selectedDays.length > 0 && (
+              {/* Draft Button — WhatsApp only */}
+              {canDraft && selectedChannel === 'whatsapp' && (
+                <button
+                  onClick={handleGenerateWhatsApp}
+                  disabled={generating}
+                  className="w-full bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-green-500/30"
+                >
+                  {generating ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin" />
+                      Generating Message…
+                    </>
+                  ) : (
+                    <>
+                      <MessageSquare size={18} />
+                      Draft WhatsApp Nudge
+                    </>
+                  )}
+                </button>
+              )}
+
+              {/* Multi-module stagger schedule button — Email only */}
+              {canDraft && selectedChannel === 'email' && scheduleEnabled && scheduleMode === 'recurring' && selectedSubModuleIds.length >= 2 && selectedDays.length > 0 && (
                 <button
                   onClick={handleScheduleMultiModule}
                   disabled={sending}
@@ -1472,7 +1771,8 @@ export default function AdminDispatchCenterPage() {
                 </div>
               )}
 
-              {/* Email Preview */}
+              {/* Email Preview - only show when email is selected */}
+              {selectedChannel === 'email' && (
               <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-xl p-6 border border-slate-200 min-h-[300px]">
                 <h3 className="text-lg font-bold text-slate-900 mb-4">Email Draft</h3>
 
@@ -1604,9 +1904,157 @@ export default function AdminDispatchCenterPage() {
                   </div>
                 )}
               </div>
+              )}
 
-              {/* Send Result */}
-              {sendResult && (
+              {/* WhatsApp Preview - only show when WhatsApp is selected */}
+              {selectedChannel === 'whatsapp' && (
+                <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200 min-h-[300px]">
+                <h3 className="text-lg font-bold text-slate-900 mb-4">WhatsApp Nudge Message</h3>
+
+                {!draftedWhatsApp && !generating && (
+                  <div className="text-center py-16">
+                    <div className="w-16 h-16 bg-white rounded-full mx-auto mb-4 flex items-center justify-center shadow-sm">
+                      <span className="text-3xl">💬</span>
+                    </div>
+                    <p className="text-sm text-slate-600 font-medium">
+                      Select sub-modules above, then click
+                    </p>
+                    <p className="text-sm font-bold text-green-600">&ldquo;Draft WhatsApp Nudge&rdquo;</p>
+                    <p className="text-sm text-slate-600 font-medium">to generate a message preview.</p>
+                  </div>
+                )}
+
+                {generating && (
+                  <div className="text-center py-16">
+                    <Loader2 size={36} className="animate-spin text-green-500 mx-auto mb-4" />
+                    <p className="text-sm font-semibold text-slate-600">Generating nudge message with AI…</p>
+                  </div>
+                )}
+
+                {draftedWhatsApp && !generating && (
+                  <div className="space-y-4">
+                    {/* Message Preview Card */}
+                    <div className="bg-white rounded-xl p-5 border-2 border-green-200 shadow-sm">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                            <MessageSquare size={16} className="text-green-600" />
+                          </div>
+                          <h4 className="text-sm font-bold text-slate-900">Nudge Message</h4>
+                        </div>
+                        {!isEditingWhatsApp ? (
+                          <button
+                            onClick={() => {
+                              setIsEditingWhatsApp(true);
+                              setEditWhatsAppMessage(draftedWhatsApp.message);
+                            }}
+                            className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-slate-600 border border-slate-200 bg-white hover:border-green-400 hover:text-green-600 transition-all"
+                          >
+                            <Pencil size={12} /> Edit
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => {
+                                setIsEditingWhatsApp(false);
+                                setEditWhatsAppMessage('');
+                              }}
+                              className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-slate-500 border border-slate-200 bg-white hover:border-slate-300 transition-all"
+                            >
+                              <X size={12} /> Cancel
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (editWhatsAppMessage.trim()) {
+                                  setDraftedWhatsApp({ message: editWhatsAppMessage });
+                                  setIsEditingWhatsApp(false);
+                                }
+                              }}
+                              className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-white bg-green-500 hover:bg-green-600 transition-all"
+                            >
+                              <Check size={12} /> Save
+                            </button>
+                          </>
+                        )}
+                      </div>
+
+                      {isEditingWhatsApp ? (
+                        <textarea
+                          value={editWhatsAppMessage}
+                          onChange={(e) => setEditWhatsAppMessage(e.target.value)}
+                          placeholder="Edit your WhatsApp message here…"
+                          className="w-full rounded-lg border border-green-300 bg-white text-sm text-slate-800 focus:outline-none focus:border-green-500 resize-y p-3"
+                          style={{ height: '150px', minHeight: '100px', fontFamily: 'inherit' }}
+                          spellCheck={true}
+                        />
+                      ) : (
+                        <div className="p-4 bg-green-50 rounded-lg border border-green-100 text-sm text-slate-700 whitespace-pre-wrap break-words leading-relaxed">
+                          {draftedWhatsApp.message}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Send/Schedule Section */}
+                    <div className="space-y-3">
+                      {!selectedContent.length ? (
+                        <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                          <p className="text-xs text-blue-900 font-medium">
+                            💡 <span className="font-semibold">Tip:</span> Select content types above (Flashcards, Audio, etc.) to send along with this nudge message.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                          <h4 className="font-bold text-xs text-green-900 mb-2">Dispatch Summary</h4>
+                          <div className="space-y-1 text-xs text-green-800">
+                            <div className="flex justify-between">
+                              <span>Content types:</span>
+                              <span className="font-semibold">{selectedContent.length}</span>
+                            </div>
+                            <div className="flex justify-between pt-1 border-t border-green-200">
+                              <span>Recipients:</span>
+                              <span className="font-semibold">{assignedUsers.length}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={handleSendWhatsApp}
+                        disabled={sending || assignedUsers.length === 0}
+                        className="w-full py-3 rounded-xl bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white font-bold transition-all flex items-center justify-center gap-2 text-sm shadow-lg shadow-green-500/30"
+                      >
+                        {sending ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" />
+                            {scheduleEnabled && scheduleMode === 'recurring' ? 'Scheduling…' : scheduleEnabled ? 'Scheduling…' : 'Sending…'}
+                          </>
+                        ) : scheduleEnabled && scheduleMode === 'recurring' ? (
+                          <>
+                            <RefreshCw size={16} /> Schedule for {assignedUsers.length} users
+                          </>
+                        ) : scheduleEnabled ? (
+                          <>
+                            <Calendar size={16} /> Schedule for {assignedUsers.length} users
+                          </>
+                        ) : (
+                          <>
+                            <Send size={16} /> Send Now ({assignedUsers.length} users)
+                          </>
+                        )}
+                      </button>
+                      {isEditingWhatsApp && (
+                        <p className="text-xs text-center text-slate-500 font-medium">
+                          Click <span className="font-bold text-green-600">Save</span> above to apply your edits, then send.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              )}
+
+              {/* Send Result - Email */}
+              {selectedChannel === 'email' && sendResult && (
                 <div className={`rounded-xl p-5 border-2 ${
                   sendResult.status === 'scheduled' || sendResult.status === 'saved_recurring'
                     ? 'bg-blue-50 border-blue-200'
@@ -1720,6 +2168,54 @@ export default function AdminDispatchCenterPage() {
                     <p className="text-xs text-indigo-600 font-medium">
                       Each module's flashcard email will be sent on successive {multiModuleResult.scheduled_day}s at {recurringTime} IST.
                     </p>
+                  </div>
+                </div>
+              )}
+
+              {/* WhatsApp Result */}
+              {selectedChannel === 'whatsapp' && whatsappResult && (
+                <div className={`rounded-xl p-5 border-2 ${
+                  whatsappResult.status === 'scheduled' || whatsappResult.status === 'saved_recurring'
+                    ? 'bg-blue-50 border-blue-200'
+                    : 'bg-green-50 border-green-200'
+                }`}>
+                  <div className="flex items-start gap-3">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
+                      whatsappResult.status === 'scheduled' || whatsappResult.status === 'saved_recurring'
+                        ? 'bg-blue-500'
+                        : 'bg-green-500'
+                    }`}>
+                      {whatsappResult.status === 'scheduled' ? (
+                        <Calendar size={20} className="text-white" />
+                      ) : (
+                        <Check size={20} className="text-white" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-bold text-slate-900 text-sm">
+                        WhatsApp dispatch {whatsappResult.status === 'scheduled' ? 'scheduled' : 'confirmed'}
+                      </h4>
+                      <div className="mt-2 space-y-1 text-xs text-slate-600">
+                        <div>
+                          <span className="font-semibold">Total messages:</span> {whatsappResult.total_messages}
+                        </div>
+                        <div>
+                          <span className="font-semibold">Unique recipients:</span> {whatsappResult.unique_recipients}
+                        </div>
+                      </div>
+                      {whatsappResult.messages && whatsappResult.messages.length > 0 && (
+                        <div className="mt-3 max-h-[120px] overflow-y-auto space-y-1">
+                          {whatsappResult.messages.map((msg, idx) => (
+                            <div key={idx} className="px-2 py-1.5 bg-green-100 rounded text-xs text-green-900">
+                              <span className="font-semibold">{msg.module_title}</span> — {msg.content_type} (Day {msg.day_offset + 1})
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button onClick={() => setWhatsappResult(null)} className="text-slate-400 hover:text-slate-600">
+                      <X size={16} />
+                    </button>
                   </div>
                 </div>
               )}

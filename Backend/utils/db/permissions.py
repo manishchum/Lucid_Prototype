@@ -12,6 +12,7 @@ async def check_user_permission(user_id: str, required_role: str) -> bool:
     try:
         # normalize required_role to a level
         role_aliases = {
+            'developer': 6, 'DEVELOPER': 6,
             'super_admin': 4, 'SUPER_ADMIN': 4, 'SUPERADMIN': 4, 'ceo': 4, 'CEO': 4,
             'admin': 3, 'ADMIN': 3, 'company_admin': 3,
             'manager': 2, 'Manager': 2,
@@ -58,6 +59,10 @@ async def check_company_access(user_id: str, company_id: str) -> bool:
     Ensure the user belongs to the given company_id.
     """
     try:
+        # Developers can operate across companies.
+        if await check_user_permission(user_id, 'developer'):
+            return True
+
         resp = supabase.table('users').select('company_id').eq('user_id', user_id).single().execute()
         if not resp.data:
             return False

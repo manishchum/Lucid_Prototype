@@ -17,12 +17,31 @@ console.log("Supabase client created successfully")
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY  });
 
-
 // Configs 
-const TEMPERATURE = 0.2;
+const TEMPERATURE = 0.1;
 const TOP_P = 1.0;
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+async function generateWithRetry(callFn, retries = 3) {
+  let lastErr;
 
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      console.log(`[GEMINI] generateContent attempt ${attempt}/${retries}`);
+      return await callFn();
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[GEMINI] Attempt ${attempt} failed: ${err?.message || err}`);
 
+      if (attempt < retries) {
+        const delay = attempt * 4000;
+        console.log(`[GEMINI] Waiting ${delay}ms before retry...`);
+        await sleep(delay);
+      }
+    }
+  }
+
+  throw lastErr;
+}
 
 async function generateModuleContent({ moduleId = null } = {}) {
   console.log(`[GENERATE] Starting content generation ${moduleId ? `for module: ${moduleId}` : 'for all modules'}`);
@@ -63,6 +82,7 @@ async function generateModuleContent({ moduleId = null } = {}) {
   console.log(`[GENERATE] Fetched ${modules?.length || 0} modules for content generation`);
 
   let updated = 0;
+  let isFirstGeminiCall = true;
   for (const mod of modules || []) {
     console.log(`\n[MODULE] ======================================`);
     console.log(`[MODULE] Processing: ${mod.title}`);
@@ -203,8 +223,10 @@ ${objectivesText}
           query_embedding: queryEmbedding,
           p_module_id: mod.original_module_id,
           match_count: 6
+
         }
       );
+
       
       console.log(`[RAG] Matched chunks count: ${matchedChunks?.length || 0}`);
 
@@ -213,15 +235,15 @@ ${objectivesText}
       }
 
       // -------------------------------------
-      // STEP 2.5: Fetch Images for Top-K Chunks
+      // STEP 2.5: Fetch Images using ranked matched chunk_ids
       // -------------------------------------
 
       let matchedImages = [];
 
       if (matchedChunks && matchedChunks.length > 0) {
-        const chunkIds = matchedChunks.map(c => c.chunk_id);
+        const rankedChunkIds = matchedChunks.map(c => c.chunk_id);
 
-        console.log(`[IMAGES] Fetching images for ${chunkIds.length} chunks`);
+        console.log(`[IMAGES] Fetching images for ranked chunk IDs:`, rankedChunkIds);
 
         const { data: images, error: imageError } = await supabase
           .from('vectordb_images')
@@ -230,15 +252,73 @@ ${objectivesText}
             image_url,
             caption,
             surrounding_text,
-            chunk_id
+            chunk_id,
+            module_id,
+            created_at
           `)
-          .in('chunk_id', chunkIds);
+          .in('chunk_id', rankedChunkIds);
 
         if (imageError) {
           console.error('[IMAGES] Error fetching images:', imageError);
         } else {
-          matchedImages = images || [];
-          console.log(`[IMAGES] Found ${matchedImages.length} related images`);
+          const allImages = images || [];
+          console.log(`[IMAGES] Total fetched images: ${allImages.length}`);
+
+          // Group images by chunk_id
+          const imagesByChunkId = new Map();
+
+          for (const img of allImages) {
+            if (!imagesByChunkId.has(img.chunk_id)) {
+              imagesByChunkId.set(img.chunk_id, []);
+            }
+            imagesByChunkId.get(img.chunk_id).push(img);
+          }
+
+          // Rebuild image order based on matchedChunks priority
+          const prioritizedImages = [];
+          const MAX_TOTAL_IMAGES = 12;
+
+          // Only consider top 4 matched chunks
+          const primaryChunks = (matchedChunks || []).slice(0, 6);
+
+          for (let i = 0; i < primaryChunks.length; i++) {
+            const chunk = primaryChunks[i];
+            const chunkImages = imagesByChunkId.get(chunk.chunk_id) || [];
+
+            console.log(
+              `[IMAGES] Chunk rank ${i + 1} | chunk_id=${chunk.chunk_id} | available=${chunkImages.length}`
+            );
+
+            for (const img of chunkImages) {
+              if (prioritizedImages.length >= MAX_TOTAL_IMAGES) break;
+
+              prioritizedImages.push({
+                ...img,
+                chunk_rank: i + 1,
+                chunk_similarity: chunk.similarity ?? null,
+              });
+            }
+
+            if (prioritizedImages.length >= MAX_TOTAL_IMAGES) {
+              console.log(`[IMAGES] Reached max total image cap: ${MAX_TOTAL_IMAGES}`);
+              break;
+            }
+          }
+
+          matchedImages = prioritizedImages;
+
+          console.log(
+            `[IMAGES] Prioritized images count after chunk-order rebuild: ${matchedImages.length}`
+          );
+
+          console.log(
+            '[IMAGES] Final ordered image sequence:',
+            matchedImages.map(img => ({
+              chunk_rank: img.chunk_rank,
+              chunk_id: img.chunk_id,
+              image_url: img.image_url
+            }))
+          );
         }
       }
 
@@ -252,11 +332,14 @@ ${objectivesText}
       RETRIEVED IMAGE CONTEXT (AUTHORITATIVE)
       -----------------------------
       The following images were extracted from the source document.
+      They are ordered by matched chunk priority.
+      Images from the most relevant chunk appear first.
       You MUST use them where contextually relevant.
       Do NOT invent new images.
 
       ${matchedImages.map((img, idx) => `
       [IMAGE ${idx + 1}]
+      Chunk Priority: ${img.chunk_rank}
       URL: ${img.image_url}
       Caption: ${img.caption || 'No caption provided'}
       Related Text: ${img.surrounding_text || 'N/A'}
@@ -266,8 +349,6 @@ ${objectivesText}
         : '';
 
       console.log(`[IMAGES] Image context built: ${matchedImages.length}`);
-      matchedImages = matchedImages.slice(0, 5);
-      console.log("Limit images to top 5 most relevant");
 
       // -------------------------------------
       // STEP 3: Build RAG context
@@ -326,13 +407,44 @@ All entities present here are FACTUAL.
 ${documentContext}
 ${imageContext}
 
+ANTI-REPETITION RULE (CRITICAL)
+
+The model MUST NOT begin the module with a generic introduction to the overall subject domain.
+
+The following are STRICTLY FORBIDDEN unless explicitly required by the source context:
+- General definitions of the overall subject (e.g., "Food safety is...")
+- Broad introductory statements that apply to all modules
+- Repeated explanations of foundational concepts already implied across modules
+
+The module MUST start directly with topic-specific content derived from the provided context.
+
+If introductory context is necessary:
+→ It must be strictly limited to 1–2 sentences
+→ It must be directly tied to the module topic
+→ It must not repeat general domain definitions
+
+MODULE START RULE (MANDATORY)
+
+The module MUST begin directly with structured section content.
+
+The model MUST NOT:
+- Start with a broad paragraph introducing the entire subject
+- Provide a general overview before sections
+
+The first section must immediately address a concept specific to the module title.
 -----------------------------
 MODULE ISOLATION RULE (CRITICAL)
 -----------------------------
-This module must be fully self-contained.
+The module must be self-contained for its specific topic, 
+but must not repeat general concepts unless they are directly required.
 Do NOT reference other modules, earlier sections, or future modules.
-Do NOT assume prior learner knowledge beyond what is implied by the topics.
+Do NOT assume prior learner knowledge beyond what is required for the current module topic.
 
+If a concept is NOT central to the module topic:
+→ DO NOT introduce it as a general introduction.
+
+The module must be self-contained ONLY for its specific topic,
+NOT for the entire subject domain.
 The response MUST NEVER be empty.
 
 If any instruction conflict occurs,
@@ -589,8 +701,6 @@ If the content is shorter than 8000 characters, the model MUST:
 • Expand the module summary
 • Expand the learning activity instructions
 
-The model must continue expanding until the output length exceeds 8000 characters.
-
 ----------------------------------
 DEADLOCK RESOLUTION RULE
 ----------------------------------
@@ -761,8 +871,11 @@ Module is fully self-contained
     //     });
     //   }
     // }
-
-    if (matchedImages && matchedImages.length > 0) {
+    const skipImagesForThisModule = false;
+    if(skipImagesForThisModule){
+      console.log("skipping image for first module");
+    }
+    if (matchedImages && matchedImages.length > 0 && !skipImagesForThisModule) {
       console.log(`[GEMINI] Attaching ${matchedImages.length} images to prompt`);
 
       for (const img of matchedImages) {
@@ -777,7 +890,7 @@ Module is fully self-contained
             continue;
           }
 
-          console.log("[GEMINI] Attaching image:", img.image_url);
+          // console.log("[GEMINI] Attaching image:", img.image_url);
 
           geminiContents[0].parts.push({
             fileData: {
@@ -805,42 +918,104 @@ Module is fully self-contained
 
       let response;
 
+      // wait only before the first Gemini call
+      if (isFirstGeminiCall) {
+        console.log("[WAIT] First Gemini call detected, waiting 3 seconds...");
+        await sleep(3000);
+        isFirstGeminiCall = false;
+      }
+
+      // try {
+      //   response = await ai.models.generateContent({
+      //     model: 'gemini-3-pro-preview',
+      //     contents: geminiContents,
+      //     generationConfig: {
+      //       maxOutputTokens: 3000,
+      //       temperature: TEMPERATURE,
+      //       topP: TOP_P
+      //     }
+      //   });
+
+      // } catch (err) {
+      // const msg = err?.message || "";
+
+      // console.warn("[GEMINI] First attempt failed:", msg);
+      // console.warn("[GEMINI] Error cause:", err?.cause || "No cause available");
+
+      // const shouldRetryWithoutImages =
+      //   /fetch failed|sending request|cannot fetch content/i.test(msg);
+
+      // if (shouldRetryWithoutImages) {
+      //   console.warn("[GEMINI] Retrying without images after 3 seconds...");
+
+      //   await sleep(3000);
+
+      //   // remove all image parts
+      //   geminiContents[0].parts = geminiContents[0].parts.filter(p => !p.fileData);
+
+      //   try {
+      //     response = await ai.models.generateContent({
+      //       model: 'gemini-3-pro-preview',
+      //       contents: geminiContents,
+      //       generationConfig: {
+      //         maxOutputTokens: 4000,
+      //         temperature: TEMPERATURE,
+      //         topP: TOP_P
+      //       }
+      //     });
+      //   } catch (retryErr) {
+      //     console.error("[GEMINI] Retry without images also failed:", retryErr?.message || retryErr);
+      //     console.error("[GEMINI] Retry error cause:", retryErr?.cause || "No cause available");
+      //     throw retryErr;
+      //   }
+      // } else {
+      //   throw err;
+      // }
+      // }
+
       try {
-
-        response = await ai.models.generateContent({
-          model: 'gemini-3-pro-preview',
-          contents: geminiContents,
-          generationConfig: {
-            maxOutputTokens: 6000,
-            temperature: TEMPERATURE,
-            topP: TOP_P
-          }
-        });
-
-      } catch (err) {
-
-        if (err.message && err.message.includes("Cannot fetch content")) {
-
-          console.warn("[GEMINI] Retrying generation without images");
-
-          geminiContents[0].parts =
-            geminiContents[0].parts.filter(p => !p.fileData);
-
-          response = await ai.models.generateContent({
+        response = await generateWithRetry(() =>
+          ai.models.generateContent({
             model: 'gemini-3-pro-preview',
             contents: geminiContents,
             generationConfig: {
-              maxOutputTokens: 6000,
+              maxOutputTokens: 2000,
               temperature: TEMPERATURE,
               topP: TOP_P
             }
-          });
+          })
+        );
+      } catch (err) {
+        const msg = err?.message || "";
+        console.warn("[GEMINI] Full request failed:", msg);
+        console.warn("[GEMINI] Error cause:", err?.cause || "No cause available");
 
+        const shouldRetryWithoutImages =
+          /fetch failed|sending request|cannot fetch content/i.test(msg);
+
+        if (shouldRetryWithoutImages) {
+          console.warn("[GEMINI] Retrying without images after 3 seconds...");
+          await sleep(3000);
+
+          geminiContents[0].parts = geminiContents[0].parts.filter(p => !p.fileData);
+
+          response = await generateWithRetry(() =>
+            ai.models.generateContent({
+              model: 'gemini-3-pro-preview',
+              contents: geminiContents,
+              generationConfig: {
+                maxOutputTokens: 2000,
+                temperature: TEMPERATURE,
+                topP: TOP_P
+              }
+            })
+          );
         } else {
           throw err;
         }
-
       }
+
+
       
       let aiContent = '';
 
