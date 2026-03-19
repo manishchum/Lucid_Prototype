@@ -26,6 +26,7 @@ interface AuthContextType {
   employeeData: any | null
   login: (userData: any) => Promise<void>
   logout: () => Promise<void>
+  refreshProfile: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -38,6 +39,7 @@ const AuthContext = createContext<AuthContextType>({
   employeeData: null,
   login: async () => {},
   logout: async () => {},
+  refreshProfile: async () => {},
 })
 
 export const useAuth = () => {
@@ -286,6 +288,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsSuperAdmin(false)
   }
 
+  const refreshProfile = async () => {
+    if (user?.email) {
+      sharedDataClient.invalidateByPrefix("v1|auth")
+      sharedDataClient.invalidateByPrefix("v1|users")
+      
+      const authUserLike = user as AuthUserLike
+      const effectiveUser = authUserLike.email ? authUserLike : readManualAuthUser()
+      
+      if (effectiveUser && effectiveUser.email) {
+        const profile = await loadCachedFullProfile(effectiveUser)
+        if (profile) {
+          setEmployeeData(profile.employeeData)
+          setUserId(profile.userId)
+          setUserRoles(profile.userRoles)
+          setIsAdmin(profile.isAdmin)
+          setIsSuperAdmin(profile.isSuperAdmin)
+        }
+      }
+    }
+  }
+
   return (
     <AuthContext.Provider 
       value={{ 
@@ -297,7 +320,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         userId, 
         employeeData, 
         login, 
-        logout 
+        logout,
+        refreshProfile
       }}
     >
       {children}

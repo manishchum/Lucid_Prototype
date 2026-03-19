@@ -35,7 +35,7 @@ interface Admin {
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 export default function AccountPage() {
-  const { user, loading: authLoading, employeeData } = useAuth();
+  const { user, loading: authLoading, employeeData, refreshProfile } = useAuth();
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
   const [loading, setLoading] = useState(true);
@@ -131,8 +131,7 @@ export default function AccountPage() {
         console.error("Update failed:", updRes.status, err);
         alert("Failed to save changes. Please try again.");
       } else {
-        sharedDataClient.invalidateByPrefix(`v1|auth`);
-        sharedDataClient.invalidateByPrefix(`v1|users`);
+        await refreshProfile();
         setEmployee({
           ...employee,
           name: formData.name,
