@@ -17,6 +17,8 @@ export interface CachePolicy {
   ttlMs?: number;
   swrMs?: number;
   swr?: boolean;
+  persist?: boolean;
+  storageMode?: StorageMode;
 }
 
 export interface QueryOptions<T> extends CachePolicy {
@@ -33,6 +35,13 @@ export interface QueryResult<T> {
   revalidating: boolean;
 }
 
+type ResolvedQueryOptions<T> = Required<CachePolicy> & {
+  forceRefresh: boolean;
+  skipCache: boolean;
+  onUpdate?: (value: T) => void;
+  onError?: (error: unknown) => void;
+};
+
 interface CacheEntry<T> {
   value: T;
   createdAt: number;
@@ -40,10 +49,24 @@ interface CacheEntry<T> {
   staleUntil: number;
 }
 
+interface DataClientOptions {
+  storagePrefix?: string;
+  defaultStorageMode?: StorageMode;
+}
+
+export type StorageMode = "none" | "session" | "local";
+
 const DEFAULT_POLICY: Required<CachePolicy> = {
   ttlMs: 60_000,
   swrMs: 120_000,
   swr: true,
+  persist: true,
+  storageMode: "session",
+};
+
+const DEFAULT_CLIENT_OPTIONS: Required<DataClientOptions> = {
+  storagePrefix: "lucid:data-client:",
+  defaultStorageMode: "session",
 };
 
 function normalizeMethod(method?: string): string {
@@ -142,13 +165,32 @@ export function buildCacheKey(parts: CacheKeyParts): string {
 export class DataClient {
   private readonly cache = new Map<string, CacheEntry<unknown>>();
   private readonly inFlight = new Map<string, Promise<unknown>>();
+  private readonly storagePrefix: string;
+  private readonly defaultStorageMode: StorageMode;
+
+  constructor(options?: DataClientOptions) {
+    const merged = { ...DEFAULT_CLIENT_OPTIONS, ...options };
+    this.storagePrefix = merged.storagePrefix;
+    this.defaultStorageMode = merged.defaultStorageMode;
+  }
 
   getCached<T>(key: string): CacheEntry<T> | undefined {
-    return this.cache.get(key) as CacheEntry<T> | undefined;
+    const fromMemory = this.cache.get(key) as CacheEntry<T> | undefined;
+    if (fromMemory) {
+      return fromMemory;
+    }
+
+    const fromStorage = this.readFromStorage<T>(key);
+    if (!fromStorage) {
+      return undefined;
+    }
+
+    this.cache.set(key, fromStorage as CacheEntry<unknown>);
+    return fromStorage;
   }
 
   setCached<T>(key: string, value: T, policy?: CachePolicy): CacheEntry<T> {
-    const merged = { ...DEFAULT_POLICY, ...policy };
+    const merged = this.mergeCachePolicy(policy);
     const now = Date.now();
     const entry: CacheEntry<T> = {
       value,
@@ -157,11 +199,18 @@ export class DataClient {
       staleUntil: now + merged.ttlMs + merged.swrMs,
     };
     this.cache.set(key, entry);
+
+    if (merged.persist && merged.storageMode !== "none") {
+      this.writeToStorage(key, entry, merged.storageMode);
+    }
+
     return entry;
   }
 
   invalidate(key: string): void {
     this.cache.delete(key);
+    this.removeFromStorageKey(key, "session");
+    this.removeFromStorageKey(key, "local");
   }
 
   invalidateByPrefix(prefix: string): void {
@@ -170,10 +219,15 @@ export class DataClient {
         this.cache.delete(key);
       }
     }
+
+    this.removeByPrefixFromStorage(prefix, "session");
+    this.removeByPrefixFromStorage(prefix, "local");
   }
 
   clear(): void {
     this.cache.clear();
+    this.clearPrefixedStorage("session");
+    this.clearPrefixedStorage("local");
   }
 
   async query<T>(
@@ -181,7 +235,7 @@ export class DataClient {
     fetcher: () => Promise<T>,
     options?: QueryOptions<T>,
   ): Promise<QueryResult<T>> {
-    const merged = { ...DEFAULT_POLICY, ...options };
+    const merged = this.resolveQueryOptions(options);
     const now = Date.now();
 
     if (merged.skipCache) {
@@ -273,10 +327,146 @@ export class DataClient {
     this.inFlight.set(key, request);
     return request;
   }
+
+  private mergeCachePolicy(policy?: CachePolicy): Required<CachePolicy> {
+    const merged = { ...DEFAULT_POLICY, ...policy };
+
+    if (!policy?.storageMode && this.defaultStorageMode !== "none") {
+      merged.storageMode = this.defaultStorageMode;
+    }
+
+    return merged;
+  }
+
+  private resolveQueryOptions<T>(options?: QueryOptions<T>): ResolvedQueryOptions<T> {
+    const policy = this.mergeCachePolicy(options);
+    return {
+      ...policy,
+      forceRefresh: options?.forceRefresh ?? false,
+      skipCache: options?.skipCache ?? false,
+      onUpdate: options?.onUpdate,
+      onError: options?.onError,
+    };
+  }
+
+  private getStorage(mode: StorageMode): Storage | null {
+    if (mode === "none") return null;
+    if (typeof window === "undefined") return null;
+
+    try {
+      return mode === "local" ? window.localStorage : window.sessionStorage;
+    } catch {
+      return null;
+    }
+  }
+
+  private storageKey(key: string): string {
+    return `${this.storagePrefix}${key}`;
+  }
+
+  private writeToStorage<T>(key: string, entry: CacheEntry<T>, mode: StorageMode): void {
+    const storage = this.getStorage(mode);
+    if (!storage) return;
+
+    try {
+      storage.setItem(this.storageKey(key), JSON.stringify(entry));
+    } catch {
+      // Ignore quota and serialization errors; memory cache still works.
+    }
+  }
+
+  private readFromStorage<T>(key: string): CacheEntry<T> | undefined {
+    const now = Date.now();
+    const tryRead = (mode: StorageMode): CacheEntry<T> | undefined => {
+      const storage = this.getStorage(mode);
+      if (!storage) return undefined;
+
+      const raw = storage.getItem(this.storageKey(key));
+      if (!raw) return undefined;
+
+      try {
+        const parsed = JSON.parse(raw) as CacheEntry<T>;
+        if (!parsed || typeof parsed !== "object") {
+          this.removeFromStorageKey(key, mode);
+          return undefined;
+        }
+
+        if (typeof parsed.expiresAt !== "number" || typeof parsed.staleUntil !== "number") {
+          this.removeFromStorageKey(key, mode);
+          return undefined;
+        }
+
+        if (now >= parsed.staleUntil) {
+          this.removeFromStorageKey(key, mode);
+          return undefined;
+        }
+
+        return parsed;
+      } catch {
+        this.removeFromStorageKey(key, mode);
+        return undefined;
+      }
+    };
+
+    return tryRead("session") || tryRead("local");
+  }
+
+  private removeFromStorageKey(key: string, mode: StorageMode): void {
+    const storage = this.getStorage(mode);
+    if (!storage) return;
+
+    storage.removeItem(this.storageKey(key));
+  }
+
+  private removeByPrefixFromStorage(prefix: string, mode: StorageMode): void {
+    const storage = this.getStorage(mode);
+    if (!storage) return;
+
+    const fullPrefix = this.storageKey(prefix);
+    const toDelete: string[] = [];
+    for (let i = 0; i < storage.length; i += 1) {
+      const key = storage.key(i);
+      if (!key) continue;
+      if (key.startsWith(fullPrefix)) {
+        toDelete.push(key);
+      }
+    }
+
+    for (const key of toDelete) {
+      storage.removeItem(key);
+    }
+  }
+
+  private clearPrefixedStorage(mode: StorageMode): void {
+    const storage = this.getStorage(mode);
+    if (!storage) return;
+
+    const toDelete: string[] = [];
+    for (let i = 0; i < storage.length; i += 1) {
+      const key = storage.key(i);
+      if (!key) continue;
+      if (key.startsWith(this.storagePrefix)) {
+        toDelete.push(key);
+      }
+    }
+
+    for (const key of toDelete) {
+      storage.removeItem(key);
+    }
+  }
 }
 
 export const sharedDataClient = new DataClient();
 
 export function createCacheKey(parts: CacheKeyParts): string {
   return buildCacheKey(parts);
+}
+
+export async function fetchWithCache<T>(
+  keyParts: CacheKeyParts,
+  fetcher: () => Promise<T>,
+  options?: QueryOptions<T>,
+): Promise<QueryResult<T>> {
+  const key = createCacheKey(keyParts);
+  return sharedDataClient.query(key, fetcher, options);
 }
