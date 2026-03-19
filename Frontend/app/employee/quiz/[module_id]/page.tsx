@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
+import { sharedDataClient, createCacheKey } from "@/lib/data-client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
@@ -28,6 +29,36 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   const [originalModuleId, setOriginalModuleId] = useState<string>(params.module_id);
 
   const { user, loading: authLoading } = useAuth();
+
+  const refreshScoreHistoryCache = async (employeeId: string) => {
+    const assessmentsCacheKey = createCacheKey({
+      namespace: "assessments",
+      userId: String(employeeId),
+      path: "/employee-assessments",
+    });
+
+    sharedDataClient.invalidate(assessmentsCacheKey);
+
+    await sharedDataClient.query(
+      assessmentsCacheKey,
+      async () => {
+        const res = await fetch(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeId)}`,
+          {
+            headers: { "X-User-ID": employeeId },
+          },
+        );
+        if (!res.ok) {
+          throw new Error("Failed to refetch employee assessments");
+        }
+        return res.json();
+      },
+      {
+        ttlMs: 2 * 60 * 1000,
+        swr: true,
+        forceRefresh: true,
+      },
+    );
+  };
   
   // Handler for navigation
   const handleNext = () => {
@@ -89,6 +120,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     }
     if (!employeeId) {
       setFeedback("Error: Could not identify employee. Please refresh and try again.");
+      setSubmitted(false);
+      setIsSubmitting(false);
       return;
     }
     const payload = {
@@ -114,6 +147,15 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       if (typeof result.score === 'number') setScore(result.score);
       if (typeof result.maxScore === 'number') setMaxScore(result.maxScore);
       setFeedback(feedbackText);
+
+      if (res.ok) {
+        try {
+          await refreshScoreHistoryCache(employeeId);
+        } catch (cacheErr) {
+          console.warn('[QUIZ] score-history cache refresh failed', cacheErr);
+        }
+      }
+
       // Log quiz taken into module_progress
       try {
         // console.log(result);
@@ -130,6 +172,9 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             completed_at: new Date().toISOString(),
           }),
         });
+        
+        sharedDataClient.invalidateByPrefix("v1|dashboard");
+        sharedDataClient.invalidateByPrefix("v1|training-plan");
       } catch (e) {
         // console.log('[QUIZ] progress log error', e);
       }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
+import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -20,90 +21,97 @@ interface ModuleSideNavProps {
 
 export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId }: ModuleSideNavProps) {
   const [modules, setModules] = useState<Module[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [resolvedOriginalModuleId, setResolvedOriginalModuleId] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
     fetchSprintModules();
-  }, [currentModuleId, sprintModuleId]);
+  }, [userId, sprintModuleId, currentModuleId]);
 
   const fetchSprintModules = async () => {
+    if (!userId) return;
+
     try {
-      setLoading(true);
-      console.log("[ModuleSideNav] Fetching modules for currentModuleId:", currentModuleId, "sprintModuleId:", sprintModuleId);
+      // Keep existing nav visible during route/module updates.
+      if (modules.length === 0) {
+        setLoading(true);
+      }
 
       // Determine the original_module_id (sprint-level module_id)
-      let originalModuleId = sprintModuleId;
+      let originalModuleId = sprintModuleId || resolvedOriginalModuleId;
 
       // If sprintModuleId is not provided, get it from the current processed module
       if (!originalModuleId && currentModuleId) {
         try {
-          const pmRes = await fetch(
-            `${API_BASE}/api/processed-modules/${currentModuleId}`,
-            { headers: { 'X-User-ID': userId } }
+          const currentModuleResult = await sharedDataClient.query<any>(
+            createCacheKey({
+              namespace: "processed-modules",
+              tenantId: "public",
+              userId,
+              path: `/api/processed-modules/${currentModuleId}`,
+            }),
+            async () => {
+              const pmRes = await fetch(
+                `${API_BASE}/api/processed-modules/${currentModuleId}`,
+                { headers: { "X-User-ID": userId } },
+              );
+              if (!pmRes.ok) {
+                throw new Error("Failed to fetch current module");
+              }
+              return pmRes.json();
+            },
+            { ttlMs: 10 * 60 * 1000, swr: true, swrMs: 20 * 60 * 1000 },
           );
-
-          if (!pmRes.ok) {
-            console.error("[ModuleSideNav] Error fetching current module:", await pmRes.text());
-            setLoading(false);
-            return;
-          }
-
-          const pmData = await pmRes.json();
+          const pmData = currentModuleResult?.data;
           const currentModule = pmData?.data;
 
           if (!currentModule?.original_module_id) {
-            console.log("[ModuleSideNav] No original_module_id found for current module");
-            setLoading(false);
             return;
           }
 
           originalModuleId = currentModule.original_module_id;
+          setResolvedOriginalModuleId(String(currentModule.original_module_id));
         } catch (error) {
           console.error("[ModuleSideNav] Error fetching current module:", error);
-          setLoading(false);
           return;
         }
-
-        if (!currentModule?.original_module_id) {
-          console.log("[ModuleSideNav] No original_module_id found for current module");
-          setLoading(false);
-          return;
-        }
-
-        originalModuleId = currentModule.original_module_id;
       }
 
       if (!originalModuleId) {
-        console.log("[ModuleSideNav] No original_module_id available");
-        setLoading(false);
         return;
       }
 
-      console.log("[ModuleSideNav] Fetching all processed modules for original_module_id:", originalModuleId);
-
       // Fetch all processed modules that belong to this sprint/original module via backend API
       try {
-        const modulesRes = await fetch(
-          `${API_BASE}/api/processed-modules/original-module/${originalModuleId}`,
-          { headers: { 'X-User-ID': userId } }
+        const modulesResult = await sharedDataClient.query<any>(
+          createCacheKey({
+            namespace: "processed-modules",
+            tenantId: "public",
+            userId,
+            path: `/api/processed-modules/original-module/${originalModuleId}`,
+          }),
+          async () => {
+            const modulesRes = await fetch(
+              `${API_BASE}/api/processed-modules/original-module/${originalModuleId}`,
+              { headers: { "X-User-ID": userId } },
+            );
+            if (!modulesRes.ok) {
+              throw new Error("Failed to fetch sprint modules");
+            }
+            return modulesRes.json();
+          },
+          { ttlMs: 10 * 60 * 1000, swr: true, swrMs: 20 * 60 * 1000 },
         );
-
-        if (!modulesRes.ok) {
-          console.error("[ModuleSideNav] Error fetching modules:", await modulesRes.text());
-          setLoading(false);
-          return;
-        }
-
-        const modulesData = await modulesRes.json();
+        const modulesData = modulesResult?.data;
         const modules = modulesData?.data || [];
-
-        console.log("[ModuleSideNav] Fetched modules:", modules);
         
-        setModules(modules);
+        if (Array.isArray(modules) && modules.length > 0) {
+          setModules(modules);
+          setResolvedOriginalModuleId(String(originalModuleId));
+        }
       } catch (error) {
         console.error("[ModuleSideNav] Error fetching modules:", error);
-        setLoading(false);
         return;
       }
     } catch (error) {
@@ -117,7 +125,7 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
     router.push(`/employee/module/${moduleId}`);
   };
 
-  if (loading) {
+  if (loading && modules.length === 0) {
     return (
       <div
         className="fixed top-0 h-screen w-64 bg-white border-r shadow-sm z-30 overflow-y-auto transition-all duration-300 ease-in-out"

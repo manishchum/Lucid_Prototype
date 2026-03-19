@@ -115,9 +115,29 @@ export default function AdminDispatchCenterPage() {
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('09:00');
   // ── Recurring schedule state ─────────────────────────────────
-  const [scheduleMode, setScheduleMode] = useState<'once' | 'recurring'>('once');
+  const [scheduleMode, setScheduleMode] = useState<'once' | 'recurring'>('recurring');
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [recurringTime, setRecurringTime] = useState('09:00');
+
+  // ── Multi-module stagger state ───────────────────────────────
+  // When multiple modules are selected with recurring, we show a per-module
+  // stagger preview and use the dedicated schedule-multi-module endpoint.
+  interface StaggerJob {
+    week: number;
+    module_id: string;
+    module_title: string;
+    run_date: string;
+    recipient_count: number;
+    job_id: string | null;
+    warning?: string;
+  }
+  const [multiModuleResult, setMultiModuleResult] = useState<{
+    status: string;
+    scheduled_day: string;
+    scheduled_time: string;
+    total_modules: number;
+    jobs: StaggerJob[];
+  } | null>(null);
 
   // ── Content selector state ───────────────────────────────────
   const [selectedContent, setSelectedContent] = useState<string[]>([]);
@@ -214,6 +234,7 @@ export default function AdminDispatchCenterPage() {
       setAssignedUsers([]);
       setDraftedEmail(null);
       setSendResult(null);
+      setMultiModuleResult(null);
       setSprintImageUrl('');
       return;
     }
@@ -223,6 +244,7 @@ export default function AdminDispatchCenterPage() {
       setLoadingImage(true);
       setDraftedEmail(null);
       setSendResult(null);
+      setMultiModuleResult(null);
       try {
         const [subRes, usersRes, imageRes] = await Promise.all([
           fetch(`${API_BASE}/api/dispatch/sub-modules/${selectedSprintId}`, {
@@ -266,6 +288,7 @@ export default function AdminDispatchCenterPage() {
     );
     setDraftedEmail(null);
     setSendResult(null);
+    setMultiModuleResult(null);
   };
 
   const selectAllSubModules = () => {
@@ -276,6 +299,7 @@ export default function AdminDispatchCenterPage() {
     }
     setDraftedEmail(null);
     setSendResult(null);
+    setMultiModuleResult(null);
   };
 
   // ── Flashcard JSON import ────────────────────────────────────
@@ -491,6 +515,7 @@ export default function AdminDispatchCenterPage() {
     setGenerating(true);
     setDraftedEmail(null);
     setSendResult(null);
+    setMultiModuleResult(null);
     setIsEditingEmail(false);
     setEditBodyText('');
     setEditSubject('');
@@ -661,6 +686,53 @@ export default function AdminDispatchCenterPage() {
     } catch (e) {
       console.error('Error sending/scheduling email:', e);
       alert('Failed to send/schedule email');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // ── Multi-module stagger scheduler ───────────────────────────
+  // Called when: ≥2 modules selected + recurring mode + at least one day chosen.
+  // Each module gets its own flashcard email on a successive week:
+  //   Module 1 → first upcoming <day> at <time> UTC
+  //   Module 2 → one week later … etc.
+  const handleScheduleMultiModule = async () => {
+    if (selectedSubModuleIds.length < 2 || selectedDays.length === 0) return;
+    setSending(true);
+    setMultiModuleResult(null);
+    setSendResult(null);
+
+    // Convert local time → UTC HH:MM (same logic as existing recurring path)
+    const [localH, localM] = recurringTime.split(':').map(Number);
+    const localDate = new Date();
+    localDate.setHours(localH, localM, 0, 0);
+    const utcTime = `${String(localDate.getUTCHours()).padStart(2, '0')}:${String(localDate.getUTCMinutes()).padStart(2, '0')}`;
+
+    // Use the first selected day
+    const scheduledDay = selectedDays[0];
+
+    try {
+      const res = await fetch(`${API_BASE}/api/dispatch/schedule-multi-module`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
+        body: JSON.stringify({
+          module_ids: selectedSubModuleIds,
+          selected_content: selectedContent,
+          scheduled_day: scheduledDay,
+          scheduled_time: utcTime,
+          ...(customFlashcards ? { customFlashcards } : {}),
+          ...(customAudioUrl ? { customAudioUrl } : {}),
+        }),
+      });
+      if (res.ok) {
+        setMultiModuleResult(await res.json());
+      } else {
+        const err = await res.json().catch(() => null);
+        alert(err?.detail || 'Failed to schedule multi-module dispatch');
+      }
+    } catch (e) {
+      console.error('Error scheduling multi-module dispatch:', e);
+      alert('Failed to schedule multi-module dispatch');
     } finally {
       setSending(false);
     }
@@ -1125,8 +1197,8 @@ export default function AdminDispatchCenterPage() {
                   {scheduleEnabled && (
                     <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
 
-                      {/* Mode toggle: Once vs Recurring */}
-                      <div className="inline-flex rounded-full bg-slate-200 p-1 gap-1">
+                      {/* Mode toggle: Once vs Recurring — One-time hidden */}
+                      {/* <div className="inline-flex rounded-full bg-slate-200 p-1 gap-1">
                         <button
                           onClick={() => setScheduleMode('once')}
                           className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
@@ -1147,7 +1219,7 @@ export default function AdminDispatchCenterPage() {
                         >
                           <RefreshCw size={11} /> Recurring
                         </button>
-                      </div>
+                      </div> */}
 
                       {/* ONE-TIME: date + time */}
                       {scheduleMode === 'once' && (
@@ -1232,18 +1304,90 @@ export default function AdminDispatchCenterPage() {
                                   className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
                                 />
                               </div>
-                              {recurringTime && (() => {
-                                const [lh, lm] = recurringTime.split(':').map(Number);
-                                const d = new Date();
-                                d.setHours(lh, lm, 0, 0);
-                                const utcStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
-                                return (
-                                  <p className="text-xs text-slate-400 mt-1.5">
-                                    Stored as <span className="font-semibold text-slate-600">{utcStr}</span>
-                                  </p>
-                                );
-                              })()}
+                              {recurringTime && (
+                                <p className="text-xs text-slate-400 mt-1.5">
+                                  Emails will be sent at <span className="font-semibold text-slate-600">{recurringTime} IST</span>
+                                </p>
+                              )}
                             </div>
+
+                            {/* ── Stagger preview (multi-module) ── */}
+                            {selectedSubModuleIds.length >= 2 && selectedDays.length > 0 && (() => {
+                              // Mirror exactly what handleScheduleMultiModule sends to the backend:
+                              // 1. Convert local recurringTime → UTC HH:MM
+                              // 2. Use UTC HH:MM for date arithmetic (same as Python _next_weekday)
+                              const [lh, lm] = recurringTime.split(':').map(Number);
+                              const localDate = new Date();
+                              localDate.setHours(lh, lm, 0, 0);
+                              const utcH = localDate.getUTCHours();
+                              const utcM = localDate.getUTCMinutes();
+
+                              // Python weekday: Mon=0 … Sun=6  (same as JS getUTCDay offset below)
+                              const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+                              // JS getUTCDay: Sun=0, Mon=1 … Sat=6  → map to Python weekday
+                              const jsDayToPython: Record<number, number> = { 0: 6, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5 };
+
+                              const targetPythonDay = dayMap[selectedDays[0]] ?? 0;
+
+                              const getNextWeekday = (offset: number): Date => {
+                                const now = new Date();
+                                // Build today's candidate at utcH:utcM UTC
+                                const candidate = new Date(Date.UTC(
+                                  now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+                                  utcH, utcM, 0
+                                ));
+                                const currentPythonDay = jsDayToPython[now.getUTCDay()];
+                                let daysAhead = (targetPythonDay - currentPythonDay + 7) % 7;
+                                candidate.setUTCDate(candidate.getUTCDate() + daysAhead);
+                                // If not strictly in the future, push one week
+                                if (candidate <= now) candidate.setUTCDate(candidate.getUTCDate() + 7);
+                                // Apply weekly offset for subsequent modules
+                                candidate.setUTCDate(candidate.getUTCDate() + offset * 7);
+                                return candidate;
+                              };
+
+                              const selectedModules = subModules.filter((m) =>
+                                selectedSubModuleIds.includes(m.processed_module_id)
+                              );
+                              const istTimeLabel = `${recurringTime} IST`;
+
+                              return (
+                                <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 overflow-hidden">
+                                  <div className="px-4 py-2.5 bg-blue-500 flex items-center gap-2">
+                                    <Calendar size={14} className="text-white" />
+                                    <span className="text-xs font-bold text-white uppercase tracking-wide">
+                                      Staggered Send Plan — {selectedModules.length} modules
+                                    </span>
+                                  </div>
+                                  <div className="divide-y divide-blue-100">
+                                    {selectedModules.map((mod, idx) => {
+                                      const runDate = getNextWeekday(idx);
+                                      const dateLabel = runDate.toLocaleDateString('en-GB', {
+                                        weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
+                                      });
+                                      return (
+                                        <div key={mod.processed_module_id} className="flex items-center gap-3 px-4 py-2.5">
+                                          <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-[11px] font-bold text-white shrink-0">
+                                            {idx + 1}
+                                          </div>
+                                          <span className="text-sm font-semibold text-slate-800 flex-1 truncate">
+                                            {mod.title}
+                                          </span>
+                                          <span className="text-xs font-semibold text-blue-700 shrink-0">
+                                            {dateLabel} · {istTimeLabel}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="px-4 py-2 bg-blue-50 border-t border-blue-100">
+                                    <p className="text-[11px] text-blue-500">
+                                      Each module's flashcards will be sent on successive {selectedDays[0]}s at {istTimeLabel}, one week apart.
+                                    </p>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       })()}
@@ -1253,7 +1397,7 @@ export default function AdminDispatchCenterPage() {
                 </div>
               )}
 
-              {/* Draft Button */}
+              {/* Draft Button — always visible so admin can preview the email */}
               {canDraft && (
                 <button
                   onClick={handleGenerateEmail}
@@ -1269,6 +1413,27 @@ export default function AdminDispatchCenterPage() {
                     <>
                       <Mail size={18} />
                       Draft Email Snippet
+                    </>
+                  )}
+                </button>
+              )}
+
+              {/* Multi-module stagger schedule button — shown alongside Draft when applicable */}
+              {canDraft && scheduleEnabled && scheduleMode === 'recurring' && selectedSubModuleIds.length >= 2 && selectedDays.length > 0 && (
+                <button
+                  onClick={handleScheduleMultiModule}
+                  disabled={sending}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/30"
+                >
+                  {sending ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin" />
+                      Scheduling…
+                    </>
+                  ) : (
+                    <>
+                      <Calendar size={18} />
+                      Schedule Staggered Send ({selectedSubModuleIds.length} modules)
                     </>
                   )}
                 </button>
@@ -1506,6 +1671,55 @@ export default function AdminDispatchCenterPage() {
                     <button onClick={() => setSendResult(null)} className="ml-auto text-slate-400 hover:text-slate-600">
                       <X size={16} />
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Multi-module stagger result */}
+              {multiModuleResult && (
+                <div className="rounded-xl border-2 border-indigo-200 bg-indigo-50 overflow-hidden">
+                  <div className="flex items-center justify-between px-5 py-3 bg-indigo-500">
+                    <div className="flex items-center gap-2">
+                      <Calendar size={16} className="text-white" />
+                      <span className="text-sm font-bold text-white">
+                        Staggered Schedule Confirmed — {multiModuleResult.total_modules} modules
+                      </span>
+                    </div>
+                    <button onClick={() => setMultiModuleResult(null)} className="text-indigo-200 hover:text-white">
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <div className="divide-y divide-indigo-100">
+                    {multiModuleResult.jobs.map((job) => (
+                      <div key={job.job_id ?? job.module_id} className="flex items-center gap-3 px-5 py-3">
+                        <div className="w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center text-xs font-bold text-white shrink-0">
+                          {job.week}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-800 truncate">{job.module_title}</p>
+                          <p className="text-xs text-slate-500">
+                            {new Date(job.run_date).toLocaleDateString('en-GB', {
+                              weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
+                            })} · {new Date(job.run_date).toLocaleTimeString('en-GB', {
+                              hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
+                            })} IST · {job.recipient_count} recipient{job.recipient_count !== 1 ? 's' : ''}
+                          </p>
+                          {job.warning && (
+                            <p className="text-xs text-amber-600 font-medium mt-0.5">⚠ {job.warning}</p>
+                          )}
+                        </div>
+                        {job.job_id ? (
+                          <Check size={16} className="text-indigo-500 shrink-0" />
+                        ) : (
+                          <AlertCircle size={16} className="text-amber-400 shrink-0" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="px-5 py-2.5 bg-indigo-50 border-t border-indigo-100">
+                    <p className="text-xs text-indigo-600 font-medium">
+                      Each module's flashcard email will be sent on successive {multiModuleResult.scheduled_day}s at {recurringTime} IST.
+                    </p>
                   </div>
                 </div>
               )}

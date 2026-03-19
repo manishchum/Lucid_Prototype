@@ -4,8 +4,17 @@ import type React from "react"
 import { createContext, useContext, useEffect, useState } from "react"
 import { type User, onAuthStateChanged, signOut } from "firebase/auth"
 import { auth } from "@/lib/firebase"
+import { createCacheKey, sharedDataClient } from "@/lib/data-client"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL
+const MANUAL_AUTH_STORAGE_KEY = "lucid:manual-auth-user"
+
+type AuthUserLike = {
+  uid: string
+  email?: string | null
+  displayName?: string | null
+  name?: string | null
+}
 
 interface AuthContextType {
   user: User | null
@@ -17,6 +26,7 @@ interface AuthContextType {
   employeeData: any | null
   login: (userData: any) => Promise<void>
   logout: () => Promise<void>
+  refreshProfile: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -29,6 +39,7 @@ const AuthContext = createContext<AuthContextType>({
   employeeData: null,
   login: async () => {},
   logout: async () => {},
+  refreshProfile: async () => {},
 })
 
 export const useAuth = () => {
@@ -102,6 +113,73 @@ const fetchUserRoles = async (userId: string) => {
   }
 }
 
+const loadCachedFullProfile = async (authUser: AuthUserLike) => {
+  if (!authUser?.email) return null
+
+  const key = createCacheKey({
+    namespace: "auth",
+    tenantId: "global",
+    userId: authUser.uid,
+    path: "/auth/full-profile"
+  })
+
+  const result = await sharedDataClient.query(
+    key,
+    async () => {
+      const empData = await fetchUserByEmail(authUser.email)
+      if (!empData) return null
+
+      const rolesData = await fetchUserRoles(empData.user_id)
+
+      return {
+        employeeData: empData,
+        userId: empData.user_id,
+        userRoles: rolesData.roles,
+        isAdmin: rolesData.isAdmin,
+        isSuperAdmin: rolesData.isSuperAdmin
+      }
+    },
+    {
+      ttlMs: 2 * 60 * 1000,
+      swr: true,
+      swrMs: 5 * 60 * 1000
+    }
+  )
+
+  return result.data
+}
+
+const readManualAuthUser = (): AuthUserLike | null => {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = window.sessionStorage.getItem(MANUAL_AUTH_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as AuthUserLike
+    if (!parsed?.uid || !parsed?.email) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+const writeManualAuthUser = (user: AuthUserLike): void => {
+  if (typeof window === "undefined") return
+  try {
+    window.sessionStorage.setItem(MANUAL_AUTH_STORAGE_KEY, JSON.stringify(user))
+  } catch {
+    // no-op
+  }
+}
+
+const clearManualAuthUser = (): void => {
+  if (typeof window === "undefined") return
+  try {
+    window.sessionStorage.removeItem(MANUAL_AUTH_STORAGE_KEY)
+  } catch {
+    // no-op
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
@@ -112,24 +190,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [employeeData, setEmployeeData] = useState<any | null>(null)
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user)
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      const effectiveUser = firebaseUser ?? readManualAuthUser()
+      setUser((effectiveUser as User) || null)
       
-      if (user?.email) {
-        // Fetch employee data and roles once
-        const empData = await fetchUserByEmail(user.email)
-        if (empData) {
-          setEmployeeData(empData)
-          setUserId(empData.user_id)
-          
-          // Fetch roles for this user
-          const { roles, isAdmin: adminStatus, isSuperAdmin: superAdminStatus } = await fetchUserRoles(empData.user_id)
-          setUserRoles(roles)
-          setIsAdmin(adminStatus)
-          setIsSuperAdmin(superAdminStatus)
+      if (effectiveUser?.email) {
+        const profile = await loadCachedFullProfile(effectiveUser)
+
+        if (profile) {
+          setEmployeeData(profile.employeeData)
+          setUserId(profile.userId)
+          setUserRoles(profile.userRoles)
+          setIsAdmin(profile.isAdmin)
+          setIsSuperAdmin(profile.isSuperAdmin)
+        } else {
+          setEmployeeData(null)
+          setUserId(null)
+          setUserRoles([])
+          setIsAdmin(false)
+          setIsSuperAdmin(false)
+        }
+
+        if (!firebaseUser) {
+          writeManualAuthUser(effectiveUser)
         }
       } else {
         // Reset all data on logout
+        clearManualAuthUser()
+        sharedDataClient.clear()
         setEmployeeData(null)
         setUserId(null)
         setUserRoles([])
@@ -148,18 +236,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       // Set user data in state for email/password login
       // This simulates what Firebase does automatically for Google sign-in
-      setUser(userData)
+      setUser(userData as User)
       
-      if (userData?.email) {
-        const empData = await fetchUserByEmail(userData.email)
-        if (empData) {
-          setEmployeeData(empData)
-          setUserId(empData.user_id)
-          
-          const { roles, isAdmin: adminStatus, isSuperAdmin: superAdminStatus } = await fetchUserRoles(empData.user_id)
-          setUserRoles(roles)
-          setIsAdmin(adminStatus)
-          setIsSuperAdmin(superAdminStatus)
+      if (userData?.email && userData?.uid) {
+        writeManualAuthUser({
+          uid: userData.uid,
+          email: userData.email,
+          displayName: userData.displayName ?? userData.name ?? null,
+          name: userData.name ?? userData.displayName ?? null,
+        })
+
+        const profile = await loadCachedFullProfile({
+          uid: userData.uid,
+          email: userData.email,
+          displayName: userData.displayName ?? userData.name ?? null,
+          name: userData.name ?? userData.displayName ?? null,
+        })
+
+        if (profile) {
+          setEmployeeData(profile.employeeData)
+          setUserId(profile.userId)
+          setUserRoles(profile.userRoles)
+          setIsAdmin(profile.isAdmin)
+          setIsSuperAdmin(profile.isSuperAdmin)
+        } else {
+          setEmployeeData(null)
+          setUserId(null)
+          setUserRoles([])
+          setIsAdmin(false)
+          setIsSuperAdmin(false)
         }
       }
       
@@ -172,12 +277,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     await signOut(auth)
+    clearManualAuthUser()
+    sharedDataClient.invalidateByPrefix("v1|auth")
+    sharedDataClient.clear()
     setUser(null)
     setEmployeeData(null)
     setUserId(null)
     setUserRoles([])
     setIsAdmin(false)
     setIsSuperAdmin(false)
+  }
+
+  const refreshProfile = async () => {
+    if (user?.email) {
+      sharedDataClient.invalidateByPrefix("v1|auth")
+      sharedDataClient.invalidateByPrefix("v1|users")
+      
+      const authUserLike = user as AuthUserLike
+      const effectiveUser = authUserLike.email ? authUserLike : readManualAuthUser()
+      
+      if (effectiveUser && effectiveUser.email) {
+        const profile = await loadCachedFullProfile(effectiveUser)
+        if (profile) {
+          setEmployeeData(profile.employeeData)
+          setUserId(profile.userId)
+          setUserRoles(profile.userRoles)
+          setIsAdmin(profile.isAdmin)
+          setIsSuperAdmin(profile.isSuperAdmin)
+        }
+      }
+    }
   }
 
   return (
@@ -191,7 +320,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         userId, 
         employeeData, 
         login, 
-        logout 
+        logout,
+        refreshProfile
       }}
     >
       {children}

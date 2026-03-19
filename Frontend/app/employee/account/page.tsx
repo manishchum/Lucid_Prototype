@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/auth-context";
-import { supabase } from "@/lib/supabase";
+import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 import { ArrowLeft, User, Mail, Calendar, Building, Save, Edit3, Lock, Eye, EyeOff, X, CheckCircle } from "lucide-react";
 
 interface Employee {
@@ -35,7 +35,7 @@ interface Admin {
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 export default function AccountPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, employeeData, refreshProfile } = useAuth();
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,57 +58,57 @@ export default function AccountPage() {
   });
   const router = useRouter();
 
+  const fetchCompany = async (companyId: string) => {
+    try {
+      const result = await sharedDataClient.query(
+        createCacheKey({
+          namespace: "companies",
+          tenantId: companyId,
+          path: `/api/companies/${companyId}`,
+        }),
+        async () => {
+          const res = await fetch(`${API_URL}/api/companies/${companyId}`);
+          if (!res.ok) {
+            throw new Error(`Company fetch failed: ${res.status}`);
+          }
+          return res.json();
+        },
+        {
+          ttlMs: 10 * 60 * 1000,
+        },
+      );
+
+      const payload = result.data;
+      setCompany(payload?.company ?? payload);
+    } catch (error) {
+      console.error("Failed to fetch company:", error);
+      setCompany(null);
+    }
+  };
+
   useEffect(() => {
     if (!authLoading) {
       if (!user) {
         router.push("/login");
-      } else {
-        fetchEmployeeData();
-      }
-    }
-  }, [user, authLoading, router]);
+      } else if (employeeData) {
+        setEmployee(employeeData);
 
-  const fetchEmployeeData = async () => {
-    if (!user?.email) return;
+        setFormData({
+          name: employeeData.name || "",
+          position: employeeData.position || "",
+          phone: employeeData.phone || "",
+        });
 
-    try {
-      const userRes = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
-      if (!userRes.ok) {
-        console.error("Employee fetch error:", userRes.status, await userRes.text().catch(() => ""));
-        router.push("/login");
-        return;
-      }
-      const userPayload = await userRes.json().catch(() => null);
-      const employeeData = userPayload?.user || userPayload;
-      const resolvedEmployee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
-      if(!resolvedEmployee || !resolvedEmployee.user_id) {
-        console.error("Employee data is invalid:", resolvedEmployee);
-        router.push("/login");
-        return;
-      }
-      setEmployee(resolvedEmployee);
-
-      setFormData({
-        name: resolvedEmployee.name || "",
-        position: resolvedEmployee.position || "",
-        phone: resolvedEmployee.phone || "",
-      });
-
-      if (resolvedEmployee.company_id) {
-        const companyRes = await fetch(`${API_URL}/api/companies/${encodeURIComponent(resolvedEmployee.company_id)}`);
-        if (companyRes.ok) {
-          const compPayload = await companyRes.json().catch(() => null);
-          const companyData = compPayload?.company ?? compPayload;
-          setCompany(companyData);
+        if (employeeData.company_id) {
+          fetchCompany(employeeData.company_id);
+        } else {
+          setCompany(null);
         }
+
+        setLoading(false);
       }
-    } catch (error) {
-      console.error("Failed to fetch employee data:", error);
-      router.push("/login");
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [user, authLoading, employeeData]);
 
   const handleSave = async () => {
     if (!employee) return;
@@ -131,6 +131,7 @@ export default function AccountPage() {
         console.error("Update failed:", updRes.status, err);
         alert("Failed to save changes. Please try again.");
       } else {
+        await refreshProfile();
         setEmployee({
           ...employee,
           name: formData.name,

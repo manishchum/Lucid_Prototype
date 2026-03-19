@@ -1,4 +1,5 @@
 import React, { useRef } from "react";
+import { sharedDataClient } from "@/lib/data-client";
 
 interface AudioPlayerProps {
   employeeId: string;
@@ -28,6 +29,8 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
         audio_listen_duration: 0,
       }),
     });
+    sharedDataClient.invalidateByPrefix("v1|dashboard");
+    sharedDataClient.invalidateByPrefix("v1|training-plan");
   };
 
   const handleEnded = async () => {
@@ -42,6 +45,8 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
         audio_listen_duration: Math.round(duration),
       }),
     });
+    sharedDataClient.invalidateByPrefix("v1|dashboard");
+    sharedDataClient.invalidateByPrefix("v1|training-plan");
   };
 
   return (

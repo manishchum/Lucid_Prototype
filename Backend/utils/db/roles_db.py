@@ -93,7 +93,8 @@ async def assign_user_role(
             "assigned_by": requesting_user_id,
             "expires_at": role_data.get('expires_at'),
             "notes": role_data.get('notes'),
-            "is_active": role_data.get('is_active')
+            # Preserve DB default behavior and avoid inserting NULL for active flag.
+            "is_active": role_data.get('is_active') if role_data.get('is_active') is not None else True
         }
         
         # Check for existing inactive assignment with same user+role+scope (to reactivate instead of duplicating)
@@ -147,9 +148,15 @@ async def get_user_roles(
         # Fetch active role assignments with role details
         resp = supabase.table('user_role_assignments').select(
             '*, role:roles(*)'
-        ).eq('user_id', target_user_id).eq('is_active', True).execute()
-        
-        return {"data": resp.data, "error": None}
+        ).eq('user_id', target_user_id).execute()
+
+        # Backward compatibility: treat NULL is_active as active for legacy rows.
+        active_assignments = [
+            a for a in (resp.data or [])
+            if a.get('is_active') is not False
+        ]
+
+        return {"data": active_assignments, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -181,9 +188,6 @@ async def get_all_role_assignments(
             '*, role:roles(*), user:users!user_id(user_id, name, email, company_id)'
         )
         
-        if not include_inactive:
-            query = query.eq('is_active', True)
-        
         resp = query.execute()
         
         # Filter to only include users from the requesting company
@@ -192,6 +196,10 @@ async def get_all_role_assignments(
                 assignment for assignment in resp.data
                 if assignment.get('user', {}).get('company_id') == company_id
             ]
+
+            if not include_inactive:
+                filtered = [a for a in filtered if a.get('is_active') is not False]
+
             return {"data": filtered, "error": None}
         
         return {"data": [], "error": None}

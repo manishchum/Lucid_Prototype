@@ -20,6 +20,16 @@ import { useRouter } from 'next/navigation';
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
+
+function parseArrayFromPayload(payload: any): any[] {
+if (!payload) return [];
+if (Array.isArray(payload)) return payload;
+if (Array.isArray(payload.data)) return payload.data;
+if (Array.isArray(payload.items)) return payload.items;
+if (payload.data && Array.isArray(payload.data.items)) return payload.data.items;
+console.warn('Unexpected payload shape for array parsing', payload);
+return [];
+}
 // helper: fetch users by filter via backend (do not query users table from frontend)
 const fetchUsersByFilter = async (filters: {
   functionId?: string;
@@ -324,8 +334,7 @@ export default function WorkforceOverview() {
 
         if (res.ok) {
           const payload = await res.json();
-          const allModules = payload?.data || payload || [];
-          // Filter to only the modules we need
+          const allModules = parseArrayFromPayload(payload);
           modules = allModules.filter((m: any) => moduleIds.includes(m.module_id));
         }
       }
@@ -389,7 +398,7 @@ export default function WorkforceOverview() {
 
         if (res.ok) {
           const payload = await res.json();
-          modules = (payload?.data || payload || []).slice(0, 20);
+          modules = parseArrayFromPayload(payload).slice(0,20);
         }
       }
 
