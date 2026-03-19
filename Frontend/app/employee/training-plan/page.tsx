@@ -57,9 +57,9 @@ function TrainingPlanContent() {
         return result;
       },
       {
-        ttlMs: 60 * 1000,
+        ttlMs: 5 * 1000, // Short fallback TTL to pick up external progress completions
         swr: true,
-        swrMs: 5 * 60 * 1000,
+        swrMs: 30 * 1000,
       },
     );
   };

@@ -174,6 +174,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         });
         
         sharedDataClient.invalidateByPrefix("v1|dashboard");
+        sharedDataClient.invalidateByPrefix("v1|training-plan");
       } catch (e) {
         // console.log('[QUIZ] progress log error', e);
       }

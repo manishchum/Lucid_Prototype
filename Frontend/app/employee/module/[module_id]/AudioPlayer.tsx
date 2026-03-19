@@ -30,6 +30,7 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
       }),
     });
     sharedDataClient.invalidateByPrefix("v1|dashboard");
+    sharedDataClient.invalidateByPrefix("v1|training-plan");
   };
 
   const handleEnded = async () => {
@@ -45,6 +46,7 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
       }),
     });
     sharedDataClient.invalidateByPrefix("v1|dashboard");
+    sharedDataClient.invalidateByPrefix("v1|training-plan");
   };
 
   return (

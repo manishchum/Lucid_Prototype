@@ -2568,6 +2568,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       
       // Invalidate the cache for user dashboards globally when assignments change
       sharedDataClient.invalidateByPrefix("v1|dashboard");
+      sharedDataClient.invalidateByPrefix("v1|training-plan");
 
       if (failCount > 0) {
         setError(`Created ${successCount} assignments, ${failCount} failed`);
