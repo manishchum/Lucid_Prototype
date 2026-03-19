@@ -493,24 +493,6 @@ export default function ScoreHistoryPage() {
     return learningStyle;
   };
 
-  const consumePendingAssessment = () => {
-    if (typeof window === "undefined") {
-      return null;
-    }
-
-    try {
-      const raw = sessionStorage.getItem("pending_score_history_assessment");
-      if (!raw) {
-        return null;
-      }
-
-      sessionStorage.removeItem("pending_score_history_assessment");
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  };
-
   const fetchAllData = async () => {
     setLoading(true);
     try {
@@ -527,42 +509,8 @@ export default function ScoreHistoryPage() {
       const assessmentsWithModules = await getModules(employee, assessments);
       const learningStyle = await getLearningStyle(employee);
 
-      const pending = consumePendingAssessment();
-      const mergedAssessments = (() => {
-        if (!pending) {
-          return assessmentsWithModules;
-        }
-
-        const pendingAssessmentId = String(pending.assessment_id || "");
-        const alreadyExists = (assessmentsWithModules || []).some((item: any) => {
-          const topLevelId = String(item?.assessment_id || "");
-          const nestedId = String(item?.assessments?.assessment_id || "");
-          return Boolean(pendingAssessmentId) && (topLevelId === pendingAssessmentId || nestedId === pendingAssessmentId);
-        });
-
-        if (alreadyExists) {
-          return assessmentsWithModules;
-        }
-
-        const optimistic = {
-          assessment_id: pending.assessment_id || null,
-          score: pending.score || 0,
-          max_score: pending.max_score || null,
-          feedback: pending.feedback || "",
-          question_feedback: pending.question_feedback || null,
-          created_at: pending.created_at || new Date().toISOString(),
-          assessments: {
-            assessment_id: pending.assessment_id || null,
-            type: pending.type || "module",
-            module_title: pending.module_title || "Module Assessment",
-          },
-        };
-
-        return [optimistic, ...(assessmentsWithModules || [])];
-      })();
-
       setCompanyUsesLearningStyle(Boolean(company?.learning_style));
-      setScoreHistory(mergedAssessments);
+      setScoreHistory(assessmentsWithModules);
       setLearningStyleData(learningStyle || null);
     } catch (err) {
       console.error("Error fetching data:", err);

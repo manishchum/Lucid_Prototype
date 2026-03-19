@@ -268,6 +268,32 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                   setLiveTranscript={setLiveTranscript}
                   userChatHistory={userChatHistory}
                   chatLoading={chatLoading}
+                  onModuleUpdate={(update: any) => {
+                    setModule((prev: any) => {
+                      const nextData = typeof update === "function" ? update(prev) : update;
+                      const normalized = normalizeModulePayload({ data: nextData }, moduleId);
+                      return normalized || nextData;
+                    });
+                  }}
+                  onAudioGenerated={(url: string, data?: any) => {
+                    setModule((prev: any) => {
+                      if (!prev) return prev;
+                      const isHinglish = data?.language === "hinglish";
+                      return {
+                        ...prev,
+                        [isHinglish ? "audio_url_hinglish" : "audio_url"]: url,
+                        [isHinglish ? "podcast_transcript_hinglish" : "podcast_transcript"]:
+                          data?.transcript || prev[isHinglish ? "podcast_transcript_hinglish" : "podcast_transcript"],
+                        [isHinglish ? "podcast_timeline_hinglish" : "podcast_timeline"]:
+                          data?.timeline
+                            ? JSON.stringify(data.timeline)
+                            : prev[isHinglish ? "podcast_timeline_hinglish" : "podcast_timeline"],
+                      };
+                    });
+                  }}
+                  onVideoGenerated={(url: string) => {
+                    setModule((prev: any) => (prev ? { ...prev, video_url: url } : prev));
+                  }}
                 />
 
                 <ContentCards content={module.content || ''} />
@@ -890,6 +916,9 @@ function ContentTransformer({
   setLiveTranscript,
   userChatHistory,
   chatLoading,
+  onModuleUpdate,
+  onAudioGenerated,
+  onVideoGenerated,
 }: any) {
   // Check if audio exists for each language
   const hasEnglishAudio = !!(module.audio_url && module.podcast_transcript && module.podcast_timeline);
@@ -1152,7 +1181,44 @@ function ContentTransformer({
           {/* AI Chat (Voice assistant) button removed as requested */}
 
           <div
-            onClick={() => setSelectedOption('mindmap')}
+            onClick={async () => {
+              setSelectedOption('mindmap');
+
+              if (mindmapData || module.mindmap_data) return;
+
+              setMindmapLoading(true);
+              try {
+                const studyText = module.content || '';
+                const res = await fetch(`${API_BASE}/api/generate-mindmap`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ content: studyText, title: module.title }),
+                });
+
+                const data = await res.json();
+
+                if (res.ok && data && data.nodes && data.edges) {
+                  setMindmapData(data);
+
+                  if (employeeId) {
+                    await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
+                      body: JSON.stringify({ mindmap_data: data }),
+                    });
+
+                    if (onModuleUpdate) {
+                      onModuleUpdate((prev: any) => ({ ...prev, mindmap_data: data }));
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error('Error generating mindmap', e);
+                setMindmapData(null);
+              } finally {
+                setMindmapLoading(false);
+              }
+            }}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
               selectedOption === 'mindmap'
@@ -1167,7 +1233,52 @@ function ContentTransformer({
 
           {/* Flash cards */}
           <div
-            onClick={() => setSelectedOption('flashcard')}
+            onClick={async () => {
+              setSelectedOption('flashcard');
+
+              if (flashcardSections && flashcardSections.length > 0) return;
+
+              try {
+                setFlashcardLoading(true);
+
+                const studyText = module.content || '';
+                const res = await fetch(`${API_BASE}/api/generate-flashcards-gemini`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ content: studyText }),
+                });
+
+                const raw = await res.clone().text();
+                let data: any = null;
+                try {
+                  data = await res.json();
+                } catch {
+                  data = JSON.parse(raw);
+                }
+
+                if (res.ok && Array.isArray(data)) {
+                  setFlashcardSections(data);
+
+                  if (employeeId) {
+                    await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
+                      body: JSON.stringify({ flashcard_data: data }),
+                    });
+
+                    if (onModuleUpdate) {
+                      onModuleUpdate((prev: any) => ({ ...prev, flashcard_data: data }));
+                    }
+                  }
+                } else {
+                  setFlashcardSections([{ heading: 'Generation failed', points: [data?.error || 'Check console'] }]);
+                }
+              } catch (e) {
+                console.error('Error generating flashcards', e);
+              } finally {
+                setFlashcardLoading(false);
+              }
+            }}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
               selectedOption === 'flashcard'
@@ -1182,7 +1293,56 @@ function ContentTransformer({
 
           {/* Infographic button */}
           <div
-            onClick={() => setSelectedOption('infographic')}
+            onClick={async () => {
+              setSelectedOption('infographic');
+
+              if (infographicData) return;
+
+              try {
+                setInfographicLoading(true);
+                const contentText = module.content || '';
+
+                const res = await fetch(`${API_BASE}/api/generate-infographic`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    content: contentText,
+                    title: module.title,
+                    processed_module_id: module.processed_module_id,
+                  }),
+                });
+
+                let data: any = null;
+                try {
+                  data = await res.json();
+                } catch {
+                  console.error('Failed to parse JSON');
+                }
+
+                if (res.ok && data && !data.error) {
+                  setInfographicData(data);
+
+                  if (employeeId) {
+                    await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
+                      body: JSON.stringify({ infographic_data: data }),
+                    });
+
+                    if (onModuleUpdate) {
+                      onModuleUpdate((prev: any) => ({ ...prev, infographic_data: data }));
+                    }
+                  }
+                } else {
+                  alert(`Failed to generate visual guide: ${data?.error || 'Unknown error'}`);
+                }
+              } catch (e: any) {
+                console.error('[infographic] Error:', e);
+                alert(`Error generating visual guide: ${e.message || 'Unknown error'}`);
+              } finally {
+                setInfographicLoading(false);
+              }
+            }}
             className={clsx(
               'rounded-xl p-5 cursor-pointer transition-all border-2',
               selectedOption === 'infographic'
@@ -1329,8 +1489,18 @@ function ContentTransformer({
             )}
 
             {!hasCurrentLanguageAudio(language) && (
-              <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-                Audio for this language is not available yet. This module response should include audio when ready.
+              <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 space-y-4">
+                <div>Audio for this language is not available yet.</div>
+                <GenerateAudioButton
+                  moduleId={module.processed_module_id}
+                  language={language}
+                  onAudioGenerated={(url, data) => {
+                    if (onAudioGenerated) onAudioGenerated(url, data);
+                    if (data?.timeline && Array.isArray(data.timeline)) {
+                      setPodcastTimeline(data.timeline);
+                    }
+                  }}
+                />
               </div>
             )}
           </div>
@@ -1348,8 +1518,14 @@ function ContentTransformer({
             )}
 
             {!module.video_url && (
-              <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-                Video is not available yet. This module response should include video when ready.
+              <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 space-y-4">
+                <div>Video is not available yet.</div>
+                <GenerateVideoButton
+                  moduleId={module.processed_module_id}
+                  onVideoGenerated={(url) => {
+                    if (onVideoGenerated) onVideoGenerated(url);
+                  }}
+                />
               </div>
             )}
           </div>
@@ -2015,6 +2191,98 @@ function styleMarkdownContent(content: string): string {
 
   console.log("This is getting called",formatted)
   return formatted;
+}
+
+function GenerateAudioButton({
+  moduleId,
+  onAudioGenerated,
+  language = 'en',
+}: {
+  moduleId: string;
+  onAudioGenerated: (url: string, data?: any) => void;
+  language?: 'en' | 'hinglish';
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=${language}`);
+      const data = await res.json();
+      if (res.ok && data.audioUrl) {
+        onAudioGenerated(data.audioUrl, {
+          transcript: data.podcastTranscript,
+          timeline: data.podcastTimeline,
+          language,
+        });
+      } else {
+        setError(data.error || 'Failed to generate audio');
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Error generating audio');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="flex flex-col items-start">
+      <button
+        className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 disabled:opacity-50"
+        onClick={handleGenerate}
+        disabled={loading}
+      >
+        {loading ? 'Generating Audio...' : 'Generate Audio'}
+      </button>
+      {error && <div className="text-red-600 mt-2 text-sm">{error}</div>}
+    </div>
+  );
+}
+
+function GenerateVideoButton({
+  moduleId,
+  onVideoGenerated,
+}: {
+  moduleId: string;
+  onVideoGenerated: (url: string) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/gpt-video`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ processed_module_id: moduleId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.videoUrl) {
+        onVideoGenerated(data.videoUrl);
+      } else {
+        setError(data.error || 'Failed to generate video');
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Error generating video');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="flex flex-col items-start">
+      <button
+        className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 disabled:opacity-50"
+        onClick={handleGenerate}
+        disabled={loading}
+      >
+        {loading ? 'Generating Video...' : 'Generate Video'}
+      </button>
+      {error && <div className="text-red-600 mt-2 text-sm">{error}</div>}
+    </div>
+  );
 }
 
 function sanitizeHTML(html: string): string {
