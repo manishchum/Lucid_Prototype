@@ -13,7 +13,9 @@
     "worker:audio": "node worker/audioJobWorker.js",
     "worker:audio:poll": "node worker/api/generate-module-audio.js --poll",
     "worker:flashcard": "node worker/flashcardJobWorker.js",
-    "worker:flashcard:poll": "node worker/api/generate-module-flashcards.js --poll"
+    "worker:flashcard:poll": "node worker/api/generate-module-flashcards.js --poll",
+    "worker:mindmap": "node worker/mindmapJobWorker.js",
+    "worker:mindmap:poll": "node worker/api/generate-module-mindmap.js --poll"
   },
   "dependencies": {
     "@firebase/auth": "^1.11.0",
