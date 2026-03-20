@@ -11,7 +11,9 @@
     "worker:video": "node worker/videoJobWorker.js",
     "worker:video:poll": "node worker/api/generate-module-video.js --poll",
     "worker:audio": "node worker/audioJobWorker.js",
-    "worker:audio:poll": "node worker/api/generate-module-audio.js --poll"
+    "worker:audio:poll": "node worker/api/generate-module-audio.js --poll",
+    "worker:flashcard": "node worker/flashcardJobWorker.js",
+    "worker:flashcard:poll": "node worker/api/generate-module-flashcards.js --poll"
   },
   "dependencies": {
     "@firebase/auth": "^1.11.0",
