@@ -34,6 +34,7 @@ from routes import users, roles, assessments, companies, content_jobs, learning_
 from roleplay.assessment.route import router as roleplay_assessment_router
 from roleplay.assessment.conversation.route import router as roleplay_conversation_router
 from ingestion.embedder import router as embed_router
+from routes.unsubscribe import router as unsubscribe_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -129,6 +130,7 @@ app.include_router(processed_modules.router)  # processed modules router
 app.include_router(dispatch.router)  # dispatch router
 app.include_router(module_progress.router)  # module progress router
 app.include_router(employee_assessment.router)  # employee assessment router
+app.include_router(unsubscribe_router, tags=["unsubscribe"])  # unsubscribe router
 
 
 # ── Initialize WhatsApp Cron Job ────────────────────────────────────

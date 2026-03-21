@@ -37,6 +37,9 @@ async def get_assigned_users_for_sprint(module_id: str) -> Dict[str, Any]:
     """
     Get all users assigned to a sprint via the learning_plan table.
     Returns user_id list from learning_plan, then fetches user details.
+    
+    ⭐ IMPORTANT: Now includes email_unsubscribed for GDPR/CAN-SPAM compliance.
+    Falls back to basic columns if new unsubscribe columns don't exist yet.
     """
     try:
         # Get user_ids from learning_plan for this module
@@ -53,15 +56,34 @@ async def get_assigned_users_for_sprint(module_id: str) -> Dict[str, Any]:
         if not user_ids:
             return {"data": [], "error": None}
 
-        # Fetch user details
-        users_response = (
-            supabase.table("users")
-            .select("user_id, name, email")
-            .in_("user_id", user_ids)
-            .eq("is_active", True)
-            .execute()
-        )
-        return {"data": users_response.data, "error": None}
+        # Try to fetch user details WITH unsubscribe columns (if they exist)
+        try:
+            users_response = (
+                supabase.table("users")
+                .select("user_id, name, email, email_unsubscribed, unsubscribed_at")
+                .in_("user_id", user_ids)
+                .eq("is_active", True)
+                .execute()
+            )
+            return {"data": users_response.data, "error": None}
+        except Exception as e:
+            # If columns don't exist, fall back to basic columns
+            if "email_unsubscribed" in str(e) or "unsubscribed_at" in str(e):
+                users_response = (
+                    supabase.table("users")
+                    .select("user_id, name, email")
+                    .in_("user_id", user_ids)
+                    .eq("is_active", True)
+                    .execute()
+                )
+                # Add email_unsubscribed field with default value
+                for user in users_response.data:
+                    user["email_unsubscribed"] = False
+                    user["unsubscribed_at"] = None
+                return {"data": users_response.data, "error": None}
+            else:
+                # Re-raise other errors
+                raise
     except Exception as e:
         return {"data": None, "error": str(e)}
 
