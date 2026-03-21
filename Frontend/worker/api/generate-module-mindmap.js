@@ -46,6 +46,8 @@ const API_BASE_URLS = uniqueNonEmpty([
 const POLL_INTERVAL_MS = Number(process.env.MINDMAP_WORKER_POLL_INTERVAL_MS || 15000);
 const MIN_CONTENT_LENGTH = Number(process.env.MINDMAP_WORKER_MIN_CONTENT_LENGTH || 1);
 const MAX_CONTENT_CHARS = Number(process.env.MINDMAP_WORKER_MAX_CONTENT_CHARS || 18000);
+const SCAN_BATCH_SIZE = Math.max(1, Number(process.env.MINDMAP_WORKER_SCAN_BATCH_SIZE || 500));
+const MAX_SCAN_ROWS = Math.max(SCAN_BATCH_SIZE, Number(process.env.MINDMAP_WORKER_MAX_SCAN_ROWS || 5000));
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error('[MINDMAP WORKER] FATAL: Supabase env vars are missing.');
@@ -192,26 +194,47 @@ async function fetchRowByProcessedId(processedModuleId) {
 }
 
 async function fetchNextPendingRow() {
-  const { data, error } = await supabase
-    .from('processed_modules')
-    .select('processed_module_id, original_module_id, title, content, mindmap_data, created_at')
-    .not('content', 'is', null)
-    .neq('content', '')
-    .order('created_at', { ascending: true })
-    .limit(50);
+  let offset = 0;
+  let scanned = 0;
 
-  if (error) {
-    throw new Error(`Pending row fetch failed: ${error.message}`);
+  while (scanned < MAX_SCAN_ROWS) {
+    const end = offset + SCAN_BATCH_SIZE - 1;
+
+    const { data, error } = await supabase
+      .from('processed_modules')
+      .select('processed_module_id, original_module_id, title, content, mindmap_data, created_at')
+      .not('content', 'is', null)
+      .neq('content', '')
+      .order('created_at', { ascending: true })
+      .range(offset, end);
+
+    if (error) {
+      throw new Error(`Pending row fetch failed: ${error.message}`);
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    if (rows.length === 0) break;
+
+    const next = rows.find(isEligible);
+    if (next) {
+      if (offset > 0) {
+        console.log(
+          `[MINDMAP WORKER] Found eligible row after scanning offset=${offset}, scanned=${scanned + rows.length}`
+        );
+      }
+      return next;
+    }
+
+    scanned += rows.length;
+    offset += rows.length;
+
+    if (rows.length < SCAN_BATCH_SIZE) break;
   }
 
-  const rows = Array.isArray(data) ? data : [];
-  const next = rows.find(isEligible) || null;
-
-  if (!next && rows.length > 0) {
-    console.log(`[MINDMAP WORKER] Pending rows fetched=${rows.length}, but none passed local eligibility.`);
-  }
-
-  return next;
+  console.log(
+    `[MINDMAP WORKER] No eligible rows found after scanning up to ${Math.min(scanned, MAX_SCAN_ROWS)} rows.`
+  );
+  return null;
 }
 
 async function generateModuleMindmap({ moduleId = null, processedModuleId = null } = {}) {
