@@ -15,7 +15,9 @@
     "worker:flashcard": "node worker/flashcardJobWorker.js",
     "worker:flashcard:poll": "node worker/api/generate-module-flashcards.js --poll",
     "worker:mindmap": "node worker/mindmapJobWorker.js",
-    "worker:mindmap:poll": "node worker/api/generate-module-mindmap.js --poll"
+    "worker:mindmap:poll": "node worker/api/generate-module-mindmap.js --poll",
+    "worker:infographic": "node worker/infographicJobWorker.js",
+    "worker:infographic:poll": "node worker/api/generate-module-infographic.js --poll"
   },
   "dependencies": {
     "@firebase/auth": "^1.11.0",
