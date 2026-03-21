@@ -1,45 +1,19 @@
-"""
-Unsubscribe Router
+# This file has been deleted - Unsubscribe route has been removed from the application
+# 
+# The unsubscribe route and all related functionality have been disabled.
+# 
+# Changes made:
+# - Removed import from Backend/main.py
+# - Removed app.include_router() registration from Backend/main.py
+# - Commented out unsubscribe token generation in dispatch.py send_email() function
+# - Commented out unsubscribe link injection in email templates
+#
+# To restore this functionality in the future:
+# 1. Uncomment the import in main.py: from routes.unsubscribe import router as unsubscribe_router
+# 2. Uncomment the registration in main.py: app.include_router(unsubscribe_router, tags=["unsubscribe"])
+# 3. Uncomment the token generation and injection code in dispatch.py
+# 4. Verify the database integration is working correctly
 
-Implements GDPR/CAN-SPAM compliant email unsubscribe endpoints:
-- GET /api/unsubscribe?token=<TOKEN> — browser link from emails
-- POST /api/unsubscribe — API endpoint with token
-- POST /api/resubscribe — re-subscribe users
-- POST /api/unsubscribe-manual — fallback unsubscribe without token
-
-All endpoints update the `users` table:
-- email_unsubscribed: Boolean flag (default False)
-- unsubscribed_at: DateTime when user unsubscribed (nullable)
-"""
-
-import logging
-import os
-from datetime import datetime
-from typing import Optional, Dict, Any
-
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, EmailStr
-
-from utils.unsubscribe_token import (
-    generate_token,
-    verify_token,
-    InvalidTokenError,
-    ExpiredTokenError,
-    MissingSecretError,
-)
-from utils.supabase_client import supabase
-
-logger = logging.getLogger(__name__)
-
-router = APIRouter(prefix="/api/unsubscribe", tags=["unsubscribe"])
-
-
-# ── Request Models ──────────────────────────────────────────────
-
-
-class UnsubscribeTokenRequest(BaseModel):
-    """Request body for POST /api/unsubscribe"""
-    token: str
 
 
 class ResubscribeRequest(BaseModel):
