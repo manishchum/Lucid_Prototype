@@ -35,8 +35,14 @@ function utcNow() {
 }
 
 function timeMatches(now, scheduledTime) {
-  const nowHHMM = now.toISOString().slice(11, 16); // HH:mm
+  // Convert current time to IST
+  const nowIST = new Date(
+    now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+  );
+
+  const nowHHMM = nowIST.toTimeString().slice(0, 5); // HH:mm
   const schedHHMM = scheduledTime.slice(0, 5);
+  console.log(`Comparing times - Now (IST): ${nowHHMM}, Schedule: ${schedHHMM}`);
   return nowHHMM === schedHHMM;
 }
 
@@ -64,25 +70,39 @@ function canRetry(dispatch) {
 async function sendWhatsApp(dispatch, schedule) {
   const url = `https://graph.facebook.com/${API_VERSION}/${PHONE_NUMBER_ID}/messages`;
 
+  // let payload = {
+  //   messaging_product: 'whatsapp',
+  //   to: dispatch.phone_number,
+  // };
+
+  // // TEXT MESSAGE
+  // if (!schedule.media_url) {
+  //   payload.type = 'text';
+  //   payload.text = { body: schedule.message_body };
+  // } else {
+  //   // MEDIA MESSAGE
+  //   payload.type = schedule.media_type;
+
+  //   payload[schedule.media_type] = {
+  //     link: schedule.media_url,
+  //     caption: schedule.message_body || undefined,
+  //   };
+  // }
+
+
   let payload = {
-    messaging_product: 'whatsapp',
-    to: dispatch.phone_number,
-  };
+  messaging_product: 'whatsapp',
+  to: dispatch.phone_number,
+  type: 'template',
+  template: {
+    name: 'lucid', // use your approved template
+    language: { code: 'en_US' },
+  },
+};
 
-  // TEXT MESSAGE
-  if (!schedule.media_url) {
-    payload.type = 'text';
-    payload.text = { body: schedule.message_body };
-  } else {
-    // MEDIA MESSAGE
-    payload.type = schedule.media_type;
-
-    payload[schedule.media_type] = {
-      link: schedule.media_url,
-      caption: schedule.message_body || undefined,
-    };
-  }
-
+  console.log("Sending the request to the meta")
+  console.log(payload)
+  console.log(url)
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -151,9 +171,12 @@ async function pollAndSend() {
       let messageId = null;
 
       try {
+        console.log("Stuck Here")
         const res = await sendWhatsApp(dispatch, schedule);
 
+
         messageId = res?.messages?.[0]?.id || null;
+        console.log(res)
 
         console.log(`✓ Sent to ${dispatch.phone_number}`);
       } catch (err) {
