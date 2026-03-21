@@ -48,6 +48,9 @@ function isTodayMatch(schedule, now) {
   }
 
   // recurring
+
+
+  console.log(`Schedule ${schedule.scheduled_whatsapp_id} days_of_week:`, schedule.days_of_week);
   const day = now.getUTCDay(); // 0–6
   return (schedule.days_of_week || []).includes(day);
 }
