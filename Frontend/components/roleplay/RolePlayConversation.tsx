@@ -19,6 +19,7 @@ import { createRolePlaySession, updateRolePlaySession } from "@/lib/roleplayData
 interface RolePlayConversationProps {
   scenario: Scenario;
   onEndSession: (messages: Message[], sessionId?: string) => void;
+  onBack?: () => void;
   moduleId?: string;
   employeeId?: string;
   voiceGender?: "female" | "male";
@@ -29,6 +30,7 @@ const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 export default function RolePlayConversation({
   scenario,
   onEndSession,
+  onBack,
   moduleId,
   employeeId,
   voiceGender = "female",
@@ -39,6 +41,10 @@ export default function RolePlayConversation({
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
+  const [limitPopup, setLimitPopup] = useState<{ open: boolean; message: string }>({
+    open: false,
+    message: "",
+  });
 
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
   const [isCameraOn, setIsCameraOn] = useState(true);
@@ -100,9 +106,17 @@ export default function RolePlayConversation({
           console.log('✅ Roleplay session created:', data.id);
         } else {
           console.error('❌ Failed to create roleplay session:', error);
+          const errorMessage = error?.message || 'Unable to start roleplay session.';
+          setLimitPopup({ open: true, message: errorMessage });
+          return;
         }
       } catch (e) {
         console.error('❌ Exception creating roleplay session:', e);
+        setLimitPopup({
+          open: true,
+          message: 'Unable to start roleplay session right now. Please try again.',
+        });
+        return;
       }
     } else {
       console.warn('⚠️ No employeeId provided, session will not be saved');
@@ -296,6 +310,19 @@ export default function RolePlayConversation({
     }
 
     onEndSession(messagesRef.current, sessionIdRef.current || undefined);
+  };
+
+  const handleLimitPopupRetry = () => {
+    setLimitPopup({ open: false, message: "" });
+  };
+
+  const handleLimitPopupBack = () => {
+    setLimitPopup({ open: false, message: "" });
+    if (onBack) {
+      onBack();
+      return;
+    }
+    stopConversation();
   };
 
   /* ================= UI (UNCHANGED) ================= */
@@ -492,6 +519,30 @@ export default function RolePlayConversation({
                 </>
               )}
             </Button>
+          </div>
+        </div>
+      )}
+
+      {limitPopup.open && (
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
+          <div className="bg-white rounded-2xl p-8 shadow-2xl max-w-md w-full text-center">
+            <h3 className="text-2xl font-bold text-slate-900 mb-3">Limit Reached</h3>
+            <p className="text-slate-600 mb-6">{limitPopup.message}</p>
+            <div className="flex items-center justify-center gap-3">
+              <Button
+                onClick={handleLimitPopupBack}
+                variant="outline"
+                className="px-6"
+              >
+                Back
+              </Button>
+              <Button
+                onClick={handleLimitPopupRetry}
+                className="px-6 bg-blue-600 hover:bg-blue-700"
+              >
+                Retry
+              </Button>
+            </div>
           </div>
         </div>
       )}

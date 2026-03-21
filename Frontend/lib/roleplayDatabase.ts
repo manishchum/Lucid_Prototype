@@ -3,6 +3,174 @@ import { Scenario } from './roleplay/types';
 import { SCENARIOS } from './roleplay/constants';
 import { supabase } from './supabase';
 
+interface CompanyRoleplayLimits {
+  roleplayLimit: number;
+  retryLimit: number;
+}
+
+function normalizeLimit(value: any, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+async function getCompanyRoleplayLimits(companyId: string): Promise<{ data: CompanyRoleplayLimits | null; error: any }> {
+  try {
+    const { data, error } = await supabase
+      .from('companies')
+      .select('rate_limit_role_play, rate_limit_role_play_retries')
+      .eq('company_id', companyId)
+      .single();
+
+    if (error || !data) {
+      return { data: null, error: error || new Error('Company not found') };
+    }
+
+    return {
+      data: {
+        roleplayLimit: normalizeLimit(data.rate_limit_role_play, 5),
+        retryLimit: normalizeLimit(data.rate_limit_role_play_retries, 3),
+      },
+      error: null,
+    };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+async function getUserCompanyAndDepartment(userId: string): Promise<{ data: { company_id: string; department_id: string | null } | null; error: any }> {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('company_id, department_id')
+      .eq('user_id', userId)
+      .single();
+
+    if (error || !data) {
+      return { data: null, error: error || new Error('User not found') };
+    }
+
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+async function getDistinctAssignedScenarioIdsForUser(
+  userId: string,
+  companyId: string,
+  departmentId: string | null
+): Promise<{ data: string[] | null; error: any }> {
+  try {
+    const { data: userAssignments, error: userAssignError } = await supabase
+      .from('scenario_assignments')
+      .select('scenario_id')
+      .eq('company_id', companyId)
+      .eq('assignment_type', 'user')
+      .eq('user_id', userId);
+
+    if (userAssignError) {
+      return { data: null, error: userAssignError };
+    }
+
+    let deptScenarioIds: string[] = [];
+    if (departmentId) {
+      const { data: deptAssignments, error: deptAssignError } = await supabase
+        .from('scenario_assignments')
+        .select('scenario_id')
+        .eq('company_id', companyId)
+        .eq('assignment_type', 'department')
+        .eq('department_id', departmentId);
+
+      if (deptAssignError) {
+        return { data: null, error: deptAssignError };
+      }
+
+      deptScenarioIds = (deptAssignments || []).map((row: any) => row.scenario_id).filter(Boolean);
+    }
+
+    const userScenarioIds = (userAssignments || []).map((row: any) => row.scenario_id).filter(Boolean);
+    const distinctIds = [...new Set([...userScenarioIds, ...deptScenarioIds])];
+
+    return { data: distinctIds, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+async function checkUserCanAttemptScenario(
+  employeeId: string,
+  scenarioId: string
+): Promise<{ allowed: boolean; message?: string; error?: any }> {
+  const { data: userMeta, error: userMetaError } = await getUserCompanyAndDepartment(employeeId);
+  if (userMetaError || !userMeta) {
+    return {
+      allowed: false,
+      error: userMetaError,
+      message: 'Unable to verify company details for this user.',
+    };
+  }
+
+  const { data: companyLimits, error: companyLimitError } = await getCompanyRoleplayLimits(userMeta.company_id);
+  if (companyLimitError || !companyLimits) {
+    return {
+      allowed: false,
+      error: companyLimitError,
+      message: 'Unable to fetch roleplay retry limit for this company.',
+    };
+  }
+
+  const retryLimit = companyLimits.retryLimit;
+
+  if (retryLimit <= 0) {
+    return {
+      allowed: false,
+      message: 'Roleplay retries are disabled for your company.',
+    };
+  }
+
+  const { data: sessions, error: sessionsError } = await supabase
+    .from('roleplay_sessions')
+    .select('id')
+    .eq('employee_id', employeeId)
+    .eq('scenario_id', scenarioId);
+
+  if (sessionsError) {
+    return {
+      allowed: false,
+      error: sessionsError,
+      message: 'Unable to verify previous roleplay attempts.',
+    };
+  }
+
+  const sessionIds = (sessions || []).map((row: any) => row.id).filter(Boolean);
+  if (sessionIds.length === 0) {
+    return { allowed: true };
+  }
+
+  const { count: attemptCount, error: attemptsError } = await supabase
+    .from('roleplay_assessments')
+    .select('id', { count: 'exact', head: true })
+    .eq('employee_id', employeeId)
+    .in('session_id', sessionIds);
+
+  if (attemptsError) {
+    return {
+      allowed: false,
+      error: attemptsError,
+      message: 'Unable to verify roleplay retry count.',
+    };
+  }
+
+  if ((attemptCount || 0) >= retryLimit) {
+    return {
+      allowed: false,
+      message: `Roleplay retry limit reached. You can attempt this scenario up to ${retryLimit} time(s).`,
+    };
+  }
+
+  return { allowed: true };
+}
+
 /**
  * Insert a new scenario into the public scenario table
  */
@@ -321,20 +489,117 @@ export async function assignScenario(
   companyId: string
 ) {
   try {
-    const assignments = targetIds.map(targetId => ({
+    let effectiveTargetIds = [...targetIds];
+
+    if (assignmentType === 'user') {
+      for (const targetUserId of targetIds) {
+        const { data: userMeta, error: userMetaError } = await getUserCompanyAndDepartment(targetUserId);
+        if (userMetaError || !userMeta) {
+          return {
+            data: null,
+            error: {
+              code: 'USER_LOOKUP_FAILED',
+              message: 'Unable to fetch target user details for assignment.',
+              details: userMetaError,
+            },
+          };
+        }
+
+        const targetCompanyId = userMeta.company_id;
+        const targetDepartmentId = userMeta.department_id;
+
+        const { data: companyLimits, error: companyLimitError } = await getCompanyRoleplayLimits(targetCompanyId);
+        if (companyLimitError || !companyLimits) {
+          return {
+            data: null,
+            error: {
+              code: 'COMPANY_LIMIT_LOOKUP_FAILED',
+              message: 'Unable to fetch company roleplay limits.',
+              details: companyLimitError,
+            },
+          };
+        }
+
+        const roleplayLimit = companyLimits.roleplayLimit;
+
+        if (roleplayLimit <= 0) {
+          return {
+            data: null,
+            error: {
+              code: 'ROLEPLAY_ASSIGNMENT_LIMIT_REACHED',
+              message: 'Roleplay assignment limit is set to 0 for this company.',
+            },
+          };
+        }
+
+        const { data: assignedScenarioIds, error: assignedScenarioError } = await getDistinctAssignedScenarioIdsForUser(
+          targetUserId,
+          targetCompanyId,
+          targetDepartmentId
+        );
+
+        if (assignedScenarioError || !assignedScenarioIds) {
+          return {
+            data: null,
+            error: {
+              code: 'ASSIGNMENT_LOOKUP_FAILED',
+              message: 'Unable to verify existing roleplay assignments.',
+              details: assignedScenarioError,
+            },
+          };
+        }
+
+        const isAlreadyAssigned = assignedScenarioIds.includes(scenarioId);
+        if (!isAlreadyAssigned && assignedScenarioIds.length >= roleplayLimit) {
+          return {
+            data: null,
+            error: {
+              code: 'ROLEPLAY_ASSIGNMENT_LIMIT_REACHED',
+              message: `Cannot assign more roleplays. This user has reached the company limit of ${roleplayLimit} roleplay type(s).`,
+            },
+          };
+        }
+      }
+
+      const { data: existingAssignments, error: existingAssignmentsError } = await supabase
+        .from('scenario_assignments')
+        .select('user_id')
+        .eq('scenario_id', scenarioId)
+        .eq('company_id', companyId)
+        .eq('assignment_type', 'user')
+        .in('user_id', targetIds);
+
+      if (existingAssignmentsError) {
+        return {
+          data: null,
+          error: {
+            code: 'ASSIGNMENT_LOOKUP_FAILED',
+            message: 'Unable to verify existing user assignments.',
+            details: existingAssignmentsError,
+          },
+        };
+      }
+
+      const existingUserIds = new Set((existingAssignments || []).map((row: any) => row.user_id));
+      effectiveTargetIds = targetIds.filter((id) => !existingUserIds.has(id));
+
+      if (effectiveTargetIds.length === 0) {
+        return { data: [], error: null };
+      }
+    }
+
+    const assignments = effectiveTargetIds.map(targetId => ({
       scenario_id: scenarioId,
       assignment_type: assignmentType,
-      user_id: targetId,
+      user_id: assignmentType === 'user' ? targetId : null,
+      department_id: assignmentType !== 'user' ? targetId : null,
       company_id: companyId,
       assigned_at: new Date().toISOString(),
     }));
 
     const { data, error } = await supabase
       .from('scenario_assignments')
-      .upsert(assignments, {
-        onConflict: 'scenario_id,assignment_type,department_id',
-        ignoreDuplicates: false
-      })
+      .insert(assignments)
       .select();
 
     return { data, error };
@@ -503,6 +768,19 @@ export async function createRolePlaySession(
   scenarioDifficulty: string,
   moduleId?: string
 ): Promise<{ data: any; error: any }> {
+
+
+  const attemptCheck = await checkUserCanAttemptScenario(employeeId, scenarioId);
+  if (!attemptCheck.allowed) {
+    return {
+      data: null,
+      error: {
+        code: 'ROLEPLAY_RETRY_LIMIT_REACHED',
+        message: attemptCheck.message || 'Roleplay retry limit reached for this scenario.',
+        details: attemptCheck.error || null,
+      },
+    };
+  }
 
 
   console.log("This is creating roleplay session")
