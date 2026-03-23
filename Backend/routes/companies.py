@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, Header, Query
 from pydantic import BaseModel
 from typing import Optional
 
@@ -12,6 +12,8 @@ from utils.db.companies_db import (
     delete_company,
     search_companies
 )
+
+from utils.exceptions import NotFoundError, ValidationError, ConflictError
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
@@ -37,9 +39,15 @@ async def list_companies(
     Permission: Super admin only.
     """
     result = await list_all_companies(user_id)
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
-    return {"companies": result["data"], "count": len(result["data"] or [])}
+    
+    # Unwrap service layer response
+    companies = result.get("data") or []
+    
+    return {
+        "success": True,
+        "data": {"companies": companies, "count": len(companies)},
+        "error": result.get("error")
+    }
 
 
 @router.get("/search")
@@ -51,18 +59,17 @@ async def search_companies_route(
     """
     Search companies by name (case-insensitive partial match).
     Permission: Public access (for signup), requires minimum 2 characters for privacy.
-    
-    Query Parameters:
-        - q: Search term (minimum 2 characters)
-        - limit: Maximum number of results (default: 10, max: 50)
     """
     result = await search_companies(user_id, q, limit)
     
-    if result["error"]:
-        status_code = 400 if "must be at least" in result["error"] else 500
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    companies = result.get("data") or []
     
-    return {"companies": result["data"], "count": len(result["data"] or [])}
+    return {
+        "success": True,
+        "data": {"companies": companies, "count": len(companies)},
+        "error": result.get("error")
+    }
 
 
 @router.get("/{company_id}")
@@ -75,10 +82,15 @@ async def get_company(
     Permission: Any authenticated user.
     """
     result = await get_company_by_id(user_id, company_id)
-    if result["error"]:
-        status_code = 404 if result["error"] == "Company not found" else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
-    return {"company": result["data"]}
+    
+    # Unwrap service layer response
+    company = result.get("data") or None
+    
+    return {
+        "success": True,
+        "data": company,
+        "error": result.get("error")
+    }
 
 
 @router.get("/by-name/{company_name}")
@@ -91,13 +103,15 @@ async def get_company_by_name_route(
     Permission: Public access (for signup validation).
     """
     result = await get_company_by_name(user_id, company_name)
-    if result["error"]:
-        raise HTTPException(status_code=500, detail=result["error"])
     
-    if not result["data"]:
-        raise HTTPException(status_code=404, detail="Company not found")
+    # Unwrap service layer response
+    company = result.get("data") or None
     
-    return {"company": result["data"]}
+    return {
+        "success": True,
+        "data": company,
+        "error": result.get("error")
+    }
 
 
 @router.get("/by-domain/{domain}")
@@ -110,10 +124,15 @@ async def get_company_by_domain_route(
     Permission: Public access (for signup/email validation).
     """
     result = await get_company_by_domain(user_id, domain)
-    if result["error"]:
-        status_code = 404 if result["error"] == "Company not found" else 500
-        raise HTTPException(status_code=status_code, detail=result["error"])
-    return {"company": result["data"]}
+    
+    # Unwrap service layer response
+    company = result.get("data") or None
+    
+    return {
+        "success": True,
+        "data": company,
+        "error": result.get("error")
+    }
 
 
 @router.post("/")
@@ -128,11 +147,14 @@ async def create_company_route(
     company_data = request.dict()
     result = await create_company(user_id, company_data)
     
-    if result["error"]:
-        status_code = 400 if "already exists" in result["error"] or "required" in result["error"] else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    company = result.get("data") or None
     
-    return {"company": result["data"]}
+    return {
+        "success": True,
+        "data": company,
+        "error": result.get("error")
+    }
 
 
 @router.put("/{company_id}")
@@ -146,16 +168,16 @@ async def update_company_route(
     Permission: Admin+ of the company.
     """
     update_data = request.dict(exclude_none=True)
-    
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No update data provided")
-    
     result = await update_company(user_id, company_id, update_data)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    company = result.get("data") or None
     
-    return {"company": result["data"]}
+    return {
+        "success": True,
+        "data": company,
+        "error": result.get("error")
+    }
 
 
 @router.delete("/{company_id}")
@@ -169,7 +191,11 @@ async def delete_company_route(
     """
     result = await delete_company(user_id, company_id)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    deleted = result.get("data") or None
     
-    return {"message": "Company deleted successfully", "company": result["data"]}
+    return {
+        "success": True,
+        "data": deleted,
+        "error": result.get("error")
+    }

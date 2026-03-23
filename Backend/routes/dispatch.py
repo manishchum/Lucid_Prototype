@@ -25,6 +25,10 @@ from utils.db.whatsapp_db import (
     get_users_for_module,
     get_module_content,
 )
+from utils.db.email_db import (
+    create_scheduled_email,
+    update_email_status,
+)
 from utils.supabase_client import supabase
 from whatsapp.formatter import formatter
 
@@ -936,8 +940,19 @@ async def schedule_email(
     request: ScheduleEmailRequest,
     user_id: str = Header(..., alias="X-User-ID"),
 ):
-    """Schedule the drafted email to be delivered at a future date/time (UTC)."""
-    # 1. Parse the run date
+    """
+    Schedule the drafted email to be delivered at a future date/time (UTC).
+    
+    Instead of using APScheduler with a local database, this stores the email
+    in the Supabase 'scheduled_emails' table. A cron job will query this table
+    and send emails when the scheduled time arrives.
+    
+    This ensures:
+    - No data loss on server restart
+    - Multi-worker support (different instances can process emails)
+    - Easier monitoring and management of scheduled emails
+    """
+    # 1. Parse and validate the run date
     try:
         run_dt = datetime.strptime(
             f"{request.scheduled_date} {request.scheduled_time}", "%Y-%m-%d %H:%M"
@@ -955,7 +970,7 @@ async def schedule_email(
             detail="Scheduled time must be in the future (UTC)",
         )
 
-    # 2. Get assigned users
+    # 2. Get assigned users and their emails
     users_result = await get_assigned_users_for_sprint(request.module_id)
     if users_result["error"]:
         raise HTTPException(status_code=400, detail=users_result["error"])
@@ -968,23 +983,43 @@ async def schedule_email(
     if not recipient_emails:
         raise HTTPException(status_code=404, detail="No valid email addresses found")
 
-    # 3. Schedule the job (SQLite-persisted, survives restarts)
-    job_id = f"dispatch_{request.module_id}_{uuid.uuid4().hex[:8]}"
-    scheduler.add_job(
-        send_smtp_job,
-        trigger="date",
-        run_date=run_dt,
-        id=job_id,
-        args=[recipient_emails, request.subject, request.body],
-        replace_existing=True,
+    # 3. Get company_id from user context
+    user_data = supabase.table("users").select("company_id").eq("user_id", user_id).single().execute()
+    company_id = user_data.data.get("company_id") if user_data.data else None
+    if not company_id:
+        raise HTTPException(status_code=400, detail="Could not determine company_id for user")
+
+    # 4. Store in Supabase scheduled_emails table (not in APScheduler)
+    email_result = await create_scheduled_email(
+        company_id=company_id,
+        subject=request.subject,
+        body=request.body,
+        recipient_emails=recipient_emails,
+        schedule_type="one_time",
+        scheduled_date=request.scheduled_date,
+        scheduled_time=request.scheduled_time,
+        processed_module_id=request.module_id,
+        content_types=[],  # For schedule-email, content types may not apply
+        is_active=True,
+        created_by=user_id,
     )
+
+    if email_result["error"]:
+        raise HTTPException(status_code=500, detail=f"Failed to schedule email: {email_result['error']}")
+
+    email_record = email_result["data"]
+    scheduled_email_id = email_record.get("scheduled_email_id")
 
     return {
         "status": "scheduled",
-        "job_id": job_id,
+        "scheduled_email_id": scheduled_email_id,
         "scheduled_at": run_dt.isoformat(),
+        "scheduled_date": request.scheduled_date,
+        "scheduled_time": request.scheduled_time,
         "recipient_count": len(recipient_emails),
+        "message": "Email scheduled successfully. Will be sent via cron job at the scheduled time.",
     }
+
 
 
 # ── Notify endpoint: selected-content email ────────────────────
@@ -1156,20 +1191,52 @@ async def notify_email(
                 detail="Scheduled time must be in the future (UTC)",
             )
 
-        job_id = f"notify_{request.module_id}_{uuid.uuid4().hex[:8]}"
-        scheduler.add_job(
-            send_smtp_job,
-            trigger="date",
-            run_date=run_dt,
-            id=job_id,
-            args=[recipient_emails, subject, html_body],
-            replace_existing=True,
+        # Get company_id for Supabase storage
+        first_module_id = request.module_id or target_module_ids[0]
+        module_data = supabase.table("processed_modules") \
+            .select("title") \
+            .eq("processed_module_id", first_module_id) \
+            .single() \
+            .execute()
+        
+        # Get company_id from user context
+        user_data = supabase.table("users").select("company_id").eq("user_id", user_id).single().execute()
+        company_id = user_data.data.get("company_id") if user_data.data else None
+        if not company_id:
+            raise HTTPException(status_code=400, detail="Could not determine company_id for user")
+
+        # Store in Supabase scheduled_emails table (not in APScheduler)
+        email_result = await create_scheduled_email(
+            company_id=company_id,
+            subject=subject,
+            body=html_body,
+            recipient_emails=recipient_emails,
+            schedule_type="one_time",
+            scheduled_date=request.scheduled_date,
+            scheduled_time=request.scheduled_time,
+            processed_module_id=first_module_id,
+            module_title=module_data.data.get("title") if module_data.data else None,
+            content_types=request.selected_content,
+            custom_flashcards=request.customFlashcards,
+            custom_audio_url=request.customAudioUrl,
+            is_active=True,
+            created_by=user_id,
         )
+
+        if email_result["error"]:
+            raise HTTPException(status_code=500, detail=f"Failed to schedule email: {email_result['error']}")
+
+        email_record = email_result["data"]
+        scheduled_email_id = email_record.get("scheduled_email_id")
+
         return {
             "status": "scheduled",
-            "job_id": job_id,
+            "scheduled_email_id": scheduled_email_id,
             "scheduled_at": run_dt.isoformat(),
+            "scheduled_date": request.scheduled_date,
+            "scheduled_time": request.scheduled_time,
             "recipient_count": len(recipient_emails),
+            "message": "Email scheduled successfully. Will be sent via cron job at the scheduled time.",
         }
 
     # 4b. Send immediately
@@ -1514,33 +1581,67 @@ async def schedule_multi_module(
                     "module_id": module_id,
                     "module_title": module_title,
                     "content_type": content_type,
-                    "day_of_week": day_of_week,
+                    "day_of_week": item.day_of_week if is_recurring_mode else None,
+                    "scheduled_date": item.scheduled_date if not is_recurring_mode else None,
                     "run_date": run_dt.isoformat(),
                     "recipient_count": 0,
-                    "job_id": None,
+                    "scheduled_email_id": None,
                     "warning": "No users assigned to this module",
                 })
                 continue
 
-            # ── Create APScheduler job ──
-            job_id = f"multi_notify_{module_id}_{content_type}_{uuid.uuid4().hex[:8]}"
-            scheduler.add_job(
-                send_smtp_job,
-                trigger="date",
-                run_date=run_dt,
-                id=job_id,
-                args=[recipient_emails, subject, html_body],
-                replace_existing=True,
+            # ── Get company_id from user context ──
+            user_data = supabase.table("users").select("company_id").eq("user_id", user_id).single().execute()
+            company_id = user_data.data.get("company_id") if user_data.data else None
+            if not company_id:
+                raise HTTPException(status_code=400, detail=f"Could not determine company_id for user")
+
+            # ── Prepare days_of_week for recurring mode ──
+            days_of_week_array = None
+            if is_recurring_mode:
+                day_name = item.day_of_week
+                # Convert day name to weekday integer (0=Sun, 1=Mon, ..., 6=Sat)
+                day_to_int = {"Sun": 0, "Mon": 1, "Tue": 2, "Wed": 3, "Thu": 4, "Fri": 5, "Sat": 6}
+                days_of_week_array = [day_to_int.get(day_name, 0)]
+
+            # ── Store in Supabase scheduled_emails table (not in APScheduler) ──
+            email_result = await create_scheduled_email(
+                company_id=company_id,
+                subject=subject,
+                body=html_body,
+                recipient_emails=recipient_emails,
+                schedule_type="recurring" if is_recurring_mode else "one_time",
+                scheduled_date=item.scheduled_date if not is_recurring_mode else None,
+                scheduled_time=request.scheduled_time,
+                days_of_week=days_of_week_array,
+                processed_module_id=module_id,
+                original_module_id=original_module_id,
+                module_title=module_title,
+                content_types=[content_type],
+                custom_flashcards=item.customFlashcards if content_type == "flashcards" else None,
+                custom_audio_url=item.customAudioUrl if content_type == "audio" else None,
+                is_active=True,
+                created_by=user_id,
             )
+
+            if email_result["error"]:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Item {idx}: Failed to schedule email: {email_result['error']}"
+                )
+
+            email_record = email_result["data"]
+            scheduled_email_id = email_record.get("scheduled_email_id")
 
             scheduled_jobs.append({
                 "module_id": module_id,
                 "module_title": module_title,
                 "content_type": content_type,
-                "day_of_week": day_of_week,
+                "day_of_week": item.day_of_week if is_recurring_mode else None,
+                "scheduled_date": item.scheduled_date if not is_recurring_mode else None,
                 "run_date": run_dt.isoformat(),
                 "recipient_count": len(recipient_emails),
-                "job_id": job_id,
+                "scheduled_email_id": scheduled_email_id,
             })
 
         return {

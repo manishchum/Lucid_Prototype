@@ -13,19 +13,19 @@ bcrypt>=4.1.0  # Password hashing
 email-validator>=2.1.0  # Email validation
 
 # Data Processing & Science
-numpy==2.2.3  # Numerical computing (version pinned for stability)
-pandas==2.2.3  # Data manipulation and analysis (version pinned for stability)
+numpy>=2.0.0  # Numerical computing
+pandas>=2.0.0  # Data manipulation and analysis
 Pillow>=10.0.0  # Image processing
 
 # Machine Learning & NLP
 sentence_transformers>=2.2.0  # Semantic sentence embeddings
-faiss-cpu==1.9.0  # Facebook AI Similarity Search (CPU version, version pinned)
+faiss-cpu>=1.13.0  # Facebook AI Similarity Search (CPU version)
 google-genai>=0.3.0  # Google Generative AI library
 google-generativeai>=0.3.0  # Google Generative AI API wrapper
 
 # PDF Processing
-pymupdf==1.25.3  # PyMuPDF for PDF document processing (version pinned)
-PyPDF2==3.0.1  # PDF manipulation library (version pinned, CVE protection)
+pymupdf>=1.23.0  # PyMuPDF for PDF document processing
+PyPDF2>=3.0.0  # PDF manipulation library
 
 # Document Processing
 unstructured>=0.10.0  # Unstructured document parsing
@@ -35,7 +35,6 @@ protobuf>=4.24.0  # Protocol buffers serialization
 # Media & File Processing
 cloudconvert>=1.2.0  # CloudConvert API client
 ffmpeg>=1.4.0  # FFmpeg Python wrapper
-ffmpeg_python>=0.2.3  # FFmpeg interface
 imageio_ffmpeg>=0.4.0  # FFMPEG wrapper for imageio
 static_ffmpeg>=1.4.0  # Static FFMPEG binary
 

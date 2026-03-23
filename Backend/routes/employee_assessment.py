@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, Header, Query
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 
@@ -12,6 +12,8 @@ from utils.db.employee_assessment_db import (
     delete_employee_assessment,
     get_assessment_statistics
 )
+
+from utils.exceptions import NotFoundError, ValidationError
 
 router = APIRouter(prefix="/api/employee-assessments", tags=["employee-assessments"])
 
@@ -45,11 +47,14 @@ async def get_employee_assessment(
     """
     result = await get_employee_assessment_by_id(user_id, employee_assessment_id)
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
     
-    return {"assessment": result["data"]}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.get("/user/{target_user_id}")
@@ -69,12 +74,13 @@ async def get_user_assessments(
     """
     result = await get_employee_assessments_by_user(user_id, target_user_id, assessment_id, limit)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessments = result.get("data") or []
     
     return {
-        "assessments": result["data"],
-        "count": len(result["data"] or [])
+        "success": True,
+        "data": {"assessments": assessments, "count": len(assessments)},
+        "error": result.get("error")
     }
 
 
@@ -93,13 +99,13 @@ async def get_assessments_by_assessment(
     """
     result = await get_employee_assessments_by_assessment(user_id, assessment_id, limit)
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    assessments = result.get("data") or []
     
     return {
-        "assessments": result["data"],
-        "count": len(result["data"] or [])
+        "success": True,
+        "data": {"assessments": assessments, "count": len(assessments)},
+        "error": result.get("error")
     }
 
 
@@ -114,11 +120,14 @@ async def get_assessment_stats(
     """
     result = await get_assessment_statistics(user_id, assessment_id)
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    stats = result.get("data") or None
     
-    return {"statistics": result["data"]}
+    return {
+        "success": True,
+        "data": stats,
+        "error": result.get("error")
+    }
 
 
 @router.get("/company/{company_id}")
@@ -142,12 +151,13 @@ async def get_company_assessments(
         user_id, company_id, target_user_id, assessment_id, limit
     )
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessments = result.get("data") or []
     
     return {
-        "assessments": result["data"],
-        "count": len(result["data"] or [])
+        "success": True,
+        "data": {"assessments": assessments, "count": len(assessments)},
+        "error": result.get("error")
     }
 
 
@@ -172,11 +182,16 @@ async def create_assessment(
     assessment_data = request.dict()
     result = await create_employee_assessment(user_id, assessment_data)
     
-    if result["error"]:
-        status_code = 400 if "required" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
+    if assessment and isinstance(assessment, list):
+        assessment = assessment[0]
     
-    return {"assessment": result["data"][0] if result["data"] else None}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.patch("/{employee_assessment_id}")
@@ -199,17 +214,18 @@ async def update_assessment(
     Note: user_id and assessment_id cannot be updated.
     """
     update_data = request.dict(exclude_unset=True)
-    
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No update data provided")
-    
     result = await update_employee_assessment(user_id, employee_assessment_id, update_data)
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
+    if assessment and isinstance(assessment, list):
+        assessment = assessment[0]
     
-    return {"assessment": result["data"][0] if result["data"] else None}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.delete("/{employee_assessment_id}")
@@ -221,10 +237,10 @@ async def delete_assessment(
     Delete an employee assessment.
     Permission: Admin+ in same company.
     """
-    result = await delete_employee_assessment(user_id, employee_assessment_id)
+    await delete_employee_assessment(user_id, employee_assessment_id)
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
-    
-    return {"message": "Employee assessment deleted successfully"}
+    return {
+        "success": True,
+        "data": None,
+        "error": None
+    }

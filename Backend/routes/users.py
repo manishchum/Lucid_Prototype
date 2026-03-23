@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, Header, Query
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 
@@ -17,6 +17,8 @@ from utils.db.roles_db import (
     assign_user_role,
     get_user_roles
 )
+
+from utils.exceptions import NotFoundError, ValidationError
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -68,6 +70,7 @@ async def list_users_by_filter(
     employment_status: Optional[str] = Query(None),
     user_id: Optional[str] = Header(None, alias="X-User-ID")
 ):
+    """List users by filter criteria."""
     filters = {}
     if function_id:
         filters["function_id"] = function_id
@@ -80,10 +83,13 @@ async def list_users_by_filter(
     if employment_status:
         filters["employment_status"] = employment_status
 
-    result = await get_users_by_filter(filters)
-    if result["error"]:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return {"users": result["data"] or [], "count": len(result["data"] or [])}
+    data = await get_users_by_filter(filters)
+    
+    return {
+        "success": True,
+        "data": {"users": data or [], "count": len(data) if data else 0},
+        "error": None
+    }
 
 
 @router.get("/company/{company_id}")
@@ -93,15 +99,19 @@ async def list_users(
     status: Optional[str] = Query(None),
     department_id: Optional[str] = Query(None)
 ):
-    result = await get_users_by_company(user_id, company_id)
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
-    users = result["data"] or []
+    """List all users in a company."""
+    users = await get_users_by_company(user_id, company_id)
+    
     if status:
         users = [u for u in users if u.get("employment_status") == status]
     if department_id:
         users = [u for u in users if u.get("department_id") == department_id]
-    return {"users": users, "count": len(users)}
+    
+    return {
+        "success": True,
+        "data": {"users": users or [], "count": len(users) if users else 0},
+        "error": None
+    }
 
 
 @router.get("/{target_user_id}")
@@ -109,45 +119,54 @@ async def get_user(
     target_user_id: str,
     user_id: str = Header(..., alias="X-User-ID")
 ):
-    result = await get_user_by_id(user_id, target_user_id)
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
-    return {"user": result["data"]}
+    """Get a specific user by ID."""
+    data = await get_user_by_id(user_id, target_user_id)
+    
+    return {
+        "success": True,
+        "data": data,
+        "error": None
+    }
 
 
 
 
 @router.post("/signup")
-async def create_user_endpoint(
+async def signup_endpoint(
     request: CreateUserRequest
 ):
+    """Create a new user via signup endpoint (no auth required)."""
     user_data = request.dict()
-    # NOTE: hash password before storing in production
-    result = await create_user_signup( user_data)
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    result = await create_user_signup(user_data)
+    
     reactivated = result.get("reactivated", False)
     return {
-        "user": result["data"],
-        "message": "User reactivated successfully" if reactivated else "User created successfully",
-        "reactivated": reactivated
+        "success": True,
+        "data": {
+            "user": result["data"],
+            "reactivated": reactivated
+        },
+        "error": None
     }
+
 
 @router.post("/")
 async def create_user_endpoint(
     request: CreateUserRequest,
     user_id: str = Header(..., alias="X-User-ID")
 ):
+    """Create a new user (requires authentication and authorization)."""
     user_data = request.dict()
-    # NOTE: hash password before storing in production
     result = await create_user(user_id, user_data)
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    
     reactivated = result.get("reactivated", False)
     return {
-        "user": result["data"],
-        "message": "User reactivated successfully" if reactivated else "User created successfully",
-        "reactivated": reactivated
+        "success": True,
+        "data": {
+            "user": result["data"],
+            "reactivated": reactivated
+        },
+        "error": None
     }
 
 
@@ -157,13 +176,18 @@ async def update_user_endpoint(
     request: UpdateUserRequest,
     user_id: str = Header(..., alias="X-User-ID")
 ):
+    """Update user details."""
     updates = {k: v for k, v in request.dict().items() if v is not None}
     if not updates:
-        raise HTTPException(status_code=400, detail="No fields to update")
-    result = await update_user(user_id, target_user_id, updates)
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
-    return {"user": result["data"], "message": "User updated successfully"}
+        raise ValidationError("No fields to update")
+    
+    data = await update_user(user_id, target_user_id, updates)
+    
+    return {
+        "success": True,
+        "data": data,
+        "error": None
+    }
 
 
 @router.delete("/{target_user_id}")
@@ -172,10 +196,14 @@ async def delete_user_endpoint(
     user_id: str = Header(..., alias="X-User-ID"),
     hard_delete: bool = Query(False)
 ):
-    result = await delete_user(user_id, target_user_id)
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
-    return {"message": "User deleted successfully"}
+    """Delete a user."""
+    await delete_user(user_id, target_user_id)
+    
+    return {
+        "success": True,
+        "data": None,
+        "error": None
+    }
 
 
 @router.post("/{target_user_id}/roles")
@@ -184,10 +212,14 @@ async def assign_role(
     request: AssignRoleRequest,
     user_id: str = Header(..., alias="X-User-ID")
 ):
-    result = await assign_user_role(user_id, target_user_id, request.dict())
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
-    return {"message": "Role assigned successfully", "assignment": result["data"]}
+    """Assign a role to a user."""
+    data = await assign_user_role(user_id, target_user_id, request.dict())
+    
+    return {
+        "success": True,
+        "data": data,
+        "error": None
+    }
 
 
 @router.get("/{target_user_id}/roles")
@@ -195,22 +227,30 @@ async def get_user_roles_endpoint(
     target_user_id: str,
     user_id: str = Header(..., alias="X-User-ID")
 ):
-    result = await get_user_roles(user_id, target_user_id)
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
-    return {"roles": result["data"]}
+    """Get all roles assigned to a user."""
+    data = await get_user_roles(user_id, target_user_id)
+    
+    return {
+        "success": True,
+        "data": data,
+        "error": None
+    }
+
 
 @router.get("/by-email/{email}")
 async def get_user_by_email_route(
     email: str,
     user_id: Optional[str] = Header(None, alias="X-User-ID")
 ):
-    requesting_user_id = None if not user_id else user_id
+    """Get a user by email address."""
+    requesting_user_id = user_id if user_id else None
     result = await get_user_by_email(requesting_user_id, email)
-    if result["error"]:
-        err_lower = (result["error"] or "").lower()
-        print(f"[by-email route] error for {email}: {result['error']!r}")
-        if "not found" in err_lower or "no rows" in err_lower:
-            raise HTTPException(status_code=404, detail=result["error"])
-        raise HTTPException(status_code=403, detail=result["error"])
-    return {"user": result["data"]}
+    
+    # result is {"data": user, "error": ...} from the service layer
+    user_data = result.get("data")
+    
+    return {
+        "success": True,
+        "user": user_data,
+        "error": None
+    }

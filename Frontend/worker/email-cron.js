@@ -1,22 +1,31 @@
 /**
  * email-cron.js
  * ─────────────────────────────────────────────────────────────────────────────
- * Recurring email dispatch worker.
+ * Email dispatch worker for one-time and recurring schedules.
  *
  * Run from the repo root or the Frontend/ folder:
  *   node Frontend/worker/email-cron.js
  *
  * What it does every POLL_INTERVAL_MS (default 90 s):
- *  1. Fetch all rows from `scheduled_emails`.
- *  2. Check if today's day-of-week is in each row's `days_of_week` array.
- *  3. For each matching schedule, find all `email_dispatch_log` rows whose
- *     status is 'pending' (or that haven't been sent today yet).
- *  4. Send the email via SMTP.
- *  5. Update each log row to 'sent' (or 'failed' on error).
+ *  
+ *  FOR ONE-TIME SCHEDULES:
+ *   1. Fetch rows from `scheduled_emails` with schedule_type='one_time'
+ *   2. Check if scheduled_date=TODAY and scheduled_time <= NOW
+ *   3. Send to all recipient_emails
+ *   4. Update status='sent' and set sent_at timestamp
+ *
+ *  FOR RECURRING SCHEDULES:
+ *   1. Fetch rows from `scheduled_emails` with schedule_type='recurring'
+ *   2. Check if today's day-of-week is in each row's `days_of_week` array.
+ *   3. Check if scheduled_time <= NOW (time to send)
+ *   4. Find all `email_dispatch_log` rows whose status is 'pending'
+ *   5. Send the email via SMTP.
+ *   6. Update each log row to 'sent' (or 'failed' on error).
  *
  * Tables used:
- *   scheduled_emails(scheduled_emails_id, company_id, subject, body,
- *                    days_of_week JSONB, scheduled_at)
+ *   scheduled_emails(scheduled_email_id, company_id, subject, body, recipient_emails,
+ *                    schedule_type, scheduled_date, scheduled_time, days_of_week,
+ *                    status, retry_count, created_at, sent_at)
  *   email_dispatch_log(email_dispatch_log_id, email_id, scheduled_emails UUID,
  *                      user_id, status, attempted_at, error_message)
  *
@@ -103,114 +112,220 @@ async function pollAndSend() {
   const now = new Date();
   const todayDay = utcDayName(now);
   const todayStr = utcDateStr(now);
+  const currentTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
 
-  console.log(`[email-cron] Polling at ${now.toISOString()} | today = ${todayDay} (${todayStr})`);
+  console.log(`[email-cron] Polling at ${now.toISOString()} | today = ${todayDay} (${todayStr}) | time = ${currentTime}`);
 
-  // 1. Fetch all scheduled email configurations
-  const { data: schedules, error: schedErr } = await supabase
-    .from('scheduled_emails')
-    .select('scheduled_emails_id, subject, body, days_of_week, scheduled_at');
+  try {
+    // ════════════════════════════════════════════════════════════════════════════
+    // PART 1: HANDLE ONE-TIME SCHEDULES
+    // ════════════════════════════════════════════════════════════════════════════
+    console.log('[email-cron] ── Checking ONE-TIME schedules ──');
+    
+    const { data: oneTimeSchedules, error: oneTimeErr } = await supabase
+      .from('scheduled_emails')
+      .select('scheduled_email_id, subject, body, recipient_emails, scheduled_date, scheduled_time, status')
+      .eq('schedule_type', 'one_time')
+      .eq('status', 'pending')
+      .eq('is_active', true);
 
-  if (schedErr) {
-    console.error('[email-cron] Failed to fetch scheduled_emails:', schedErr.message);
-    return;
-  }
+    if (oneTimeErr) {
+      console.error('[email-cron] Failed to fetch one-time schedules:', oneTimeErr.message);
+    } else if (oneTimeSchedules && oneTimeSchedules.length > 0) {
+      console.log(`[email-cron] Found ${oneTimeSchedules.length} one-time schedule(s).`);
 
-  if (!schedules || schedules.length === 0) {
-    console.log('[email-cron] No scheduled emails found.');
-    return;
-  }
+      for (const schedule of oneTimeSchedules) {
+        const { scheduled_email_id, subject, body, recipient_emails, scheduled_date, scheduled_time } = schedule;
+        
+        // Check if this schedule is due NOW
+        if (scheduled_date === todayStr && currentTime >= scheduled_time) {
+          console.log(`[email-cron] ✓ One-time schedule ${scheduled_email_id} is DUE | sending to ${recipient_emails?.length || 0} recipients`);
+          
+          let sentCount = 0;
+          let failedCount = 0;
 
-  // 2. Filter schedules where today's day is in days_of_week
-  const dueSchedules = schedules.filter((s) => {
-    const days = Array.isArray(s.days_of_week) ? s.days_of_week : [];
-    return days.includes(todayDay);
-  });
+          // Send to all recipients
+          for (const recipientEmail of (recipient_emails || [])) {
+            try {
+              await transporter.sendMail({
+                from: FROM_EMAIL,
+                to: recipientEmail,
+                subject,
+                html: body,
+              });
+              console.log(`[email-cron]   ✓ Sent to ${recipientEmail}`);
+              sentCount++;
+            } catch (sendErr) {
+              const errorMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+              console.error(`[email-cron]   ✗ Failed to send to ${recipientEmail}: ${errorMsg}`);
+              failedCount++;
+              
+              // Update retry count
+              const { data: current } = await supabase
+                .from('scheduled_emails')
+                .select('retry_count, max_retries')
+                .eq('scheduled_email_id', scheduled_email_id)
+                .single();
 
-  if (dueSchedules.length === 0) {
-    console.log(`[email-cron] No schedules due on ${todayDay}.`);
-    return;
-  }
+              if (current) {
+                const newRetryCount = (current.retry_count || 0) + 1;
+                const maxRetries = current.max_retries || 3;
+                
+                await supabase
+                  .from('scheduled_emails')
+                  .update({
+                    retry_count: newRetryCount,
+                    last_error: errorMsg,
+                    last_attempt_at: new Date().toISOString(),
+                    status: newRetryCount >= maxRetries ? 'failed' : 'pending',
+                  })
+                  .eq('scheduled_email_id', scheduled_email_id);
+              }
+            }
+          }
 
-  console.log(`[email-cron] ${dueSchedules.length} schedule(s) due today.`);
-
-  for (const schedule of dueSchedules) {
-    const { scheduled_emails_id, subject, body } = schedule;
-    console.log(`[email-cron] Processing schedule ${scheduled_emails_id} | days: ${JSON.stringify(schedule.days_of_week)}`);
-
-    // 3. Fetch ALL log rows for this schedule (we need status to decide)
-    const { data: pendingLogs, error: logErr } = await supabase
-      .from('email_dispatch_log')
-      .select('email_dispatch_log_id, email_id, user_id, status, attempted_at')
-      .eq('scheduled_emails', scheduled_emails_id);
-
-    if (logErr) {
-      console.error(`[email-cron] Failed to fetch log rows for ${scheduled_emails_id}:`, logErr.message);
-      continue;
+          // Mark as sent if all successful
+          if (failedCount === 0) {
+            await supabase
+              .from('scheduled_emails')
+              .update({
+                status: 'sent',
+                sent_at: new Date().toISOString(),
+              })
+              .eq('scheduled_email_id', scheduled_email_id);
+            console.log(`[email-cron]   ✓ Updated status to 'sent' | sent=${sentCount}, failed=${failedCount}`);
+          } else {
+            console.log(`[email-cron]   ⚠️  Partial failure | sent=${sentCount}, failed=${failedCount}`);
+          }
+        } else {
+          const dueAt = `${scheduled_date} ${scheduled_time}`;
+          console.log(`[email-cron] ⏳ One-time schedule ${scheduled_email_id} not yet due | due at ${dueAt}`);
+        }
+      }
+    } else {
+      console.log('[email-cron] No pending one-time schedules found.');
     }
 
-    if (!pendingLogs || pendingLogs.length === 0) {
-      console.log(`[email-cron] No log rows found for schedule ${scheduled_emails_id}.`);
-      continue;
+    // ════════════════════════════════════════════════════════════════════════════
+    // PART 2: HANDLE RECURRING SCHEDULES (original logic)
+    // ════════════════════════════════════════════════════════════════════════════
+    console.log('[email-cron] ── Checking RECURRING schedules ──');
+
+    const { data: recurringSchedules, error: recurringErr } = await supabase
+      .from('scheduled_emails')
+      .select('scheduled_email_id, subject, body, days_of_week, scheduled_time, status')
+      .eq('schedule_type', 'recurring')
+      .eq('status', 'pending')
+      .eq('is_active', true);
+
+    if (recurringErr) {
+      console.error('[email-cron] Failed to fetch recurring schedules:', recurringErr.message);
+      return;
     }
 
-    console.log(`[email-cron] ${pendingLogs.length} log row(s) found. Checking which need sending…`);
-    pendingLogs.forEach((log) => {
-      const skip = alreadySentToday(log, todayStr);
-      console.log(`[email-cron]   email=${log.email_id} status=${log.status} attempted_at=${log.attempted_at} → ${skip ? 'SKIP (sent today)' : 'SEND'}`);
+    if (!recurringSchedules || recurringSchedules.length === 0) {
+      console.log('[email-cron] No pending recurring schedules found.');
+      return;
+    }
+
+    // Filter schedules where: (1) today's day is in days_of_week AND (2) current time >= scheduled_time
+    const dueRecurringSchedules = recurringSchedules.filter((s) => {
+      const days = Array.isArray(s.days_of_week) ? s.days_of_week : [];
+      const dayMatch = days.includes(todayDay);
+      const timeMatch = currentTime >= s.scheduled_time;
+      return dayMatch && timeMatch;
     });
 
-    // Filter: skip only rows that were already SUCCESSFULLY sent today
-    const toSend = pendingLogs.filter((log) => !alreadySentToday(log, todayStr));
-
-    if (toSend.length === 0) {
-      console.log(`[email-cron] All recipients for schedule ${scheduled_emails_id} already handled today.`);
-      continue;
+    if (dueRecurringSchedules.length === 0) {
+      console.log(`[email-cron] No recurring schedules due at this time on ${todayDay}.`);
+      return;
     }
 
-    console.log(`[email-cron] Sending to ${toSend.length} recipient(s) for schedule ${scheduled_emails_id}…`);
+    console.log(`[email-cron] ${dueRecurringSchedules.length} recurring schedule(s) due today.`);
 
-    // 4. Send and update log per recipient
-    for (const log of toSend) {
-      const recipientEmail = log.email_id;
-      if (!recipientEmail) {
-        console.warn(`[email-cron] Log row ${log.email_dispatch_log_id} has no email_id — skipping.`);
+    for (const schedule of dueRecurringSchedules) {
+      const { scheduled_email_id, subject, body } = schedule;
+      console.log(`[email-cron] Processing recurring schedule ${scheduled_email_id} | days: ${JSON.stringify(schedule.days_of_week)}`);
+
+      // 3. Fetch ALL log rows for this schedule
+      const { data: pendingLogs, error: logErr } = await supabase
+        .from('email_dispatch_log')
+        .select('email_dispatch_log_id, email_id, user_id, status, attempted_at')
+        .eq('scheduled_emails', scheduled_email_id);
+
+      if (logErr) {
+        console.error(`[email-cron] Failed to fetch log rows for ${scheduled_email_id}:`, logErr.message);
         continue;
       }
 
-      let sendStatus = 'sent';
-      let errorMsg = null;
-
-      try {
-        await transporter.sendMail({
-          from: FROM_EMAIL,
-          to: recipientEmail,
-          subject,
-          html: body,
-        });
-        console.log(`[email-cron]   ✓ Sent to ${recipientEmail}`);
-      } catch (sendErr) {
-        sendStatus = 'failed';
-        errorMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
-        console.error(`[email-cron]   ✗ Failed to send to ${recipientEmail}: ${errorMsg}`);
+      if (!pendingLogs || pendingLogs.length === 0) {
+        console.log(`[email-cron] No log rows found for schedule ${scheduled_email_id}.`);
+        continue;
       }
 
-      // 5. Update the log row
-      const { error: updateErr } = await supabase
-        .from('email_dispatch_log')
-        .update({
-          status: sendStatus,
-          attempted_at: new Date().toISOString(),
-          error_message: errorMsg,
-        })
-        .eq('email_dispatch_log_id', log.email_dispatch_log_id);
+      console.log(`[email-cron] ${pendingLogs.length} log row(s) found. Checking which need sending…`);
+      pendingLogs.forEach((log) => {
+        const skip = alreadySentToday(log, todayStr);
+        console.log(`[email-cron]   email=${log.email_id} status=${log.status} attempted_at=${log.attempted_at} → ${skip ? 'SKIP (sent today)' : 'SEND'}`);
+      });
 
-      if (updateErr) {
-        console.error(`[email-cron]   Could not update log row ${log.email_dispatch_log_id}:`, updateErr.message);
+      // Filter: skip only rows that were already SUCCESSFULLY sent today
+      const toSend = pendingLogs.filter((log) => !alreadySentToday(log, todayStr));
+
+      if (toSend.length === 0) {
+        console.log(`[email-cron] All recipients for schedule ${scheduled_email_id} already handled today.`);
+        continue;
+      }
+
+      console.log(`[email-cron] Sending to ${toSend.length} recipient(s) for schedule ${scheduled_email_id}…`);
+
+      // 4. Send and update log per recipient
+      for (const log of toSend) {
+        const recipientEmail = log.email_id;
+        if (!recipientEmail) {
+          console.warn(`[email-cron] Log row ${log.email_dispatch_log_id} has no email_id — skipping.`);
+          continue;
+        }
+
+        let sendStatus = 'sent';
+        let errorMsg = null;
+
+        try {
+          await transporter.sendMail({
+            from: FROM_EMAIL,
+            to: recipientEmail,
+            subject,
+            html: body,
+          });
+          console.log(`[email-cron]   ✓ Sent to ${recipientEmail}`);
+        } catch (sendErr) {
+          sendStatus = 'failed';
+          errorMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+          console.error(`[email-cron]   ✗ Failed to send to ${recipientEmail}: ${errorMsg}`);
+        }
+
+        // 5. Update the log row
+        const { error: updateErr } = await supabase
+          .from('email_dispatch_log')
+          .update({
+            status: sendStatus,
+            attempted_at: new Date().toISOString(),
+            error_message: errorMsg,
+          })
+          .eq('email_dispatch_log_id', log.email_dispatch_log_id);
+
+        if (updateErr) {
+          console.error(`[email-cron]   Could not update log row ${log.email_dispatch_log_id}:`, updateErr.message);
+        }
       }
     }
+
+    console.log('[email-cron] ─────────────────────────────────────');
+  } catch (err) {
+    console.error('[email-cron] Unhandled error in pollAndSend:', err);
   }
 }
+
 
 // ── Startup ───────────────────────────────────────────────────
 
