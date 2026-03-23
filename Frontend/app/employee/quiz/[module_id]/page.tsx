@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { sharedDataClient, createCacheKey } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
@@ -13,7 +14,7 @@ const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const fetchUserByEmail = async (email: string) => {
   if(!email) return null;
   try {
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
     if (!res.ok) return null;
     const payload = await res.json();
     let u = payload?.user ?? payload;
@@ -42,7 +43,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     await sharedDataClient.query(
       assessmentsCacheKey,
       async () => {
-        const res = await fetch(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeId)}`,
+        const res = await fetchWithAuth(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeId)}`,
           {
             headers: { "X-User-ID": employeeId },
           },
@@ -135,7 +136,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     };
     let feedbackText = "";
     try {
-      const res = await fetch(`${API_BASE}/api/gpt-feedback`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/gpt-feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -159,7 +160,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       // Log quiz taken into module_progress
       try {
         // console.log(result);
-        await fetch(`${API_BASE}/api/module-progress`, {
+        await fetchWithAuth(`${API_BASE}/api/module-progress`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -279,7 +280,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           
           // First try: fetch by processed_module_id
           try {
-            const res = await fetch(`${API_BASE}/api/processed-modules/${moduleId}`, {
+            const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/${moduleId}`, {
               headers: {
                 'X-User-ID': userId
               }
@@ -296,7 +297,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           // Second try: if not found, fetch by original_module_id
           if (!moduleData) {
             try {
-              const res = await fetch(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
+              const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
                 headers: {
                   'X-User-ID': userId
                 }
@@ -331,7 +332,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
       // 1. Try to fetch existing quiz for this module and Performance Sprint
       let assessment = null;
       try {
-        const res = await fetch(
+        const res = await fetchWithAuth(
           `${API_BASE}/api/assessments/filter/search?type=module&original_module_id=${moduleId}&learning_style=${encodeURIComponent(learningStyle)}&user_id_filter=${userId}`,
           {
             headers: { 'X-User-ID': userId }
@@ -362,7 +363,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         return;
       }
       try {
-        const res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/gpt-mcq-quiz`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ moduleId, learningStyle, userId,companyId }),
@@ -375,7 +376,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           
           // Fetch the newly created assessment from backend
           try {
-            const assessmentRes = await fetch(
+            const assessmentRes = await fetchWithAuth(
               `${API_BASE}/api/assessments/filter/search?type=module&processed_module_id=${moduleId}&learning_style=${encodeURIComponent(learningStyle)}`,
               {
                 headers: { 'X-User-ID': userId }

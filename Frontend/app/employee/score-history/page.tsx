@@ -7,6 +7,7 @@ import { ChevronDown, BookOpen } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { sharedDataClient, createCacheKey } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import RolePlayReports from "@/components/roleplay/RolePlayReports";
@@ -292,7 +293,7 @@ export default function ScoreHistoryPage() {
         path: "/employee/me",
       }),
       async () => {
-        const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+        const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
         if (!res.ok) {
           throw new Error("Failed to fetch employee");
         }
@@ -323,7 +324,7 @@ export default function ScoreHistoryPage() {
         path: `/company/${employee.company_id}`,
       }),
       async () => {
-        const res = await fetch(`${API_BASE}/api/companies/${encodeURIComponent(employee.company_id)}`);
+        const res = await fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employee.company_id)}`);
         if (!res.ok) {
           throw new Error("Failed to fetch company");
         }
@@ -345,7 +346,7 @@ export default function ScoreHistoryPage() {
         path: "/employee-assessments",
       }),
       async () => {
-        const res = await fetch(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employee.user_id)}`,
+        const res = await fetchWithAuth(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employee.user_id)}`,
           {
             headers: { "X-User-ID": employee.user_id },
           },
@@ -387,7 +388,7 @@ export default function ScoreHistoryPage() {
       }),
       async () => {
         const promises = assessmentIds.map((id) =>
-          fetch(`${API_BASE}/api/assessments/${encodeURIComponent(id)}`, {
+          fetchWithAuth(`${API_BASE}/api/assessments/${encodeURIComponent(id)}`, {
             headers: { "X-User-ID": employee.user_id },
           }).then((r) => (r.ok ? r.json() : null)),
         );
@@ -430,7 +431,7 @@ export default function ScoreHistoryPage() {
         query: { ids: moduleIds },
       }),
       async () => {
-        const res = await fetch(`${API_BASE}/api/processed-modules/batch`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/batch`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { CheckCircle, XCircle, Clock, Award, BookOpen, TrendingUp } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { sharedDataClient, createCacheKey } from '@/lib/data-client';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 import AIFeedbackSections  from './ai-feedback-sections';
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -129,7 +130,7 @@ const Quiz: React.FC<QuizProps> = ({
       //   correctIndex: quiz[index]?.correctIndex
       // })));
 
-      const response = await fetch(`${API_BASE}/api/submit-assessment`, {
+      const response = await fetchWithAuth(`${API_BASE}/api/submit-assessment`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -174,7 +175,7 @@ const Quiz: React.FC<QuizProps> = ({
       await sharedDataClient.query(
         assessmentsKey,
         async () => {
-          const freshRes = await fetch(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeId)}`, {
+          const freshRes = await fetchWithAuth(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeId)}`, {
             headers: { 'X-User-ID': employeeId },
           });
           if (!freshRes.ok) {
