@@ -1,7 +1,7 @@
 apscheduler==3.11.2
 Backend==0.2.4.1
 cloudconvert==2.1.0
-faiss==1.5.3
+faiss-cpu
 fastapi==0.135.2
 ffmpeg==1.4
 ffmpeg_python==0.2.0
