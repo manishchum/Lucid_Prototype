@@ -1,50 +1,31 @@
-# Core Framework & Async
-fastapi>=0.104.0  # Web framework for building APIs
-uvicorn>=0.24.0  # ASGI server for FastAPI
-pydantic>=2.5.0  # Data validation using Python type hints
-
-# Database & ORM
-sqlalchemy>=2.0.0  # SQL toolkit and Object-Relational Mapping
-supabase>=2.0.0  # Supabase Python client for PostgreSQL operations
-
-# Authentication & Security
-PyJWT==2.11.0  # JSON Web Token encoding/decoding (pinned for compatibility)
-bcrypt>=4.1.0  # Password hashing
-email-validator>=2.1.0  # Email validation
-
-# Data Processing & Science
-numpy>=2.0.0  # Numerical computing
-pandas>=2.0.0  # Data manipulation and analysis
-Pillow>=10.0.0  # Image processing
-
-# Machine Learning & NLP
-sentence_transformers>=2.2.0  # Semantic sentence embeddings
-faiss-cpu>=1.13.0  # Facebook AI Similarity Search (CPU version)
-google-genai>=0.3.0  # Google Generative AI library
-google-generativeai>=0.3.0  # Google Generative AI API wrapper
-
-# PDF Processing
-pymupdf>=1.23.0  # PyMuPDF for PDF document processing
-PyPDF2>=3.0.0  # PDF manipulation library
-
-# Document Processing
-unstructured>=0.10.0  # Unstructured document parsing
-pytesseract>=0.3.10  # OCR via Tesseract
-protobuf>=4.24.0  # Protocol buffers serialization
-
-# Media & File Processing
-cloudconvert>=1.2.0  # CloudConvert API client
-ffmpeg>=1.4.0  # FFmpeg Python wrapper
-imageio_ffmpeg>=0.4.0  # FFMPEG wrapper for imageio
-static_ffmpeg>=1.4.0  # Static FFMPEG binary
-
-# Web Requests & HTTP
-httpx>=0.25.0  # HTTPX async HTTP client
-playwright>=1.40.0  # Browser automation
-
-# Task Scheduling
-apscheduler>=3.10.0  # Advanced Python Scheduler
-python-dotenv>=1.0.0  # Load environment variables from .env
-
-# File Upload Handling
-python-multipart>=0.0.6  # Multipart form data handling
+apscheduler==3.11.2
+Backend==0.2.4.1
+cloudconvert==2.1.0
+faiss==1.5.3
+fastapi==0.135.2
+ffmpeg==1.4
+ffmpeg_python==0.2.0
+fitz==0.0.1.dev2
+httpx==0.28.1
+imageio_ffmpeg==0.6.0
+numpy==2.4.3
+pandas==3.0.1
+Pillow==12.1.1
+playwright==1.55.0
+playwright==1.58.0
+protobuf==7.34.1
+pydantic==2.12.5
+PyJWT==2.10.1
+PyJWT==2.12.1
+PyPDF2==3.0.1
+pytesseract==0.3.13
+pytest==8.3.4
+python-dotenv==1.2.2
+python_bcrypt==0.3.2
+retriever==3.1.0
+sentence_transformers==5.2.3
+sentence_transformers==5.3.0
+static_ffmpeg==3.0
+supabase==2.28.3
+unstructured==0.21.5
+uvicorn==0.42.0
