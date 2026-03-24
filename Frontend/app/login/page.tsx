@@ -294,12 +294,12 @@ function LoginContent() {
             </Button>
 
             <div className="text-center text-sm text-gray-600">
-              <p>
+              {/* <p>
                 Don't have an account?{" "}
                 <Link href="/signup" className="text-blue-600 hover:text-blue-700 font-medium">
                   Sign up
                 </Link>
-              </p>
+              </p> */}
               <p className="mt-2">Contact us via mail at manish.chum@workfloww.ai</p>
             </div>
           </CardContent>

@@ -65,9 +65,27 @@ function canRetry(dispatch) {
   return dispatch.retry_count < dispatch.max_retries;
 }
 
+async function getUserNameById(userId) {
+  if (!userId) return 'there';
+
+  const { data, error } = await supabase
+    .from('users')
+    .select('name')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error(`[whatsapp-cron] Failed to fetch user name for ${userId}:`, error.message);
+    return 'there';
+  }
+
+  const name = (data?.name || '').trim();
+  return name || 'there';
+}
+
 // ── WhatsApp Sender ───────────────────────────────────────────
 
-async function sendWhatsApp(dispatch, schedule) {
+async function sendWhatsApp(dispatch, schedule, userName) {
   const url = `https://graph.facebook.com/${API_VERSION}/${PHONE_NUMBER_ID}/messages`;
 
   // let payload = {
@@ -90,16 +108,142 @@ async function sendWhatsApp(dispatch, schedule) {
   // }
 
 
-  let payload = {
+//   let payload = {
+//   messaging_product: 'whatsapp',
+//   to: dispatch.phone_number,
+//   type: 'template',
+//   template: {
+//     name: 'testing', // use your approved template
+//     language: { code: 'en' },
+//   },
+// };
+
+
+
+console.log(schedule)
+console.log(schedule.message_body)
+
+
+//  let payload = {
+//   messaging_product: 'whatsapp',
+//   to: dispatch.phone_number,
+//   type: 'template',
+//   template: {
+//     name: 'testing',
+//     language: { code: 'en' }, // make sure this matches EXACT template language (often 'en_US')
+//     components: [
+//       {
+//         type: 'body',
+//         parameters: [
+
+//           {
+//             type: 'text',
+//             parameter_name:'username',
+//             text: userName
+
+//           },
+//           {
+//             type: 'text',
+//             parameter_name:'contentofbody',
+//             text: schedule.message_body || 'Default body content'
+//           }
+          
+//         ]
+//       }
+//     ]
+//   }
+// };
+
+
+
+
+let payload = {
   messaging_product: 'whatsapp',
   to: dispatch.phone_number,
   type: 'template',
   template: {
-    name: 'lucid', // use your approved template
-    language: { code: 'en_US' },
-  },
+    name: 'podcasttemplate',
+    language: { code: 'en' }, // 🔥 MUST match exactly
+
+    components: [
+      // ✅ BODY PARAM (username)
+      {
+        type: 'body',
+        parameters: [
+          {
+            type: 'text',
+            parameter_name: 'username', // 🔥 MUST match EXACT placeholder name in template
+            text: userName || 'Learner'
+          },
+          {
+            type: 'text',
+            parameter_name: 'content', // 🔥 MUST match EXACT placeholder name in template
+            text: schedule.message_body || 'Default body content'
+
+          }
+        ]
+      },
+
+      // ✅ BUTTON PARAM (for dynamic URL)
+      {
+        type: 'button',
+        sub_type: 'url',
+        index: '1', // ⚠️ second button (0-based index)
+        parameters: [
+          {
+            type: 'text',
+            text: "e8be8e06-de88-4408-8af9-b43408926590/e3fd2afc-b24e-4cff-bbda-e8b8be4e9d19.wav"
+          }
+        ]
+      }
+    ]
+  }
 };
 
+
+
+// let payload = {
+//   messaging_product: 'whatsapp',
+//   to: dispatch.phone_number,
+//   type: 'template',
+//   template: {
+//     name: 'lucid',
+//     language: { code: 'en' }, // 🔥 MUST match exactly
+
+//     components: [
+//       // ✅ BODY PARAM (username)
+//       {
+//         type: 'body',
+//         parameters: [
+//           {
+//             type: 'text',
+//             parameter_name: 'username', // 🔥 MUST match EXACT placeholder name in template
+//             text: userName || 'Learner'
+//           },
+//           {
+//             type: 'text',
+//             parameter_name: 'content_of_body', // 🔥 MUST match EXACT placeholder name in template
+//             text: schedule.message_body || 'Default body content'
+
+//           }
+//         ]
+//       },
+
+//       // ✅ BUTTON PARAM (for dynamic URL)
+//       {
+//         type: 'button',
+//         sub_type: 'url',
+//         index: '1', // ⚠️ second button (0-based index)
+//         parameters: [
+//           {
+//             type: 'text',
+//             text: "https://fmkikkebrxyzjsffqgex.supabase.co/storage/v1/object/public/module_audio/module-audio/e8be8e06-de88-4408-8af9-b43408926590/e3fd2afc-b24e-4cff-bbda-e8b8be4e9d19.wav"
+//           }
+//         ]
+//       }
+//     ]
+//   }
+// };
   console.log("Sending the request to the meta")
   console.log(payload)
   console.log(url)
@@ -172,7 +316,8 @@ async function pollAndSend() {
 
       try {
         console.log("Stuck Here")
-        const res = await sendWhatsApp(dispatch, schedule);
+        const userName = await getUserNameById(dispatch.user_id);
+        const res = await sendWhatsApp(dispatch, schedule, userName);
 
 
         messageId = res?.messages?.[0]?.id || null;
