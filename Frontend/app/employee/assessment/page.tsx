@@ -378,7 +378,10 @@ const AssessmentContent = () => {
       // Call GPT feedback API for AI-generated feedback and store in Supabase
       const res = await fetchWithAuth(`${API_BASE}/api/gpt-feedback`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": employeeId || '',
+        },
         body: JSON.stringify({
           score: result.score,
           maxScore: (mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []).length,

@@ -134,6 +134,7 @@ const Quiz: React.FC<QuizProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-User-ID': user.uid,
         },
         body: JSON.stringify({
           user_id: user.uid,

@@ -138,7 +138,10 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     try {
       const res = await fetchWithAuth(`${API_BASE}/api/gpt-feedback`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": employeeId,
+        },
         body: JSON.stringify(payload),
       });
       // console.log(payload);
@@ -162,7 +165,10 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         // console.log(result);
         await fetchWithAuth(`${API_BASE}/api/module-progress`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': employeeId,
+          },
           body: JSON.stringify({
             user_id: employeeId,
             processed_module_id: resolvedModuleId || moduleId,

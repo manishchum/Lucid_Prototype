@@ -22,7 +22,10 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
     if (onPlayExtra) onPlayExtra();
     await fetchWithAuth(`${API_URL}/api/module-progress`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-ID': employeeId,
+      },
       body: JSON.stringify({
         user_id: employeeId,
         processed_module_id: processedModuleId,
@@ -38,7 +41,10 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
     const duration = audioRef.current?.duration || 0;
     await fetchWithAuth(`${API_URL}/api/module-progress`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-ID': employeeId,
+      },
       body: JSON.stringify({
         user_id: employeeId,
         processed_module_id: processedModuleId,

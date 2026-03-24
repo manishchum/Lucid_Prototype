@@ -47,7 +47,10 @@ function TrainingPlanContent() {
       async () => {
         const res = await fetchWithAuth(`${API_BASE}/api/training-plan`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-ID": employee.user_id,
+          },
           body: JSON.stringify({
             user_id: employee.user_id,
             module_id: selectedModuleId,

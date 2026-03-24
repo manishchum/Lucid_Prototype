@@ -20,8 +20,14 @@ export async function getFirebaseIdToken(): Promise<string> {
     // getIdToken() auto-refreshes when the token is expired.
     return await user.getIdToken();
   } catch (error) {
-    console.error("[fetch-with-auth] Failed to retrieve Firebase ID token", error);
-    return "";
+    console.warn("[fetch-with-auth] Initial getIdToken failed, retrying forced refresh", error);
+    try {
+      // Force refresh once to handle stale in-memory token edge cases.
+      return await user.getIdToken(true);
+    } catch (refreshError) {
+      console.error("[fetch-with-auth] Failed to retrieve Firebase ID token", refreshError);
+      return "";
+    }
   }
 }
 
