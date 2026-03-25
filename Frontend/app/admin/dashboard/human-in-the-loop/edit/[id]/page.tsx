@@ -8,6 +8,7 @@ import { ArrowLeft, Eye, GitCompare, Edit3, Sparkles, ShieldAlert, Lock, RotateC
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import EmployeeNavigation from '@/components/employee-navigation';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 interface TrainingModule {
   module_id: string;
@@ -355,7 +356,7 @@ export default function EditModulePage() {
     setSubmitting(true);
     try {
       // Insert new history entry with status in_review
-      const historyResponse = await fetch(`${API_BASE}/api/content-generation-history/`, {
+      const historyResponse = await fetchWithAuth(`${API_BASE}/api/content-generation-history/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -422,7 +423,7 @@ export default function EditModulePage() {
     try {
       if (existingPending) {
         // Update existing in_review entry with reviewer's edits
-        const response = await fetch(
+        const response = await fetchWithAuth(
           `${API_BASE}/api/content-generation-history/${existingPending.content_generation_history_id}`,
           {
             method: 'PATCH',
@@ -440,7 +441,7 @@ export default function EditModulePage() {
         }
       } else {
         // Create new in_review entry with reviewer's edits
-        const response = await fetch(`${API_BASE}/api/content-generation-history/`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/content-generation-history/`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -526,7 +527,7 @@ export default function EditModulePage() {
 
       // Mark all in_review entries for this module as approved
       for (const entry of pendingEntries) {
-        const statusResponse = await fetch(
+        const statusResponse = await fetchWithAuth(
           `${API_BASE}/api/content-generation-history/${entry.content_generation_history_id}/status`,
           {
             method: 'PATCH',
@@ -569,7 +570,7 @@ export default function EditModulePage() {
     setSubmitting(true);
     try {
       // Get all in_review entries first
-      const response = await fetch(
+      const response = await fetchWithAuth(
         `${API_BASE}/api/content-generation-history/by-original-module/${moduleId}?status=in_review&limit=500`,
         {
           headers: {

@@ -30,6 +30,7 @@ import {
 import { toast as shadcnToast } from '@/hooks/use-toast';
 import { formatContentType } from '@/lib/contentType';
 import { useRouter } from 'next/navigation';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 // Types
 interface Admin {
@@ -464,7 +465,7 @@ export default function EmployeesPage() {
       setError('');
       
       // Use API to delete user (soft delete)
-      const res = await fetch(`${API_URL}/api/users/${userToDelete.user_id}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/users/${userToDelete.user_id}`, {
         method: 'DELETE',
         headers: { 'X-User-ID': currentUserId },
       });
@@ -521,7 +522,7 @@ export default function EmployeesPage() {
 
   const createUser = async (data: any) => {
     if (!currentUserId) throw new Error('User not authenticated');
-    const res = await fetch(`${API_URL}/api/users`, {
+    const res = await fetchWithAuth(`${API_URL}/api/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUserId },
       body: JSON.stringify(data),
@@ -531,8 +532,9 @@ export default function EmployeesPage() {
   };
 
   const updateUser = async (id: string, updates: any) => {
+
     if (!currentUserId) throw new Error('User not authenticated');
-    const res = await fetch(`${API_URL}/api/users/${id}`, {
+    const res = await fetchWithAuth(`${API_URL}/api/users/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUserId },
       body: JSON.stringify(updates),
@@ -543,7 +545,7 @@ export default function EmployeesPage() {
 
   const deleteUser = async (id: string) => {
     if (!currentUserId) throw new Error('User not authenticated');
-    const res = await fetch(`${API_URL}/api/users/${id}`, {
+    const res = await fetchWithAuth(`${API_URL}/api/users/${id}`, {
       method: 'DELETE',
       headers: { 'X-User-ID': currentUserId },
     });
@@ -1302,7 +1304,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             continue;
           }
           // Create user via backend API
-          const createRes = await fetch(`${API_URL}/api/users/`, {
+          const createRes = await fetchWithAuth(`${API_URL}/api/users/`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1486,7 +1488,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
 
           // Create user via API
           try {
-            const createRes = await fetch(`${API_URL}/api/users/`, {
+            const createRes = await fetchWithAuth(`${API_URL}/api/users/`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -1534,7 +1536,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             if (formData.selected_roles.length > 0) {
               for (const roleId of formData.selected_roles) {
                 try {
-                  await fetch(`${API_URL}/api/roles/assignments`, {
+                  await fetchWithAuth(`${API_URL}/api/roles/assignments`, {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',
@@ -1948,7 +1950,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
 
     setCreatingCompany(true);
     try {
-      const res = await fetch(`${API_URL}/api/companies/`, {
+      const res = await fetchWithAuth(`${API_URL}/api/companies/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2010,7 +2012,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       // Fetch company's learning style setting
       let learningStyleEnabled: boolean | null = null;
       try {
-        const companyRes = await fetch(`${API_URL}/api/companies/${encodeURIComponent(targetCompanyId)}`);
+        const companyRes = await fetchWithAuth(`${API_URL}/api/companies/${encodeURIComponent(targetCompanyId)}`);
         if (companyRes.ok) {
           const compPayload = await companyRes.json().catch(() => null);
           const companyData = compPayload?.company ?? compPayload;
@@ -2022,7 +2024,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
         console.error('Failed to fetch company data:', compErr);
       }
       // Create user via API
-      const createRes = await fetch(`${API_URL}/api/users/`, {
+      const createRes = await fetchWithAuth(`${API_URL}/api/users/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2080,7 +2082,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       if (formData.selected_roles.length > 0) {
         for (const roleId of formData.selected_roles) {
           try {
-            await fetch(`${API_URL}/api/roles/assignments`, {
+            await fetchWithAuth(`${API_URL}/api/roles/assignments`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -2663,7 +2665,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
 
       for (const plan of learningPlans) {
         try {
-          const createRes = await fetch(`${API_URL}/api/learning-plans/`, {
+          const createRes = await fetchWithAuth(`${API_URL}/api/learning-plans/`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -3368,7 +3370,7 @@ function UpdateEmployeeModal({
 
     try {
       // Update user via API
-      const updateRes = await fetch(`${API_URL}/api/users/${employee.user_id}`, {
+      const updateRes = await fetchWithAuth(`${API_URL}/api/users/${employee.user_id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -3407,7 +3409,7 @@ function UpdateEmployeeModal({
 
         for (const assignment of rolesToRevoke) {
           try {
-            await fetch(`${API_URL}/api/roles/assignments/${assignment.user_role_assignment_id}`, {
+            await fetchWithAuth(`${API_URL}/api/roles/assignments/${assignment.user_role_assignment_id}`, {
               method: 'DELETE',
               headers: { 'X-User-ID': adminId }
             });
@@ -3418,7 +3420,7 @@ function UpdateEmployeeModal({
 
         for (const roleId of rolesToAdd) {
           try {
-            await fetch(`${API_URL}/api/roles/assignments`, {
+            await fetchWithAuth(`${API_URL}/api/roles/assignments`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -3440,7 +3442,7 @@ function UpdateEmployeeModal({
         // Fallback: couldn't load current roles, assign all selected
         for (const roleId of formData.selected_roles) {
           try {
-            await fetch(`${API_URL}/api/roles/assignments`, {
+            await fetchWithAuth(`${API_URL}/api/roles/assignments`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',

@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { FileText, Video, Music, File, Trash2, ExternalLink, Brain, Clock, CheckCircle, XCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import { fetchWithAuth } from "@/lib/fetch-with-auth"
 import { toast as shadcnToast } from '@/hooks/use-toast'
 import { AIAnalysisView } from "./ai-analysis-view"
 import { ProcessingStatusComponent } from "./processing-status"
-import { fetchWithAuth } from '@/lib/fetch-with-auth';
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
 interface TrainingModule {
