@@ -144,6 +144,49 @@ export default function AccountPage() {
     } catch (error) {
       console.error("Update error:", error);
       alert("Failed to save changes. Please try again.");
+              <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <Card className="w-full">
+                  <CardHeader>
+                    <CardTitle>Account Information</CardTitle>
+                    <CardDescription>
+                      Additional account details and settings
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
+                        <div>
+                          <h3 className="font-medium">Account Status</h3>
+                          <p className="text-sm text-gray-600">Your account is active and in good standing</p>
+                        </div>
+                        <div className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                          Active
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                        <div>
+                          <h3 className="font-medium flex items-center gap-2">
+                            <Lock className="w-4 h-4" />
+                            Password
+                          </h3>
+                          <p className="text-sm text-gray-600">Change your account password</p>
+                        </div>
+                        <Button onClick={openPasswordModal} variant="outline">
+                          Change Password
+                        </Button>
+                      </div>
+                      
+                      <div className="p-4 bg-yellow-50 rounded-lg">
+                        <h3 className="font-medium text-yellow-800">Need Help?</h3>
+                        <p className="text-sm text-yellow-700 mt-1">
+                          Contact your administrator if you need to update your email address or company information.
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
     } finally {
       setSaving(false);
     }
@@ -272,15 +315,11 @@ export default function AccountPage() {
             </h1>
             <p className="text-slate-600">Manage your personal information</p>
           </div>
-
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
-        <div className="grid gap-8">
-          <Card>
+          <Card className="w-full mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 mt-16">
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <User className="w-5 h-5" />
+                  <User className="text-3xlw-5 h-5" />
                   Personal Information
                 </CardTitle>
                 <CardDescription>
@@ -381,7 +420,7 @@ export default function AccountPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="w-full">
             <CardHeader>
               <CardTitle>Account Information</CardTitle>
               <CardDescription>
@@ -422,7 +461,6 @@ export default function AccountPage() {
               </div>
             </CardContent>
           </Card>
-        </div>
         </div>
 
       {showPasswordModal && (
@@ -534,6 +572,5 @@ export default function AccountPage() {
       )}
         </div>
       </div>
-    </div>
   );
 }
