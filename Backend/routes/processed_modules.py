@@ -51,7 +51,7 @@ class UpdateVideoRequest(BaseModel):
 
 class UpdateContentGenerationRequest(BaseModel):
     mindmap_data: Optional[dict] = None
-    flashcard_data: Optional[dict] = None
+    flashcard_data: Optional[list] = None  # Array of flashcard objects with heading and points
     infographic_data: Optional[dict] = None
 
 
@@ -236,6 +236,8 @@ async def update_content_generation_route(
     """
     Update content generation fields (mindmap, flashcard, infographic).
     """
+
+    print(f"Received request to update content generation data for processed_module_id: {processed_module_id} by user: {user_id}")
     result = await update_content_generation_data(
         user_id,
         processed_module_id,

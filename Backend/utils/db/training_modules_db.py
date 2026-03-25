@@ -192,6 +192,42 @@ async def create_training_module(
     # Validate required fields
     if not module_data.get('title'):
         return {"data": None, "error": "title is required"}
+
+    # Enforce company content-generation rate limit before creating a new module.
+    try:
+        company_limit_resp = (
+            supabase
+            .table('companies')
+            .select('rate_limit_content_generation')
+            .eq('company_id', company_id)
+            .maybe_single()
+            .execute()
+        )
+        company_limit_data = getattr(company_limit_resp, 'data', None) or {}
+        company_limit_value = company_limit_data.get('rate_limit_content_generation')
+        company_limit = int(company_limit_value) if company_limit_value is not None else 5
+
+        company_modules_resp = (
+            supabase
+            .table('training_modules')
+            .select('module_id')
+            .eq('company_id', company_id)
+            .execute()
+        )
+        existing_modules = getattr(company_modules_resp, 'data', None) or []
+        existing_count = len(existing_modules)
+
+        if existing_count >= company_limit:
+            return {
+                "data": None,
+                "error": (
+                    "RATE_LIMIT_EXCEEDED: You can't upload more documents. "
+                    "To upload more contact the administration. "
+                    "manish.chum@wokfloww.ai."
+                )
+            }
+    except Exception as e:
+        return {"data": None, "error": f"Failed to validate company content generation rate limit: {str(e)}"}
     
     # Set default uploaded_by to requesting user if not specified
     if 'uploaded_by' not in module_data:
@@ -475,3 +511,4 @@ async def update_module_review_stage(
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
+

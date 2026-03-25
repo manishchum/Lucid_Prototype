@@ -4,6 +4,7 @@ faiss==1.5.3
 fastapi==0.129.0
 ffmpeg==1.4
 ffmpeg_python==0.2.0
+firebase-admin==6.6.0
 httpx==0.28.1
 imageio_ffmpeg==0.6.0
 numpy==2.4.2

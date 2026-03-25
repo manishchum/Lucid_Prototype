@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 
@@ -16,6 +16,11 @@ from utils.db.users_db import (
 from utils.db.roles_db import (
     assign_user_role,
     get_user_roles
+)
+from utils.auth import (
+    RequestAuth,
+    get_request_auth_optional,
+    get_request_auth_required,
 )
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -66,7 +71,7 @@ async def list_users_by_filter(
     title_id: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(None),
     employment_status: Optional[str] = Query(None),
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_optional),
 ):
     filters = {}
     if function_id:
@@ -89,11 +94,11 @@ async def list_users_by_filter(
 @router.get("/company/{company_id}")
 async def list_users(
     company_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     status: Optional[str] = Query(None),
     department_id: Optional[str] = Query(None)
 ):
-    result = await get_users_by_company(user_id, company_id)
+    result = await get_users_by_company(auth_ctx.user_id, company_id)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     users = result["data"] or []
@@ -107,9 +112,9 @@ async def list_users(
 @router.get("/{target_user_id}")
 async def get_user(
     target_user_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    result = await get_user_by_id(user_id, target_user_id)
+    result = await get_user_by_id(auth_ctx.user_id, target_user_id)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     return {"user": result["data"]}
@@ -136,11 +141,11 @@ async def create_user_endpoint(
 @router.post("/")
 async def create_user_endpoint(
     request: CreateUserRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     user_data = request.dict()
     # NOTE: hash password before storing in production
-    result = await create_user(user_id, user_data)
+    result = await create_user(auth_ctx.user_id, user_data)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     reactivated = result.get("reactivated", False)
@@ -155,12 +160,12 @@ async def create_user_endpoint(
 async def update_user_endpoint(
     target_user_id: str,
     request: UpdateUserRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     updates = {k: v for k, v in request.dict().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
-    result = await update_user(user_id, target_user_id, updates)
+    result = await update_user(auth_ctx.user_id, target_user_id, updates)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     return {"user": result["data"], "message": "User updated successfully"}
@@ -169,10 +174,10 @@ async def update_user_endpoint(
 @router.delete("/{target_user_id}")
 async def delete_user_endpoint(
     target_user_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     hard_delete: bool = Query(False)
 ):
-    result = await delete_user(user_id, target_user_id)
+    result = await delete_user(auth_ctx.user_id, target_user_id)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     return {"message": "User deleted successfully"}
@@ -182,9 +187,9 @@ async def delete_user_endpoint(
 async def assign_role(
     target_user_id: str,
     request: AssignRoleRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    result = await assign_user_role(user_id, target_user_id, request.dict())
+    result = await assign_user_role(auth_ctx.user_id, target_user_id, request.dict())
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     return {"message": "Role assigned successfully", "assignment": result["data"]}
@@ -193,9 +198,9 @@ async def assign_role(
 @router.get("/{target_user_id}/roles")
 async def get_user_roles_endpoint(
     target_user_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    result = await get_user_roles(user_id, target_user_id)
+    result = await get_user_roles(auth_ctx.user_id, target_user_id)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     return {"roles": result["data"]}
@@ -203,9 +208,9 @@ async def get_user_roles_endpoint(
 @router.get("/by-email/{email}")
 async def get_user_by_email_route(
     email: str,
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_optional),
 ):
-    requesting_user_id = None if not user_id else user_id
+    requesting_user_id = auth_ctx.user_id
     result = await get_user_by_email(requesting_user_id, email)
     if result["error"]:
         err_lower = (result["error"] or "").lower()

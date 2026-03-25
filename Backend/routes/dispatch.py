@@ -19,7 +19,14 @@ from utils.db.dispatch_db import (
     get_assigned_users_for_sprint,
     get_sprint_image,
 )
+from utils.db.whatsapp_db import (
+    create_scheduled_whatsapp,
+    create_whatsapp_dispatch_batch,
+    get_users_for_module,
+    get_module_content,
+)
 from utils.supabase_client import supabase
+from whatsapp.formatter import formatter
 
 router = APIRouter(prefix="/api/dispatch", tags=["dispatch"])
 
@@ -36,6 +43,14 @@ class GenerateEmailRequest(BaseModel):
     scheduled_date: Optional[str] = None
     scheduled_time: Optional[str] = None
     sprint_image_url: Optional[str] = None
+
+
+class GenerateWhatsAppRequest(BaseModel):
+    sprint_title: str
+    sub_module_titles: List[str]
+    engagement_question: Optional[str] = None
+    scheduled_date: Optional[str] = None
+    scheduled_time: Optional[str] = None
 
 
 class SendEmailRequest(BaseModel):
@@ -55,7 +70,7 @@ class ScheduleEmailRequest(BaseModel):
 
 
 class NotifyEmailRequest(BaseModel):
-    module_id: str
+    module_id: Optional[str] = None                           # For backward compatibility (single module)
     selected_content: List[str]   # e.g. ["flashcards", "audio"]
     scheduled_date: Optional[str] = None
     scheduled_time: Optional[str] = None
@@ -63,6 +78,38 @@ class NotifyEmailRequest(BaseModel):
     customAudioUrl: Optional[str] = None                      # overrides module audio_url
     dry_run: bool = False                                     # True = build + return full HTML, no send
     blocks_only: bool = False                                 # True = return only the inner content block HTML
+    module_ids: Optional[List[str]] = None                    # For multi-module: list of specific modules to include
+
+
+# ── WhatsApp Request Models ─────────────────────────────────
+
+class NotifyWhatsAppRequest(BaseModel):
+    """
+    Schedule WhatsApp messages for content distribution.
+   
+    Supports:
+    - Single or multiple modules
+    - Single or multiple content types
+    - One-time or recurring schedules
+    - Multi-day spread: If admin selects 2 modules x 2 content types = 4 messages across 4 days
+    """
+    company_id: str
+   
+    # Module selection
+    module_ids: List[str]  # List of processed_module_ids to send content from
+   
+    # Content types to include
+    selected_content: List[str]  # e.g. ["flashcards", "audio", "video"]
+   
+    # Scheduling
+    schedule_type: str  # "one_time" or "recurring"
+    scheduled_date: Optional[str] = None  # "YYYY-MM-DD" for one_time
+    scheduled_time: str = "09:00"  # "HH:MM" format
+    days_of_week: Optional[List[int]] = None  # [0,1,2,3,4] for recurring (0=Sun, 6=Sat)
+   
+    # Optional metadata
+    engagement_question: Optional[str] = None
+    dry_run: bool = False  # True = return what would be sent without actually scheduling
 
 
 # ── Content-block email builder ─────────────────────────────────
@@ -694,6 +741,64 @@ Engagement question: {request.engagement_question or "none"}
     return {"email": {"subject": subject, "body": html_body}}
 
 
+@router.post("/generate-whatsapp")
+async def generate_whatsapp(
+    request: GenerateWhatsAppRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """Use Gemini to draft a nudge / encouragement WhatsApp message."""
+    sub_modules_text = "\n".join(f"  - {t}" for t in request.sub_module_titles)
+    event_date = (
+        f"{request.scheduled_date} at {request.scheduled_time}"
+        if request.scheduled_date and request.scheduled_time
+        else None
+    )
+
+    # ── Ask Gemini for WhatsApp nudge message ──────────────────────────
+    schedule_line = f"Scheduled for: {event_date}" if event_date else ""
+    prompt = f"""You are a corporate learning & development assistant.
+Generate a concise, engaging nudge message for WhatsApp. Return ONLY a raw JSON object (no markdown fences, no explanation) with exactly these keys:
+
+- "nudge_message": a warm, encouraging 2-3 sentence WhatsApp message that nudges the user to engage with the training sprint (plain text, no HTML or special formatting, emojis are OK)
+- "engagement": if an engagement question is provided below, write it as a single plain-text sentence. Otherwise return an empty string "".
+
+Keep the message conversational, friendly, and action-oriented. Make it feel like a personal message from a supportive colleague, not corporate jargon.
+
+Sprint: {request.sprint_title}
+Sub-modules covered:
+{sub_modules_text}
+{schedule_line}
+Engagement question: {request.engagement_question or "none"}
+"""
+
+    try:
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+
+        # Strip any markdown fences
+        text = re.sub(r'^```[a-zA-Z]*\s*', '', text)
+        text = re.sub(r'\s*```\s*$', '', text)
+        text = text.strip()
+
+        snippets = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"AI returned invalid JSON: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate WhatsApp content: {str(e)}")
+
+    # ── Build the message ──
+    nudge_message = snippets.get("nudge_message", f"Hi! Your training sprint '{request.sprint_title}' is ready. Let's dive in! 🚀")
+    engagement_text = snippets.get("engagement", "")
+
+    # Combine nudge message with engagement question if present
+    full_message = nudge_message
+    if engagement_text:
+        full_message += f"\n\n{engagement_text}"
+
+    return {"whatsapp": {"message": full_message}}
+
+
 @router.post("/send-email")
 async def send_email(
     request: SendEmailRequest,
@@ -854,37 +959,101 @@ async def notify_email(
       ["audio"]                → audio only
       ["flashcards"]           → flashcards only
       []                       → header + footer only
+   
+    When module_ids are provided, only include flashcards/audio from those specific modules.
+    When module_ids is None, use module_id (backward compatibility - aggregates all modules).
     """
+
+    print(f"\n[NOTIFY-EMAIL DEBUG] Received request: {request}")
+    # Determine which module IDs to fetch content for
+    target_module_ids = request.module_ids if request.module_ids else [request.module_id] if request.module_id else []
+   
+    if not target_module_ids:
+        raise HTTPException(status_code=400, detail="Either module_id or module_ids must be provided")
+
     # 1a. Fetch sprint title from training_modules
-    sprint_result = supabase.table("training_modules") \
+    first_module_id = target_module_ids[0]
+    print(f"\n[NOTIFY-EMAIL DEBUG] Fetching sprint title for module: {first_module_id}")
+    sprint_result = supabase.table("processed_modules") \
         .select("title") \
-        .eq("module_id", request.module_id) \
+        .eq("processed_module_id", first_module_id) \
         .single() \
         .execute()
 
     if not sprint_result.data:
         raise HTTPException(status_code=404, detail="Module not found")
 
-    # 1b. Fetch flashcard_data and audio_url from processed_modules for this sprint
-    fc_result = supabase.table("processed_modules") \
-        .select("flashcard_data, audio_url") \
-        .eq("original_module_id", request.module_id) \
-        .execute()
-
-    # Aggregate flashcard_data arrays and pick the first available audio_url
+    # 1b. Fetch flashcard_data and audio_url ONLY from the specified modules
     combined_flashcards: List[Dict[str, Any]] = []
     audio_url_from_db = ""
-    for row in (fc_result.data or []):
-        if row.get("flashcard_data"):
-            combined_flashcards.extend(row["flashcard_data"])
-        if not audio_url_from_db and row.get("audio_url"):
-            audio_url_from_db = row["audio_url"]
+   
+    for target_id in target_module_ids:
+        print(f"\n[NOTIFY-EMAIL DEBUG] Fetching content for module: {target_id}")
+       
+        # If module_ids provided, fetch by processed_module_id; otherwise use original_module_id
+        if request.module_ids:
+            # Fetching specific processed modules
+            print(f"[NOTIFY-EMAIL DEBUG] Using module_ids approach (specific module ID)")
+            fc_result = supabase.table("processed_modules") \
+                .select("flashcard_data, audio_url, title") \
+                .eq("processed_module_id", target_id) \
+                .single() \
+                .execute()
+            print(f"[NOTIFY-EMAIL DEBUG] Query result: {fc_result.data}")
+        else:
+            # Backward compatibility: fetch all processed modules for original module
+            print(f"[NOTIFY-EMAIL DEBUG] Using backward compatibility approach (original module ID)")
+            fc_result = supabase.table("processed_modules") \
+                .select("flashcard_data, audio_url, title") \
+                .eq("original_module_id", target_id) \
+                .execute()
+            print(f"[NOTIFY-EMAIL DEBUG] Query result: {fc_result.data}")
+       
+        # Aggregate flashcard_data and pick first audio_url
+        if fc_result.data:
+            print(f"[NOTIFY-EMAIL DEBUG] Data found for {target_id}")
+            if isinstance(fc_result.data, list):
+                # Multiple rows
+                print(f"[NOTIFY-EMAIL DEBUG] Multiple rows returned: {len(fc_result.data)}")
+                for row in fc_result.data:
+                    print(f"[NOTIFY-EMAIL DEBUG] Row: {row.get('title')} - flashcards: {len(row.get('flashcard_data') or [])}")
+                    if row.get("flashcard_data"):
+                        combined_flashcards.extend(row["flashcard_data"])
+                    if not audio_url_from_db and row.get("audio_url"):
+                        audio_url_from_db = row["audio_url"]
+            else:
+                # Single row
+                print(f"[NOTIFY-EMAIL DEBUG] Single row returned: {fc_result.data.get('title')}")
+                print(f"[NOTIFY-EMAIL DEBUG] Flashcard data: {fc_result.data.get('flashcard_data')}")
+                if fc_result.data.get("flashcard_data"):
+                    fc_list = fc_result.data["flashcard_data"]
+                    print(f"[NOTIFY-EMAIL DEBUG] Adding {len(fc_list)} flashcards")
+                    combined_flashcards.extend(fc_list)
+                else:
+                    print(f"[NOTIFY-EMAIL DEBUG] No flashcard_data found in row")
+                if not audio_url_from_db and fc_result.data.get("audio_url"):
+                    audio_url_from_db = fc_result.data["audio_url"]
+                print(f"[NOTIFY-EMAIL DEBUG] Current audio_url_from_db: {audio_url_from_db or 'NONE'}")
+        else:
+            print(f"[NOTIFY-EMAIL DEBUG] No data found for {target_id}")
 
+    print(f"\n[NOTIFY-EMAIL DEBUG] Total flashcards aggregated: {len(combined_flashcards)}")
+    print(f"[NOTIFY-EMAIL DEBUG] Audio URL from DB: {audio_url_from_db or 'NONE'}")
+   
     module = {
         "title": sprint_result.data.get("title", ""),
         "audio_url": audio_url_from_db,
         "flashcard_data": combined_flashcards,
     }
+
+    print(f"\n[NOTIFY-EMAIL DEBUG] === FINAL MODULE DATA ===")
+    print(f"[NOTIFY-EMAIL DEBUG] Title: {module['title']}")
+    print(f"[NOTIFY-EMAIL DEBUG] Total flashcards aggregated: {len(combined_flashcards)}")
+    print(f"[NOTIFY-EMAIL DEBUG] Audio URL: {audio_url_from_db or 'NONE'}")
+    print(f"[NOTIFY-EMAIL DEBUG] Selected content types: {request.selected_content}")
+    if combined_flashcards:
+        for i, fc in enumerate(combined_flashcards[:3]):
+            print(f"[NOTIFY-EMAIL DEBUG] Flashcard {i+1}: {fc.get('heading', 'NO HEADING')}")
 
     # 2. Build the dynamic HTML body (use custom overrides when provided)
     html_body = build_email_body(
@@ -910,8 +1079,9 @@ async def notify_email(
     if request.dry_run:
         return {"subject": subject, "body": html_body}
 
-    # 3. Get assigned users
-    users_result = await get_assigned_users_for_sprint(request.module_id)
+    # 3. Get assigned users (use first module's sprint info)
+    sprint_id_for_users = request.module_id or target_module_ids[0]
+    users_result = await get_assigned_users_for_sprint(sprint_id_for_users)
     if users_result["error"]:
         raise HTTPException(status_code=400, detail=users_result["error"])
 
@@ -1036,19 +1206,68 @@ def _next_weekday(day_name: str, hour: int, minute: int) -> datetime:
     return candidate
 
 
-class ScheduleMultiModuleRequest(BaseModel):
-    """Schedule one email per module on successive occurrences of a weekday.
+class ScheduleMultiModuleItem(BaseModel):
+    """One entry: module + content type + scheduling info (recurring or one-time)."""
+    module_id: str                                  # processed_module_id
+    content_type: str                               # e.g. "flashcards" or "audio"
+   
+    # ── SCHEDULING: choose one ──
+    day_of_week: Optional[str] = None               # For recurring: "Mon" | "Tue" | … | "Sun"
+    scheduled_date: Optional[str] = None            # For one-time: "YYYY-MM-DD"
+   
+    customFlashcards: Optional[List[Dict[str, Any]]] = None  # Module-specific custom flashcards
+    customAudioUrl: Optional[str] = None            # Module-specific custom audio URL
 
-    Example: module_ids = [A, B], scheduled_day = "Mon", scheduled_time = "09:00"
-      → Module A sent on the first upcoming Monday at 09:00 UTC
-      → Module B sent on the Monday after that (+ 7 days)
+
+class ScheduleMultiModuleRequest(BaseModel):
+    """Schedule emails with paired module-content-scheduling mappings.
+   
+    Supports TWO modes:
+   
+    1. RECURRING (day-of-week):
+       - Each item has day_of_week: "Mon", "Tue", etc
+       - scheduled_date is null/omitted
+       - scheduled_time: shared time (e.g. "09:00")
+       - Emails send on that day every week at that time
+   
+    2. ONE-TIME (specific date):
+       - Each item has scheduled_date: "YYYY-MM-DD"
+       - day_of_week is null/omitted
+       - scheduled_time: shared time (e.g. "09:00")
+       - Emails send once on that exact date/time
+
+    Example 1 (Recurring):
+      [
+        {
+          module_id: "A",
+          content_type: "flashcards",
+          day_of_week: "Tue"
+        },
+        {
+          module_id: "B",
+          content_type: "audio",
+          day_of_week: "Tue"
+        }
+      ]
+      scheduled_time: "09:00"
+   
+    Example 2 (One-time):
+      [
+        {
+          module_id: "A",
+          content_type: "flashcards",
+          scheduled_date: "2026-03-20"
+        },
+        {
+          module_id: "B",
+          content_type: "audio",
+          scheduled_date: "2026-03-20"
+        }
+      ]
+      scheduled_time: "09:00"
     """
-    module_ids: List[str]           # ordered list of module IDs (sprint sub-modules)
-    selected_content: List[str]     # e.g. ["flashcards", "audio"]
-    scheduled_day: str              # "Mon" | "Tue" | … | "Sun"
-    scheduled_time: str             # "HH:MM" in UTC
-    customFlashcards: Optional[List[Dict[str, Any]]] = None
-    customAudioUrl: Optional[str] = None
+    schedule_items: List[ScheduleMultiModuleItem]   # module + content + day/date + per-module custom content pairings
+    scheduled_time: str                             # "HH:MM" in UTC (applied to all items)
 
 
 @router.post("/schedule-multi-module")
@@ -1057,38 +1276,121 @@ async def schedule_multi_module(
     user_id: str = Header(..., alias="X-User-ID"),
 ):
     """
-    Schedule one flashcard/content email per module, staggered by one week each.
-
-    Returns a list of scheduled jobs with their run dates so the frontend
-    can show a preview like:
-      Module 1 → Mon 17 Mar 2026 09:00 UTC
-      Module 2 → Mon 24 Mar 2026 09:00 UTC
+    Schedule emails with paired module-content-scheduling mappings.
+   
+    Supports TWO modes:
+   
+    MODE 1 - RECURRING (day-of-week):
+      All items have day_of_week (e.g., "Tue")
+      Emails send on that day every week at scheduled_time
+      Example:
+        Module A → Flashcards → Every Tuesday 09:00 UTC
+        Module B → Audio       → Every Tuesday 09:00 UTC
+   
+    MODE 2 - ONE-TIME (specific date):
+      All items have scheduled_date (e.g., "2026-03-20")
+      Emails send once on that date at scheduled_time
+      Example:
+        Module A → Flashcards → 2026-03-20 09:00 UTC (one-time)
+        Module B → Audio       → 2026-03-20 09:00 UTC (one-time)
     """
     try:
-        if not request.module_ids:
-            raise HTTPException(status_code=400, detail="module_ids must not be empty")
-
-        if request.scheduled_day not in _DAY_MAP:
-            raise HTTPException(
-                status_code=400,
-                detail=f"scheduled_day must be one of {list(_DAY_MAP.keys())}",
-            )
+        if not request.schedule_items:
+            raise HTTPException(status_code=400, detail="schedule_items must not be empty")
 
         try:
             hour, minute = [int(x) for x in request.scheduled_time.split(":")]
         except ValueError:
             raise HTTPException(status_code=400, detail="scheduled_time must be HH:MM")
 
-        # Compute base run date (first upcoming occurrence of the chosen weekday/time)
-        base_dt = _next_weekday(request.scheduled_day, hour, minute)
+        # ── Determine scheduling mode ──
+        has_day_of_week = any(item.day_of_week for item in request.schedule_items)
+        has_scheduled_date = any(item.scheduled_date for item in request.schedule_items)
+       
+        if has_day_of_week and has_scheduled_date:
+            raise HTTPException(
+                status_code=400,
+                detail="Mixed scheduling: cannot mix day_of_week and scheduled_date. Choose one mode.",
+            )
+       
+        if not has_day_of_week and not has_scheduled_date:
+            raise HTTPException(
+                status_code=400,
+                detail="No scheduling provided: either all items need day_of_week (recurring) OR all need scheduled_date (one-time)",
+            )
+       
+        is_recurring_mode = has_day_of_week
+       
+        print(f"\n[SCHEDULE DEBUG] {'='*80}")
+        print(f"[SCHEDULE DEBUG] MODE: {'RECURRING (day-of-week)' if is_recurring_mode else 'ONE-TIME (specific date)'}")
+        print(f"[SCHEDULE DEBUG] Total items: {len(request.schedule_items)}")
+        print(f"[SCHEDULE DEBUG] Scheduled time: {request.scheduled_time} UTC")
+        print(f"[SCHEDULE DEBUG] {'='*80}")
 
         scheduled_jobs = []
 
-        for idx, module_id in enumerate(request.module_ids):
-            run_dt = base_dt + timedelta(weeks=idx)
+        for idx, item in enumerate(request.schedule_items):
+            module_id = item.module_id
+            content_type = item.content_type
+           
+            # ── Determine run_date based on mode ──
+            if is_recurring_mode:
+                # RECURRING MODE: day_of_week
+                day_of_week = item.day_of_week
+                if not day_of_week:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Item {idx}: day_of_week required in recurring mode",
+                    )
+               
+                if day_of_week not in _DAY_MAP:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Item {idx}: day_of_week must be one of {list(_DAY_MAP.keys())}, got {day_of_week}",
+                    )
+               
+                run_dt = _next_weekday(day_of_week, hour, minute)
+                print(f"[SCHEDULE DEBUG] Item {idx}: {module_id} → Every {day_of_week} @ {hour:02d}:{minute:02d} UTC → Next: {run_dt}")
+            else:
+                # ONE-TIME MODE: scheduled_date
+                scheduled_date = item.scheduled_date
+                if not scheduled_date:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Item {idx}: scheduled_date required in one-time mode",
+                    )
+               
+                try:
+                    run_dt = datetime.strptime(
+                        f"{scheduled_date} {request.scheduled_time}", "%Y-%m-%d %H:%M"
+                    )
+                    # Make timezone-aware (UTC)
+                    from datetime import timezone as _tz
+                    run_dt = run_dt.replace(tzinfo=_tz.utc)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Item {idx}: Invalid date/time. Expected scheduled_date='YYYY-MM-DD' and scheduled_time='HH:MM'",
+                    )
+               
+                # Validate it's in the future
+                from datetime import timezone as _tz
+                if run_dt <= datetime.now(_tz.utc):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Item {idx}: Scheduled time must be in the future (UTC)",
+                    )
+               
+                print(f"[SCHEDULE DEBUG] Item {idx}: {module_id} → One-time on {scheduled_date} @ {hour:02d}:{minute:02d} UTC → {run_dt}")
 
-            # ── Fetch processed_module row (title, flashcard_data, audio_url,
-            #    AND the parent original_module_id for user lookup) ──
+            # Validate content type
+            if content_type not in ["flashcards", "audio"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Item {idx}: content_type must be 'flashcards' or 'audio', got {content_type}",
+                )
+
+            # ── Fetch processed_module row ──
             pm_result = supabase.table("processed_modules") \
                 .select("processed_module_id, title, flashcard_data, audio_url, original_module_id") \
                 .eq("processed_module_id", module_id) \
@@ -1114,17 +1416,46 @@ async def schedule_multi_module(
                 "flashcard_data": combined_flashcards,
             }
 
-            # ── Build email HTML ──
+            # ── Build email with ONLY the paired content type ──
+            selected_content = [content_type]  # Only include this specific content type
+           
+            # Debug logging - Comprehensive audio and flashcard tracking
+            print(f"\n{'='*80}")
+            print(f"[MODULE {idx}] Processing: {module_id}")
+            print(f"{'='*80}")
+            print(f"  Module Title: {module_title}")
+            print(f"  Content Type: {content_type}")
+            print(f"  Day of Week: {day_of_week}")
+            print(f"  Run Date: {run_dt}")
+            print(f"\n  📚 FLASHCARDS:")
+            print(f"    - From DB: {len(combined_flashcards)} flashcards found")
+            if combined_flashcards:
+                for i, fc in enumerate(combined_flashcards[:2]):  # Show first 2
+                    print(f"      [{i+1}] {fc.get('heading', 'No heading')}")
+            print(f"    - Custom from item: {item.customFlashcards is not None}")
+            if item.customFlashcards:
+                print(f"      Using CUSTOM flashcards ({len(item.customFlashcards)} cards)")
+            print(f"    - Will include in email: {content_type == 'flashcards'}")
+           
+            print(f"\n  🎵 AUDIO:")
+            print(f"    - From DB: {audio_url_from_db if audio_url_from_db else 'NO AUDIO'}")
+            print(f"    - Custom from item: {item.customAudioUrl if item.customAudioUrl else 'None'}")
+            if item.customAudioUrl:
+                print(f"      Using CUSTOM audio URL")
+            final_audio_url = item.customAudioUrl if item.customAudioUrl else audio_url_from_db
+            print(f"    - Final audio URL to use: {final_audio_url if final_audio_url else 'NO AUDIO'}")
+            print(f"    - Will include in email: {content_type == 'audio'}")
+            print(f"{'='*80}\n")
+           
             html_body = build_email_body(
                 module_data,
-                request.selected_content,
-                custom_flashcards=request.customFlashcards,
-                custom_audio_url=request.customAudioUrl,
+                selected_content,
+                custom_flashcards=item.customFlashcards if content_type == "flashcards" else None,
+                custom_audio_url=item.customAudioUrl if content_type == "audio" else None,
             )
             subject = f"Your training module is ready: {module_title}"
 
-            # ── Fetch assigned users via the parent sprint (original_module_id) ──
-            # Users are assigned at the training_module (sprint) level, not per sub-module.
+            # ── Fetch assigned users via the parent sprint ──
             lookup_id = original_module_id or module_id
             users_result = await get_assigned_users_for_sprint(lookup_id)
             if users_result["error"]:
@@ -1136,9 +1467,10 @@ async def schedule_multi_module(
             if not recipient_emails:
                 # Still record the entry but flag no recipients
                 scheduled_jobs.append({
-                    "week": idx + 1,
                     "module_id": module_id,
                     "module_title": module_title,
+                    "content_type": content_type,
+                    "day_of_week": day_of_week,
                     "run_date": run_dt.isoformat(),
                     "recipient_count": 0,
                     "job_id": None,
@@ -1147,7 +1479,7 @@ async def schedule_multi_module(
                 continue
 
             # ── Create APScheduler job ──
-            job_id = f"multi_notify_{module_id}_{uuid.uuid4().hex[:8]}"
+            job_id = f"multi_notify_{module_id}_{content_type}_{uuid.uuid4().hex[:8]}"
             scheduler.add_job(
                 send_smtp_job,
                 trigger="date",
@@ -1158,9 +1490,10 @@ async def schedule_multi_module(
             )
 
             scheduled_jobs.append({
-                "week": idx + 1,
                 "module_id": module_id,
                 "module_title": module_title,
+                "content_type": content_type,
+                "day_of_week": day_of_week,
                 "run_date": run_dt.isoformat(),
                 "recipient_count": len(recipient_emails),
                 "job_id": job_id,
@@ -1168,9 +1501,8 @@ async def schedule_multi_module(
 
         return {
             "status": "multi_module_scheduled",
-            "scheduled_day": request.scheduled_day,
             "scheduled_time": request.scheduled_time,
-            "total_modules": len(request.module_ids),
+            "total_items": len(request.schedule_items),
             "jobs": scheduled_jobs,
         }
 
@@ -1183,4 +1515,241 @@ async def schedule_multi_module(
         raise HTTPException(
             status_code=500,
             detail=f"schedule-multi-module failed: {str(exc)}",
+        )
+
+
+# ── WhatsApp Notification Endpoint ──────────────────────────────
+
+@router.post("/notify-whatsapp")
+async def notify_whatsapp(
+    request: NotifyWhatsAppRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Schedule WhatsApp messages for content distribution.
+   
+    This endpoint creates scheduled WhatsApp messages and dispatch records for
+    all assigned users. It handles:
+   
+    1. Multi-module distribution (spread across days)
+    2. Multiple content types (one message per content type, per module)
+    3. One-time and recurring schedules
+   
+    Example: 2 modules x 2 content types = 4 messages
+    - Day 1: Module 1, Content Type 1
+    - Day 2: Module 2, Content Type 1
+    - Day 3: Module 1, Content Type 2
+    - Day 4: Module 2, Content Type 2
+    """
+   
+    try:
+        print(f"\n[NOTIFY-WHATSAPP DEBUG] Received request: {request}")
+       
+        # ── Validate Input ──
+        if not request.module_ids:
+            raise HTTPException(status_code=400, detail="At least one module_id is required")
+       
+        if not request.selected_content:
+            raise HTTPException(status_code=400, detail="At least one content type is required")
+       
+        if request.schedule_type not in ["one_time", "recurring"]:
+            raise HTTPException(status_code=400, detail="Invalid schedule_type")
+       
+        if request.schedule_type == "one_time" and not request.scheduled_date:
+            raise HTTPException(status_code=400, detail="scheduled_date is required for one_time schedule")
+       
+        if request.schedule_type == "recurring" and not request.days_of_week:
+            raise HTTPException(status_code=400, detail="days_of_week is required for recurring schedule")
+       
+        # ── Generate Message Schedule ──
+        # Create a cartesian product of modules x content_types
+        messages_to_create = []
+        for i, module_id in enumerate(request.module_ids):
+            for j, content_type in enumerate(request.selected_content):
+                message_order = i * len(request.selected_content) + j
+                messages_to_create.append({
+                    "module_id": module_id,
+                    "content_type": content_type,
+                    "order": message_order,
+                })
+       
+        print(f"[NOTIFY-WHATSAPP DEBUG] Generated {len(messages_to_create)} message schedules")
+       
+        # ── Dry Run: Return what would be created ──
+        if request.dry_run:
+            preview = []
+            for msg_plan in messages_to_create:
+                module_result = await get_module_content(msg_plan["module_id"])
+                if not module_result["error"] and module_result["data"]:
+                    module = module_result["data"]
+                    preview.append({
+                        "module_id": msg_plan["module_id"],
+                        "module_title": module.get("title", ""),
+                        "content_type": msg_plan["content_type"],
+                        "day_offset": msg_plan["order"],
+                    })
+           
+            return {
+                "status": "dry_run",
+                "message_count": len(preview),
+                "messages": preview,
+            }
+       
+        # ── Create Scheduled Messages and Dispatch Records ──
+        created_schedules = []
+        all_users_affected = set()
+       
+        for msg_plan in messages_to_create:
+            processed_module_id = msg_plan["module_id"]
+            content_type = msg_plan["content_type"]
+            day_offset = msg_plan["order"]
+           
+            # Fetch module content
+            module_result = await get_module_content(processed_module_id)
+            print(f"[NOTIFY-WHATSAPP DEBUG] Fetching content for module_id: {processed_module_id}")
+            print(module_result)
+            if module_result["error"]:
+                print(f"[NOTIFY-WHATSAPP DEBUG] Error fetching module: {module_result['error']}")
+                continue
+           
+            module = module_result["data"]
+            if not module:
+                print(f"[NOTIFY-WHATSAPP DEBUG] Module not found: {processed_module_id}")
+                continue
+           
+            module_title = module.get("title", "Learning Module")
+            original_module_id = module.get("original_module_id")
+           
+            # Determine scheduled date based on offset
+            from datetime import datetime, timedelta, date as dt_date
+           
+            if request.schedule_type == "one_time":
+                schedule_date = datetime.strptime(request.scheduled_date, "%Y-%m-%d")
+                message_date = (schedule_date + timedelta(days=day_offset)).strftime("%Y-%m-%d")
+            else:
+                # For recurring, use today + offset as first occurrence
+                message_date = None
+           
+            # Build message content based on content type
+            if content_type == "flashcards":
+                flashcard_data = module.get("flashcard_data", [])
+                message_body = formatter.format_flashcards(
+                    "Flashcards",
+                    flashcard_data,
+                    module_title
+                )
+                media_url = None
+                media_type = None
+           
+            elif content_type == "audio":
+                audio_url = module.get("audio_url", "")
+                message_body = formatter.format_audio_message(module_title, "Audio Lesson")
+                media_url = audio_url
+                media_type = "audio" if audio_url else None
+           
+            elif content_type == "video":
+                video_url = module.get("video_url", "")
+                message_body = formatter.format_video_message(module_title, "Video Lesson")
+                media_url = video_url
+                media_type = "video" if video_url else None
+           
+            elif content_type == "mindmap":
+                mindmap_data = module.get("mindmap_data", {})
+                # Assume mindmap_data has an 'image_url' field or we convert it to image
+                mindmap_url = mindmap_data.get("image_url", "") if isinstance(mindmap_data, dict) else ""
+                message_body = formatter.format_mindmap_message(module_title, "Mind Map")
+                media_url = mindmap_url
+                media_type = "image" if mindmap_url else None
+           
+            elif content_type == "infographic":
+                infographic_data = module.get("infographic_data", {})
+                infographic_url = infographic_data.get("image_url", "") if isinstance(infographic_data, dict) else ""
+                message_body = formatter.format_infographic_message(module_title, "Infographic")
+                media_url = infographic_url
+                media_type = "image" if infographic_url else None
+           
+            else:
+                print(f"[NOTIFY-WHATSAPP DEBUG] Unknown content type: {content_type}")
+                continue
+           
+            # Create scheduled_whatsapp record
+            schedule_result = await create_scheduled_whatsapp(
+                company_id=request.company_id,
+                message_body=message_body,
+                schedule_type=request.schedule_type,
+                scheduled_time=request.scheduled_time,
+                processed_module_id=processed_module_id,
+                original_module_id=original_module_id,
+                scheduled_date=message_date if request.schedule_type == "one_time" else None,
+                days_of_week=request.days_of_week if request.schedule_type == "recurring" else None,
+                media_url=media_url,
+                media_type=media_type,
+                is_active=True,
+            )
+           
+            if schedule_result["error"]:
+                print(f"[NOTIFY-WHATSAPP DEBUG] Error creating schedule: {schedule_result['error']}")
+                continue
+           
+            scheduled_msg = schedule_result["data"]
+            scheduled_whatsapp_id = scheduled_msg.get("scheduled_whatsapp_id")
+           
+            # Fetch users for this module
+            users_result = await get_users_for_module(original_module_id)
+            if users_result["error"]:
+                print(f"[NOTIFY-WHATSAPP DEBUG] Error fetching users: {users_result['error']}")
+                continue
+           
+            users_data = users_result.get("data", [])
+            print(f"[NOTIFY-WHATSAPP DEBUG] Found {len(users_data)} users for module")
+           
+            if not users_data:
+                print(f"[NOTIFY-WHATSAPP DEBUG] No users with phone numbers for module {processed_module_id}")
+                continue
+           
+            # Create dispatch records
+            dispatch_result = await create_whatsapp_dispatch_batch(
+                scheduled_whatsapp_id,
+                users_data,
+            )
+           
+            if dispatch_result["error"]:
+                print(f"[NOTIFY-WHATSAPP DEBUG] Error creating dispatch: {dispatch_result['error']}")
+                continue
+           
+            dispatch_records = dispatch_result.get("data", [])
+            print(f"[NOTIFY-WHATSAPP DEBUG] Created {len(dispatch_records)} dispatch records")
+           
+            # Track affected users
+            for user in users_data:
+                all_users_affected.add(user["user_id"])
+           
+            created_schedules.append({
+                "scheduled_whatsapp_id": scheduled_whatsapp_id,
+                "module_id": processed_module_id,
+                "module_title": module_title,
+                "content_type": content_type,
+                "day_offset": day_offset,
+                "recipient_count": len(users_data),
+                "scheduled_date": message_date if request.schedule_type == "one_time" else None,
+            })
+       
+        # ── Return Confirmation ──
+        return {
+            "status": "scheduled",
+            "schedule_type": request.schedule_type,
+            "scheduled_time": request.scheduled_time,
+            "total_messages": len(created_schedules),
+            "unique_recipients": len(all_users_affected),
+            "messages": created_schedules,
+        }
+   
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"notify-whatsapp failed: {str(exc)}",
         )

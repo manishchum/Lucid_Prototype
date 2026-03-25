@@ -5,6 +5,7 @@ import React, { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from "@/lib/supabase";
 import { sharedDataClient, createCacheKey } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import MCQQuiz from "./mcq-quiz";
 import { useAuth } from "@/contexts/auth-context";
 import { ChevronLeft, CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
@@ -43,7 +44,7 @@ const AssessmentContent = () => {
 
   const fetchUserByEmail = async (email: string | undefined | null) => {
     if (!email) return null;
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
     if (!res.ok){
       const txt = await res.text().catch(() => "No response body");
       throw new Error(`Failed to fetch user by email: ${res.status} ${txt}`);
@@ -70,7 +71,7 @@ const AssessmentContent = () => {
         }
         if (!companyId) throw new Error("Could not find company for user");
         // Get modules for this company only
-        const moduleRes = await fetch(`${API_BASE}/api/training-modules/company/${encodeURIComponent(companyId)}`,{
+        const moduleRes = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${encodeURIComponent(companyId)}`,{
           headers: {'X-User-ID': fetchedUserId || ''}
         });
         if (!moduleRes.ok) {
@@ -126,7 +127,7 @@ const AssessmentContent = () => {
         if (urlModuleId) {
           // Check if this is a baseline assessment request by looking at learning plan via backend API
           try {
-            const lpRes = await fetch(
+            const lpRes = await fetchWithAuth(
               `${API_BASE}/api/learning-plans/?user_id=${employeeId}&module_id=${urlModuleId}`,
               { headers: { 'X-User-ID': employeeId } }
             );
@@ -158,7 +159,7 @@ const AssessmentContent = () => {
           // console.log")
             console.log("Inside the if statement for per-module quiz request.");
           console.log(urlModuleId)
-          res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
+          res = await fetchWithAuth(`${API_BASE}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -173,7 +174,7 @@ const AssessmentContent = () => {
         } else {
           // Request a baseline quiz for all assigned modules (multi-module baseline)
           console.log("Inside the else statement for per-module quiz request.");
-          res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
+          res = await fetchWithAuth(`${API_BASE}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -331,7 +332,7 @@ const AssessmentContent = () => {
           company_id: companyId || '',
           original_module_id: urlModuleId
         });
-        const assessRes = await fetch(`${API_BASE}/api/assessments/filter/search?${q.toString()}`, {
+        const assessRes = await fetchWithAuth(`${API_BASE}/api/assessments/filter/search?${q.toString()}`, {
           headers: { 'X-User-ID': employeeId || '' }
         });
         if (assessRes.ok) {
@@ -345,7 +346,7 @@ const AssessmentContent = () => {
         // If no baseline exists, create it via backend route
         if (!assessmentId) {
           const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === 'baseline')?.questions || [];
-          const createRes = await fetch(`${API_BASE}/api/assessments/`, {
+          const createRes = await fetchWithAuth(`${API_BASE}/api/assessments/`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId || '' },
             body: JSON.stringify({
@@ -375,9 +376,12 @@ const AssessmentContent = () => {
       // console.log("Employee Feedback:", result.feedback.join("\n"));
 
       // Call GPT feedback API for AI-generated feedback and store in Supabase
-      const res = await fetch(`${API_BASE}/api/gpt-feedback`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/gpt-feedback`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": employeeId || '',
+        },
         body: JSON.stringify({
           score: result.score,
           maxScore: (mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []).length,
@@ -439,7 +443,7 @@ const AssessmentContent = () => {
         await sharedDataClient.query(
           assessmentsKey,
           async () => {
-            const freshRes = await fetch(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeId)}`, {
+            const freshRes = await fetchWithAuth(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeId)}`, {
               headers: { "X-User-ID": employeeId },
             });
             if (!freshRes.ok) {

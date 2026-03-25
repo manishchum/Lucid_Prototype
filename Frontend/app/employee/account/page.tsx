@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/auth-context";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { ArrowLeft, User, Mail, Calendar, Building, Save, Edit3, Lock, Eye, EyeOff, X, CheckCircle } from "lucide-react";
 
 interface Employee {
@@ -67,7 +68,7 @@ export default function AccountPage() {
           path: `/api/companies/${companyId}`,
         }),
         async () => {
-          const res = await fetch(`${API_URL}/api/companies/${companyId}`);
+          const res = await fetchWithAuth(`${API_URL}/api/companies/${companyId}`);
           if (!res.ok) {
             throw new Error(`Company fetch failed: ${res.status}`);
           }
@@ -115,7 +116,7 @@ export default function AccountPage() {
 
     setSaving(true);
     try {
-      const updRes = await fetch(`${API_URL}/api/users/${encodeURIComponent(employee.user_id)}`, {
+      const updRes = await fetchWithAuth(`${API_URL}/api/users/${encodeURIComponent(employee.user_id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json",
           "X-User-ID": employee.user_id,

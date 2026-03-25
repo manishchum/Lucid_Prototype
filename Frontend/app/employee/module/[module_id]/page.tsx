@@ -14,6 +14,8 @@ import { useAuth } from "@/contexts/auth-context";
 import jsPDF from 'jspdf';
 import VoiceInput from '@/components/VoiceInput';
 import VoiceOutput from '@/components/VoiceOutput';
+import { callGemini } from "@/lib/gemini-helper";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -43,7 +45,7 @@ const fetchModuleData = async (employee: any, moduleId: string) => {
         "X-User-ID": employee.user_id,
       };
 
-      const res = await fetch(`${API_BASE}/api/processed-modules/${moduleId}`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/${moduleId}`, {
         headers,
       });
 
@@ -53,7 +55,7 @@ const fetchModuleData = async (employee: any, moduleId: string) => {
 
       // Fallback for cases where navigation passes original_module_id instead of processed_module_id.
       if (res.status === 404) {
-        const originalRes = await fetch(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
+        const originalRes = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
           headers,
         });
 
@@ -144,7 +146,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   // If overrideInput is present, it means voice input was used
   const isVoiceInput = !!overrideInput;
   setLastUserInputWasVoice(isVoiceInput);
-  
+ 
   if (isVoiceInput) {
     setVoiceLoopActive(true);
   } else {
@@ -156,7 +158,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   setChatLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE}/api/module-chat`, {
+      const response = await fetchWithAuth(`${API_BASE}/api/module-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -196,18 +198,18 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const handleVoiceTranscription = (text: string) => {
   setChatInput(text);
   setLastUserInputWasVoice(true);
-  
+ 
   // Check if user said "bye" or similar exit phrases
   const exitPhrases = ['bye', 'goodbye', 'stop', 'exit', 'quit'];
   const lowerText = text.toLowerCase().trim();
   const shouldExit = exitPhrases.some(phrase => lowerText === phrase || lowerText.endsWith(phrase));
-  
+ 
   if (shouldExit) {
     setVoiceLoopActive(false);
     console.log('[ModuleChat] Voice loop stopped - exit phrase detected:', text);
     return; // Don't auto-send, let user decide
   }
-  
+ 
   setVoiceLoopActive(true);
     console.log('[ModuleChat] handleVoiceTranscription called. text:', text, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
     // Auto-send after transcription
@@ -310,7 +312,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       <div className="space-y-4">
                         {userChatHistory.map((msg, idx) => {
                           // Determine if TTS should be enabled for this bot reply
-                          // TTS is enabled if this is the most recent assistant message 
+                          // TTS is enabled if this is the most recent assistant message
                           // AND it follows a voice user message
                           let ttsEnabled = false;
                           if (msg.role === 'assistant' && idx === userChatHistory.length - 1) {
@@ -322,7 +324,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                               }
                             }
                           }
-                          
+                         
                           return (
                             <div
                               key={idx}
@@ -332,7 +334,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                               )}
                             >
                               {msg.role === 'assistant' && (
-                                <VoiceOutput text={msg.content} disabled={chatLoading || !ttsEnabled} 
+                                <VoiceOutput text={msg.content} disabled={chatLoading || !ttsEnabled}
                                 onTTSComplete={() => {
                                 if (voiceLoopActive && idx === userChatHistory.length - 1) {
                                 setTimeout(() => setAutoStartMic(true), 300);
@@ -384,7 +386,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       >
                         📎
                       </button> */}
-                      <VoiceInput 
+                      <VoiceInput
                         onTranscription={handleVoiceTranscription}
                         disabled={chatLoading}
                         autoStart={autoStartMic}
@@ -744,7 +746,7 @@ function parseMarkdownContent(content: string) {
     if (currentSection) sections.push(currentSection);
     currentSection = section;
   };
-  
+ 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
 
@@ -760,20 +762,20 @@ function parseMarkdownContent(content: string) {
 
     const sectionMatch = line.match(/^Section\s+(\d+)\s*:\s*(.+)$/i);
     if (sectionMatch) {
-      startSection({ 
-        type: 'section', 
-        title: line, 
-        content: '' 
+      startSection({
+        type: 'section',
+        title: line,
+        content: ''
       });
       continue;
     }
 
     const activityMatch = line.match(/^Activity\s+(\d+)\s*:\s*(.+)$/i);
     if (activityMatch) {
-      startSection({ 
-        type: 'activity', 
-        title: line, 
-        content: '' 
+      startSection({
+        type: 'activity',
+        title: line,
+        content: ''
       });
       continue;
     }
@@ -787,7 +789,7 @@ function parseMarkdownContent(content: string) {
       startSection({ type: 'discussion', title: 'Discussion Prompts', content: '' });
       continue;
     }
-    
+   
     const bulletMatch = line.match(/^[-\*•]\s+(.*)$/);
     const numberedMatch = line.match(/^(\d+)\.\s+(.*)$/);
 
@@ -814,7 +816,7 @@ function parseMarkdownContent(content: string) {
       currentSection = { type: 'intro', title: '', content: lines[i] + '\n' };
     }
   }
-  
+ 
   flushList();
   if (currentSection && currentSection.content.trim()) {
     sections.push(currentSection);
@@ -924,7 +926,7 @@ function ContentTransformer({
   const hasEnglishAudio = !!(module.audio_url && module.podcast_transcript && module.podcast_timeline);
   const hasHinglishAudio = !!(module.audio_url_hinglish && module.podcast_transcript_hinglish && module.podcast_timeline_hinglish);
   const hasAudio = hasEnglishAudio || hasHinglishAudio;
-  
+ 
   // Check if current language audio is available
   const hasCurrentLanguageAudio = (language: 'en' | 'hinglish') => {
     if (language === 'hinglish') {
@@ -932,7 +934,7 @@ function ContentTransformer({
     }
     return hasEnglishAudio;
   };
-  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
+  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]);
   const [language, setLanguage] = useState<'en' | 'hinglish'>('en');
   const [selectedOption, setSelectedOption] = useState<'audio' | 'video' | 'chat' | 'flashcard' | 'flashcards' | 'mindmap' | 'roleplay' | 'infographic' | null>(null);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
@@ -996,7 +998,7 @@ function ContentTransformer({
   useEffect(() => {
     const timelineField = language === 'hinglish' ? 'podcast_timeline_hinglish' : 'podcast_timeline';
     const timelineData = language === 'hinglish' ? module?.podcast_timeline_hinglish : module?.podcast_timeline;
-    
+   
     if (!timelineData) {
       console.log(`[ContentTransformer] No ${timelineField} in module data`);
       return;
@@ -1189,7 +1191,7 @@ function ContentTransformer({
               setMindmapLoading(true);
               try {
                 const studyText = module.content || '';
-                const res = await fetch(`${API_BASE}/api/generate-mindmap`, {
+                const res = await fetchWithAuth(`${API_BASE}/api/generate-mindmap`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ content: studyText, title: module.title }),
@@ -1201,7 +1203,7 @@ function ContentTransformer({
                   setMindmapData(data);
 
                   if (employeeId) {
-                    await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                    await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
                       body: JSON.stringify({ mindmap_data: data }),
@@ -1242,7 +1244,7 @@ function ContentTransformer({
                 setFlashcardLoading(true);
 
                 const studyText = module.content || '';
-                const res = await fetch(`${API_BASE}/api/generate-flashcards-gemini`, {
+                const res = await fetchWithAuth(`${API_BASE}/api/generate-flashcards-gemini`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ content: studyText }),
@@ -1260,7 +1262,7 @@ function ContentTransformer({
                   setFlashcardSections(data);
 
                   if (employeeId) {
-                    await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                    await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
                       body: JSON.stringify({ flashcard_data: data }),
@@ -1302,7 +1304,7 @@ function ContentTransformer({
                 setInfographicLoading(true);
                 const contentText = module.content || '';
 
-                const res = await fetch(`${API_BASE}/api/generate-infographic`, {
+                const res = await fetchWithAuth(`${API_BASE}/api/generate-infographic`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -1323,7 +1325,7 @@ function ContentTransformer({
                   setInfographicData(data);
 
                   if (employeeId) {
-                    await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                    await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
                       body: JSON.stringify({ infographic_data: data }),
@@ -1653,7 +1655,7 @@ function ContentTransformer({
                               if (infographicData.sections) {
                                 infographicData.sections.forEach((section: any) => {
                                   checkPageBreak(40);
-                                  
+                                 
                                   // Section title
                                   pdf.setFontSize(14);
                                   pdf.setFont('helvetica', 'bold');
@@ -1669,7 +1671,7 @@ function ContentTransformer({
                                       const pointTitle = pdf.splitTextToSize(`• ${point.title}`, pageWidth - 2 * margin - 10);
                                       pdf.text(pointTitle, margin + 5, yPosition);
                                       yPosition += pointTitle.length * 5 + 2;
-                                      
+                                     
                                       pdf.setFont('helvetica', 'normal');
                                       const pointText = pdf.splitTextToSize(point.text, pageWidth - 2 * margin - 10);
                                       pdf.text(pointText, margin + 5, yPosition);
@@ -1681,7 +1683,7 @@ function ContentTransformer({
                                   if (section.subSections) {
                                     section.subSections.forEach((sub: any) => {
                                       checkPageBreak(30);
-                                      
+                                     
                                       pdf.setFontSize(12);
                                       pdf.setFont('helvetica', 'bold');
                                       pdf.text(sub.title, margin + 10, yPosition);
@@ -1695,7 +1697,7 @@ function ContentTransformer({
                                           const subTitle = pdf.splitTextToSize(`  - ${subPoint.title}`, pageWidth - 2 * margin - 15);
                                           pdf.text(subTitle, margin + 15, yPosition);
                                           yPosition += subTitle.length * 4 + 2;
-                                          
+                                         
                                           pdf.setFont('helvetica', 'normal');
                                           const subText = pdf.splitTextToSize(subPoint.text, pageWidth - 2 * margin - 15);
                                           pdf.text(subText, margin + 15, yPosition);
@@ -1712,7 +1714,7 @@ function ContentTransformer({
                               // Critical flags
                               if (infographicData.criticalFlags && infographicData.criticalFlags.flags) {
                                 checkPageBreak(40);
-                                
+                               
                                 pdf.setFontSize(14);
                                 pdf.setFont('helvetica', 'bold');
                                 pdf.setTextColor(220, 38, 38); // Red color
@@ -1723,7 +1725,7 @@ function ContentTransformer({
                                 pdf.setFontSize(10);
                                 infographicData.criticalFlags.flags.forEach((flag: any) => {
                                   checkPageBreak(25);
-                                  
+                                 
                                   pdf.setFont('helvetica', 'bold');
                                   const flagTitle = pdf.splitTextToSize(`⚠ ${flag.title}`, pageWidth - 2 * margin - 5);
                                   pdf.text(flagTitle, margin + 5, yPosition);
@@ -1762,7 +1764,7 @@ function ContentTransformer({
                         <div className="mb-4 text-center">
                           <h3 className="text-2xl font-bold">{infographicData.title}</h3>
                         </div>
-                      
+                     
                       {/* Main sections */}
                       {infographicData.sections && infographicData.sections.map((section: any, sIdx: number) => (
                         <div key={sIdx} className="mb-8 pb-8">
@@ -1770,20 +1772,19 @@ function ContentTransformer({
                             <div className="text-3xl">{section.icon === 'umbrella' ? '☂️' : '📋'}</div>
                             <h4 className="text-xl font-bold text-gray-900">{section.title}</h4>
                           </div>
-                          
+                         
                           {section.points && section.points.map((point: any, pIdx: number) => (
                             <div key={pIdx} className="ml-12 mb-3">
                               <div className="font-semibold text-gray-800">{point.title}</div>
                               <div className="text-gray-600 text-sm">{point.text}</div>
                             </div>
                           ))}
-                          
                           {/* Sub-sections */}
                           {section.subSections && (
                             <div className="grid grid-cols-3 gap-4 mt-6 ml-12">
                               {section.subSections.map((sub: any, subIdx: number) => (
-                                <div 
-                                  key={subIdx} 
+                                <div
+                                  key={subIdx}
                                   className={clsx(
                                     'rounded-xl p-5',
                                     sub.color === 'blue' ? 'bg-blue-50' :
@@ -1807,7 +1808,7 @@ function ContentTransformer({
                           )}
                         </div>
                       ))}
-                      
+                     
                       {/* Critical Flags */}
                       {infographicData.criticalFlags && (
                         <div className="mt-8 pt-8">
@@ -2012,7 +2013,7 @@ function styleHTMLContent(content: string): string {
     tables.forEach((table) => {
       table.className = 'w-full  border-2 border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
       table.setAttribute('style', 'border-collapse: collapse; border: 2px solid rgb(0, 0, 0);');
-      
+     
       // Style table headers
       const headers = table.querySelectorAll('thead th, thead td');
       headers.forEach((header) => {
@@ -2105,7 +2106,7 @@ function styleHTMLContent(content: string): string {
         }
 
         div.className = `${bgColor} border-l-4 ${borderColor} p-4 rounded-r-lg mb-4`;
-        
+       
         // Style strong tags inside callouts as titles
         const strong = div.querySelector('strong');
         if (strong) {
@@ -2209,7 +2210,7 @@ function GenerateAudioButton({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=${language}`);
+      const res = await fetchWithAuth(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=${language}`);
       const data = await res.json();
       if (res.ok && data.audioUrl) {
         onAudioGenerated(data.audioUrl, {
@@ -2254,7 +2255,7 @@ function GenerateVideoButton({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/gpt-video`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/gpt-video`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ processed_module_id: moduleId }),
