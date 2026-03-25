@@ -32,6 +32,7 @@ function TrainingPlanContent() {
   const [quizLoadingModuleId, setQuizLoadingModuleId] = useState<string | null>(null);
   const [completedModules] = useState<string[]>([]);
   const [additionalReadings, setAdditionalReadings] = useState<any[] | null>(null);
+  const [moduleTitle, setModuleTitle] = useState<string>("");
 
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
 
@@ -108,6 +109,24 @@ function TrainingPlanContent() {
 
     if (!authLoading && employeeData && moduleId) {
       loadPlan();
+      
+      // Fetch module title
+      const fetchModuleTitle = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/training-modules/${moduleId}`, {
+            headers: { "X-User-ID": employeeData.user_id },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const title = data?.module?.title || data?.title || "";
+            setModuleTitle(title);
+          }
+        } catch (err) {
+          console.error("Failed to fetch module title:", err);
+        }
+      };
+      
+      fetchModuleTitle();
     }
   }, [employeeData, moduleId, authLoading, user]);
 
@@ -487,27 +506,6 @@ function TrainingPlanContent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-        {/* Header */}
-        <div
-          className="bg-white shadow-sm border-b"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="max-w-10xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center py-4">
-              <div className="flex items-center">
-                <Users className="w-8 h-8 text-green-600 mr-3" />
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900">
-                    Learner's Performance Sprint
-                  </h1>
-                </div>
-              </div>
-              <div className="relative" />
-            </div>
-          </div>
-        </div>
-
-        {/* Main content area */}
         <div className="px-4 py-8">
           <div className="max-w-7xl mx-auto">
           {/* Back Button */}
@@ -520,6 +518,14 @@ function TrainingPlanContent() {
           </button>
 
           {/* Header Card */}
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">
+              Learner's Performance Sprint{moduleTitle ? `- ${moduleTitle}` : ''}
+            </h1>
+            <p className="text-slate-600">Your personalized learning roadmap to master new skills</p>
+          </div>
+
+          {/* Main content area */}
           <Card className="mb-6 border-0 shadow-sm">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">

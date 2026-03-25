@@ -1765,6 +1765,9 @@ async def notify_whatsapp(
             module_title = module.get("title", "Learning Module")
             original_module_id = module.get("original_module_id")
            
+
+
+            print("\n[NOTIFY-WHATSAPP DEBUG] Module content fetched successfully", module)
             # Determine scheduled date based on offset
             from datetime import datetime, timedelta, date as dt_date
            
@@ -1787,6 +1790,9 @@ async def notify_whatsapp(
                 media_type = None
            
             elif content_type == "audio":
+
+                print(f"[NOTIFY-WHATSAPP DEBUG] Preparing audio content for module: {module_title}")
+                print(f"[NOTIFY-WHATSAPP DEBUG] Audio URL from DB: {module.get('audio_url', 'NONE')}")
                 audio_url = module.get("audio_url", "")
                 message_body = formatter.format_audio_message(module_title, "Audio Lesson")
                 media_url = audio_url
@@ -1817,6 +1823,10 @@ async def notify_whatsapp(
                 print(f"[NOTIFY-WHATSAPP DEBUG] Unknown content type: {content_type}")
                 continue
            
+
+            print(f"[NOTIFY-WHATSAPP DEBUG] Built message body for content type '{content_type}' with media_url: {media_url}")
+            print(f"[NOTIFY-WHATSAPP DEBUG] Message body: {message_body}")
+            print("Request Body",request)
             # Create scheduled_whatsapp record
             schedule_result = await create_scheduled_whatsapp(
                 company_id=request.company_id,

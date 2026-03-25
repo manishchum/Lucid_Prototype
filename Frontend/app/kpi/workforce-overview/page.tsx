@@ -468,19 +468,21 @@ export default function WorkforceOverview() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <main className="p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Workforce Overview</h1>
-            <p className="text-gray-600 text-sm">Monitor workforce capabilities and sprint allocation.</p>
+        {/* Header Card */}
+        <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-800 mb-2">Workforce Overview</h1>
+              <p className="text-slate-600">Monitor workforce capabilities and sprint allocation across your organization</p>
+            </div>
+            
+            <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6">
+              <Filter size={16} className="mr-2" />
+              Export Report
+            </Button>
           </div>
-          
-          <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6">
-            <Filter size={16} className="mr-2" />
-            Export Report
-          </Button>
         </div>
 
         {/* Role Analysis Section */}

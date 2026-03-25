@@ -340,10 +340,10 @@ export default function HumanInTheLoopPage() {
     <div className="min-h-screen bg-[#FAFBFC]">
       <main className="p-8">
         <div className="max-w-[2000px] mx-auto">
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-[#1E293B] mb-2">Content Pipeline Review</h1>
-            <p className="text-slate-500">Review and manage AI-generated content you uploaded or are assigned to review.</p>
+          {/* Header Card */}
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">Content Pipeline Review</h1>
+            <p className="text-slate-600">Review and manage AI-generated content you uploaded or are assigned to review.</p>
           </div>
 
           {/* Stats Cards */}

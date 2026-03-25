@@ -573,9 +573,10 @@ export default function EmployeesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="border-b border-gray-200 pb-4">
-        <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-        <p className="text-gray-600 mt-1">Manage users, assign sprints, and organize by departments</p>
+      {/* Header Card */}
+      <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">User Management</h1>
+        <p className="text-slate-600">Manage users, assign sprints, and organize by departments</p>
       </div>
       
       {/* success banners are shown via unified Radix toasts now */}
@@ -586,15 +587,15 @@ export default function EmployeesPage() {
       )}
 
       {/* Navigation Tabs */}
-      <div className="flex gap-4 border-b">
-        <Button
+      {/* <div className="flex gap-4 border-b"> */}
+        {/* <Button
           variant={!showAssignmentsView ? "default" : "ghost"}
           onClick={() => setShowAssignmentsView(false)}
           className="border-b-2 border-transparent data-[active=true]:border-blue-500"
         >
           <Users className="w-4 h-4 mr-2" />
           User Management
-        </Button>
+        </Button> */}
         {/* <Button
           variant={showAssignmentsView ? "default" : "ghost"}
           onClick={() => setShowAssignmentsView(true)}
@@ -603,7 +604,7 @@ export default function EmployeesPage() {
           <BookOpen className="w-4 h-4 mr-2" />
           Performance Sprint Assignments
         </Button> */}
-      </div>
+      {/* </div> */}
 
       {!showAssignmentsView ? (
         <>

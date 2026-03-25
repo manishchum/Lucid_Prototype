@@ -1590,9 +1590,10 @@ export default function UploadsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="border-b border-gray-200 pb-4">
-        <h1 className="text-2xl font-bold text-gray-900">Sprint Studio</h1>
-        <p className="text-gray-600 mt-1">Create New Sprint for your Organization</p>
+      {/* Header Card */}
+      <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">Sprint Studio</h1>
+        <p className="text-slate-600">Create New Sprint for your Organization</p>
       </div>
 
       <Card>

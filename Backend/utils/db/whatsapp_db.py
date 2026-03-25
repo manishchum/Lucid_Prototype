@@ -23,6 +23,8 @@ async def create_scheduled_whatsapp(
     Returns: {"data": record, "error": None} or {"data": None, "error": "..."}
     """
     try:
+
+        print("inside the sending payload")
         payload = {
             "company_id": company_id,
             "message_body": message_body,
@@ -44,8 +46,11 @@ async def create_scheduled_whatsapp(
         if media_type:
             payload["media_type"] = media_type
         
+        print("Inserting this kind payload to database",payload)
+
         response = supabase.table("scheduled_whatsapp").insert(payload).execute()
-        
+        print("this is the response fron the database")
+        print(response)
         if response.data:
             return {"data": response.data[0], "error": None}
         return {"data": None, "error": "Insert returned no data"}

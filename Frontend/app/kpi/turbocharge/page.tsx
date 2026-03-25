@@ -1100,67 +1100,63 @@ export default function KPITurbocharge() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <main className="p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <h1 className="text-3xl font-bold text-gray-900">KPI Turbocharge</h1>
-              {/* <span className="px-2.5 py-1 text-xs font-bold text-blue-600 bg-blue-50 rounded-full border border-blue-200">
-                Beta
-              </span> */}
+        {/* Header Card */}
+        <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-800 mb-2">KPI Turbocharge</h1>
+              <p className="text-slate-600">Outcome-based learning engine mapping capability to business performance.</p>
             </div>
-            <p className="text-gray-600 text-sm">Outcome-based learning engine. Mapping capability to production.</p>
+            {/* Workforce Readiness Index */}
+            <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200 px-6 py-4">
+              <div className="flex items-center gap-6">
+                <div>
+                  <div className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
+                    Workforce Readiness Index
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-bold text-gray-900">{workforceReadiness.score}%</span>
+                    {workforceReadiness.change > 0 && (
+                      <span className="text-sm font-semibold text-green-600 flex items-center gap-1">
+                        {/* <ArrowUpRight size={14} /> */}
+                        {/* {workforceReadiness.change}% */}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <Activity size={12} className="text-blue-600" />
+                    <span className="text-xs text-gray-600">{workforceReadiness.status}</span>
+                  </div>
+                </div>
+                <div className="relative w-24 h-24">
+                  <svg className="transform -rotate-90 w-24 h-24">
+                    <circle cx="48" cy="48" r="40" stroke="#E0E7FF" strokeWidth="8" fill="none" />
+                    <circle
+                      cx="48"
+                      cy="48"
+                      r="40"
+                      stroke="url(#gradient)"
+                      strokeWidth="8"
+                      fill="none"
+                      strokeDasharray={`${2 * Math.PI * 40 * (workforceReadiness.score / 100)} ${2 * Math.PI * 40}`}
+                      strokeLinecap="round"
+                    />
+                    <defs>
+                      <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#818CF8" />
+                        <stop offset="100%" stopColor="#3B66F5" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse" />
+                  </div>
+                </div>
+              </div>
+            </Card>
           </div>
-         
-          {/* Workforce Readiness Index */}
-          <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200 px-6 py-4">
-            <div className="flex items-center gap-6">
-              <div>
-                <div className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
-                  Workforce Readiness Index
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-bold text-gray-900">{workforceReadiness.score}%</span>
-                  {workforceReadiness.change > 0 && (
-                    <span className="text-sm font-semibold text-green-600 flex items-center gap-1">
-                      {/* <ArrowUpRight size={14} /> */}
-                      {/* {workforceReadiness.change}% */}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <Activity size={12} className="text-blue-600" />
-                  <span className="text-xs text-gray-600">{workforceReadiness.status}</span>
-                </div>
-              </div>
-              <div className="relative w-24 h-24">
-                <svg className="transform -rotate-90 w-24 h-24">
-                  <circle cx="48" cy="48" r="40" stroke="#E0E7FF" strokeWidth="8" fill="none" />
-                  <circle
-                    cx="48"
-                    cy="48"
-                    r="40"
-                    stroke="url(#gradient)"
-                    strokeWidth="8"
-                    fill="none"
-                    strokeDasharray={`${2 * Math.PI * 40 * (workforceReadiness.score / 100)} ${2 * Math.PI * 40}`}
-                    strokeLinecap="round"
-                  />
-                  <defs>
-                    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#818CF8" />
-                      <stop offset="100%" stopColor="#3B66F5" />
-                    </linearGradient>
-                  </defs>
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse" />
-                </div>
-              </div>
-            </div>
-          </Card>
         </div>
 
         {/* Filters */}

@@ -561,9 +561,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
       <main style={{ padding: 32 }}>
         <div style={{ marginBottom: 40 }}>
           <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, maxWidth: 1400}}>
-            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 600, color: '#1f2937' }}>
-              Browse Courses
-            </h1>
+            
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
               {isAdmin && (
                 <>
@@ -844,8 +842,8 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
 
   return (
     <main style={{ padding: 32 }}>
-      <h1>Welcome to Content Library</h1>
-      <p style={{ color: '#666', fontSize: 16 }}>Select "Content Library" to browse available courses.</p>
+      <h1>Welcome to Browse Sprints</h1>
+      <p style={{ color: '#666', fontSize: 16 }}>Select "Browse Sprints" to browse available Sprints.</p>
     </main>
   );
 };

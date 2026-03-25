@@ -528,21 +528,14 @@ export default function ScoreHistoryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pt-8 pb-12">
-      <main className="max-w-6xl mx-auto px-6 lg:px-8">
-          
-          {/* Dashboard Header */}
-          <div className="flex items-center gap-4 mb-10">
-            <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100">
-              <div className="text-2xl">📊</div>
-            </div>
-            <div>
-              <h1 className="text-3xl font-black text-slate-900 tracking-tight">
-                Your Learning Journey
-              </h1>
-              <p className="text-slate-500 font-medium text-sm">Review your style & scores</p>
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <div className="px-4 py-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">Your Learning Journey</h1>
+            <p className="text-slate-600">Review your style & scores</p>
           </div>
+          <main className="max-w-6xl mx-auto px-6 lg:px-8">
 
           {/* Tabs Navigation */}
           <div className="flex gap-2 mb-8">
@@ -801,6 +794,8 @@ export default function ScoreHistoryPage() {
         )}
 
       </main>
+        </div>
+      </div>
     </div>
   );
 }
