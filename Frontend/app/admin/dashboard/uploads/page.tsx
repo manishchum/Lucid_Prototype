@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
 interface Admin {
   user_id: string
@@ -137,7 +138,7 @@ function ContentUpload({
       const firstFile = uploadFiles[0];
       const initialStatus = isMediaFile(firstFile?.type || "") ? "transcribing" : "summarizing";
 
-      const statusRes = await fetch(
+      const statusRes = await fetchWithAuth(
         `${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`,
         {
           method: "PATCH",
@@ -173,7 +174,7 @@ function ContentUpload({
         if (!extractRes.ok) throw new Error("Transcription failed");
         const { extractedText } = await extractRes.json();
 
-        await fetch(`${backendUrl}/api/openai-upload/text`, {
+        await fetchWithAuth(`${backendUrl}/api/openai-upload/text`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: extractedText, moduleId }),
@@ -188,7 +189,7 @@ function ContentUpload({
         }
         formData.append("moduleId", String(moduleId));
 
-        const aiRes = await fetch(`${backendUrl}/api/openai-upload/file`, {
+        const aiRes = await fetchWithAuth(`${backendUrl}/api/openai-upload/file`, {
           method: "POST",
           body: formData,
         });
@@ -205,7 +206,7 @@ function ContentUpload({
     } catch (err) {
       console.error("[AI] Pipeline failed:", err);
 
-      const failRes = await fetch(
+      const failRes = await fetchWithAuth(
         `${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`,
         {
           method: "PATCH",
@@ -303,7 +304,7 @@ function ContentUpload({
       
       if (uploadedFile) {
         // Create training module via backend API
-        const createRes = await fetch(`${API_URL}/api/training-modules/`, {
+        const createRes = await fetchWithAuth(`${API_URL}/api/training-modules/`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -965,7 +966,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
         // Update module status in database if it changed (fire and forget via backend API)
         if (finalStatus !== module.processing_status) {
-          fetch(`${API_URL}/api/training-modules/${encodeURIComponent(module.module_id)}/processing-status`, {
+          fetchWithAuth(`${API_URL}/api/training-modules/${encodeURIComponent(module.module_id)}/processing-status`, {
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',
@@ -1089,7 +1090,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
     try {
       // Delete module via backend API
-      const deleteRes = await fetch(`${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}`, {
+      const deleteRes = await fetchWithAuth(`${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',

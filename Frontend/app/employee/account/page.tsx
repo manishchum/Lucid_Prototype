@@ -188,7 +188,7 @@ export default function AccountPage() {
     setPasswordLoading(true);
     setPasswordError("");
     try {
-      const res = await fetch(`${API_URL}/api/change-password`, {
+      const res = await fetchWithAuth(`${API_URL}/api/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -230,7 +230,7 @@ export default function AccountPage() {
     setPasswordLoading(true);
     setPasswordError("");
     try {
-      const res = await fetch(`${API_URL}/api/change-password`, {
+      const res = await fetchWithAuth(`${API_URL}/api/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
