@@ -394,7 +394,7 @@ function ContentUpload({
     // Upload section
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div className="md:col-span-2">
-        <Label className="mb-2 block">Sprint Documents (PDF)</Label>
+        <Label className="mb-2 block">Sprint Documents </Label>
 
         <div
           onDragOver={(e) => e.preventDefault()}
@@ -413,14 +413,14 @@ function ContentUpload({
           </p>
 
           <p className="text-xs text-gray-500 mt-1">
-            Maximum file size 4MB. PDF, PPT and DOCX only.
+            Maximum file size 4MB. PDF, PPTx and DOCX only.
           </p>
 
           <input
             id="file-upload"
             type="file"
             multiple
-            accept=".pdf"
+            accept=".pdf,.pptx,.docx"
             className="hidden"
             onChange={(e) => {
               if (!e.target.files) return;
@@ -794,7 +794,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
 function TrainingContentManagement({ companyId, adminId }: { companyId: string; adminId: string }) {
   const [selectedModule, setSelectedModule] = useState<any | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(1.25);
 
   const files = (() => {
     if (!selectedModule) return [];
@@ -1120,11 +1120,13 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     );
   }
 
-  const isViewDisabled = (module: any) => {
-  const status = module.processing_status?.toLowerCase();
+  const getModuleStatus = (module: any) =>
+    (module.processing_status || "").toLowerCase();
 
-  return status !== "completed";
-};
+  const isModuleReady = (module: any) =>
+    getModuleStatus(module) === "completed";
+
+  const isViewDisabled = (module: any) => !isModuleReady(module);
 
 
   return (
@@ -1153,7 +1155,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     </div>
 
     {/* Content Area */}
-    <div className="p-6 bg-gray-50 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 100px)' }}>
+    <div className="p-6 bg-gray-50 overflow-hidden" style={{ maxHeight: 'calc(90vh - 100px)' }}>
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
 
         {/* LEFT — DOCUMENT PREVIEW */}
@@ -1176,17 +1178,12 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           <div className="relative bg-white border border-gray-200 rounded-xl flex items-center justify-center min-h-[450px] shadow-sm">
             {previewUrl ? (
               <>
-                <div className="absolute inset-0 overflow-auto flex items-start justify-center p-4">
-                  <div
-                    style={{
-                      transform: `scale(${zoom})`,
-                      transformOrigin: "top center",
-                      transition: "transform 0.2s"
-                    }}
-                  >
+                <div className="absolute inset-0 overflow-hidden flex items-start justify-center p-4">
+                  <div className="w-full h-full">
                     <iframe
-                      src={`${previewUrl}#toolbar=0&navpanes=0`}
-                      className="w-[600px] h-[800px] rounded-lg border border-gray-100"
+                      key={`${previewUrl}-${zoom}`}
+                      src={`${previewUrl}#toolbar=0&navpanes=0&zoom=${Math.round(zoom * 100)}`}
+                      className="w-full h-[75vh] rounded-lg border border-gray-100"
                     />
                   </div>
                 </div>
@@ -1195,7 +1192,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                     variant="outline"
                     size="sm"
                     className="bg-white/90 backdrop-blur"
-                    onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
+                    onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))}
                   >
                     -
                   </Button>
@@ -1203,7 +1200,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                     variant="outline"
                     size="sm"
                     className="bg-white/90 backdrop-blur"
-                    onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
+                    onClick={() => setZoom((z) => Math.min(4, z+0.25))}
                   >
                     +
                   </Button>
@@ -1382,91 +1379,85 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
               </div>
 
               <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isViewDisabled(module)}
+                  className={isViewDisabled(module) ? "opacity-50 cursor-not-allowed" : ""}
+                  onClick={async () => {
+                    if (isViewDisabled(module)) return;
+                    setPreviewUrl(null);
+                    setSelectedModule(module);
 
-              <Button
-              variant="outline"
-              size="sm"
-              disabled={isViewDisabled(module)}
-              className={isViewDisabled(module) ? "opacity-50 cursor-not-allowed" : ""}
-              onClick={async () => {
-                if (isViewDisabled(module)) return;
-                setPreviewUrl(null);
-                setSelectedModule(module);
+                    try {
+                      console.log('[View Button] Loading module:', module.title);
+                      console.log('[View Button] Content URL:', module.content_url);
 
-                try {
-                  console.log('[View Button] Loading module:', module.title);
-                  console.log('[View Button] Content URL:', module.content_url);
-                  
-                  const url = new URL(module.content_url);
-                  const pathname = decodeURIComponent(url.pathname);
-                  console.log('[View Button] Decoded pathname:', pathname);
-                  
-                  // Supabase URLs look like: /storage/v1/object/public/content library/uploads/...
-                  // We need to extract just "uploads/..." part
-                  // Patterns to try (with optional /storage/v1 prefix):
-                  let pathMatch = pathname.match(/\/(?:storage\/v1\/)?object\/(?:public|sign)\/training-content\/(.+)$/);
-                  let bucketName = 'training-content';
-                  
-                  if (!pathMatch) {
-                    pathMatch = pathname.match(/\/(?:storage\/v1\/)?object\/(?:public|sign)\/content library\/(.+)$/);
-                    bucketName = 'content library';
-                  }
-                  
-                  // Fallback: try without /object prefix
-                  if (!pathMatch) {
-                    pathMatch = pathname.match(/training-content\/(.+)$/);
-                    bucketName = 'training-content';
-                  }
-                  
-                  if (!pathMatch) {
-                    pathMatch = pathname.match(/content library\/(.+)$/);
-                    bucketName = 'content library';
-                  }
+                      const url = new URL(module.content_url);
+                      const pathname = decodeURIComponent(url.pathname);
+                      console.log('[View Button] Decoded pathname:', pathname);
 
-                  if (!pathMatch || !pathMatch[1]) {
-                    console.log('[View Button] No bucket/path pattern found, using URL as-is');
-                    setPreviewUrl(module.content_url);
-                    return;
-                  }
+                      let pathMatch = pathname.match(/\/(?:storage\/v1\/)?object\/(?:public|sign)\/training-content\/(.+)$/);
+                      let bucketName = 'training-content';
 
-                  const storagePath = pathMatch[1];
-                  console.log('[View Button] Bucket:', bucketName, 'Path:', storagePath);
+                      if (!pathMatch) {
+                        pathMatch = pathname.match(/\/(?:storage\/v1\/)?object\/(?:public|sign)\/content library\/(.+)$/);
+                        bucketName = 'content library';
+                      }
 
-                  const { data, error } = await supabase
-                    .storage
-                    .from(bucketName)
-                    .getPublicUrl(storagePath);
+                      if (!pathMatch) {
+                        pathMatch = pathname.match(/training-content\/(.+)$/);
+                        bucketName = 'training-content';
+                      }
 
-                  if (error) {
-                    console.warn("[View Button] Signed URL failed:", error);
-                    setPreviewUrl(module.content_url);
-                    return;
-                  }
+                      if (!pathMatch) {
+                        pathMatch = pathname.match(/content library\/(.+)$/);
+                        bucketName = 'content library';
+                      }
 
-                  console.log('[View Button] Generated signed URL successfully');
-                  setPreviewUrl(data.publicUrl);
+                      if (!pathMatch || !pathMatch[1]) {
+                        console.log('[View Button] No bucket/path pattern found, using URL as-is');
+                        setPreviewUrl(module.content_url);
+                        return;
+                      }
 
-                } catch (err) {
-                  console.error("[View Button] Preview error:", err);
-                  setPreviewUrl(module.content_url);
-                }
-              }}
-              >
-              <Eye className="w-4 h-4 mr-1"/>
+                      const storagePath = pathMatch[1];
+                      console.log('[View Button] Bucket:', bucketName, 'Path:', storagePath);
 
-            {isViewDisabled(module) ? "Preparing..." : "View"}
-              </Button>
+                      const { data, error } = await supabase
+                        .storage
+                        .from(bucketName)
+                        .getPublicUrl(storagePath);
 
-              <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleDeleteModule(module.module_id)}
-              className="text-red-600"
-              >
-              <Trash2 className="w-4 h-4 mr-1"/>
-              Delete
-              </Button>
+                      if (error) {
+                        console.warn("[View Button] Signed URL failed:", error);
+                        setPreviewUrl(module.content_url);
+                        return;
+                      }
 
+                      console.log('[View Button] Generated signed URL successfully');
+                      setPreviewUrl(data.publicUrl);
+                    } catch (err) {
+                      console.error("[View Button] Preview error:", err);
+                      setPreviewUrl(module.content_url);
+                    }
+                  }}
+                >
+                  <Eye className="w-4 h-4 mr-1" />
+                  {isModuleReady(module) ? "View" : "Preparing..."}
+                </Button>
+
+                {isModuleReady(module) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDeleteModule(module.module_id)}
+                    className="text-red-600"
+                  >
+                    <Trash2 className="w-4 h-4 mr-1" />
+                    Delete
+                  </Button>
+                )}
               </div>
 
               </div>
