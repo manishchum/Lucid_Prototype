@@ -663,13 +663,13 @@ const [companyId, setCompanyId] = useState<string>("")
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <main className="flex-1 transition-all duration-300 p-8">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <main className="p-8">
         <div className="max-w-7xl mx-auto space-y-6">
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">KPI Configuration</h1>
-            <p className="text-gray-600 mt-1">Upload KPI scores and definitions to configure success metrics</p>
+          {/* Header Card */}
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">KPI Configuration</h1>
+            <p className="text-slate-600">Upload KPI scores and definitions to configure success metrics for your organization</p>
           </div>
 
           {/* Upload Sections - Consistent Design */}
