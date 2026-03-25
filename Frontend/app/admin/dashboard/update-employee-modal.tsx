@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/lib/supabase";
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 interface Employee {
   user_id: string;
@@ -120,7 +121,7 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
     try {
       // Use backend API to fetch role assignments (migrated off frontend DB access)
       const requesterId = (typeof (adminId as any) !== 'undefined') ? (adminId as string) : employee.user_id;
-      const res = await fetch(`${API_BASE}/api/roles/users/${encodeURIComponent(employee.user_id)}`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/roles/users/${encodeURIComponent(employee.user_id)}`, {
         headers: { 'X-User-ID': requesterId }
       });
 
@@ -289,7 +290,7 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
     }
 
     try {
-      const updateRes = await fetch(`${API_BASE}/api/users/${encodeURIComponent(employee.user_id)}`, {
+      const updateRes = await fetchWithAuth(`${API_BASE}/api/users/${encodeURIComponent(employee.user_id)}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
@@ -327,7 +328,7 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
         const assignmentsToRevoke = (currentAssignments || []).filter((a: any) => rolesToDeactivate.includes(a.role_id));
         for (const a of assignmentsToRevoke) {
           try {
-            await fetch(`${API_BASE}/api/roles/assignments/${encodeURIComponent(a.user_role_assignment_id)}`, {
+            await fetchWithAuth(`${API_BASE}/api/roles/assignments/${encodeURIComponent(a.user_role_assignment_id)}`, {
               method: 'DELETE',
               headers: { 'X-User-ID': requesterId }
             });
@@ -342,7 +343,7 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
       if (rolesToAdd.length > 0) {
         for (const roleId of rolesToAdd) {
           try {
-            await fetch(`${API_BASE}/api/roles/assignments`, {
+            await fetchWithAuth(`${API_BASE}/api/roles/assignments`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',

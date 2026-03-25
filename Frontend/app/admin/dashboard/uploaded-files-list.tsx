@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase"
 import { toast as shadcnToast } from '@/hooks/use-toast'
 import { AIAnalysisView } from "./ai-analysis-view"
 import { ProcessingStatusComponent } from "./processing-status"
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
 interface TrainingModule {
@@ -67,7 +68,7 @@ export function UploadedFilesList({ modules, onModuleDeleted }: UploadedFilesLis
       const userId = authData?.user?.id || '';
 
       // Call backend route to delete module (backend should remove storage + DB row)
-      const res = await fetch(`${API_BASE}/api/training-modules/${encodeURIComponent(moduleId)}`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/training-modules/${encodeURIComponent(moduleId)}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
