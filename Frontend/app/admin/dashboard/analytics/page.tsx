@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 import { BarChart3, TrendingUp, CheckCircle, User, BookOpen, AlertCircle, Target, Brain, FileText, Clock, Award } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
@@ -51,7 +52,7 @@ const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 // helper: fetch users for a company via backend (do not query users table from frontend)
 const fetchCompanyUsers = async (companyId: string, adminUserId?: string) => {
   try {
-    const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+    const res = await fetchWithAuth(`${API_URL}/api/users/company/${companyId}`, {
       headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
     });
     if (!res.ok) return [];
@@ -66,7 +67,7 @@ const fetchCompanyUsers = async (companyId: string, adminUserId?: string) => {
 
 const loadModules = async (companyId: string, adminUserId?: string) => {
   try {
-    const res = await fetch(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
+    const res = await fetchWithAuth(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
       headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
     });
     if (!res.ok) {
@@ -119,7 +120,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
     setLoading(true);
     try {
       try{
-        const compRes = await fetch(`${API_URL}/api/companies/${encodeURIComponent(companyId)}`);
+        const compRes = await fetchWithAuth(`${API_URL}/api/companies/${encodeURIComponent(companyId)}`);
         if (compRes.ok) {
           const compPayload = await compRes.json().catch(() => null);
           const companyData = compPayload?.company ?? compPayload;
@@ -162,7 +163,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       }
 
       // Query learning_plan for users in this company via backend API
-      const lpRes = await fetch(
+      const lpRes = await fetchWithAuth(
         `${API_URL}/api/learning-plans/?limit=5000`,
         { headers: { 'X-User-ID': userId || '' } }
       );
@@ -206,7 +207,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
         const processedModulesData: any[] = [];
         for (const origId of moduleIds) {
           try {
-            const pmRes = await fetch(`${API_URL}/api/processed-modules/original-module/${encodeURIComponent(origId)}`, {
+            const pmRes = await fetchWithAuth(`${API_URL}/api/processed-modules/original-module/${encodeURIComponent(origId)}`, {
               headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
             });
             if (!pmRes.ok) {
@@ -240,7 +241,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
          const moduleProgressData : any[] = [];
           for (const pmId of allProcessedModuleIds) {
             try {
-              const mpRes = await fetch(`${API_URL}/api/module-progress/module/${encodeURIComponent(pmId)}`, {
+              const mpRes = await fetchWithAuth(`${API_URL}/api/module-progress/module/${encodeURIComponent(pmId)}`, {
                 headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
               });
 
@@ -317,7 +318,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       // but we'll fetch assessment details separately if needed
 
       // Fetch employee assessments from backend
-      const assessmentRes = await fetch(
+      const assessmentRes = await fetchWithAuth(
         `${API_URL}/api/employee-assessments/company/${encodeURIComponent(companyId)}?${params.toString()}`,
         {
           headers: {
@@ -354,7 +355,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       const assessmentDetailsMap = new Map();
       for (const assessId of assessmentIds) {
         try {
-          const res = await fetch(`${API_URL}/api/assessments/${encodeURIComponent(assessId)}`, {
+          const res = await fetchWithAuth(`${API_URL}/api/assessments/${encodeURIComponent(assessId)}`, {
             headers: { 'X-User-ID': adminUserId }
           });
           if (res.ok) {
@@ -378,7 +379,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       const processedModulesMap = new Map();
       for (const pmId of processedModuleIds) {
         try {
-          const res = await fetch(`${API_URL}/api/processed-modules/${encodeURIComponent(pmId)}`, {
+          const res = await fetchWithAuth(`${API_URL}/api/processed-modules/${encodeURIComponent(pmId)}`, {
             headers: { 'X-User-ID': adminUserId }
           });
           if (res.ok) {
@@ -402,7 +403,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       const trainingModulesMap = new Map();
       for (const modId of originalModuleIds) {
         try {
-          const res = await fetch(`${API_URL}/api/training-modules/${encodeURIComponent(modId)}`, {
+          const res = await fetchWithAuth(`${API_URL}/api/training-modules/${encodeURIComponent(modId)}`, {
             headers: { 'X-User-ID': adminUserId }
           });
           if (res.ok) {
@@ -530,7 +531,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       let assessmentData: any[] = [];
       try {
         if (adminUserId) {
-          const assessmentRes = await fetch(
+          const assessmentRes = await fetchWithAuth(
             `${API_URL}/api/employee-assessments/company/${encodeURIComponent(companyId)}?limit=500`,
             {
               headers: {
@@ -1797,7 +1798,7 @@ export default function AnalyticsPage() {
 
     try {
       // Get user data from users table via backend API
-      const userRes = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
+      const userRes = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
 
       if (!userRes.ok) {
         console.error("User not found or inactive:");
@@ -1817,7 +1818,7 @@ export default function AnalyticsPage() {
       }
       
       // Check if user has admin role through backend API
-      const rolesRes = await fetch(`${API_URL}/api/roles/users/${userData.user_id}`, {
+      const rolesRes = await fetchWithAuth(`${API_URL}/api/roles/users/${userData.user_id}`, {
         headers: {
           'X-User-ID': userData.user_id
         }

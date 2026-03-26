@@ -161,7 +161,7 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
   // Check if email already exists (excluding current employee)
   const checkEmailExists = async (email: string): Promise<boolean> => {
     try {
-      const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+      const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
       if (res.status === 404) return false;
       if (!res.ok) {
         console.error('Failed to check email existence:', await res.text().catch(() => res.statusText));
