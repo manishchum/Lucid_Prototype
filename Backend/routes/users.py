@@ -90,10 +90,12 @@ async def list_users_by_filter(
 async def list_users(
     company_id: str,
     user_id: str = Header(..., alias="X-User-ID"),
+    x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
     status: Optional[str] = Query(None),
     department_id: Optional[str] = Query(None)
 ):
-    result = await get_users_by_company(user_id, company_id)
+    effective_company_id = x_company_id or company_id
+    result = await get_users_by_company(user_id, effective_company_id)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     users = result["data"] or []
