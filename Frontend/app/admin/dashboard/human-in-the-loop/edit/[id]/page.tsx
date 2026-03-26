@@ -44,7 +44,7 @@ const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const fetchUserByEmail = async (email: string | null) => {
   if(!email) return null;
   try{
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
     if (!res.ok) return null;
     const payload = await res.json();
     let u = payload?.user ?? payload;
@@ -276,7 +276,7 @@ export default function EditModulePage() {
       if (!currentUserId) return;
 
       // Get the latest in_review entry per processed_module_id for this module
-      const response = await fetch(
+      const response = await fetchWithAuth(
         `${API_BASE}/api/content-generation-history/by-original-module/${moduleId}?status=in_review&limit=500`,
         {
           headers: {
@@ -481,7 +481,7 @@ export default function EditModulePage() {
     setSubmitting(true);
     try {
       // Get all in_review history entries for this module
-      const response = await fetch(
+      const response = await fetchWithAuth(
         `${API_BASE}/api/content-generation-history/by-original-module/${moduleId}?status=in_review&limit=500`,
         {
           headers: {
@@ -589,7 +589,7 @@ export default function EditModulePage() {
 
       // Mark all in_review entries as rejected
       for (const entry of pendingEntries) {
-        const statusResponse = await fetch(
+        const statusResponse = await fetchWithAuth(
           `${API_BASE}/api/content-generation-history/${entry.content_generation_history_id}/status`,
           {
             method: 'PATCH',
