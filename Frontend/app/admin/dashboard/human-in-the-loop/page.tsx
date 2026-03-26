@@ -8,6 +8,7 @@ import { Search, Filter, FileText, Clock, AlertCircle, Upload, UserCheck } from 
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 interface TrainingModule {
   module_id: string;
@@ -78,7 +79,7 @@ const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const fetchUserByEmail = async (email: string | null) => {
   if (!email) return null;
   try {
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
     if (!res.ok) return null;
     const payload = await res.json();
     let u = payload?.user ?? payload;

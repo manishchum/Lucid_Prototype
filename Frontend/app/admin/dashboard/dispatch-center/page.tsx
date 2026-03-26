@@ -87,7 +87,7 @@ interface AssignedUser {
 const fetchUserByEmail = async (email: string | null) => {
   if (!email) return null;
   try {
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
     if (!res.ok) return null;
     const payload = await res.json();
     let u = payload?.user ?? payload;
@@ -230,7 +230,7 @@ export default function AdminDispatchCenterPage() {
     const fetchSprints = async () => {
       setLoadingSprints(true);
       try {
-        const res = await fetch(`${API_BASE}/api/dispatch/sprints/${currentUser.company_id}`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/dispatch/sprints/${currentUser.company_id}`, {
           headers: { 'X-User-ID': currentUser.user_id },
         });
         if (res.ok) {
@@ -267,13 +267,13 @@ export default function AdminDispatchCenterPage() {
       setMultiModuleResult(null);
       try {
         const [subRes, usersRes, imageRes] = await Promise.all([
-          fetch(`${API_BASE}/api/dispatch/sub-modules/${selectedSprintId}`, {
+          fetchWithAuth(`${API_BASE}/api/dispatch/sub-modules/${selectedSprintId}`, {
             headers: { 'X-User-ID': currentUser.user_id },
           }),
-          fetch(`${API_BASE}/api/dispatch/assigned-users/${selectedSprintId}`, {
+          fetchWithAuth(`${API_BASE}/api/dispatch/assigned-users/${selectedSprintId}`, {
             headers: { 'X-User-ID': currentUser.user_id },
           }),
-          fetch(`${API_BASE}/api/dispatch/sprint-image/${selectedSprintId}`, {
+          fetchWithAuth(`${API_BASE}/api/dispatch/sprint-image/${selectedSprintId}`, {
             headers: { 'X-User-ID': currentUser.user_id },
           }),
         ]);
