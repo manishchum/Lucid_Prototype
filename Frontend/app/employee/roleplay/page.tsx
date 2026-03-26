@@ -14,6 +14,7 @@ import AssessmentReportComponent from '@/components/roleplay/AssessmentReport';
 import { createRolePlayAssessment } from '@/lib/roleplayDatabase';
 import { supabase } from '@/lib/supabase';
 import { callGemini } from '@/lib/gemini-helper';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 interface AssessmentReport {
@@ -384,7 +385,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
     try {
       console.log('📊 Generating fresh assessment...');
-      const response = await fetch(`${API_URL}/api/roleplay/assessment`, {
+      const response = await fetchWithAuth(`${API_URL}/api/roleplay/assessment`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -5,6 +5,7 @@ import ContentLibrary from '@/components/content-library/ContentLibrary';
 import { useAuth } from '@/contexts/auth-context';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 export const dynamic = "force-dynamic";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -12,7 +13,7 @@ const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const fetchUserByEmail = async (email: string | undefined | null) => {
   if (!email) return null;
   try {
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
     if (!res.ok) return null;
     const payload = await res.json();
     let u = payload?.user ?? payload;
@@ -53,7 +54,7 @@ export default function ContentLibraryPage() {
         return;
       }
 
-      const res = await fetch(`${API_BASE}/api/roles/users/${employeeData.user_id}`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/roles/users/${employeeData.user_id}`, {
         headers: { 'X-User-ID': employeeData.user_id.toString() }
       });
 

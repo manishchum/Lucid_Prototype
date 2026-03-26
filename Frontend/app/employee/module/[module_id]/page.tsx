@@ -1104,7 +1104,7 @@ function ContentTransformer({
     setRoleplayLoading(true);
 
     try {
-      const response = await fetch('/api/roleplay', {
+      const response = await fetchWithAuth('/api/roleplay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
