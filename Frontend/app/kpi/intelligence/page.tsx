@@ -28,6 +28,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 interface KPIIndicator {
   name: string;
@@ -100,7 +101,7 @@ export default function KPIIntelligencePage() {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch('/api/parse-file', {
+      const response = await fetchWithAuth('/api/parse-file', {
         method: 'POST',
         body: formData,
       });
@@ -142,7 +143,7 @@ export default function KPIIntelligencePage() {
     setParsedData(null);
 
     try {
-      const response = await fetch('/api/parse-job-description', {
+      const response = await fetchWithAuth('/api/parse-job-description', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -15,6 +15,7 @@ import { auth, googleProvider } from "@/lib/firebase"
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import bcrypt from "bcryptjs"
+import { fetchWithAuth } from "@/lib/fetch-with-auth"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -49,7 +50,7 @@ function LoginContent() {
 
   const checkUserAccess = async (userEmail: string) => {
     try{
-      const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(userEmail)}`)
+      const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(userEmail)}`)
       if (!res.ok) {
         throw new Error("Access denied. Your email is not in the allowed users list.")
       }
@@ -72,7 +73,7 @@ function LoginContent() {
     setError("")
 
     try {
-      const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`)
+      const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`)
       if (!res.ok) {
         throw new Error("Invalid email or password")
       }
@@ -109,7 +110,7 @@ function LoginContent() {
     } catch (error: any) {
       setError(error.message)
       try {
-        await fetch('/api/logs', {
+        await fetchWithAuth('/api/logs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -151,7 +152,7 @@ function LoginContent() {
         setError(error.message)
       }
       try {
-        await fetch('/api/logs', {
+        await fetchWithAuth('/api/logs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

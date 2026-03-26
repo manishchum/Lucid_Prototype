@@ -19,6 +19,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 interface KPIData {
   id: string;
@@ -70,13 +71,34 @@ interface HeatmapData {
   }[];
 }
 
+interface BackendUser {
+  user_id: string;
+  company_id: string;
+  name: string;
+  email?: string;
+}
+
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchBackendUserByEmail = async (email: string): Promise<BackendUser | null> => {
+  try {
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if (!res.ok) return null;
+    const payload = await res.json();
+    let user = payload?.user ?? payload;
+    if (Array.isArray(user)) user = user[0];
+    return user || null;
+  } catch (error) {
+    console.error('Error fetching backend user:', error);
+    return null;
+  }
+};
 
 const fetchUserByFilter = async (filters: {
   functionId?: string;
   subFunctionId?: string;
   titleId?: string;
-}) => {
+}): Promise<BackendUser[]> => {
   try{
     const params = new URLSearchParams();
     if (filters.functionId) params.append('function_id', filters.functionId);
@@ -85,7 +107,7 @@ const fetchUserByFilter = async (filters: {
     params.append('is_active', 'true');
     params.append('employment_status', 'ACTIVE');
 
-    const res = await fetch(`${API_BASE}/api/users?${params.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/api/users?${params.toString()}`);
     if (!res.ok) return [];
     const payload = await res.json();
     const users = payload?.users ?? payload;
@@ -108,6 +130,7 @@ export default function KPITurbocharge() {
   const [selectedKpiId, setSelectedKpiId] = useState<string>('');
   const {user, loading:authLoading} = useAuth();
   const router = useRouter();
+  const [currentEmployee, setCurrentEmployee] = useState<BackendUser | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [kpiData, setKpiData] = useState<KPIData[]>([]);
@@ -130,9 +153,21 @@ export default function KPITurbocharge() {
           }
         }, [user, authLoading, router]);
   useEffect(() => {
+    const loadCurrentEmployee = async () => {
+      if (!user?.email) {
+        setCurrentEmployee(null);
+        return;
+      }
+
+      const backendUser = await fetchBackendUserByEmail(user.email);
+      setCurrentEmployee(backendUser);
+    };
+
+    loadCurrentEmployee();
+  }, [user?.email]);
+  useEffect(() => {
     loadFilters();
 
-    loadModules();
     if (selectedFunctionId) {
       loadSubFunctions(selectedFunctionId);
     } else {
@@ -142,6 +177,12 @@ export default function KPITurbocharge() {
       setSelectedTitleId('');
     }
   }, [selectedFunctionId]);
+
+  useEffect(() => {
+    if (currentEmployee) {
+      loadModules();
+    }
+  }, [currentEmployee]);
 
   useEffect(() => {
     if (selectedSubFunctionId) {
@@ -232,11 +273,11 @@ export default function KPITurbocharge() {
 
   const loadModules = async () => {
     try {
-      if (!user?.company_id) return;
+      if (!currentEmployee?.company_id) return;
 
-      const res = await fetch(`${API_BASE}/api/training-modules/company/${user.company_id}`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${currentEmployee.company_id}`, {
         headers: {
-          'X-User-ID': user.user_id
+          'X-User-ID': currentEmployee.user_id
         }
       });
 
@@ -318,12 +359,12 @@ export default function KPITurbocharge() {
 
       // Fetch related modules for each KPI
       const kpiDataWithModules = await Promise.all(
-        kpis.map(async (kpi) => {
+        kpis.map(async (kpi: any) => {
           let modules: any[] = [];
-          if (user?.company_id) {
-            const res = await fetch(`${API_BASE}/api/training-modules/company/${user.company_id}`, {
+          if (currentEmployee?.company_id) {
+            const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${currentEmployee.company_id}`, {
               headers: {
-                'X-User-ID': user.user_id
+                'X-User-ID': currentEmployee.user_id
               }
             });
 
@@ -373,10 +414,10 @@ export default function KPITurbocharge() {
 
       // Get all training modules
       let allModules: any[] = [];
-      if (user?.company_id) {
-        const res = await fetch(`${API_BASE}/api/training-modules/company/${user.company_id}`, {
+      if (currentEmployee?.company_id) {
+        const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${currentEmployee.company_id}`, {
           headers: {
-            'X-User-ID': user.user_id
+            'X-User-ID': currentEmployee.user_id
           }
         });
 
@@ -408,7 +449,7 @@ export default function KPITurbocharge() {
 
           // Filter only users who have started the module (processed_module_ids is not null/empty)
           const startedUsers = learningPlans.filter(
-            lp => lp.processed_module_ids !== null && lp.processed_module_ids !== ''
+            (lp: { processed_module_ids: string | null; overall_status: boolean | null }) => lp.processed_module_ids !== null && lp.processed_module_ids !== ''
           );
 
           if (startedUsers.length === 0) {
@@ -416,7 +457,7 @@ export default function KPITurbocharge() {
           }
 
           // Count users who passed (overall_status === true)
-          const passedUsers = startedUsers.filter(lp => lp.overall_status === true).length;
+          const passedUsers = startedUsers.filter((lp: { overall_status: boolean | null }) => lp.overall_status === true).length;
           const totalStartedUsers = startedUsers.length;
 
           // Calculate pass rate (completion rate)
@@ -490,10 +531,10 @@ export default function KPITurbocharge() {
         .order('assigned_on', { ascending: false });
 
       let modules: any[] = [];
-      if (user?.company_id) {
-        const res = await fetch(`${API_BASE}/api/training-modules/company/${user.company_id}`, {
+      if (currentEmployee?.company_id) {
+        const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${currentEmployee.company_id}`, {
           headers: {
-            'X-User-ID': user.user_id
+            'X-User-ID': currentEmployee.user_id
           }
         });
 
@@ -509,7 +550,7 @@ export default function KPITurbocharge() {
         .limit(3);
 
       const actions: RecommendedAction[] = users.slice(0, 4).map((user, idx) => {
-        const userPlans = learningPlans?.filter(lp => lp.user_id === user.user_id) || [];
+        const userPlans = learningPlans?.filter((lp: { user_id: string }) => lp.user_id === user.user_id) || [];
         const latestPlan = userPlans[0];
        
         const module = modules?.find(m => m.module_id === latestPlan?.module_id);
@@ -592,10 +633,10 @@ export default function KPITurbocharge() {
 
       // Get module performance (average quiz scores from employee_assessments)
       let assessmentScores: any[] = [];
-      if (user?.company_id) {
-        const res = await fetch(`${API_BASE}/api/employee-assessments/company/${user.company_id}?limit=500`, {
+      if (currentEmployee?.company_id) {
+        const res = await fetchWithAuth(`${API_BASE}/api/employee-assessments/company/${currentEmployee.company_id}?limit=500`, {
           headers: {
-            'X-User-ID': user.user_id
+            'X-User-ID': currentEmployee.user_id
           }
         });
 
@@ -616,7 +657,7 @@ export default function KPITurbocharge() {
 
       for (const user of users) {
         // Get KPI scores for this user
-        const userKpiScores = kpiScores?.filter(k => k.user_id === user.user_id) || [];
+        const userKpiScores = kpiScores?.filter((k: { user_id: string; score: number }) => k.user_id === user.user_id) || [];
        
         if (userKpiScores.length === 0) continue;
 
@@ -627,7 +668,7 @@ export default function KPITurbocharge() {
           avgKpiScore = Number(userKpiScores[0].score);
         } else {
           // Otherwise, average across all KPIs
-          avgKpiScore = userKpiScores.reduce((sum, k) => sum + Number(k.score), 0) / userKpiScores.length;
+          avgKpiScore = userKpiScores.reduce((sum: number, k: { score: number }) => sum + Number(k.score), 0) / userKpiScores.length;
         }
 
         // Get assessment scores for this user
@@ -672,10 +713,10 @@ export default function KPITurbocharge() {
 
       // Get all training modules
       let allModules: any[] = [];
-      if (user?.company_id) {
-        const res = await fetch(`${API_BASE}/api/training-modules/company/${user.company_id}`, {
+      if (currentEmployee?.company_id) {
+        const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${currentEmployee.company_id}`, {
           headers: {
-            'X-User-ID': user.user_id
+            'X-User-ID': currentEmployee.user_id
           }
         });
 
@@ -702,10 +743,10 @@ export default function KPITurbocharge() {
 
       // Get all module progress with quiz scores via backend
       let moduleProgress: any[] = [];
-      if (user?.company_id) {
-        const res = await fetch(`${API_BASE}/api/module-progress/company/${user.company_id}`, {
+      if (currentEmployee?.company_id) {
+        const res = await fetchWithAuth(`${API_BASE}/api/module-progress/company/${currentEmployee.company_id}`, {
           headers: {
-            'X-User-ID': user.user_id
+            'X-User-ID': currentEmployee.user_id
           }
         });
 
@@ -721,10 +762,10 @@ export default function KPITurbocharge() {
       // Get max_score for each sub-module (processed_module_id) via backend
       console.log(userIds);
       let maxScoreData: any[] = [];
-      if (user?.company_id) {
-        const res = await fetch(`${API_BASE}/api/employee-assessments/company/${user.company_id}?limit=500`, {
+      if (currentEmployee?.company_id) {
+        const res = await fetchWithAuth(`${API_BASE}/api/employee-assessments/company/${currentEmployee.company_id}?limit=500`, {
           headers: {
-            'X-User-ID': user.user_id
+            'X-User-ID': currentEmployee.user_id
           }
         });
 
@@ -751,11 +792,11 @@ export default function KPITurbocharge() {
       
       // Fetch processed modules for each original module
       for (const moduleId of moduleIds) {
-        if (!user?.user_id) continue;
+        if (!currentEmployee?.user_id) continue;
         
-        const res = await fetch(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
           headers: {
-            'X-User-ID': user.user_id
+            'X-User-ID': currentEmployee.user_id
           }
         });
 
@@ -774,7 +815,7 @@ export default function KPITurbocharge() {
         const userModules = allModules.map(module => {
           // Find learning plan for this user-module combination
           const plan = learningPlans?.find(
-            lp => lp.user_id === user.user_id && lp.module_id === module.module_id
+            (lp: { user_id: string; module_id: string; processed_module_ids: string | null; overall_status: boolean | null }) => lp.user_id === user.user_id && lp.module_id === module.module_id
           );
 
           if (!plan) {
@@ -802,12 +843,12 @@ export default function KPITurbocharge() {
 
           // Get all processed module IDs for this module
           const processedModuleIds = processedModules
-            ?.filter(pm => pm.original_module_id === module.module_id)
-            .map(pm => pm.processed_module_id) || [];
+            ?.filter((pm: { original_module_id: string; processed_module_id: string }) => pm.original_module_id === module.module_id)
+            .map((pm: { processed_module_id: string }) => pm.processed_module_id) || [];
 
           // Get quiz scores for this user's sub-modules
           const userQuizzes = moduleProgress?.filter(
-            mp => mp.user_id === user.user_id &&
+            (mp: { user_id: string; processed_module_id: string; quiz_score: number | null }) => mp.user_id === user.user_id &&
                   processedModuleIds.includes(mp.processed_module_id)
           ) || [];
 
@@ -822,7 +863,7 @@ export default function KPITurbocharge() {
 
           // Calculate average quiz score
           const avgScore = Math.round(
-            userQuizzes.reduce((sum, q) => sum + (q.quiz_score || 0), 0) / userQuizzes.length
+            userQuizzes.reduce((sum: number, q: { quiz_score: number | null }) => sum + (q.quiz_score || 0), 0) / userQuizzes.length
           );
 
           // Determine status
@@ -888,10 +929,10 @@ export default function KPITurbocharge() {
       } else {
         // No module filter - get all modules
         let allModules: any[] = [];
-        if (user?.company_id) {
-          const res = await fetch(`${API_BASE}/api/training-modules/company/${user.company_id}`, {
+        if (currentEmployee?.company_id) {
+          const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${currentEmployee.company_id}`, {
             headers: {
-              'X-User-ID': user.user_id
+              'X-User-ID': currentEmployee.user_id
             }
           });
 
@@ -916,7 +957,7 @@ export default function KPITurbocharge() {
         titleId: selectedTitleId
       });
      
-      const userIds = users.map((u:any) => u.user_id);
+      const userIds = users.map((u: BackendUser) => u.user_id);
 
       if (userIds.length === 0) {
         setWorkforceReadiness({ score: 0, change: 0, status: 'No Users Found' });
@@ -1015,7 +1056,7 @@ export default function KPITurbocharge() {
 
         // Filter out modules that haven't been started (processed_module_ids is null or empty)
         const startedModules = learningPlans.filter(
-          lp => lp.processed_module_ids !== null && lp.processed_module_ids !== ''
+          (lp: { processed_module_ids: string | null; overall_status: boolean | null }) => lp.processed_module_ids !== null && lp.processed_module_ids !== ''
         );
 
         // If no modules have been started, don't count this user
@@ -1024,7 +1065,7 @@ export default function KPITurbocharge() {
         }
 
         // Check if user has passed ALL their started modules
-        const allModulesPassed = startedModules.every(lp => lp.overall_status === true);
+        const allModulesPassed = startedModules.every((lp: { overall_status: boolean | null }) => lp.overall_status === true);
 
         if (allModulesPassed) {
           // User has completed all assigned modules

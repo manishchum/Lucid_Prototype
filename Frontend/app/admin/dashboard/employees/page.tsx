@@ -163,7 +163,7 @@ export default function EmployeesPage() {
 
     try {
       // First get user by email via API (no auth needed for bootstrap)
-      const userRes = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
+      const userRes = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
 
       if (!userRes.ok) {
         setError("User not found or inactive");
@@ -173,7 +173,7 @@ export default function EmployeesPage() {
       const { user: userData } = await userRes.json();
 
       // Get user roles via backend API instead of direct Supabase call
-      const rolesRes = await fetch(`${API_URL}/api/roles/users/${userData.user_id}`, {
+      const rolesRes = await fetchWithAuth(`${API_URL}/api/roles/users/${userData.user_id}`, {
         headers: { 'X-User-ID': userData.user_id }
       });
 
@@ -205,7 +205,7 @@ export default function EmployeesPage() {
       // Fetch company name for the admin
       let companyName = '';
       try {
-        const companyRes = await fetch(`${API_URL}/api/companies/${userData.company_id}`, {
+        const companyRes = await fetchWithAuth(`${API_URL}/api/companies/${userData.company_id}`, {
           headers: { 'X-User-ID': userData.user_id }
         });
         if (companyRes.ok) {
@@ -236,8 +236,8 @@ export default function EmployeesPage() {
   const loadUsers = async (companyId: string) => {
     try {
       
-      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
-        headers: { 'X-User-ID': currentUserId }
+      const res = await fetchWithAuth(`${API_URL}/api/users/company/${companyId}`, {
+        headers: { 'X-User-ID': `${currentUserId ?? admin?.user_id ?? ''}` }
       });
       if (!res.ok) throw await res.json();
       const payload = await res.json();
@@ -281,7 +281,7 @@ export default function EmployeesPage() {
   const loadTrainingModules = async (companyId: string) => {
     try {
       const adminId = admin?.user_id || sessionStorage.getItem('lucid_admin_user_id') ||'';
-      const res = await fetch(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
         headers: { 'X-User-ID': adminId || ''}
       });
       if (!res.ok) {
@@ -306,7 +306,7 @@ export default function EmployeesPage() {
         return;
       }
 
-      const lpRes = await fetch(
+      const lpRes = await fetchWithAuth(
         `${API_URL}/api/learning-plans/?limit=5000`,
         { headers: { 'X-User-ID': adminId } }
       );
@@ -1230,7 +1230,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
   const checkEmailExists = async (email: string): Promise<boolean> => {
     try {
       if (!companyId || !adminId) return false;
-      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/users/company/${companyId}`, {
         headers: { 'X-User-ID': adminId }
       });
       
@@ -1291,7 +1291,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       for (const email of emails) {
         try {
           // Check if email already exists via API
-          const checkRes = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+          const checkRes = await fetchWithAuth(`${API_URL}/api/users/company/${companyId}`, {
             headers: { 'X-User-ID': adminId }
           });
           let exists = false;
@@ -1419,7 +1419,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       const { data: departmentsData } = await supabase.from('sub_department').select('department_id, department_name, sub_department_name');
       let companiesData: any[] = [];
       try{
-        const compRes = await fetch(`${API_URL}/api/companies`, {
+        const compRes = await fetchWithAuth(`${API_URL}/api/companies`, {
           headers: { 'X-User-ID': adminId }
         });
         if (compRes.ok) {
@@ -1529,30 +1529,6 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
               if (learningStyleError) {
                 console.error('Failed to set default learning style:', learningStyleError);
                 // Don't fail the entire operation if learning style insert fails
-              }
-            }
-
-            // If roles are selected, create multiple role assignments
-            if (formData.selected_roles.length > 0) {
-              for (const roleId of formData.selected_roles) {
-                try {
-                  await fetchWithAuth(`${API_URL}/api/roles/assignments`, {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'X-User-ID': adminId
-                    },
-                    body: JSON.stringify({
-                      user_id: userData.user_id,
-                      role_id: roleId,
-                      scope_type: 'COMPANY',
-                      scope_id: companyId,
-                      notes: 'Assigned during user creation'
-                    })
-                  });
-                } catch (err) {
-                  console.error('Role assignment failed for role', roleId, err);
-                }
               }
             }
 
@@ -1848,7 +1824,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
     try {
       try{
         const companiesUrl = `${(API_URL || '').replace(/\/$/, '')}/api/companies/`;
-        const compRes = await fetch(companiesUrl, {
+        const compRes = await fetchWithAuth(companiesUrl, {
           headers: { 'X-User-ID': adminId }
         });
           if (!compRes.ok) {
@@ -1886,9 +1862,10 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
   // Check if email already exists in database (excluding current user)
   const checkEmailExists = async (email: string, currentUserId: string): Promise<boolean> => {
     try {
-      const targetCompanyId = isDeveloper ? selectedCompanyId : companyId;
+      const activeCompanyId = companyId;
+      const targetCompanyId = isDeveloper ? selectedCompanyId : activeCompanyId;
       if (!targetCompanyId || targetCompanyId === '__create_new__' || !adminId) return false;
-      const res = await fetch(`${API_URL}/api/users/company/${targetCompanyId}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/users/company/${targetCompanyId}`, {
         headers: { 'X-User-ID': adminId }
       });
       
@@ -2488,7 +2465,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
     try {
       let completedModuleIds: string[] = [];
       try {
-        const jobsRes = await fetch(`${API_URL}/api/content-jobs/?status=completed&limit=1000`, {
+        const jobsRes = await fetchWithAuth(`${API_URL}/api/content-jobs/?status=completed&limit=1000`, {
           headers: { 'X-User-ID': adminId }
         });
         if (!jobsRes.ok) {
@@ -2514,7 +2491,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       }
       
       try{
-        const tmRes = await fetch(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
+        const tmRes = await fetchWithAuth(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
           headers: { 'X-User-ID': adminId }
         });
         if(!tmRes.ok) {
@@ -2609,7 +2586,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         return;
       }
 
-      const lpRes = await fetch(
+      const lpRes = await fetchWithAuth(
         `${API_URL}/api/learning-plans/?limit=5000`,
         { headers: { 'X-User-ID': adminId } }
       );
@@ -3207,7 +3184,7 @@ function UpdateEmployeeModal({
   const loadUserRoles = async () => {
     try {
       // Get user roles via backend API instead of direct Supabase call
-      const rolesRes = await fetch(`${API_URL}/api/roles/users/${employee.user_id}`, {
+      const rolesRes = await fetchWithAuth(`${API_URL}/api/roles/users/${employee.user_id}`, {
         headers: { 'X-User-ID': adminId }
       });
 
@@ -3251,7 +3228,7 @@ function UpdateEmployeeModal({
       setRoles(rolesData || []);
 
       try{
-        const compRes = await fetch(`${API_URL}/api/companies`, {
+        const compRes = await fetchWithAuth(`${API_URL}/api/companies`, {
           headers: { 'X-User-ID': adminId }
         });
         if (!compRes.ok) {
@@ -3296,7 +3273,7 @@ function UpdateEmployeeModal({
     }));
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData((prev: any) => ({ ...prev, [name]: value }));
     // only run email check when email field changes
@@ -3309,8 +3286,10 @@ function UpdateEmployeeModal({
 
   const checkEmailExists = async (email: string, currentUserId?: string): Promise<boolean> => {
     try {
-      if (!companyId || !adminId) return false;
-      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+      const selectedCompanyId = employee.company_id ?? '';
+      const targetCompanyId = selectedCompanyId;
+      if (!targetCompanyId || !adminId) return false;
+      const res = await fetchWithAuth(`${API_URL}/api/users/company/${targetCompanyId}`, {
         headers: { 'X-User-ID': adminId }
       });
       if (!res.ok) return false;
@@ -3393,7 +3372,7 @@ function UpdateEmployeeModal({
 
       // Update role assignments via backend API
       // First, get current role assignments
-      const currentRolesRes = await fetch(`${API_URL}/api/roles/users/${employee.user_id}`, {
+      const currentRolesRes = await fetchWithAuth(`${API_URL}/api/roles/users/${employee.user_id}`, {
         headers: { 'X-User-ID': adminId }
       });
 

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
+import { fetchWithAuth } from "@/lib/fetch-with-auth"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -80,7 +81,7 @@ const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const fetchUserByEmail = async (email: string | null) => {
   if (!email) return null;
   try{
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
     if(!res.ok) return null;
     const payload = await res.json();
     let u = payload?.user ?? payload;
@@ -139,7 +140,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
       const formData = new FormData();
       formData.append("file", file);
       // For prototype, send companyId in header (never in prod)
-      const res = await fetch("/api/admin/kpi/upload-scores", {
+      const res = await fetchWithAuth("/api/admin/kpi/upload-scores", {
         method: "POST",
         body: formData,
         headers: {

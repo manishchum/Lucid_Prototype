@@ -78,7 +78,7 @@ function ContentUpload({
 
   const validateReviewerEmail = async (email: string) => {
     try {
-      const res = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(email)}`);
+      const res = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(email)}`);
       if (!res.ok) {
         setEmailValidationMessage('User with this email does not exist.');
         setRetrievedReviewerId(null);
@@ -165,7 +165,7 @@ function ContentUpload({
           throw new Error("Missing contentUrl for media extraction");
         }
 
-        const extractRes = await fetch("/api/extract-and-analyze", {
+        const extractRes = await fetchWithAuth("/api/extract-and-analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ fileUrl: contentUrl, fileType: firstFile?.type, moduleId }),
@@ -243,7 +243,7 @@ function ContentUpload({
       formData.append('title', title);
       formData.append('description', description);
 
-      const response = await fetch('/api/content-library/upload', {
+      const response = await fetchWithAuth('/api/content-library/upload', {
         method: 'POST',
         headers: {
           'x-company-id': companyId,
@@ -320,7 +320,7 @@ function ContentUpload({
             threshold_value: thresholdValue,
             reviewer_id: retrievedReviewerId,
             additional_readings: additionalLinks.length > 0 ? additionalLinks : null,
-            source_files: individualFileUrls.map(f => f.path)
+            source_files: individualFileUrls.map((f: { path: string }) => f.path)
           })
         });
 
@@ -706,7 +706,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
     try {
       const formData = new FormData();
       formData.append("files", file);
-      const res = await fetch("/api/admin/kpi/upload-scores", {
+      const res = await fetchWithAuth("/api/admin/kpi/upload-scores", {
         method: "POST",
         body: formData,
         headers: {
@@ -899,7 +899,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const loadTrainingModules = async () => {
     try {
       // Fetch training modules via backend API
-      const modulesRes = await fetch(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
+      const modulesRes = await fetchWithAuth(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
         headers: { 'X-User-ID': adminId }
       });
 
@@ -917,7 +917,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       // Fetch ALL content jobs in ONE batch call (much faster than per-module)
       let jobsMap = new Map<string, any>();
       try {
-        const jobsRes = await fetch(`${API_URL}/api/content-jobs/?limit=1000`, {
+        const jobsRes = await fetchWithAuth(`${API_URL}/api/content-jobs/?limit=1000`, {
           headers: { 'X-User-ID': adminId }
         });
         
@@ -1237,7 +1237,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                         try {
                           // Combined AI document
                           if (file.type === "combined") {
-                            setPreviewUrl(file.url);
+                            setPreviewUrl(file.url ?? null);
                             return;
                           }
 
@@ -1248,7 +1248,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
                           console.log("Requesting preview for:", file.path);
 
-                          const res = await fetch(`${API_URL}/api/preview-file`, {
+                          const res = await fetchWithAuth(`${API_URL}/api/preview-file`, {
                             method: "POST",
                             headers: {
                               "Content-Type": "application/json"
@@ -1325,9 +1325,6 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           companyId={companyId}
           adminId={adminId}
           onUploadComplete={loadTrainingModules}
-          onFilesUploaded={(moduleId, fileNames) =>
-            setLocalFileNames(prev => ({ ...prev, [moduleId]: fileNames }))
-          }
         />
       </div>
 
@@ -1495,7 +1492,7 @@ export default function UploadsPage() {
 
     try {
       // Get user data from users table via backend API
-      const userRes = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
+      const userRes = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
 
       if (!userRes.ok) {
         console.error("User not found or inactive");
@@ -1514,7 +1511,7 @@ export default function UploadsPage() {
       }
 
       // Check if user has admin role through user_role_assignments
-      const roleRes = await fetch(`${API_URL}/api/roles/users/${userData.user_id}`, {
+      const roleRes = await fetchWithAuth(`${API_URL}/api/roles/users/${userData.user_id}`, {
         headers: { 'X-User-ID': userData.user_id }
       });
 
