@@ -93,6 +93,16 @@ function extractAudioPath(url) {
 
   return url.substring(index + marker.length);
 }
+function extractVideoPath(url) {
+  if (!url) return null;
+
+  const marker = '/module-visuals/';
+  const index = url.indexOf(marker);
+
+  if (index === -1) return null;
+
+  return url.substring(index + marker.length);
+}
 
 function extractModuleName(message) {
   if (!message) return null;
@@ -277,6 +287,62 @@ let payload = {
           {
             type: 'text',
             text: audioPath
+          }
+        ]
+      }
+    ]
+  }
+};
+
+
+
+
+
+
+
+
+// let videoPath = "https://fmkikkebrxyzjsffqgex.supabase.co/storage/v1/object/public/module-visuals/80aa6778-8475-4243-9e4a-9a6af5931e74/4036939b-4b9c-40f7-b2aa-7521d157a38a_notebooklm_video.mp4";
+let videoPath = "80aa6778-8475-4243-9e4a-9a6af5931e74/4036939b-4b9c-40f7-b2aa-7521d157a38a_notebooklm_video.mp4";
+
+let videoPathExtracted = extractVideoPath(schedule.media_url);
+console.log("Video Path",videoPath)
+console.log("Module Name",moduleName)
+if (!videoPath) {
+  console.warn('Invalid video URL:', schedule.media_url);
+}
+let payload2 = {
+  messaging_product: 'whatsapp',
+  to: dispatch.phone_number,
+  type: 'template',
+  template: {
+    name: 'lucidwhatsapp',
+    language: { code: 'en' },
+
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          {
+            type: 'text',
+            parameter_name: 'username',
+            text: userName || 'Learner'
+          },
+          {
+            type: 'text',
+            parameter_name: 'content',
+            text: moduleName || 'Default body content'
+          }
+        ]
+      },
+
+      {
+        type: 'button',
+        sub_type: 'url',
+        index: '1',
+        parameters: [
+          {
+            type: 'text',
+            text: videoPath
           }
         ]
       }
