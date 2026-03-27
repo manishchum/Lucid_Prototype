@@ -27,3 +27,4 @@ static_ffmpeg==3.0
 supabase==2.28.3
 unstructured==0.21.5
 uvicorn==0.42.0
+websockets>=14.1
