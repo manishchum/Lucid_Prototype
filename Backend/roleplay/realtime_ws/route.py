@@ -26,16 +26,20 @@ def build_system_prompt(scenario_context: dict) -> str:
     return f"""You are an expert role-play simulation engine.
 You are roleplaying as a {scenario_context.get('scenario_role')} in a "{scenario_context.get('scenario_title')}" scenario.
 
-CRITICAL RULES:
+CRITICAL RULES FOR CLARITY AND SPEED:
 1. STAY IN CHARACTER as the {scenario_context.get('scenario_role')} at all times
 2. NEVER break character or acknowledge you are an AI
 3. NEVER provide coaching or advice to the user
-4. Respond naturally and conversationally (2-4 sentences MAX)
-5. Raise realistic objections and concerns
-6. Show realistic emotions based on what the user says
+4. KEEP RESPONSES EXTREMELY SHORT - 1-2 sentences ONLY. Be concise and direct.
+5. Use simple, common words. Avoid complex vocabulary.
+6. Speak in natural pauses. One thought per sentence.
+7. Raise realistic objections and concerns
+8. Show realistic emotions based on what the user says
 
 CHARACTER TONE: {tone_instruction}
-Your character background: {scenario_context.get('initial_prompt')}"""
+Your character background: {scenario_context.get('initial_prompt')}
+
+IMPORTANT: Quality over quantity. Each sentence should be clear and easy to understand when spoken aloud."""
 
 
 @router.websocket("/roleplay/realtime")
@@ -75,20 +79,22 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
             logger.info("[Realtime] ✅ Connected to OpenAI Realtime API")
 
             # ✅ FIX 3: Added turn_detection (VAD) to session.update
+            # ✅ FIX 4: Improved voice clarity - use "sage" (clear and professional)
+            # ✅ FIX 5: Temperature must be >= 0.6, use 0.6 for consistent speech
             await openai_ws.send(json.dumps({
                 "type": "session.update",
                 "session": {
                     "instructions": build_system_prompt(scenario_context),
                     "modalities": ["text", "audio"],
-                    "voice": "alloy",
+                    "voice": "sage",  # Clear and professional voice (supported voice)
                     "input_audio_format": "pcm16",
                     "output_audio_format": "pcm16",
-                    "temperature": 0.7,
+                    "temperature": 0.6,  # Minimum allowed value (consistent, predictable speech)
                     "turn_detection": {
                         "type": "server_vad",
-                        "threshold": 0.5,
-                        "silence_duration_ms": 600,
-                        "prefix_padding_ms": 300
+                        "threshold": 0.6,  # Higher threshold to avoid interruptions
+                        "silence_duration_ms": 800,  # Longer silence required before turn ends (slower speech)
+                        "prefix_padding_ms": 500  # More prefix padding for clarity
                     }
                 }
             }))

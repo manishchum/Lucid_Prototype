@@ -2,11 +2,18 @@
 from sentence_transformers import SentenceTransformer
 import numpy as np
 
-# Load once at import time (VERY IMPORTANT)
-_model = SentenceTransformer(
-    "BAAI/bge-large-en-v1.5",
-    device= "cpu"
-)
+# Lazy load model on first use
+_model = None
+
+def get_model():
+    global _model
+    if _model is None:
+        _model = SentenceTransformer(
+            "BAAI/bge-large-en-v1.5",
+            device="cpu",
+            cache_folder="./models"  # Cache locally to avoid redownloads
+        )
+    return _model
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -17,7 +24,7 @@ class EmbedRequest(BaseModel):
 
 @router.post("/embed-query")
 def embed_query_api(req: EmbedRequest):
-    embedding = _model.encode(
+    embedding = get_model().encode(
         f"Represent this document for retrieval: {req.text}",
         normalize_embeddings=True
     )
@@ -35,7 +42,7 @@ def embed_chunks(chunks: list[str]) -> np.ndarray:
     # IMPORTANT: BGE models expect this prefix for best performance
     prefixed_chunks = [f"Represent this document for retrieval: {c}" for c in chunks]
 
-    embeddings = _model.encode(
+    embeddings = get_model().encode(
         prefixed_chunks,
         batch_size=4,
         show_progress_bar=True,

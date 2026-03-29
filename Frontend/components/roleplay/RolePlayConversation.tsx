@@ -47,6 +47,14 @@ export default function RolePlayConversation({
   const sessionIdRef    = useRef<string | null>(null);
   const conversationTranscriptRef = useRef<Array<{ role: string; text: string }>>([]);
   const processorRef    = useRef<ScriptProcessorNode | null>(null);
+  const nextPlayTimeRef = useRef<number>(0);  // Track playback time to queue audio sequentially
+  const isBotSpeakingRef = useRef<boolean>(false);  // Gate mic audio send while bot is speaking
+
+  // Helper to update both state and ref for bot speaking status
+  const setBotSpeaking = (val: boolean) => {
+    isBotSpeakingRef.current = val;
+    setIsBotSpeaking(val);
+  };
 
   useEffect(() => { return () => stopAllMedia(); }, []);
 
@@ -74,14 +82,21 @@ export default function RolePlayConversation({
     audioOutputRef.current = null;
   };
 
-  // ✅ FIX 2 — Correct PCM16 bot audio playback
+  // ✅ FIX 2 — Correct PCM16 bot audio playback with sequential queueing
   const handleBotAudio = async (audioData: string) => {
     try {
-      setIsBotSpeaking(true);
+      setBotSpeaking(true);
 
       if (!audioOutputRef.current) {
         audioOutputRef.current = new (window.AudioContext ||
           (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      }
+
+      const ctx = audioOutputRef.current;
+      
+      // Anchor queue to real time on first chunk
+      if (nextPlayTimeRef.current === 0) {
+        nextPlayTimeRef.current = ctx.currentTime;
       }
 
       const binary = atob(audioData);
@@ -93,18 +108,32 @@ export default function RolePlayConversation({
       const float32 = new Float32Array(pcm16.length);
       for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768.0;
 
-      const buf = audioOutputRef.current.createBuffer(1, float32.length, 24000);
+      const buf = ctx.createBuffer(1, float32.length, 24000);
       buf.copyToChannel(float32, 0);
 
-      const source = audioOutputRef.current.createBufferSource();
+      // Calculate start time to queue chunks sequentially
+      const startTime = Math.max(ctx.currentTime, nextPlayTimeRef.current);
+      
+      const source = ctx.createBufferSource();
       source.buffer = buf;
-      source.connect(audioOutputRef.current.destination);
-      source.start(0);
-      source.onended = () => setIsBotSpeaking(false);
+      source.connect(ctx.destination);
+      source.start(startTime);
+      
+      // Update next play time for sequential queueing
+      nextPlayTimeRef.current = startTime + buf.duration;
+      
+      // Only set speaking to false after ALL chunks finish playing
+      source.onended = () => {
+        if (Math.abs(ctx.currentTime - nextPlayTimeRef.current) < 0.1) {
+          setBotSpeaking(false);
+          // Reset queue for next response
+          nextPlayTimeRef.current = 0;
+        }
+      };
 
     } catch (err) {
       console.error("Audio playback error:", err);
-      setIsBotSpeaking(false);
+      setBotSpeaking(false);
     }
   };
 
@@ -113,7 +142,7 @@ export default function RolePlayConversation({
     const wsUrl = `${API_URL?.replace("http", "ws") || "ws://localhost:8000"}/roleplay/realtime`;
     const ws = new WebSocket(wsUrl);
 
-    ws.onopen = () => {
+    ws.onopen = async () => {
       console.log("✅ Connected to Realtime WS");
 
       // Send init config
@@ -132,30 +161,83 @@ export default function RolePlayConversation({
         (window as any).webkitAudioContext)({ sampleRate: 24000 });
       audioInputRef.current = audioCtx;
 
-      const source    = audioCtx.createMediaStreamSource(stream);
-      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
+      const source = audioCtx.createMediaStreamSource(stream);
 
-      processor.onaudioprocess = (e) => {
-        if (ws.readyState !== WebSocket.OPEN) return;
+      // ✅ Migrate to AudioWorkletNode (replaces deprecated ScriptProcessorNode)
+      try {
+        // Load the audio worklet processor
+        await audioCtx.audioWorklet.addModule("/audio-processor.js");
+        const workletNode = new AudioWorkletNode(audioCtx, "audio-processor");
+        processorRef.current = workletNode as any;
 
-        const audioData = e.inputBuffer.getChannelData(0);
+        // Handle audio chunks from the worklet
+        workletNode.port.onmessage = (event) => {
+          // Gate mic audio while bot is speaking to prevent double voice
+          if (isBotSpeakingRef.current) return;
+          if (ws.readyState !== WebSocket.OPEN) return;
 
-        // ✅ FIX 1 — Correct PCM16 little-endian encoding
-        const pcm16 = new Int16Array(audioData.length);
-        for (let i = 0; i < audioData.length; i++) {
-          const s = Math.max(-1, Math.min(1, audioData[i]));
-          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-        }
-        const audioB64 = btoa(
-          String.fromCharCode(...new Uint8Array(pcm16.buffer))
-        );
+          const audioData = event.data.data as Float32Array;
 
-        ws.send(JSON.stringify({ type: "audio", audio: audioB64 }));
-      };
+          // ✅ FIX 1 — Correct PCM16 little-endian encoding (identical to ScriptProcessorNode version)
+          const pcm16 = new Int16Array(audioData.length);
+          for (let i = 0; i < audioData.length; i++) {
+            const s = Math.max(-1, Math.min(1, audioData[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          }
+          const audioB64 = btoa(
+            String.fromCharCode(...new Uint8Array(pcm16.buffer))
+          );
 
-      source.connect(processor);
-      processor.connect(audioCtx.destination);
+          ws.send(JSON.stringify({ type: "audio", audio: audioB64 }));
+        };
+
+        source.connect(workletNode);
+        workletNode.connect(audioCtx.destination);
+        
+        // ✅ FIX 5 — Lock mic immediately to prevent VAD false positives during startup
+        setBotSpeaking(true);
+        setTimeout(() => {
+          if (!isBotSpeakingRef.current) {
+            setBotSpeaking(false);
+          }
+        }, 2000);
+      } catch (err) {
+        console.error("❌ AudioWorklet initialization failed, falling back to ScriptProcessorNode:", err);
+        // Fallback to ScriptProcessorNode if AudioWorklet is not supported
+        const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+        processorRef.current = processor;
+
+        processor.onaudioprocess = (e) => {
+          // Gate mic audio while bot is speaking to prevent double voice
+          if (isBotSpeakingRef.current) return;
+          if (ws.readyState !== WebSocket.OPEN) return;
+
+          const audioData = e.inputBuffer.getChannelData(0);
+
+          // ✅ FIX 1 — Correct PCM16 little-endian encoding
+          const pcm16 = new Int16Array(audioData.length);
+          for (let i = 0; i < audioData.length; i++) {
+            const s = Math.max(-1, Math.min(1, audioData[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          }
+          const audioB64 = btoa(
+            String.fromCharCode(...new Uint8Array(pcm16.buffer))
+          );
+
+          ws.send(JSON.stringify({ type: "audio", audio: audioB64 }));
+        };
+
+        source.connect(processor);
+        processor.connect(audioCtx.destination);
+        
+        // ✅ FIX 5 — Lock mic immediately to prevent VAD false positives during startup
+        setBotSpeaking(true);
+        setTimeout(() => {
+          if (!isBotSpeakingRef.current) {
+            setBotSpeaking(false);
+          }
+        }, 2000);
+      }
     };
 
     ws.onmessage = async (event) => {
@@ -165,12 +247,17 @@ export default function RolePlayConversation({
         await handleBotAudio(data.audio);
       } else if (data.type === "speech_started") {
         // Bot detected user speaking — show listening state
+        // Reset audio queue to discard remaining buffered audio
+        nextPlayTimeRef.current = 0;
         setIsRecording(true);
-        setIsBotSpeaking(false);
+        setBotSpeaking(false);
       } else if (data.type === "user_transcription") {
         conversationTranscriptRef.current.push({ role: "user", text: data.text });
       } else if (data.type === "transcript_chunk") {
         // Optional: show live bot transcript
+      } else if (data.type === "response.done") {
+        // Bot response complete — reset queue for next response
+        nextPlayTimeRef.current = 0;
       } else if (data.type === "session_ended") {
         conversationTranscriptRef.current = data.transcript || [];
       } else if (data.type === "error") {
@@ -248,7 +335,7 @@ export default function RolePlayConversation({
     setConversationActive(false);
     setIsRecording(false);
     setIsProcessing(false);
-    setIsBotSpeaking(false);
+    setBotSpeaking(false);
 
     const messages: Message[] = conversationTranscriptRef.current.map((item, idx) => ({
       text:      item.text,
