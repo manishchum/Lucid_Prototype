@@ -301,13 +301,10 @@ let payload = {
 
 
 
-// let videoPath = "https://fmkikkebrxyzjsffqgex.supabase.co/storage/v1/object/public/module-visuals/80aa6778-8475-4243-9e4a-9a6af5931e74/4036939b-4b9c-40f7-b2aa-7521d157a38a_notebooklm_video.mp4";
-let videoPath = "80aa6778-8475-4243-9e4a-9a6af5931e74/4036939b-4b9c-40f7-b2aa-7521d157a38a_notebooklm_video.mp4";
-
 let videoPathExtracted = extractVideoPath(schedule.media_url);
-console.log("Video Path",videoPath)
+console.log("Video Path", videoPathExtracted)
 console.log("Module Name",moduleName)
-if (!videoPath) {
+if (!videoPathExtracted) {
   console.warn('Invalid video URL:', schedule.media_url);
 }
 let payload2 = {
@@ -342,7 +339,7 @@ let payload2 = {
         parameters: [
           {
             type: 'text',
-            text: videoPath
+            text: videoPathExtracted
           }
         ]
       }
@@ -394,8 +391,12 @@ let payload2 = {
 //     ]
 //   }
 // };
+  const mediaType = (schedule.media_type || '').toLowerCase();
+  const payloadToSend = mediaType === 'video' ? payload2 : payload;
+
   console.log("Sending the request to the meta")
-  console.log(payload)
+  console.log(`Media type: ${mediaType || 'audio(default)'}`)
+  console.log(payloadToSend)
   console.log(url)
   const res = await fetch(url, {
     method: 'POST',
@@ -403,7 +404,7 @@ let payload2 = {
       Authorization: `Bearer ${WHATSAPP_TOKEN}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payloadToSend),
   });
 
   const data = await res.json();
