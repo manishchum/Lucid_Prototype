@@ -7,6 +7,7 @@ import { ChevronDown, BookOpen } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
 import { sharedDataClient, createCacheKey } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import RolePlayReports from "@/components/roleplay/RolePlayReports";
@@ -292,7 +293,7 @@ export default function ScoreHistoryPage() {
         path: "/employee/me",
       }),
       async () => {
-        const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+        const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
         if (!res.ok) {
           throw new Error("Failed to fetch employee");
         }
@@ -323,7 +324,7 @@ export default function ScoreHistoryPage() {
         path: `/company/${employee.company_id}`,
       }),
       async () => {
-        const res = await fetch(`${API_BASE}/api/companies/${encodeURIComponent(employee.company_id)}`);
+        const res = await fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employee.company_id)}`);
         if (!res.ok) {
           throw new Error("Failed to fetch company");
         }
@@ -345,7 +346,7 @@ export default function ScoreHistoryPage() {
         path: "/employee-assessments",
       }),
       async () => {
-        const res = await fetch(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employee.user_id)}`,
+        const res = await fetchWithAuth(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employee.user_id)}`,
           {
             headers: { "X-User-ID": employee.user_id },
           },
@@ -387,7 +388,7 @@ export default function ScoreHistoryPage() {
       }),
       async () => {
         const promises = assessmentIds.map((id) =>
-          fetch(`${API_BASE}/api/assessments/${encodeURIComponent(id)}`, {
+          fetchWithAuth(`${API_BASE}/api/assessments/${encodeURIComponent(id)}`, {
             headers: { "X-User-ID": employee.user_id },
           }).then((r) => (r.ok ? r.json() : null)),
         );
@@ -430,7 +431,7 @@ export default function ScoreHistoryPage() {
         query: { ids: moduleIds },
       }),
       async () => {
-        const res = await fetch(`${API_BASE}/api/processed-modules/batch`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/batch`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -528,21 +529,14 @@ export default function ScoreHistoryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pt-8 pb-12">
-      <main className="max-w-6xl mx-auto px-6 lg:px-8">
-          
-          {/* Dashboard Header */}
-          <div className="flex items-center gap-4 mb-10">
-            <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100">
-              <div className="text-2xl">📊</div>
-            </div>
-            <div>
-              <h1 className="text-3xl font-black text-slate-900 tracking-tight">
-                Your Learning Journey
-              </h1>
-              <p className="text-slate-500 font-medium text-sm">Review your style & scores</p>
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <div className="px-4 py-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">Your Learning Journey</h1>
+            <p className="text-slate-600">Review your style & scores</p>
           </div>
+          <main className="max-w-6xl mx-auto px-6 lg:px-8">
 
           {/* Tabs Navigation */}
           <div className="flex gap-2 mb-8">
@@ -801,6 +795,8 @@ export default function ScoreHistoryPage() {
         )}
 
       </main>
+        </div>
+      </div>
     </div>
   );
 }

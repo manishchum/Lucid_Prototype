@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { BookOpen, Smile, Meh, Frown, ChevronLeft, ChevronRight, CheckCircle, Star, Target, Lightbulb, Trophy, ChevronDown } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { fetchWithAuth } from "@/lib/fetch-with-auth"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
@@ -350,13 +351,13 @@ export default function LearningStyleSurvey() {
     async function fetchEmployeeId() {
       if (authLoading || !user?.email) return
       // Fetch employee_id from Supabase using user email
-      const res = await fetch(`/api/get-employee-id?email=${encodeURIComponent(user.email)}`)
+      const res = await fetchWithAuth(`/api/get-employee-id?email=${encodeURIComponent(user.email)}`)
       const data = await res.json()
       if (data.user_id) {
         setEmployeeId(data.user_id)
         
         // Check if user already has learning style data
-        const styleRes = await fetch(`${API_BASE}/api/learning-style?user_id=${data.user_id}`)
+        const styleRes = await fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${data.user_id}`)
         const styleData = await styleRes.json()
         if (styleData.success && styleData.data?.gpt_analysis && styleData.data?.learning_style) {
           const learningStyleMap = {
@@ -411,7 +412,7 @@ export default function LearningStyleSurvey() {
         setSurveyFrozen(false);
         return
       }
-      const res = await fetch(`${API_BASE}/api/learning-style`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/learning-style`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: employeeId, answers })

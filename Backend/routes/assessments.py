@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, Any, Dict
+from utils.auth import RequestAuth, get_request_auth_required
 
 from utils.db.assessments_db import (
     create_assessment,
@@ -12,6 +13,8 @@ from utils.db.assessments_db import (
     update_assessment,
     delete_assessment
 )
+
+from utils.exceptions import NotFoundError, ValidationError
 
 router = APIRouter(prefix="/api/assessments", tags=["assessments"])
 
@@ -38,60 +41,71 @@ class UpdateAssessmentRequest(BaseModel):
 @router.post("/")
 async def create_assessment_endpoint(
     request: CreateAssessmentRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
     Create a new assessment.
     Permission: User must have company access.
     """
     assessment_data = request.dict(exclude_none=True)
-    result = await create_assessment(user_id, assessment_data)
+    result = await create_assessment(auth_ctx.user_id, assessment_data)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
     
-    return {"assessment": result["data"]}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.get("/{assessment_id}")
 async def get_assessment_endpoint(
     assessment_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
     Get a single assessment by ID.
     Permission: User must have company access.
     """
-    result = await get_assessment_by_id(user_id, assessment_id)
+    result = await get_assessment_by_id(auth_ctx.user_id, assessment_id)
     
-    if result["error"]:
-        status_code = 404 if result["error"] == "Assessment not found" else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
     
-    return {"assessment": result["data"]}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.get("/company/{company_id}")
 async def get_company_assessments_endpoint(
     company_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     type: Optional[str] = Query(None, description="Filter by assessment type (baseline/module)")
 ):
     """
     Get all assessments for a company, optionally filtered by type.
     Permission: Manager+ in the company.
     """
-    result = await get_assessments_by_company(user_id, company_id, type)
+    result = await get_assessments_by_company(auth_ctx.user_id, company_id, type)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessments = result.get("data") or []
     
-    return {"assessments": result["data"], "count": len(result["data"] or [])}
+    return {
+        "success": True,
+        "data": {"assessments": assessments, "count": len(assessments)},
+        "error": result.get("error")
+    }
 
 
 @router.get("/filter/search")
 async def filter_assessments_endpoint(
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     company_id: Optional[str] = Query(None),
     type: Optional[str] = Query(None),
     processed_module_id: Optional[str] = Query(None),
@@ -104,7 +118,7 @@ async def filter_assessments_endpoint(
     Permission: User must have company access.
     """
     result = await get_assessment_by_filters(
-        user_id,
+        auth_ctx.user_id,
         company_id=company_id,
         assessment_type=type,
         processed_module_id=processed_module_id,
@@ -113,28 +127,36 @@ async def filter_assessments_endpoint(
         user_id=user_id_filter
     )
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessments = result.get("data") or []
     
-    return {"assessments": result["data"], "count": len(result["data"] or [])}
+    return {
+        "success": True,
+        "data": {"assessments": assessments, "count": len(assessments)},
+        "error": result.get("error")
+    }
 
 
 @router.get("/baseline/{company_id}/{original_module_id}")
 async def get_baseline_endpoint(
     company_id: str,
     original_module_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
     Get baseline assessment for a company and module.
     Permission: User must have company access.
     """
-    result = await get_baseline_assessment(user_id, company_id, original_module_id)
+    result = await get_baseline_assessment(auth_ctx.user_id, company_id, original_module_id)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
     
-    return {"assessment": result["data"]}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.get("/module/{processed_module_id}")
@@ -142,25 +164,29 @@ async def get_module_assessment_endpoint(
     processed_module_id: str,
     learning_style: str = Query(...),
     target_user_id: str = Query(..., alias="target_user_id"),
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
     Get module assessment for a specific processed module and learning style.
     Permission: Self or manager+.
     """
-    result = await get_module_assessment(user_id, processed_module_id, learning_style, target_user_id)
+    result = await get_module_assessment(auth_ctx.user_id, processed_module_id, learning_style, target_user_id)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
     
-    return {"assessment": result["data"]}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.put("/{assessment_id}")
 async def update_assessment_endpoint(
     assessment_id: str,
     request: UpdateAssessmentRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
     Update an assessment.
@@ -169,30 +195,38 @@ async def update_assessment_endpoint(
     update_data = request.dict(exclude_none=True)
     
     if not update_data:
-        raise HTTPException(status_code=400, detail="No update data provided")
+        raise ValidationError("No update data provided")
     
-    result = await update_assessment(user_id, assessment_id, update_data)
+    result = await update_assessment(auth_ctx.user_id, assessment_id, update_data)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
     
-    return {"assessment": result["data"]}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.delete("/{assessment_id}")
 async def delete_assessment_endpoint(
     assessment_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
     Delete an assessment.
     Permission: Admin+ in the same company.
     """
-    result = await delete_assessment(user_id, assessment_id)
+    result = await delete_assessment(auth_ctx.user_id, assessment_id)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    deleted = result.get("data") or None
     
-    return {"message": "Assessment deleted successfully", "assessment": result["data"]}
+    return {
+        "success": True,
+        "data": deleted,
+        "error": result.get("error")
+    }
 
 

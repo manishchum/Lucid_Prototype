@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
+from utils.auth import RequestAuth, get_request_auth_required
 
 from utils.db.employee_assessment_db import (
     get_employee_assessment_by_id,
@@ -12,6 +13,8 @@ from utils.db.employee_assessment_db import (
     delete_employee_assessment,
     get_assessment_statistics
 )
+
+from utils.exceptions import NotFoundError, ValidationError
 
 router = APIRouter(prefix="/api/employee-assessments", tags=["employee-assessments"])
 
@@ -37,25 +40,28 @@ class UpdateEmployeeAssessmentRequest(BaseModel):
 @router.get("/{employee_assessment_id}")
 async def get_employee_assessment(
     employee_assessment_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
     Get a single employee assessment by ID.
     Permission: Self OR manager+ in same company.
     """
-    result = await get_employee_assessment_by_id(user_id, employee_assessment_id)
+    result = await get_employee_assessment_by_id(auth_ctx.user_id, employee_assessment_id)
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
     
-    return {"assessment": result["data"]}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.get("/user/{target_user_id}")
 async def get_user_assessments(
     target_user_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     assessment_id: Optional[str] = Query(None, description="Filter by assessment ID"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of results")
 ):
@@ -67,21 +73,22 @@ async def get_user_assessments(
         - assessment_id: Optional filter by assessment ID
         - limit: Maximum number of results (default: 100, max: 500)
     """
-    result = await get_employee_assessments_by_user(user_id, target_user_id, assessment_id, limit)
+    result = await get_employee_assessments_by_user(auth_ctx.user_id, target_user_id, assessment_id, limit)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessments = result.get("data") or []
     
     return {
-        "assessments": result["data"],
-        "count": len(result["data"] or [])
+        "success": True,
+        "data": {"assessments": assessments, "count": len(assessments)},
+        "error": result.get("error")
     }
 
 
 @router.get("/assessment/{assessment_id}")
 async def get_assessments_by_assessment(
     assessment_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of results")
 ):
     """
@@ -91,40 +98,43 @@ async def get_assessments_by_assessment(
     Query Parameters:
         - limit: Maximum number of results (default: 100, max: 500)
     """
-    result = await get_employee_assessments_by_assessment(user_id, assessment_id, limit)
+    result = await get_employee_assessments_by_assessment(auth_ctx.user_id, assessment_id, limit)
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    assessments = result.get("data") or []
     
     return {
-        "assessments": result["data"],
-        "count": len(result["data"] or [])
+        "success": True,
+        "data": {"assessments": assessments, "count": len(assessments)},
+        "error": result.get("error")
     }
 
 
 @router.get("/assessment/{assessment_id}/statistics")
 async def get_assessment_stats(
     assessment_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
     Get statistics for an assessment (average score, completion rate, etc.).
     Permission: Manager+ in the company that owns the assessment.
     """
-    result = await get_assessment_statistics(user_id, assessment_id)
+    result = await get_assessment_statistics(auth_ctx.user_id, assessment_id)
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    stats = result.get("data") or None
     
-    return {"statistics": result["data"]}
+    return {
+        "success": True,
+        "data": stats,
+        "error": result.get("error")
+    }
 
 
 @router.get("/company/{company_id}")
 async def get_company_assessments(
     company_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     target_user_id: Optional[str] = Query(None, alias="user_id", description="Filter by user ID"),
     assessment_id: Optional[str] = Query(None, description="Filter by assessment ID"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of results")
@@ -139,22 +149,23 @@ async def get_company_assessments(
         - limit: Maximum number of results (default: 100, max: 500)
     """
     result = await get_employee_assessments_by_company(
-        user_id, company_id, target_user_id, assessment_id, limit
+        auth_ctx.user_id, company_id, target_user_id, assessment_id, limit
     )
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessments = result.get("data") or []
     
     return {
-        "assessments": result["data"],
-        "count": len(result["data"] or [])
+        "success": True,
+        "data": {"assessments": assessments, "count": len(assessments)},
+        "error": result.get("error")
     }
 
 
 @router.post("/")
 async def create_assessment(
     request: CreateEmployeeAssessmentRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
     Create a new employee assessment.
@@ -170,20 +181,25 @@ async def create_assessment(
         - question_feedback: Question-specific feedback (optional)
     """
     assessment_data = request.dict()
-    result = await create_employee_assessment(user_id, assessment_data)
+    result = await create_employee_assessment(auth_ctx.user_id, assessment_data)
     
-    if result["error"]:
-        status_code = 400 if "required" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
+    if assessment and isinstance(assessment, list):
+        assessment = assessment[0]
     
-    return {"assessment": result["data"][0] if result["data"] else None}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.patch("/{employee_assessment_id}")
 async def update_assessment(
     employee_assessment_id: str,
     request: UpdateEmployeeAssessmentRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
     Update an employee assessment.
@@ -203,28 +219,33 @@ async def update_assessment(
     if not update_data:
         raise HTTPException(status_code=400, detail="No update data provided")
     
-    result = await update_employee_assessment(user_id, employee_assessment_id, update_data)
+    result = await update_employee_assessment(auth_ctx.user_id, employee_assessment_id, update_data)
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
+    if assessment and isinstance(assessment, list):
+        assessment = assessment[0]
     
-    return {"assessment": result["data"][0] if result["data"] else None}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.delete("/{employee_assessment_id}")
 async def delete_assessment(
     employee_assessment_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
     Delete an employee assessment.
     Permission: Admin+ in same company.
     """
-    result = await delete_employee_assessment(user_id, employee_assessment_id)
+    result = await delete_employee_assessment(auth_ctx.user_id, employee_assessment_id)
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
-    
-    return {"message": "Employee assessment deleted successfully"}
+    return {
+        "success": True,
+        "data": None,
+        "error": None
+    }

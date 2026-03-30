@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useState } from "react"
 import { type User, onAuthStateChanged, signOut } from "firebase/auth"
 import { auth } from "@/lib/firebase"
 import { createCacheKey, sharedDataClient } from "@/lib/data-client"
+import { fetchWithAuth } from "@/lib/fetch-with-auth"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL
 const MANUAL_AUTH_STORAGE_KEY = "lucid:manual-auth-user"
@@ -55,7 +56,7 @@ export const useAuth = () => {
 const fetchUserByEmail = async (email: string | undefined | null) => {
   if (!email) return null
   try {
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`)
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`)
     if (!res.ok) {
       console.error('[auth-context] Failed to fetch user by email:', res.status)
       return null
@@ -72,7 +73,7 @@ const fetchUserByEmail = async (email: string | undefined | null) => {
 
 const fetchUserRoles = async (userId: string) => {
   try {
-    const rolesRes = await fetch(`${API_BASE}/api/roles/users/${userId}`, {
+    const rolesRes = await fetchWithAuth(`${API_BASE}/api/roles/users/${userId}`, {
       headers: { 'X-User-ID': userId }
     })
 

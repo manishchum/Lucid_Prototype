@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
@@ -52,6 +52,12 @@ const EmployeeNavigation = ({
     await logout();
     router.push("/");
   });
+
+  // Open Lucid Assistant
+  const handleOpenAssistant = () => {
+    // Dispatch custom event to open the assistant
+    window.dispatchEvent(new CustomEvent('openLucidAssistant'));
+  };
 
   // Existing Data Fetching Logic
   useEffect(() => {
@@ -345,7 +351,7 @@ const EmployeeNavigation = ({
         <div className="relative group">
             <button 
               onClick={() => handleNavigate('/employee/account')}
-              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/roleplay') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/account') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
             >
               <UsersRound size={20} className="shrink-0" />
               {!isCollapsed && <span className="text-[15px] font-bold">Profile</span>}
@@ -356,7 +362,20 @@ const EmployeeNavigation = ({
 
 
         {/* Logout */}
-        <div className="p-4 border-t border-slate-50 mt-auto">
+        <div className="p-4 border-t border-slate-50 mt-auto space-y-2">
+          {/* Lucid Assistant Button - COMMENTED OUT
+          <button onClick={handleOpenAssistant} className="relative group w-full flex items-center gap-3.5 px-4 py-3 text-[#3B66F5] font-bold text-[15px] hover:bg-blue-50 rounded-xl transition-all duration-200">
+            <MessageSquare size={20} className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
+            {!isCollapsed && <span>Lucid Assistant</span>}
+            {isCollapsed && (
+              <div className="absolute left-full ml-2 px-2.5 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible pointer-events-none transition-all duration-200 z-[9999] whitespace-nowrap shadow-lg top-1/2 -translate-y-1/2">
+                Lucid Assistant
+              </div>
+            )}
+          </button>
+          */}
+
+          {/* Logout Button */}
           <button onClick={handleLogout} className="relative group w-full flex items-center gap-3.5 px-4 py-3 text-[#EF4444] font-bold text-[15px] hover:bg-red-50 rounded-xl transition-all duration-200">
             <LogOut size={20} className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
             {!isCollapsed && <span>Log Out</span>}

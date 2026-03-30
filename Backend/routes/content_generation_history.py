@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, Header, Query
 from pydantic import BaseModel
 from typing import Optional
 
@@ -12,6 +12,8 @@ from utils.db.content_generation_history_db import (
     delete_content_generation_history,
     update_content_generation_status
 )
+
+from utils.exceptions import NotFoundError, ValidationError
 
 router = APIRouter(prefix="/api/content-generation-history", tags=["content-generation-history"])
 
@@ -49,10 +51,14 @@ async def list_all_history(
     """
     result = await list_all_content_generation_history(user_id, status, limit)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    history = result.get("data") or []
     
-    return {"history": result["data"], "count": len(result["data"] or [])}
+    return {
+        "success": True,
+        "data": {"history": history, "count": len(history)},
+        "error": result.get("error")
+    }
 
 
 @router.get("/{content_generation_history_id}")
@@ -66,11 +72,14 @@ async def get_history_by_id(
     """
     result = await get_content_generation_history_by_id(user_id, content_generation_history_id)
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    history_item = result.get("data") or None
     
-    return {"history": result["data"]}
+    return {
+        "success": True,
+        "data": history_item,
+        "error": result.get("error")
+    }
 
 
 @router.get("/by-original-module/{original_module_id}")
@@ -92,10 +101,14 @@ async def get_history_by_original_module(
         user_id, original_module_id, status, limit
     )
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    history = result.get("data") or []
     
-    return {"history": result["data"], "count": len(result["data"] or [])}
+    return {
+        "success": True,
+        "data": {"history": history, "count": len(history)},
+        "error": result.get("error")
+    }
 
 
 @router.get("/by-processed-module/{processed_module_id}")
@@ -117,11 +130,14 @@ async def get_history_by_processed_module(
         user_id, processed_module_id, status, limit
     )
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    history = result.get("data") or []
     
-    return {"history": result["data"], "count": len(result["data"] or [])}
+    return {
+        "success": True,
+        "data": {"history": history, "count": len(history)},
+        "error": result.get("error")
+    }
 
 
 @router.post("/")
@@ -142,10 +158,16 @@ async def create_history(
     history_data = request.dict()
     result = await create_content_generation_history(user_id, history_data)
     
-    if result["error"]:
-        raise HTTPException(status_code=400, detail=result["error"])
+    # Unwrap service layer response
+    history_item = result.get("data") or None
+    if history_item and isinstance(history_item, list):
+        history_item = history_item[0]
     
-    return {"history": result["data"][0] if result["data"] else None}
+    return {
+        "success": True,
+        "data": history_item,
+        "error": result.get("error")
+    }
 
 
 @router.patch("/{content_generation_history_id}")
@@ -165,19 +187,20 @@ async def update_history(
     Note: original_module_id and processed_module_id cannot be updated.
     """
     update_data = request.dict(exclude_unset=True)
-    
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No update data provided")
-    
     result = await update_content_generation_history(
         user_id, content_generation_history_id, update_data
     )
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    history_item = result.get("data") or None
+    if history_item and isinstance(history_item, list):
+        history_item = history_item[0]
     
-    return {"history": result["data"][0] if result["data"] else None}
+    return {
+        "success": True,
+        "data": history_item,
+        "error": result.get("error")
+    }
 
 
 @router.patch("/{content_generation_history_id}/status")
@@ -201,11 +224,16 @@ async def update_status(
         request.content
     )
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    history_item = result.get("data") or None
+    if history_item and isinstance(history_item, list):
+        history_item = history_item[0]
     
-    return {"history": result["data"][0] if result["data"] else None}
+    return {
+        "success": True,
+        "data": history_item,
+        "error": result.get("error")
+    }
 
 
 @router.delete("/{content_generation_history_id}")
@@ -217,10 +245,10 @@ async def delete_history(
     Delete a content generation history record.
     Permission: Admin+ users can delete their company's records, super_admin can delete any.
     """
-    result = await delete_content_generation_history(user_id, content_generation_history_id)
+    await delete_content_generation_history(user_id, content_generation_history_id)
     
-    if result["error"]:
-        status_code = 404 if "not found" in result["error"].lower() else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
-    
-    return {"message": "Content generation history deleted successfully"}
+    return {
+        "success": True,
+        "data": None,
+        "error": None
+    }

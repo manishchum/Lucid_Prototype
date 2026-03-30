@@ -1,14 +1,24 @@
 import os
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.executors.pool import ThreadPoolExecutor
 
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-_DB_PATH = os.path.join(_BASE_DIR, "scheduled_jobs.db")
-_DB_URL = f"sqlite:///{_DB_PATH}"
+# ── Scheduler Configuration ──────────────────────────────────────────
+# 
+# IMPORTANT: Email and WhatsApp schedules are now PERSISTED IN SUPABASE
+# This scheduler uses an in-memory job store ONLY for:
+#  1. Cron-based job execution (e.g., polling scheduled_emails table)
+#  2. Backward compatibility with any existing APScheduler jobs
+# 
+# Email persistence: stored in scheduled_emails table (see email_db.py)
+# WhatsApp persistence: stored in scheduled_whatsapp table
+# 
+# This prevents loss of scheduled jobs on server restart, as jobs are
+# stored in Supabase and queried by cron workers.
+# ──────────────────────────────────────────────────────────────────────
 
 jobstores = {
-    "default": SQLAlchemyJobStore(url=_DB_URL),
+    "default": MemoryJobStore(),  # In-memory store (no persistence across restarts)
 }
 
 executors = {

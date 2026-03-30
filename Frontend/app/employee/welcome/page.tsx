@@ -9,6 +9,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { useTenant } from "@/contexts/tenant-context";
 import CompanySelector from "@/components/company-selector";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { 
   Users, BookOpen, Clock, User, ChevronDown, 
   Trophy, Target, TrendingUp, Zap, LayoutGrid,
@@ -69,7 +70,7 @@ export default function EmployeeWelcome() {
 
   const fetchUserByEmail = async (email: string) => {
     try {
-      const res = await fetch(
+      const res = await fetchWithAuth(
         `${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`,
       );
       if (!res.ok) return null;
@@ -101,12 +102,12 @@ export default function EmployeeWelcome() {
         };
 
         const [plansRes, modulesRes, progressRes, usersRes, companyRes, learningStyleRes] = await Promise.all([
-          fetch(`${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
-          fetch(`${API_BASE}/api/training-modules/company/${effectiveCompanyId}`, { headers }).then((r) => r.ok ? r.json() : {}),
-          fetch(`${API_BASE}/api/module-progress/user/${employeeData.user_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
-          fetch(`${API_BASE}/api/users/company/${effectiveCompanyId}`, { headers }).then((r) => r.ok ? r.json() : {}),
-          fetch(`${API_BASE}/api/companies/${encodeURIComponent(effectiveCompanyId)}`, { headers }).then((r) => r.ok ? r.json() : {}),
-          fetch(`${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => r.ok ? r.json() : {}),
+          fetchWithAuth(`${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
+          fetchWithAuth(`${API_BASE}/api/training-modules/company/${employeeData.company_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
+          fetchWithAuth(`${API_BASE}/api/module-progress/user/${employeeData.user_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
+          fetchWithAuth(`${API_BASE}/api/users/company/${employeeData.company_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
+          fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`, { headers }).then((r) => r.ok ? r.json() : {}),
+          fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => r.ok ? r.json() : {}),
         ]);
 
         return {

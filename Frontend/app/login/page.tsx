@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { signInWithPopup } from "firebase/auth"
+import { signInWithPopup, signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -12,9 +12,8 @@ import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Brain, ArrowLeft, Eye, EyeOff } from "lucide-react"
 import { auth, googleProvider } from "@/lib/firebase"
-import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
-import bcrypt from "bcryptjs"
+import { fetchWithAuth } from "@/lib/fetch-with-auth"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -23,6 +22,8 @@ function LoginContent() {
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [resetMessage, setResetMessage] = useState("")
+  const [resetLoading, setResetLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -49,7 +50,7 @@ function LoginContent() {
 
   const checkUserAccess = async (userEmail: string) => {
     try{
-      const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(userEmail)}`)
+      const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(userEmail)}`)
       if (!res.ok) {
         throw new Error("Access denied. Your email is not in the allowed users list.")
       }
@@ -66,50 +67,47 @@ function LoginContent() {
     }
   }
 
+  const mapLoginErrorMessage = (err: any): string => {
+    const code = err?.code || ""
+    const message = err?.message || ""
+
+    if (message.includes("Access denied")) {
+      return "Access denied. Your email is not in the allowed users list."
+    }
+
+    switch (code) {
+      case "auth/user-not-found":
+      case "auth/wrong-password":
+      case "auth/invalid-credential":
+        return "Invalid email or password."
+      case "auth/invalid-email":
+        return "Please enter a valid email address."
+      case "auth/too-many-requests":
+        return "Too many failed attempts. Please wait and try again."
+      default:
+        return message || "Unable to sign in right now. Please try again."
+    }
+  }
+
   const handleEmailPasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError("")
+    setResetMessage("")
 
     try {
-      const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`)
-      if (!res.ok) {
-        throw new Error("Invalid email or password")
-      }
-      const payload = await res.json();
-      let userData = payload?.user || payload;
-      if (Array.isArray(userData)) userData = userData[0];
-      if (!userData){
-        throw new Error("Invalid email or password")
-      }
-      
-      // Check if user has a password set
-      if (!userData.password || userData.password === null || userData.password === '') {
-        throw new Error("This account uses Google sign-in. Please use 'Continue with Google' button.")
-      }
+      const emailAuthResult = await signInWithEmailAndPassword(auth, email, password)
 
-      const isPasswordValid = await bcrypt.compare(password, userData.password)
-      if (!isPasswordValid) {
-        throw new Error("Invalid email or password")
-      }
+      await checkUserAccess(email)
 
-      const userAccessData = await checkUserAccess(email)
-
-      const userForContext = {
-        uid: userData.user_id,
-        email: userData.email,
-        displayName: userData.name,
-        name: userData.name
-      }
-
-      await login(userForContext)
+      await login(emailAuthResult.user)
 
       try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
       router.push('/employee/welcome')
     } catch (error: any) {
-      setError(error.message)
+      setError(mapLoginErrorMessage(error))
       try {
-        await fetch('/api/logs', {
+        await fetchWithAuth('/api/logs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -128,6 +126,34 @@ function LoginContent() {
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleForgotPassword = async () => {
+    setError("")
+    setResetMessage("")
+
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail) {
+      setError("Enter your email first, then click Forgot password.")
+      return
+    }
+
+    setResetLoading(true)
+    try {
+      await sendPasswordResetEmail(auth, normalizedEmail)
+      setResetMessage("Password reset email sent. Check your inbox and spam folder.")
+    } catch (err: any) {
+      const code = err?.code || ""
+      if (code === "auth/invalid-email") {
+        setError("Please enter a valid email address.")
+      } else if (code === "auth/too-many-requests") {
+        setError("Too many attempts. Please wait and try again.")
+      } else {
+        setError("Unable to send reset email right now. Please try again.")
+      }
+    } finally {
+      setResetLoading(false)
     }
   }
 
@@ -151,7 +177,7 @@ function LoginContent() {
         setError(error.message)
       }
       try {
-        await fetch('/api/logs', {
+        await fetchWithAuth('/api/logs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -239,11 +265,27 @@ function LoginContent() {
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    disabled={loading || resetLoading}
+                    className="text-sm text-blue-600 hover:text-blue-700 disabled:opacity-60"
+                  >
+                    {resetLoading ? "Sending reset email..." : "Forgot password?"}
+                  </button>
+                </div>
               </div>
 
               {error && (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              {resetMessage && (
+                <Alert>
+                  <AlertDescription>{resetMessage}</AlertDescription>
                 </Alert>
               )}
 

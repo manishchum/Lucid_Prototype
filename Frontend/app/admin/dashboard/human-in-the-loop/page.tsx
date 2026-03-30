@@ -8,6 +8,7 @@ import { Search, Filter, FileText, Clock, AlertCircle, Upload, UserCheck } from 
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 interface TrainingModule {
   module_id: string;
@@ -78,7 +79,7 @@ const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const fetchUserByEmail = async (email: string | null) => {
   if (!email) return null;
   try {
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
     if (!res.ok) return null;
     const payload = await res.json();
     let u = payload?.user ?? payload;
@@ -340,10 +341,10 @@ export default function HumanInTheLoopPage() {
     <div className="min-h-screen bg-[#FAFBFC]">
       <main className="p-8">
         <div className="max-w-[2000px] mx-auto">
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-[#1E293B] mb-2">Content Pipeline Review</h1>
-            <p className="text-slate-500">Review and manage AI-generated content you uploaded or are assigned to review.</p>
+          {/* Header Card */}
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">Content Pipeline Review</h1>
+            <p className="text-slate-600">Review and manage AI-generated content you uploaded or are assigned to review.</p>
           </div>
 
           {/* Stats Cards */}

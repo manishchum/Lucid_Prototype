@@ -17,6 +17,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -47,7 +48,7 @@ const fetchUsersByFilter = async (filters: {
 
     // Note: This assumes you have a backend endpoint that supports these filters
     // If not available, you'll need to create one or fetch all and filter client-side
-    const res = await fetch(`${API_BASE}/api/users?${params.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/api/users?${params.toString()}`);
     if (!res.ok) return [];
     const payload = await res.json();
     const users = payload?.users ?? payload;
@@ -137,7 +138,7 @@ export default function WorkforceOverview() {
   const fetchCurrentUser = async () => {
     if (!user?.email) return;
     try {
-      const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(user.email)}`);
+      const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(user.email)}`);
       if (!res.ok) {
         console.error('Error fetching current user');
         return;
@@ -296,7 +297,7 @@ export default function WorkforceOverview() {
       }
 
       // Fetch learning plans via backend API (filter by IN_PROGRESS status on frontend)
-      const lpRes = await fetch(
+      const lpRes = await fetchWithAuth(
         `${API_BASE}/api/learning-plans/?limit=1000`,
         { headers: { 'X-User-ID': currentUserId } }
       );
@@ -321,12 +322,12 @@ export default function WorkforceOverview() {
         return;
       }
 
-      const moduleIds = [...new Set(learningPlans.map(lp => lp.module_id))];
+      const moduleIds = [...new Set(learningPlans.map((lp: { module_id: string }) => lp.module_id))];
       
       // Fetch modules from backend API
       let modules: any[] = [];
       if (userData?.company_id && moduleIds.length > 0) {
-        const res = await fetch(`${API_BASE}/api/training-modules/company/${userData.company_id}`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${userData.company_id}`, {
           headers: {
             'X-User-ID': currentUserId
           }
@@ -339,7 +340,7 @@ export default function WorkforceOverview() {
         }
       }
 
-      const moduleCounts = learningPlans.reduce((acc: any, lp) => {
+      const moduleCounts = learningPlans.reduce((acc: any, lp: { module_id: string }) => {
         const moduleId = lp.module_id;
         acc[moduleId] = (acc[moduleId] || 0) + 1;
         return acc;
@@ -390,7 +391,7 @@ export default function WorkforceOverview() {
       // Fetch modules from backend API
       let modules: any[] = [];
       if (userData?.company_id) {
-        const res = await fetch(`${API_BASE}/api/training-modules/company/${userData.company_id}`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${userData.company_id}`, {
           headers: {
             'X-User-ID': currentUserId
           }
@@ -402,7 +403,7 @@ export default function WorkforceOverview() {
         }
       }
 
-      const mappings: KPIMapping[] = kpis.map(kpi => {
+      const mappings: KPIMapping[] = kpis.map((kpi: { name: string; description: string; target: number; datatype: string }) => {
         const relatedModules = (modules || [])
           .slice(0, 3)
           .map(module => ({
@@ -468,30 +469,26 @@ export default function WorkforceOverview() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <main className="p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Workforce Overview</h1>
-            <p className="text-gray-600 text-sm">Monitor workforce capabilities and sprint allocation.</p>
+        {/* Header Card */}
+        <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-800 mb-2">Workforce Overview</h1>
+              <p className="text-slate-600">Monitor workforce capabilities and sprint allocation across your organization</p>
+            </div>
+            
+            <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6">
+              <Filter size={16} className="mr-2" />
+              Export Report
+            </Button>
           </div>
-          
-          <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6">
-            <Filter size={16} className="mr-2" />
-            Export Report
-          </Button>
         </div>
 
         {/* Role Analysis Section */}
         <Card className="bg-white border-gray-200 shadow-sm p-6">
-          {/* <div className="flex items-center gap-2 mb-6">
-            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
-            <h2 className="text-sm font-bold text-blue-600 uppercase tracking-wider">Role Analysis</h2>
-          </div> */}
-
           <h3 className="text-2xl font-bold text-gray-900 mb-4">Learning Overview</h3>
-          {/* <p className="text-gray-600 text-sm mb-6">Map business KPIs directly to learning modules by role.</p> */}
 
           {/* Filters */}
           <div className="flex items-center gap-4 mb-8">
