@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-from fastapi import APIRouter, Header, Query
-=======
 from fastapi import APIRouter, Depends, HTTPException, Query
->>>>>>> 9c6b82f058b343174c1a367a524da98aaf5ccd78
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from utils.auth import RequestAuth, get_request_auth_required
@@ -219,15 +215,11 @@ async def update_assessment(
     Note: user_id and assessment_id cannot be updated.
     """
     update_data = request.dict(exclude_unset=True)
-<<<<<<< HEAD
-    result = await update_employee_assessment(user_id, employee_assessment_id, update_data)
-=======
     
     if not update_data:
         raise HTTPException(status_code=400, detail="No update data provided")
     
     result = await update_employee_assessment(auth_ctx.user_id, employee_assessment_id, update_data)
->>>>>>> 9c6b82f058b343174c1a367a524da98aaf5ccd78
     
     # Unwrap service layer response
     assessment = result.get("data") or None
@@ -250,11 +242,7 @@ async def delete_assessment(
     Delete an employee assessment.
     Permission: Admin+ in same company.
     """
-<<<<<<< HEAD
-    await delete_employee_assessment(user_id, employee_assessment_id)
-=======
     result = await delete_employee_assessment(auth_ctx.user_id, employee_assessment_id)
->>>>>>> 9c6b82f058b343174c1a367a524da98aaf5ccd78
     
     return {
         "success": True,
