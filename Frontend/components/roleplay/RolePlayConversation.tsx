@@ -49,6 +49,7 @@ export default function RolePlayConversation({
   const processorRef    = useRef<ScriptProcessorNode | null>(null);
   const nextPlayTimeRef = useRef<number>(0);  // Track playback time to queue audio sequentially
   const isBotSpeakingRef = useRef<boolean>(false);  // Gate mic audio send while bot is speaking
+  const sessionEndedRef = useRef<boolean>(false);  // Flag to track if session_ended was received
 
   // Helper to update both state and ref for bot speaking status
   const setBotSpeaking = (val: boolean) => {
@@ -154,6 +155,7 @@ export default function RolePlayConversation({
         tone:          scenario.tone || "Neutral",
         employeeId,
         sessionId:     sessionIdRef.current,
+        voiceGender,
       }));
 
       // ✅ Start mic → OpenAI pipeline only after WS is confirmed open
@@ -259,7 +261,11 @@ export default function RolePlayConversation({
         // Bot response complete — reset queue for next response
         nextPlayTimeRef.current = 0;
       } else if (data.type === "session_ended") {
+        // ✅ FIX 7 — Backend sent complete transcript after end_session request
+        console.log('[ws.onmessage] Received session_ended event');
+        console.log('[ws.onmessage] Backend transcript length:', data.transcript?.length || 0);
         conversationTranscriptRef.current = data.transcript || [];
+        sessionEndedRef.current = true;
       } else if (data.type === "error") {
         console.error("Backend error:", data.message);
         setLimitPopup({ open: true, message: data.message });
@@ -324,19 +330,47 @@ export default function RolePlayConversation({
     }
   };
 
-  // ✅ FIX 4 — send end_session BEFORE closing WebSocket
+  // ✅ FIX 7 — Wait for backend session_ended response before processing transcript
   const handleEndSession = async () => {
+    console.log('[handleEndSession] Starting session end process...');
+
+    // Reset the flag that tracks if session_ended was received
+    sessionEndedRef.current = false;
+
+    // Step 1: Send end_session signal to backend
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log('[handleEndSession] Sending end_session to backend');
       wsRef.current.send(JSON.stringify({ type: "end_session" }));
-      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Step 2: Wait for backend to send session_ended with complete transcript (with 3 second timeout)
+      let timeoutId: NodeJS.Timeout | null = null;
+      try {
+        await new Promise<void>((resolve) => {
+          timeoutId = setTimeout(() => {
+            console.warn('[handleEndSession] ⏱️ Timeout waiting for session_ended (3s) - using local transcript');
+            resolve();
+          }, 3000);
+        });
+      } catch (err) {
+        console.error('[handleEndSession] Error waiting for session_ended:', err);
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+    } else {
+      console.warn('[handleEndSession] WebSocket not open, using local transcript');
     }
 
+    // Wait a bit more to ensure any pending messages are processed
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    // Step 3: Stop all media and reset state
     stopAllMedia();
     setConversationActive(false);
     setIsRecording(false);
     setIsProcessing(false);
     setBotSpeaking(false);
 
+    // Step 4: Build messages array from the complete transcript
     const messages: Message[] = conversationTranscriptRef.current.map((item, idx) => ({
       text:      item.text,
       sender:    item.role === "user" ? "user" : "avatar",
@@ -345,9 +379,18 @@ export default function RolePlayConversation({
       ).toISOString(),
     }));
 
+    console.log('[handleEndSession] ✅ Transcript received:', {
+      sessionEnded: sessionEndedRef.current,
+      transcriptLength: conversationTranscriptRef.current.length,
+      messagesArrayLength: messages.length
+    });
+
+    // Step 5: Save transcript and trigger callback
     if (sessionIdRef.current && messages.length > 0) {
       try {
+        console.log('[handleEndSession] Saving session transcript...');
         await updateRolePlaySession(sessionIdRef.current, messages, true);
+        console.log('[handleEndSession] ✅ Transcript saved to database');
       } catch (e) {
         console.error("❌ Failed to save transcript:", e);
       }
