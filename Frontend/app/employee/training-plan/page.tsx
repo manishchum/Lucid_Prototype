@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { Users, ChevronLeft, CheckCircle2, BookOpen, ArrowUpRight } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -45,9 +46,12 @@ function TrainingPlanContent() {
         path: `/training-plan/${selectedModuleId}`,
       }),
       async () => {
-        const res = await fetch(`${API_BASE}/api/training-plan`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/training-plan`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-ID": employee.user_id,
+          },
           body: JSON.stringify({
             user_id: employee.user_id,
             module_id: selectedModuleId,
@@ -301,7 +305,7 @@ function TrainingPlanContent() {
           path: `/api/processed-modules/original-module/${originalModuleId}`,
         }),
         async () => {
-          const res = await fetch(`${API_BASE}/api/processed-modules/original-module/${originalModuleId}`, {
+          const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${originalModuleId}`, {
             headers: { "X-User-ID": employeeData.user_id },
           });
           if (!res.ok) {

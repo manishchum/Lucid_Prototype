@@ -35,8 +35,14 @@ function utcNow() {
 }
 
 function timeMatches(now, scheduledTime) {
-  const nowHHMM = now.toISOString().slice(11, 16); // HH:mm
+  // Convert current time to IST
+  const nowIST = new Date(
+    now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+  );
+
+  const nowHHMM = nowIST.toTimeString().slice(0, 5); // HH:mm
   const schedHHMM = scheduledTime.slice(0, 5);
+  console.log(`Comparing times - Now (IST): ${nowHHMM}, Schedule: ${schedHHMM}`);
   return nowHHMM === schedHHMM;
 }
 
@@ -59,30 +65,188 @@ function canRetry(dispatch) {
   return dispatch.retry_count < dispatch.max_retries;
 }
 
-// ── WhatsApp Sender ───────────────────────────────────────────
+async function getUserNameById(userId) {
+  if (!userId) return 'there';
 
-async function sendWhatsApp(dispatch, schedule) {
-  const url = `https://graph.facebook.com/${API_VERSION}/${PHONE_NUMBER_ID}/messages`;
+  const { data, error } = await supabase
+    .from('users')
+    .select('name')
+    .eq('user_id', userId)
+    .maybeSingle();
 
-  let payload = {
-    messaging_product: 'whatsapp',
-    to: dispatch.phone_number,
-  };
-
-  // TEXT MESSAGE
-  if (!schedule.media_url) {
-    payload.type = 'text';
-    payload.text = { body: schedule.message_body };
-  } else {
-    // MEDIA MESSAGE
-    payload.type = schedule.media_type;
-
-    payload[schedule.media_type] = {
-      link: schedule.media_url,
-      caption: schedule.message_body || undefined,
-    };
+  if (error) {
+    console.error(`[whatsapp-cron] Failed to fetch user name for ${userId}:`, error.message);
+    return 'there';
   }
 
+  const name = (data?.name || '').trim();
+  return name || 'there';
+}
+
+// ── WhatsApp Sender ───────────────────────────────────────────
+
+async function sendWhatsApp(dispatch, schedule, userName) {
+  const url = `https://graph.facebook.com/${API_VERSION}/${PHONE_NUMBER_ID}/messages`;
+
+  // let payload = {
+  //   messaging_product: 'whatsapp',
+  //   to: dispatch.phone_number,
+  // };
+
+  // // TEXT MESSAGE
+  // if (!schedule.media_url) {
+  //   payload.type = 'text';
+  //   payload.text = { body: schedule.message_body };
+  // } else {
+  //   // MEDIA MESSAGE
+  //   payload.type = schedule.media_type;
+
+  //   payload[schedule.media_type] = {
+  //     link: schedule.media_url,
+  //     caption: schedule.message_body || undefined,
+  //   };
+  // }
+
+
+//   let payload = {
+//   messaging_product: 'whatsapp',
+//   to: dispatch.phone_number,
+//   type: 'template',
+//   template: {
+//     name: 'testing', // use your approved template
+//     language: { code: 'en' },
+//   },
+// };
+
+
+
+console.log(schedule)
+console.log(schedule.message_body)
+
+
+//  let payload = {
+//   messaging_product: 'whatsapp',
+//   to: dispatch.phone_number,
+//   type: 'template',
+//   template: {
+//     name: 'testing',
+//     language: { code: 'en' }, // make sure this matches EXACT template language (often 'en_US')
+//     components: [
+//       {
+//         type: 'body',
+//         parameters: [
+
+//           {
+//             type: 'text',
+//             parameter_name:'username',
+//             text: userName
+
+//           },
+//           {
+//             type: 'text',
+//             parameter_name:'contentofbody',
+//             text: schedule.message_body || 'Default body content'
+//           }
+          
+//         ]
+//       }
+//     ]
+//   }
+// };
+
+
+
+
+let payload = {
+  messaging_product: 'whatsapp',
+  to: dispatch.phone_number,
+  type: 'template',
+  template: {
+    name: 'podcasttemplate',
+    language: { code: 'en' }, // 🔥 MUST match exactly
+
+    components: [
+      // ✅ BODY PARAM (username)
+      {
+        type: 'body',
+        parameters: [
+          {
+            type: 'text',
+            parameter_name: 'username', // 🔥 MUST match EXACT placeholder name in template
+            text: userName || 'Learner'
+          },
+          {
+            type: 'text',
+            parameter_name: 'content', // 🔥 MUST match EXACT placeholder name in template
+            text: schedule.message_body || 'Default body content'
+
+          }
+        ]
+      },
+
+      // ✅ BUTTON PARAM (for dynamic URL)
+      {
+        type: 'button',
+        sub_type: 'url',
+        index: '1', // ⚠️ second button (0-based index)
+        parameters: [
+          {
+            type: 'text',
+            text: "e8be8e06-de88-4408-8af9-b43408926590/e3fd2afc-b24e-4cff-bbda-e8b8be4e9d19.wav"
+          }
+        ]
+      }
+    ]
+  }
+};
+
+
+
+// let payload = {
+//   messaging_product: 'whatsapp',
+//   to: dispatch.phone_number,
+//   type: 'template',
+//   template: {
+//     name: 'lucid',
+//     language: { code: 'en' }, // 🔥 MUST match exactly
+
+//     components: [
+//       // ✅ BODY PARAM (username)
+//       {
+//         type: 'body',
+//         parameters: [
+//           {
+//             type: 'text',
+//             parameter_name: 'username', // 🔥 MUST match EXACT placeholder name in template
+//             text: userName || 'Learner'
+//           },
+//           {
+//             type: 'text',
+//             parameter_name: 'content_of_body', // 🔥 MUST match EXACT placeholder name in template
+//             text: schedule.message_body || 'Default body content'
+
+//           }
+//         ]
+//       },
+
+//       // ✅ BUTTON PARAM (for dynamic URL)
+//       {
+//         type: 'button',
+//         sub_type: 'url',
+//         index: '1', // ⚠️ second button (0-based index)
+//         parameters: [
+//           {
+//             type: 'text',
+//             text: "https://fmkikkebrxyzjsffqgex.supabase.co/storage/v1/object/public/module_audio/module-audio/e8be8e06-de88-4408-8af9-b43408926590/e3fd2afc-b24e-4cff-bbda-e8b8be4e9d19.wav"
+//           }
+//         ]
+//       }
+//     ]
+//   }
+// };
+  console.log("Sending the request to the meta")
+  console.log(payload)
+  console.log(url)
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -151,9 +315,13 @@ async function pollAndSend() {
       let messageId = null;
 
       try {
-        const res = await sendWhatsApp(dispatch, schedule);
+        console.log("Stuck Here")
+        const userName = await getUserNameById(dispatch.user_id);
+        const res = await sendWhatsApp(dispatch, schedule, userName);
+
 
         messageId = res?.messages?.[0]?.id || null;
+        console.log(res)
 
         console.log(`✓ Sent to ${dispatch.phone_number}`);
       } catch (err) {

@@ -422,7 +422,7 @@ export function generateKPIReport(data: KPIPDFData) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(...colors.medGray);
-    doc.text('KPI Intelligence Report — Lucid Learning', margin, pageHeight - 5);
+    doc.text('KPI Intelligence Report — Lucid', margin, pageHeight - 5);
     doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, pageHeight - 5, { align: 'right' });
   }
 

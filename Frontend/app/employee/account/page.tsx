@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/auth-context";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { ArrowLeft, User, Mail, Calendar, Building, Save, Edit3, Lock, Eye, EyeOff, X, CheckCircle } from "lucide-react";
 
 interface Employee {
@@ -67,7 +68,7 @@ export default function AccountPage() {
           path: `/api/companies/${companyId}`,
         }),
         async () => {
-          const res = await fetch(`${API_URL}/api/companies/${companyId}`);
+          const res = await fetchWithAuth(`${API_URL}/api/companies/${companyId}`);
           if (!res.ok) {
             throw new Error(`Company fetch failed: ${res.status}`);
           }
@@ -115,10 +116,10 @@ export default function AccountPage() {
 
     setSaving(true);
     try {
-      const updRes = await fetch(`${API_URL}/api/users/${encodeURIComponent(employee.user_id)}`, {
+      const updRes = await fetchWithAuth(`${API_URL}/api/users/${encodeURIComponent(employee.user_id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json",
-          "X-User-ID": employee.user_id,
+          // "X-User-ID": employee.user_id,
          },
          body: JSON.stringify({
           name: formData.name,
@@ -230,11 +231,11 @@ export default function AccountPage() {
     setPasswordLoading(true);
     setPasswordError("");
     try {
-      const res = await fetch(`${API_URL}/api/change-password`, {
+      const res = await fetchWithAuth(`${API_URL}/api/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id: employee?.user_id,
+          // user_id: employee?.user_id,
           current_password: currentPassword,
           new_password: "", // Empty for validation step
         }),
@@ -272,11 +273,11 @@ export default function AccountPage() {
     setPasswordLoading(true);
     setPasswordError("");
     try {
-      const res = await fetch(`${API_URL}/api/change-password`, {
+      const res = await fetchWithAuth(`${API_URL}/api/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id: employee?.user_id,
+          // user_id: employee?.user_id,
           current_password: currentPassword,
           new_password: newPassword,
         }),

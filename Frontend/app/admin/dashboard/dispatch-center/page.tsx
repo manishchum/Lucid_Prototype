@@ -6,7 +6,7 @@ import EmployeeNavigation from '@/components/employee-navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
-import { callGemini } from '@/lib/gemini-helper';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const supabase = createClient(
@@ -87,7 +87,7 @@ interface AssignedUser {
 const fetchUserByEmail = async (email: string | null) => {
   if (!email) return null;
   try {
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
     if (!res.ok) return null;
     const payload = await res.json();
     let u = payload?.user ?? payload;
@@ -230,7 +230,7 @@ export default function AdminDispatchCenterPage() {
     const fetchSprints = async () => {
       setLoadingSprints(true);
       try {
-        const res = await fetch(`${API_BASE}/api/dispatch/sprints/${currentUser.company_id}`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/dispatch/sprints/${currentUser.company_id}`, {
           headers: { 'X-User-ID': currentUser.user_id },
         });
         if (res.ok) {
@@ -267,13 +267,13 @@ export default function AdminDispatchCenterPage() {
       setMultiModuleResult(null);
       try {
         const [subRes, usersRes, imageRes] = await Promise.all([
-          fetch(`${API_BASE}/api/dispatch/sub-modules/${selectedSprintId}`, {
+          fetchWithAuth(`${API_BASE}/api/dispatch/sub-modules/${selectedSprintId}`, {
             headers: { 'X-User-ID': currentUser.user_id },
           }),
-          fetch(`${API_BASE}/api/dispatch/assigned-users/${selectedSprintId}`, {
+          fetchWithAuth(`${API_BASE}/api/dispatch/assigned-users/${selectedSprintId}`, {
             headers: { 'X-User-ID': currentUser.user_id },
           }),
-          fetch(`${API_BASE}/api/dispatch/sprint-image/${selectedSprintId}`, {
+          fetchWithAuth(`${API_BASE}/api/dispatch/sprint-image/${selectedSprintId}`, {
             headers: { 'X-User-ID': currentUser.user_id },
           }),
         ]);
@@ -545,7 +545,7 @@ export default function AdminDispatchCenterPage() {
       .map((m) => m.title);
 
     try {
-      const res = await fetch(`${API_BASE}/api/dispatch/generate-email`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/dispatch/generate-email`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -570,7 +570,7 @@ export default function AdminDispatchCenterPage() {
         if (selectedContent.length > 0 && selectedSprintId) {
           try {
             console.log(currentUser)
-            const notifyRes = await fetch(`${API_BASE}/api/dispatch/notify-email`, {
+            const notifyRes = await fetchWithAuth(`${API_BASE}/api/dispatch/notify-email`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
               body: JSON.stringify({
@@ -636,7 +636,7 @@ export default function AdminDispatchCenterPage() {
       .map((m) => m.title);
 
     try {
-      const res = await fetch(`${API_BASE}/api/dispatch/generate-whatsapp`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/dispatch/generate-whatsapp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -695,7 +695,7 @@ export default function AdminDispatchCenterPage() {
         localDate.setHours(localH, localM, 0, 0);
         const utcTime = `${String(localDate.getUTCHours()).padStart(2, '0')}:${String(localDate.getUTCMinutes()).padStart(2, '0')}`;
 
-        const res = await fetch(`/api/dispatch/save-schedule`, {
+        const res = await fetchWithAuth(`/api/dispatch/save-schedule`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -719,7 +719,7 @@ export default function AdminDispatchCenterPage() {
           setSending(false);
           return;
         }
-        const res = await fetch(`${API_BASE}/api/dispatch/schedule-email`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/dispatch/schedule-email`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
           body: JSON.stringify({
@@ -736,7 +736,7 @@ export default function AdminDispatchCenterPage() {
         }
       } else {
         // ── Send immediately ────────────────────────────────────
-        const res = await fetch(`${API_BASE}/api/dispatch/send-email`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/dispatch/send-email`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
           body: JSON.stringify(notifyPayload),
@@ -812,7 +812,7 @@ export default function AdminDispatchCenterPage() {
      
       console.log('[FRONTEND DEBUG] Full request body:', JSON.stringify(requestBody, null, 2));
      
-      const res = await fetch(`${API_BASE}/api/dispatch/schedule-multi-module`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/dispatch/schedule-multi-module`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
         body: JSON.stringify(requestBody),
@@ -878,7 +878,7 @@ export default function AdminDispatchCenterPage() {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/api/dispatch/notify-whatsapp`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/dispatch/notify-whatsapp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
         body: JSON.stringify(whatsappPayload),

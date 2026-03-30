@@ -76,6 +76,14 @@ async def POST(request: Request):
         }
 
         print("Payload prepared:", payload)
+
+        auth_headers = {"Content-Type": "application/json"}
+        incoming_auth = request.headers.get("Authorization")
+        incoming_user_id = request.headers.get("X-User-ID")
+        if incoming_auth:
+            auth_headers["Authorization"] = incoming_auth
+        if incoming_user_id:
+            auth_headers["X-User-ID"] = incoming_user_id
         
         # Call the new submit-assessment API internally (with extended timeout for AI feedback generation)
         print(f"📤 Calling submit-assessment API: {submit_url}")
@@ -83,7 +91,7 @@ async def POST(request: Request):
             async with httpx.AsyncClient(timeout=120.0) as client:
                 submitAssessmentResponse = await client.post(
                     submit_url,
-                    headers={"Content-Type": "application/json"},
+                    headers=auth_headers,
                     content=json.dumps(payload)
                 )
             print(f"✅ Received response from submit-assessment: {submitAssessmentResponse.status_code}")
@@ -106,6 +114,14 @@ async def POST(request: Request):
             )
 
         assessmentResult = submitAssessmentResponse.json()
+        if not isinstance(assessmentResult, dict):
+            return JSONResponse(
+                content={
+                    "error": "Failed to process assessment submission",
+                    "details": "submit-assessment returned an unexpected response payload",
+                },
+                status_code=500,
+            )
         
         # print("Assessment result:", assessmentResult)
 

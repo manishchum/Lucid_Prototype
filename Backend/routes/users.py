@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 
@@ -10,17 +10,65 @@ from utils.db.users_db import (
     create_user_signup,
     update_user,
     delete_user,
-    get_users_by_filter
+    get_users_by_filter,
+    DEFAULT_PASSWORD,
 )
 
 from utils.db.roles_db import (
     assign_user_role,
     get_user_roles
 )
-
-from utils.exceptions import NotFoundError, ValidationError
+from utils.auth import (
+    RequestAuth,
+    get_request_auth_optional,
+    get_request_auth_required,
+)
+from utils.firebase_provisioning import ensure_firebase_user
+from utils.supabase_client import supabase
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+
+
+def _extract_created_user_row(created_payload):
+    if isinstance(created_payload, list):
+        return created_payload[0] if created_payload else None
+    if isinstance(created_payload, dict):
+        return created_payload
+    return None
+
+
+def _ensure_firebase_and_persist_uid(created_payload, request_password: Optional[str]):
+    created_user = _extract_created_user_row(created_payload)
+    if not created_user:
+        raise HTTPException(status_code=500, detail="User row not returned from create flow")
+
+    email = (created_user.get("email") or "").strip().lower()
+    name = created_user.get("name")
+    user_id = created_user.get("user_id")
+
+    if not email or not user_id:
+        raise HTTPException(status_code=500, detail="Created user row missing email or user_id")
+
+    plain_password = request_password or DEFAULT_PASSWORD
+    firebase_uid = ensure_firebase_user(email, name, plain_password)
+
+    try:
+        update_res = (
+            supabase
+            .table("users")
+            .update({"firebase_uid": firebase_uid})
+            .eq("user_id", user_id)
+            .execute()
+        )
+        updated_data = getattr(update_res, "data", None)
+        if isinstance(updated_data, list) and updated_data:
+            return updated_data
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to persist firebase_uid on user") from exc
+
+    # If update response does not return row data, preserve previous payload and enrich it for response consistency.
+    created_user["firebase_uid"] = firebase_uid
+    return [created_user]
 
 
 class CreateUserRequest(BaseModel):
@@ -68,7 +116,7 @@ async def list_users_by_filter(
     title_id: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(None),
     employment_status: Optional[str] = Query(None),
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_optional),
 ):
     """List users by filter criteria."""
     filters = {}
@@ -95,13 +143,14 @@ async def list_users_by_filter(
 @router.get("/company/{company_id}")
 async def list_users(
     company_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     status: Optional[str] = Query(None),
     department_id: Optional[str] = Query(None)
 ):
-    """List all users in a company."""
-    users = await get_users_by_company(user_id, company_id)
-    
+    result = await get_users_by_company(auth_ctx.user_id, company_id)
+    if result["error"]:
+        raise HTTPException(status_code=403, detail=result["error"])
+    users = result["data"] or []
     if status:
         users = [u for u in users if u.get("employment_status") == status]
     if department_id:
@@ -117,16 +166,12 @@ async def list_users(
 @router.get("/{target_user_id}")
 async def get_user(
     target_user_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    """Get a specific user by ID."""
-    data = await get_user_by_id(user_id, target_user_id)
-    
-    return {
-        "success": True,
-        "data": data,
-        "error": None
-    }
+    result = await get_user_by_id(auth_ctx.user_id, target_user_id)
+    if result["error"]:
+        raise HTTPException(status_code=403, detail=result["error"])
+    return {"user": result["data"]}
 
 
 
@@ -137,8 +182,11 @@ async def signup_endpoint(
 ):
     """Create a new user via signup endpoint (no auth required)."""
     user_data = request.dict()
+    # NOTE: hash password before storing in production
     result = await create_user_signup(user_data)
-    
+    if result["error"]:
+        raise HTTPException(status_code=403, detail=result["error"])
+    result["data"] = _ensure_firebase_and_persist_uid(result.get("data"), request.password)
     reactivated = result.get("reactivated", False)
     return {
         "success": True,
@@ -153,12 +201,15 @@ async def signup_endpoint(
 @router.post("/")
 async def create_user_endpoint(
     request: CreateUserRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """Create a new user (requires authentication and authorization)."""
     user_data = request.dict()
-    result = await create_user(user_id, user_data)
-    
+    # NOTE: hash password before storing in production
+    result = await create_user(auth_ctx.user_id, user_data)
+    if result["error"]:
+        raise HTTPException(status_code=403, detail=result["error"])
+    result["data"] = _ensure_firebase_and_persist_uid(result.get("data"), request.password)
     reactivated = result.get("reactivated", False)
     return {
         "success": True,
@@ -174,76 +225,58 @@ async def create_user_endpoint(
 async def update_user_endpoint(
     target_user_id: str,
     request: UpdateUserRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """Update user details."""
     updates = {k: v for k, v in request.dict().items() if v is not None}
     if not updates:
-        raise ValidationError("No fields to update")
-    
-    data = await update_user(user_id, target_user_id, updates)
-    
-    return {
-        "success": True,
-        "data": data,
-        "error": None
-    }
+        raise HTTPException(status_code=400, detail="No fields to update")
+    result = await update_user(auth_ctx.user_id, target_user_id, updates)
+    if result["error"]:
+        raise HTTPException(status_code=403, detail=result["error"])
+    return {"user": result["data"], "message": "User updated successfully"}
 
 
 @router.delete("/{target_user_id}")
 async def delete_user_endpoint(
     target_user_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     hard_delete: bool = Query(False)
 ):
-    """Delete a user."""
-    await delete_user(user_id, target_user_id)
-    
-    return {
-        "success": True,
-        "data": None,
-        "error": None
-    }
+    result = await delete_user(auth_ctx.user_id, target_user_id)
+    if result["error"]:
+        raise HTTPException(status_code=403, detail=result["error"])
+    return {"message": "User deleted successfully"}
 
 
 @router.post("/{target_user_id}/roles")
 async def assign_role(
     target_user_id: str,
     request: AssignRoleRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    """Assign a role to a user."""
-    data = await assign_user_role(user_id, target_user_id, request.dict())
-    
-    return {
-        "success": True,
-        "data": data,
-        "error": None
-    }
+    result = await assign_user_role(auth_ctx.user_id, target_user_id, request.dict())
+    if result["error"]:
+        raise HTTPException(status_code=403, detail=result["error"])
+    return {"message": "Role assigned successfully", "assignment": result["data"]}
 
 
 @router.get("/{target_user_id}/roles")
 async def get_user_roles_endpoint(
     target_user_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    """Get all roles assigned to a user."""
-    data = await get_user_roles(user_id, target_user_id)
-    
-    return {
-        "success": True,
-        "data": data,
-        "error": None
-    }
-
+    result = await get_user_roles(auth_ctx.user_id, target_user_id)
+    if result["error"]:
+        raise HTTPException(status_code=403, detail=result["error"])
+    return {"roles": result["data"]}
 
 @router.get("/by-email/{email}")
 async def get_user_by_email_route(
     email: str,
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_optional),
 ):
-    """Get a user by email address."""
-    requesting_user_id = user_id if user_id else None
+    requesting_user_id = auth_ctx.user_id
     result = await get_user_by_email(requesting_user_id, email)
     
     # result is {"data": user, "error": ...} from the service layer

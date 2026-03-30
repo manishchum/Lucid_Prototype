@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { FileText, Video, Music, File, Trash2, ExternalLink, Brain, Clock, CheckCircle, XCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import { fetchWithAuth } from "@/lib/fetch-with-auth"
 import { toast as shadcnToast } from '@/hooks/use-toast'
 import { AIAnalysisView } from "./ai-analysis-view"
 import { ProcessingStatusComponent } from "./processing-status"
@@ -67,7 +68,7 @@ export function UploadedFilesList({ modules, onModuleDeleted }: UploadedFilesLis
       const userId = authData?.user?.id || '';
 
       // Call backend route to delete module (backend should remove storage + DB row)
-      const res = await fetch(`${API_BASE}/api/training-modules/${encodeURIComponent(moduleId)}`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/training-modules/${encodeURIComponent(moduleId)}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',

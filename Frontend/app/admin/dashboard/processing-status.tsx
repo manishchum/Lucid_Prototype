@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Brain, Clock, CheckCircle, XCircle } from "lucide-react"
 import { AIService, ProcessingStatus } from "@/lib/ai-service"
+import { fetchWithAuth } from "@/lib/fetch-with-auth"
 
 interface ProcessingStatusProps {
   moduleId: string
@@ -74,7 +75,7 @@ export function ContentGenerationProgress({ moduleId }: ContentGenerationProgres
     let interval: NodeJS.Timeout
     const fetchProgress = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/content-generation-progress?module_id=${moduleId}`)
+        const res = await fetchWithAuth(`${API_BASE}/api/content-generation-progress?module_id=${moduleId}`)
         const data = await res.json()
         setProgress(data.percent || 0)
         setCompleted(data.completed || 0)

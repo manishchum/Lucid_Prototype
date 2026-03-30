@@ -1,5 +1,6 @@
 import React, { useRef } from "react";
 import { sharedDataClient } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
 interface AudioPlayerProps {
   employeeId: string;
@@ -19,9 +20,12 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
 
   const handlePlay = async () => {
     if (onPlayExtra) onPlayExtra();
-    await fetch(`${API_URL}/api/module-progress`, {
+    await fetchWithAuth(`${API_URL}/api/module-progress`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-ID': employeeId,
+      },
       body: JSON.stringify({
         user_id: employeeId,
         processed_module_id: processedModuleId,
@@ -35,9 +39,12 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
 
   const handleEnded = async () => {
     const duration = audioRef.current?.duration || 0;
-    await fetch(`${API_URL}/api/module-progress`, {
+    await fetchWithAuth(`${API_URL}/api/module-progress`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-ID': employeeId,
+      },
       body: JSON.stringify({
         user_id: employeeId,
         processed_module_id: processedModuleId,
