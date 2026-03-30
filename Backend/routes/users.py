@@ -10,7 +10,8 @@ from utils.db.users_db import (
     create_user_signup,
     update_user,
     delete_user,
-    get_users_by_filter
+    get_users_by_filter,
+    DEFAULT_PASSWORD,
 )
 
 from utils.db.roles_db import (
@@ -22,8 +23,52 @@ from utils.auth import (
     get_request_auth_optional,
     get_request_auth_required,
 )
+from utils.firebase_provisioning import ensure_firebase_user
+from utils.supabase_client import supabase
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+
+
+def _extract_created_user_row(created_payload):
+    if isinstance(created_payload, list):
+        return created_payload[0] if created_payload else None
+    if isinstance(created_payload, dict):
+        return created_payload
+    return None
+
+
+def _ensure_firebase_and_persist_uid(created_payload, request_password: Optional[str]):
+    created_user = _extract_created_user_row(created_payload)
+    if not created_user:
+        raise HTTPException(status_code=500, detail="User row not returned from create flow")
+
+    email = (created_user.get("email") or "").strip().lower()
+    name = created_user.get("name")
+    user_id = created_user.get("user_id")
+
+    if not email or not user_id:
+        raise HTTPException(status_code=500, detail="Created user row missing email or user_id")
+
+    plain_password = request_password or DEFAULT_PASSWORD
+    firebase_uid = ensure_firebase_user(email, name, plain_password)
+
+    try:
+        update_res = (
+            supabase
+            .table("users")
+            .update({"firebase_uid": firebase_uid})
+            .eq("user_id", user_id)
+            .execute()
+        )
+        updated_data = getattr(update_res, "data", None)
+        if isinstance(updated_data, list) and updated_data:
+            return updated_data
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to persist firebase_uid on user") from exc
+
+    # If update response does not return row data, preserve previous payload and enrich it for response consistency.
+    created_user["firebase_uid"] = firebase_uid
+    return [created_user]
 
 
 class CreateUserRequest(BaseModel):
@@ -128,9 +173,10 @@ async def create_user_endpoint(
 ):
     user_data = request.dict()
     # NOTE: hash password before storing in production
-    result = await create_user_signup( user_data)
+    result = await create_user_signup(user_data)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
+    result["data"] = _ensure_firebase_and_persist_uid(result.get("data"), request.password)
     reactivated = result.get("reactivated", False)
     return {
         "user": result["data"],
@@ -148,6 +194,7 @@ async def create_user_endpoint(
     result = await create_user(auth_ctx.user_id, user_data)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
+    result["data"] = _ensure_firebase_and_persist_uid(result.get("data"), request.password)
     reactivated = result.get("reactivated", False)
     return {
         "user": result["data"],

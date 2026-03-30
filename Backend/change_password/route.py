@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Request
+import os
+
+import httpx
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from supabase import create_client, Client
-import bcrypt
-import os
+
+from utils.auth import RequestAuth, _ensure_firebase_admin_initialized, get_request_auth_jwt_required
 
 router = APIRouter()
 
@@ -12,34 +15,67 @@ supabase: Client = create_client(
 )
 
 
+async def _verify_current_password_with_firebase(email: str, current_password: str) -> bool:
+    api_key = os.getenv("FIREBASE_WEB_API_KEY") or os.getenv("NEXT_PUBLIC_FIREBASE_API_KEY")
+    if not api_key:
+        raise RuntimeError("Missing FIREBASE_WEB_API_KEY or NEXT_PUBLIC_FIREBASE_API_KEY")
+
+    endpoint = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}"
+    payload = {
+        "email": email,
+        "password": current_password,
+        "returnSecureToken": True,
+    }
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(endpoint, json=payload)
+
+    if response.status_code == 200:
+        return True
+
+    try:
+        data = response.json()
+        firebase_message = ((data.get("error") or {}).get("message") or "").upper()
+    except Exception:
+        firebase_message = ""
+
+    if firebase_message in {"INVALID_LOGIN_CREDENTIALS", "INVALID_PASSWORD", "EMAIL_NOT_FOUND", "USER_DISABLED"}:
+        return False
+
+    raise RuntimeError(f"Firebase credential verification failed: status={response.status_code}")
+
+
 @router.post("/change-password")
-async def POST(req: Request):
+async def POST(
+    req: Request,
+    auth_ctx: RequestAuth = Depends(get_request_auth_jwt_required),
+):
     try:
         body = await req.json()
 
-        user_id = body.get("user_id")
+        user_id = auth_ctx.user_id
         current_password = body.get("current_password")
         new_password = body.get("new_password")
 
-        if not user_id or not current_password:
+        if not current_password:
             return JSONResponse(
-                {"error": "user_id and current_password are required"},
+                {"error": "current_password is required"},
                 status_code=400
             )
 
-        # Fetch the user's current hashed password
+        # Load internal user profile linkage from Supabase.
         try:
             query = supabase.table("users") \
-                .select("password") \
+                .select("user_id,email,firebase_uid") \
                 .eq("user_id", user_id) \
                 .single() \
                 .execute()
 
             userData = query.data
-            
-            if not userData or not userData.get("password"):
+
+            if not userData:
                 return JSONResponse(
-                    {"error": "User not found or password not set"},
+                    {"error": "User not found"},
                     status_code=404
                 )
         except Exception as fetch_error:
@@ -49,31 +85,24 @@ async def POST(req: Request):
                 status_code=404
             )
 
-        # Validate current password against bcrypt hash
-        try:
-            stored_password = userData["password"]
-            
-            # Check if the stored password is a bcrypt hash (starts with $2b$ or $2a$)
-            if not stored_password.startswith(('$2b$', '$2a$')):
-                print(f"Warning: Password for user {user_id} is not a bcrypt hash")
-                return JSONResponse(
-                    {"error": "Password format is invalid. Please contact administrator."},
-                    status_code=500
-                )
-            
-            # Compare current password with stored hash
-            isMatch = bcrypt.checkpw(
-                current_password.encode("utf-8"),
-                stored_password.encode("utf-8")
+        email = (userData.get("email") or "").strip().lower()
+        firebase_uid = userData.get("firebase_uid")
+        if not email:
+            return JSONResponse(
+                {"error": "User email not found"},
+                status_code=400
             )
 
-            if not isMatch:
+        # Validate current password against Firebase using Identity Toolkit signInWithPassword.
+        try:
+            is_valid = await _verify_current_password_with_firebase(email, current_password)
+            if not is_valid:
                 return JSONResponse(
                     {"error": "Current password is incorrect"},
                     status_code=401
                 )
-        except Exception as bcrypt_error:
-            print(f"Error verifying password: {bcrypt_error}")
+        except RuntimeError as verify_error:
+            print(f"Error verifying password with Firebase: {verify_error}")
             return JSONResponse(
                 {"error": "Error verifying current password"},
                 status_code=500
@@ -86,33 +115,27 @@ async def POST(req: Request):
                 "validated": True
             })
 
-        # Hash the new password with bcrypt
+        # Update password in Firebase (source-of-truth).
         try:
-            hashedPassword = bcrypt.hashpw(
-                new_password.encode("utf-8"),
-                bcrypt.gensalt(10)
-            ).decode("utf-8")
-        except Exception as hash_error:
-            print(f"Error hashing new password: {hash_error}")
-            return JSONResponse(
-                {"error": "Error processing new password"},
-                status_code=500
-            )
+            _ensure_firebase_admin_initialized()
+            from firebase_admin import auth as firebase_auth
 
-        # Update the password in the database
-        try:
-            updateQuery = supabase.table("users") \
-                .update({"password": hashedPassword}) \
-                .eq("user_id", user_id) \
-                .execute()
+            if not firebase_uid:
+                try:
+                    firebase_uid = firebase_auth.get_user_by_email(email).uid
+                    # Backfill linkage opportunistically when missing.
+                    supabase.table("users").update({"firebase_uid": firebase_uid}).eq("user_id", user_id).execute()
+                except firebase_auth.UserNotFoundError:
+                    return JSONResponse(
+                        {"error": "No Firebase account found for this user"},
+                        status_code=404
+                    )
 
-            if not updateQuery.data:
-                return JSONResponse(
-                    {"error": "Failed to update password"},
-                    status_code=500
-                )
+            firebase_auth.update_user(firebase_uid, password=new_password.strip())
+            # Revoke refresh tokens so prior sessions must refresh/re-authenticate.
+            firebase_auth.revoke_refresh_tokens(firebase_uid)
         except Exception as update_error:
-            print(f"Error updating password: {update_error}")
+            print(f"Error updating Firebase password: {update_error}")
             return JSONResponse(
                 {"error": "Failed to update password"},
                 status_code=500

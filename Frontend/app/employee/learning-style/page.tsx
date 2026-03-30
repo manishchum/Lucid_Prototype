@@ -351,7 +351,7 @@ export default function LearningStyleSurvey() {
     async function fetchEmployeeId() {
       if (authLoading || !user?.email) return
       // Fetch employee_id from Supabase using user email
-      const res = await fetch(`/api/get-employee-id?email=${encodeURIComponent(user.email)}`)
+      const res = await fetchWithAuth(`/api/get-employee-id?email=${encodeURIComponent(user.email)}`)
       const data = await res.json()
       if (data.user_id) {
         setEmployeeId(data.user_id)

@@ -119,7 +119,7 @@ export default function AccountPage() {
       const updRes = await fetchWithAuth(`${API_URL}/api/users/${encodeURIComponent(employee.user_id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json",
-          "X-User-ID": employee.user_id,
+          // "X-User-ID": employee.user_id,
          },
          body: JSON.stringify({
           name: formData.name,
@@ -192,7 +192,7 @@ export default function AccountPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id: employee?.user_id,
+          // user_id: employee?.user_id,
           current_password: currentPassword,
           new_password: "", // Empty for validation step
         }),
@@ -234,7 +234,7 @@ export default function AccountPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id: employee?.user_id,
+          // user_id: employee?.user_id,
           current_password: currentPassword,
           new_password: newPassword,
         }),
