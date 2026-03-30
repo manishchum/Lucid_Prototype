@@ -33,6 +33,32 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str) -> Di
         print(f"[get_user_by_email] Exception for {email}: {e}")
         return {"data": None, "error": str(e)}
 
+
+async def get_user_by_phone(requesting_user_id: Optional[str], phone: str) -> Dict[str, Any]:
+    """
+    Return user by phone. If requesting_user_id is None, allow lookup for auth bootstrap.
+    """
+    try:
+        # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
+        resp = supabase.table('users').select('*').eq('phone', phone).eq('is_active', True).limit(1).execute()
+        rows = resp.data if hasattr(resp, 'data') else []
+        user = rows[0] if rows else None
+        if not user:
+            print(f"[get_user_by_phone] No active user found for phone: {phone}")
+            return {"data": None, "error": "User not found"}
+        # If a requesting user is provided, perform a permission check; otherwise allow lookup.
+        if requesting_user_id:
+            has_permission = await check_user_permission(requesting_user_id, 'user')
+            if not has_permission:
+                return {"data": None, "error": "Permission denied"}
+            # strip sensitive fields before returning (only when not used for auth)
+            user.pop('password', None)
+        # For authentication (requesting_user_id is None), keep password for validation
+        return {"data": user, "error": None}
+    except Exception as e:
+        print(f"[get_user_by_number] Exception for {phone}: {e}")
+        return {"data": None, "error": str(e)}
+
 async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[str, Any]:
     """
     Return single user. Permission: self OR manager+ in same company.
