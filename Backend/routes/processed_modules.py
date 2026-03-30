@@ -238,6 +238,9 @@ async def update_content_generation_route(
     """
 
     print(f"Received request to update content generation data for processed_module_id: {processed_module_id} by user: {user_id}")
+    print(f"Mindmap data: {request.mindmap_data}")
+    print(f"Flashcard data: {request.flashcard_data}")
+    print(f"Infographic data: {request.infographic_data}")
     result = await update_content_generation_data(
         user_id,
         processed_module_id,

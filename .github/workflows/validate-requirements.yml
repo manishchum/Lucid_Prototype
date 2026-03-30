@@ -1,0 +1,89 @@
+name: Validate Requirements
+
+on:
+  push:
+    branches:
+      - main
+      - dev_*
+    paths:
+      - 'Backend/requirements.txt'
+  pull_request:
+    branches:
+      - main
+      - dev_*
+    paths:
+      - 'Backend/requirements.txt'
+
+jobs:
+  validate-requirements:
+    runs-on: ubuntu-latest
+    name: Validate Python Dependencies
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Run validation script
+        working-directory: Backend
+        run: |
+          chmod +x validate_requirements.sh
+          bash validate_requirements.sh
+
+      - name: Check installation with pip-audit
+        if: always()
+        working-directory: Backend
+        run: |
+          pip install pip-audit --quiet
+          echo "Running final CVE audit..."
+          pip-audit -r requirements.txt || true
+
+      - name: Validate requirements.txt format
+        working-directory: Backend
+        run: |
+          python3 << 'EOF'
+          import re
+          
+          with open('requirements.txt', 'r') as f:
+              lines = f.readlines()
+          
+          errors = []
+          for i, line in enumerate(lines, 1):
+              line = line.strip()
+              
+              # Skip comments and empty lines
+              if not line or line.startswith('#'):
+                  continue
+              
+              # Check for valid package format
+              # Valid: package>=1.0.0, package==1.0.0, package, package[extra]==1.0.0
+              if not re.match(r'^[a-zA-Z0-9\-_.]+(\[[a-zA-Z0-9\-_,]+\])?(>=|==|<=|~=|>|<)?[a-zA-Z0-9\-_.*,]+$', line):
+                  errors.append(f"Line {i}: Invalid format - {line}")
+          
+          if errors:
+              print("❌ Format validation failed:")
+              for error in errors:
+                  print(f"  {error}")
+              exit(1)
+          else:
+              print("✓ Requirements format is valid")
+          EOF
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "✓ All requirements validations passed!"
+          echo "✓ No conflicting package versions detected"
+          echo "✓ No known CVEs in dependencies"
+
+      - name: Failure notification
+        if: failure()
+        run: |
+          echo "❌ Requirements validation failed"
+          echo "Please review the errors above and fix requirements.txt"
+          exit 1

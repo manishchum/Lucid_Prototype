@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import nodemailer from 'nodemailer'
+import { generateUnsubscribeToken, buildUnsubscribeUrl } from '@/lib/unsubscribe-token'
 
 // Email transporter configuration with fallback to Ethereal for testing
 const createTransporter = async () => {
@@ -46,7 +47,13 @@ const createTransporter = async () => {
 }
 
 // Email template for new module notification
-const generateEmailTemplate = (employeeName: string, moduleTitle: string, companyName: string) => {
+const generateEmailTemplate = (
+  employeeName: string,
+  moduleTitle: string,
+  companyName: string,
+  unsubscribeUrl: string,
+  userId: string
+) => {
   return {
     subject: `New Training Module Available: ${moduleTitle}`,
     html: `
@@ -105,7 +112,8 @@ const generateEmailTemplate = (employeeName: string, moduleTitle: string, compan
           </div>
           <div class="footer">
             <p>This email was sent by Lucid Learning Platform.<br>
-            If you have any questions, please contact your administrator.</p>
+            If you have any questions, please contact your administrator.<br>
+            <a href="${unsubscribeUrl}" style="color: #666; text-decoration: none; font-size: 12px;">Unsubscribe from these notifications</a></p>
           </div>
         </div>
       </body>
@@ -123,6 +131,9 @@ const generateEmailTemplate = (employeeName: string, moduleTitle: string, compan
       
       Happy learning!
       The Lucid Learning Team
+      
+      ---
+      To unsubscribe from these notifications, visit: ${unsubscribeUrl}
     `
   }
 }
@@ -156,11 +167,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get all users for this company
+    // Get all users for this company (excluding unsubscribed)
     const { data: employees, error: employeesError } = await supabase
       .from('users')
-      .select('user_id, name, email')
+      .select('user_id, name, email, email_unsubscribed')
       .eq('company_id', companyId)
+      .eq('email_unsubscribed', false) // Only get subscribed users
     
     if (employeesError) {
       console.error('📧 DEBUG: Error fetching employees:', employeesError)
@@ -186,7 +198,29 @@ export async function POST(request: NextRequest) {
     // Send emails to all active employees
     const emailPromises = employees.map(async (employee: any) => {
       const employeeName = employee.name || 'Employee'
-      const emailTemplate = generateEmailTemplate(employeeName, moduleTitle, companyData.name)
+      
+      // Skip if user is unsubscribed
+      if (employee.email_unsubscribed) {
+        console.log(`📧 DEBUG: Skipping email to ${employee.email} - user unsubscribed`)
+        return { 
+          success: false, 
+          email: employee.email, 
+          employeeName,
+          reason: 'skipped: user unsubscribed'
+        }
+      }
+
+      // Generate unsubscribe token
+      let unsubscribeUrl = ''
+      try {
+        const token = generateUnsubscribeToken(employee.email, employee.user_id)
+        unsubscribeUrl = buildUnsubscribeUrl(token)
+      } catch (tokenError) {
+        console.error('Failed to generate unsubscribe token:', tokenError)
+        unsubscribeUrl = `${process.env.NEXT_PUBLIC_APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000'}/unsubscribe-error`
+      }
+
+      const emailTemplate = generateEmailTemplate(employeeName, moduleTitle, companyData.name, unsubscribeUrl, employee.user_id)
 
       try {
         // console.log("📧 DEBUG: Sending email to:", employee.email)

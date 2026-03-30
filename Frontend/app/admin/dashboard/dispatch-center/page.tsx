@@ -838,15 +838,14 @@ export default function AdminDispatchCenterPage() {
     setWhatsappResult(null);
 
     // Determine scheduled time (use scheduledTime if provided, otherwise default to 09:00)
-   
-    let scheduledTime = scheduleEnabled ? (scheduleMode === 'once' ? scheduledTime : recurringTime) : '09:00';
+    const whatsappScheduledTime = scheduleEnabled ? (scheduleMode === 'once' ? scheduledTime : recurringTime) : '09:00';
 
     const whatsappPayload: Record<string, any> = {
       company_id: currentUser.company_id,
       module_ids: selectedSubModuleIds.length > 0 ? selectedSubModuleIds : [selectedSprintId],
       selected_content: selectedContent,
       schedule_type: scheduleEnabled ? (scheduleMode === 'once' ? 'one_time' : 'recurring') : 'one_time',
-      scheduled_time: scheduledTime,
+      scheduled_time: whatsappScheduledTime,
     };
 
     // Add scheduling details if enabled

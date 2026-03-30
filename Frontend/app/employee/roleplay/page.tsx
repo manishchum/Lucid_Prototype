@@ -325,7 +325,9 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
       if (error) {
         console.error('Error assigning scenario:', error);
-        setError('Failed to assign scenario');
+        const assignmentErrorMessage = error?.message || 'Failed to assign scenario';
+        setError(assignmentErrorMessage);
+        alert(assignmentErrorMessage);
         return;
       }
 
@@ -499,6 +501,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         <RolePlayConversation
           scenario={selectedScenario}
           onEndSession={handleEndSession}
+          onBack={handleBackToScenarios}
           moduleId={moduleId || undefined}
           employeeId={employeeId || undefined}
           voiceGender={roleplayConfig?.voiceGender || 'female'}

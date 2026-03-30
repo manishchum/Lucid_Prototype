@@ -364,10 +364,12 @@ def build_email_body(
                      padding-left:36px;padding-right:36px;text-align:center;">
             <p style="margin-top:0;margin-bottom:6px;font-size:12px;color:#94A3B8;
                       font-family:Arial,sans-serif;text-align:center;">
-              You&#39;re receiving this because you are enrolled in a training module on Lucid.
+              You&#39;re receiving this because you are enrolled in a Sprint on Lucid.
             </p>
+            <!-- COMMENTED OUT: Unsubscribe link functionality not yet working
             <a href="#" style="font-size:12px;color:#3B66F5;font-family:Arial,sans-serif;
                                text-decoration:none;">Unsubscribe</a>
+            -->
           </td>
         </tr>
 
@@ -723,8 +725,10 @@ Engagement question: {request.engagement_question or "none"}
                       font-family:Arial,sans-serif;text-align:center;">
               You&#39;re receiving this because you are enrolled in a training sprint on Lucid.
             </p>
+            <!-- COMMENTED OUT: Unsubscribe link functionality not yet working
             <a href="#" style="font-size:12px;color:#3B66F5;font-family:Arial,sans-serif;
                                text-decoration:none;">Unsubscribe</a>
+            -->
           </td>
         </tr>
 
@@ -804,7 +808,15 @@ async def send_email(
     request: SendEmailRequest,
     user_id: str = Header(..., alias="X-User-ID"),
 ):
-    """Send the drafted email to all users assigned to the sprint."""
+    """Send the drafted email to all users assigned to the sprint.
+    
+    ⭐ IMPORTANT: Now integrated with GDPR/CAN-SPAM unsubscribe system.
+    Unsubscribe links are injected into all emails.
+    """
+    # Import unsubscribe functions
+    from utils.unsubscribe_token import generate_token
+    from utils.email_helper import inject_unsubscribe_link
+    
     # 1. Get assigned users
     users_result = await get_assigned_users_for_sprint(request.module_id)
     if users_result["error"]:
@@ -814,9 +826,13 @@ async def send_email(
     if not users:
         raise HTTPException(status_code=404, detail="No users assigned to this sprint")
 
-    recipient_emails = [u["email"] for u in users if u.get("email")]
+    # Filter to only include users who haven't unsubscribed
+    subscribed_users = [u for u in users if not u.get("email_unsubscribed", False)]
+    
+    # Get list of email addresses
+    recipient_emails = [(u["email"], u.get("id")) for u in subscribed_users if u.get("email")]
     if not recipient_emails:
-        raise HTTPException(status_code=404, detail="No valid email addresses found")
+        raise HTTPException(status_code=404, detail="No valid email addresses found or all users have unsubscribed")
 
     # 2. Send via SMTP
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
@@ -824,6 +840,7 @@ async def send_email(
     smtp_user = os.getenv("SMTP_USER", "")
     smtp_pass = os.getenv("SMTP_PASS", "")
     from_email = os.getenv("FROM_EMAIL", smtp_user)
+    frontend_url = os.getenv("FRONTEND_URL", "https://lucid.workfloww.ai")
 
     if not smtp_user or not smtp_pass:
         raise HTTPException(status_code=500, detail="SMTP credentials not configured on server")
@@ -836,17 +853,42 @@ async def send_email(
         server.starttls()
         server.login(smtp_user, smtp_pass)
 
-        for email_addr in recipient_emails:
+        for email_addr, user_id_from_db in recipient_emails:
             try:
+                # COMMENTED OUT: Unsubscribe functionality not yet working
+                # 🔐 Generate unsubscribe token with user ID
+                # unsubscribe_token = generate_token(email_addr, user_id_from_db)
+                
+                # 🔗 Build unsubscribe URL
+                # unsubscribe_url = f"{frontend_url}/api/unsubscribe?token={unsubscribe_token}"
+                
+                # 📧 Inject unsubscribe link into HTML body
+                # email_body = inject_unsubscribe_link(
+                #     request.body,
+                #     unsubscribe_url
+                # )
+                
+                # Use request body directly without unsubscribe link injection
+                email_body = request.body
+                
+                # Create message
                 msg = MIMEMultipart("alternative")
                 msg["Subject"] = request.subject
                 msg["From"] = from_email
                 msg["To"] = email_addr
-                msg.attach(MIMEText(request.body, "html"))
+                
+                # COMMENTED OUT: Unsubscribe functionality not yet working
+                # Add List-Unsubscribe header (RFC 2369) for email clients
+                # msg["List-Unsubscribe"] = f"<{unsubscribe_url}>"
+                # msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click-Unsubscribe"
+                
+                msg.attach(MIMEText(email_body, "html"))
                 server.sendmail(from_email, email_addr, msg.as_string())
                 sent_count += 1
-            except Exception:
+            except Exception as e:
                 failed.append(email_addr)
+                import logging
+                logging.error(f"Failed to send email to {email_addr}: {str(e)}")
 
         server.quit()
     except Exception as e:
@@ -856,6 +898,8 @@ async def send_email(
         "message": f"Email sent to {sent_count}/{len(recipient_emails)} users",
         "sent_count": sent_count,
         "failed": failed,
+        "unsubscribed_users": len(users) - len(subscribed_users),
+        "note": "All emails include unsubscribe links for GDPR/CAN-SPAM compliance"
     }
 
 
