@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
 interface Admin {
   user_id: string
@@ -77,7 +78,7 @@ function ContentUpload({
 
   const validateReviewerEmail = async (email: string) => {
     try {
-      const res = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(email)}`);
+      const res = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(email)}`);
       if (!res.ok) {
         setEmailValidationMessage('User with this email does not exist.');
         setRetrievedReviewerId(null);
@@ -137,7 +138,7 @@ function ContentUpload({
       const firstFile = uploadFiles[0];
       const initialStatus = isMediaFile(firstFile?.type || "") ? "transcribing" : "summarizing";
 
-      const statusRes = await fetch(
+      const statusRes = await fetchWithAuth(
         `${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`,
         {
           method: "PATCH",
@@ -164,7 +165,7 @@ function ContentUpload({
           throw new Error("Missing contentUrl for media extraction");
         }
 
-        const extractRes = await fetch("/api/extract-and-analyze", {
+        const extractRes = await fetchWithAuth("/api/extract-and-analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ fileUrl: contentUrl, fileType: firstFile?.type, moduleId }),
@@ -173,7 +174,7 @@ function ContentUpload({
         if (!extractRes.ok) throw new Error("Transcription failed");
         const { extractedText } = await extractRes.json();
 
-        await fetch(`${backendUrl}/api/openai-upload/text`, {
+        await fetchWithAuth(`${backendUrl}/api/openai-upload/text`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: extractedText, moduleId }),
@@ -188,7 +189,7 @@ function ContentUpload({
         }
         formData.append("moduleId", String(moduleId));
 
-        const aiRes = await fetch(`${backendUrl}/api/openai-upload/file`, {
+        const aiRes = await fetchWithAuth(`${backendUrl}/api/openai-upload/file`, {
           method: "POST",
           body: formData,
         });
@@ -205,7 +206,7 @@ function ContentUpload({
     } catch (err) {
       console.error("[AI] Pipeline failed:", err);
 
-      const failRes = await fetch(
+      const failRes = await fetchWithAuth(
         `${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`,
         {
           method: "PATCH",
@@ -242,7 +243,7 @@ function ContentUpload({
       formData.append('title', title);
       formData.append('description', description);
 
-      const response = await fetch('/api/content-library/upload', {
+      const response = await fetchWithAuth('/api/content-library/upload', {
         method: 'POST',
         headers: {
           'x-company-id': companyId,
@@ -303,7 +304,7 @@ function ContentUpload({
       
       if (uploadedFile) {
         // Create training module via backend API
-        const createRes = await fetch(`${API_URL}/api/training-modules/`, {
+        const createRes = await fetchWithAuth(`${API_URL}/api/training-modules/`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -319,7 +320,7 @@ function ContentUpload({
             threshold_value: thresholdValue,
             reviewer_id: retrievedReviewerId,
             additional_readings: additionalLinks.length > 0 ? additionalLinks : null,
-            source_files: individualFileUrls.map(f => f.path)
+            source_files: individualFileUrls.map((f: { path: string }) => f.path)
           })
         });
 
@@ -393,7 +394,7 @@ function ContentUpload({
     // Upload section
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div className="md:col-span-2">
-        <Label className="mb-2 block">Sprint Documents (PDF)</Label>
+        <Label className="mb-2 block">Sprint Documents </Label>
 
         <div
           onDragOver={(e) => e.preventDefault()}
@@ -412,14 +413,14 @@ function ContentUpload({
           </p>
 
           <p className="text-xs text-gray-500 mt-1">
-            Maximum file size 4MB. PDF, PPT and DOCX only.
+            Maximum file size 4MB. PDF, PPTx and DOCX only.
           </p>
 
           <input
             id="file-upload"
             type="file"
             multiple
-            accept=".pdf"
+            accept=".pdf,.pptx,.docx"
             className="hidden"
             onChange={(e) => {
               if (!e.target.files) return;
@@ -705,7 +706,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
     try {
       const formData = new FormData();
       formData.append("files", file);
-      const res = await fetch("/api/admin/kpi/upload-scores", {
+      const res = await fetchWithAuth("/api/admin/kpi/upload-scores", {
         method: "POST",
         body: formData,
         headers: {
@@ -793,7 +794,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
 function TrainingContentManagement({ companyId, adminId }: { companyId: string; adminId: string }) {
   const [selectedModule, setSelectedModule] = useState<any | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(1.25);
 
   const files = (() => {
     if (!selectedModule) return [];
@@ -898,7 +899,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const loadTrainingModules = async () => {
     try {
       // Fetch training modules via backend API
-      const modulesRes = await fetch(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
+      const modulesRes = await fetchWithAuth(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
         headers: { 'X-User-ID': adminId }
       });
 
@@ -916,7 +917,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       // Fetch ALL content jobs in ONE batch call (much faster than per-module)
       let jobsMap = new Map<string, any>();
       try {
-        const jobsRes = await fetch(`${API_URL}/api/content-jobs/?limit=1000`, {
+        const jobsRes = await fetchWithAuth(`${API_URL}/api/content-jobs/?limit=1000`, {
           headers: { 'X-User-ID': adminId }
         });
         
@@ -965,7 +966,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
         // Update module status in database if it changed (fire and forget via backend API)
         if (finalStatus !== module.processing_status) {
-          fetch(`${API_URL}/api/training-modules/${encodeURIComponent(module.module_id)}/processing-status`, {
+          fetchWithAuth(`${API_URL}/api/training-modules/${encodeURIComponent(module.module_id)}/processing-status`, {
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',
@@ -1089,7 +1090,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
     try {
       // Delete module via backend API
-      const deleteRes = await fetch(`${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}`, {
+      const deleteRes = await fetchWithAuth(`${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
@@ -1119,11 +1120,13 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     );
   }
 
-  const isViewDisabled = (module: any) => {
-  const status = module.processing_status?.toLowerCase();
+  const getModuleStatus = (module: any) =>
+    (module.processing_status || "").toLowerCase();
 
-  return status !== "completed";
-};
+  const isModuleReady = (module: any) =>
+    getModuleStatus(module) === "completed";
+
+  const isViewDisabled = (module: any) => !isModuleReady(module);
 
 
   return (
@@ -1152,7 +1155,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     </div>
 
     {/* Content Area */}
-    <div className="p-6 bg-gray-50 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 100px)' }}>
+    <div className="p-6 bg-gray-50 overflow-hidden" style={{ maxHeight: 'calc(90vh - 100px)' }}>
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
 
         {/* LEFT — DOCUMENT PREVIEW */}
@@ -1175,17 +1178,12 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           <div className="relative bg-white border border-gray-200 rounded-xl flex items-center justify-center min-h-[450px] shadow-sm">
             {previewUrl ? (
               <>
-                <div className="absolute inset-0 overflow-auto flex items-start justify-center p-4">
-                  <div
-                    style={{
-                      transform: `scale(${zoom})`,
-                      transformOrigin: "top center",
-                      transition: "transform 0.2s"
-                    }}
-                  >
+                <div className="absolute inset-0 overflow-hidden flex items-start justify-center p-4">
+                  <div className="w-full h-full">
                     <iframe
-                      src={`${previewUrl}#toolbar=0&navpanes=0`}
-                      className="w-[600px] h-[800px] rounded-lg border border-gray-100"
+                      key={`${previewUrl}-${zoom}`}
+                      src={`${previewUrl}#toolbar=0&navpanes=0&zoom=${Math.round(zoom * 100)}`}
+                      className="w-full h-[75vh] rounded-lg border border-gray-100"
                     />
                   </div>
                 </div>
@@ -1194,7 +1192,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                     variant="outline"
                     size="sm"
                     className="bg-white/90 backdrop-blur"
-                    onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
+                    onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))}
                   >
                     -
                   </Button>
@@ -1202,7 +1200,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                     variant="outline"
                     size="sm"
                     className="bg-white/90 backdrop-blur"
-                    onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
+                    onClick={() => setZoom((z) => Math.min(4, z+0.25))}
                   >
                     +
                   </Button>
@@ -1239,7 +1237,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                         try {
                           // Combined AI document
                           if (file.type === "combined") {
-                            setPreviewUrl(file.url);
+                            setPreviewUrl(file.url ?? null);
                             return;
                           }
 
@@ -1250,7 +1248,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
                           console.log("Requesting preview for:", file.path);
 
-                          const res = await fetch(`${API_URL}/api/preview-file`, {
+                          const res = await fetchWithAuth(`${API_URL}/api/preview-file`, {
                             method: "POST",
                             headers: {
                               "Content-Type": "application/json"
@@ -1327,9 +1325,6 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           companyId={companyId}
           adminId={adminId}
           onUploadComplete={loadTrainingModules}
-          onFilesUploaded={(moduleId, fileNames) =>
-            setLocalFileNames(prev => ({ ...prev, [moduleId]: fileNames }))
-          }
         />
       </div>
 
@@ -1381,91 +1376,85 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
               </div>
 
               <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isViewDisabled(module)}
+                  className={isViewDisabled(module) ? "opacity-50 cursor-not-allowed" : ""}
+                  onClick={async () => {
+                    if (isViewDisabled(module)) return;
+                    setPreviewUrl(null);
+                    setSelectedModule(module);
 
-              <Button
-              variant="outline"
-              size="sm"
-              disabled={isViewDisabled(module)}
-              className={isViewDisabled(module) ? "opacity-50 cursor-not-allowed" : ""}
-              onClick={async () => {
-                if (isViewDisabled(module)) return;
-                setPreviewUrl(null);
-                setSelectedModule(module);
+                    try {
+                      console.log('[View Button] Loading module:', module.title);
+                      console.log('[View Button] Content URL:', module.content_url);
 
-                try {
-                  console.log('[View Button] Loading module:', module.title);
-                  console.log('[View Button] Content URL:', module.content_url);
-                  
-                  const url = new URL(module.content_url);
-                  const pathname = decodeURIComponent(url.pathname);
-                  console.log('[View Button] Decoded pathname:', pathname);
-                  
-                  // Supabase URLs look like: /storage/v1/object/public/content library/uploads/...
-                  // We need to extract just "uploads/..." part
-                  // Patterns to try (with optional /storage/v1 prefix):
-                  let pathMatch = pathname.match(/\/(?:storage\/v1\/)?object\/(?:public|sign)\/training-content\/(.+)$/);
-                  let bucketName = 'training-content';
-                  
-                  if (!pathMatch) {
-                    pathMatch = pathname.match(/\/(?:storage\/v1\/)?object\/(?:public|sign)\/content library\/(.+)$/);
-                    bucketName = 'content library';
-                  }
-                  
-                  // Fallback: try without /object prefix
-                  if (!pathMatch) {
-                    pathMatch = pathname.match(/training-content\/(.+)$/);
-                    bucketName = 'training-content';
-                  }
-                  
-                  if (!pathMatch) {
-                    pathMatch = pathname.match(/content library\/(.+)$/);
-                    bucketName = 'content library';
-                  }
+                      const url = new URL(module.content_url);
+                      const pathname = decodeURIComponent(url.pathname);
+                      console.log('[View Button] Decoded pathname:', pathname);
 
-                  if (!pathMatch || !pathMatch[1]) {
-                    console.log('[View Button] No bucket/path pattern found, using URL as-is');
-                    setPreviewUrl(module.content_url);
-                    return;
-                  }
+                      let pathMatch = pathname.match(/\/(?:storage\/v1\/)?object\/(?:public|sign)\/training-content\/(.+)$/);
+                      let bucketName = 'training-content';
 
-                  const storagePath = pathMatch[1];
-                  console.log('[View Button] Bucket:', bucketName, 'Path:', storagePath);
+                      if (!pathMatch) {
+                        pathMatch = pathname.match(/\/(?:storage\/v1\/)?object\/(?:public|sign)\/content library\/(.+)$/);
+                        bucketName = 'content library';
+                      }
 
-                  const { data, error } = await supabase
-                    .storage
-                    .from(bucketName)
-                    .getPublicUrl(storagePath);
+                      if (!pathMatch) {
+                        pathMatch = pathname.match(/training-content\/(.+)$/);
+                        bucketName = 'training-content';
+                      }
 
-                  if (error) {
-                    console.warn("[View Button] Signed URL failed:", error);
-                    setPreviewUrl(module.content_url);
-                    return;
-                  }
+                      if (!pathMatch) {
+                        pathMatch = pathname.match(/content library\/(.+)$/);
+                        bucketName = 'content library';
+                      }
 
-                  console.log('[View Button] Generated signed URL successfully');
-                  setPreviewUrl(data.publicUrl);
+                      if (!pathMatch || !pathMatch[1]) {
+                        console.log('[View Button] No bucket/path pattern found, using URL as-is');
+                        setPreviewUrl(module.content_url);
+                        return;
+                      }
 
-                } catch (err) {
-                  console.error("[View Button] Preview error:", err);
-                  setPreviewUrl(module.content_url);
-                }
-              }}
-              >
-              <Eye className="w-4 h-4 mr-1"/>
+                      const storagePath = pathMatch[1];
+                      console.log('[View Button] Bucket:', bucketName, 'Path:', storagePath);
 
-            {isViewDisabled(module) ? "Preparing..." : "View"}
-              </Button>
+                      const { data, error } = await supabase
+                        .storage
+                        .from(bucketName)
+                        .getPublicUrl(storagePath);
 
-              <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleDeleteModule(module.module_id)}
-              className="text-red-600"
-              >
-              <Trash2 className="w-4 h-4 mr-1"/>
-              Delete
-              </Button>
+                      if (error) {
+                        console.warn("[View Button] Signed URL failed:", error);
+                        setPreviewUrl(module.content_url);
+                        return;
+                      }
 
+                      console.log('[View Button] Generated signed URL successfully');
+                      setPreviewUrl(data.publicUrl);
+                    } catch (err) {
+                      console.error("[View Button] Preview error:", err);
+                      setPreviewUrl(module.content_url);
+                    }
+                  }}
+                >
+                  <Eye className="w-4 h-4 mr-1" />
+                  {isModuleReady(module) ? "View" : "Preparing..."}
+                </Button>
+
+                {isModuleReady(module) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDeleteModule(module.module_id)}
+                    className="text-red-600"
+                  >
+                    <Trash2 className="w-4 h-4 mr-1" />
+                    Delete
+                  </Button>
+                )}
               </div>
 
               </div>
@@ -1503,7 +1492,7 @@ export default function UploadsPage() {
 
     try {
       // Get user data from users table via backend API
-      const userRes = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
+      const userRes = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
 
       if (!userRes.ok) {
         console.error("User not found or inactive");
@@ -1522,7 +1511,7 @@ export default function UploadsPage() {
       }
 
       // Check if user has admin role through user_role_assignments
-      const roleRes = await fetch(`${API_URL}/api/roles/users/${userData.user_id}`, {
+      const roleRes = await fetchWithAuth(`${API_URL}/api/roles/users/${userData.user_id}`, {
         headers: { 'X-User-ID': userData.user_id }
       });
 
@@ -1590,9 +1579,10 @@ export default function UploadsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="border-b border-gray-200 pb-4">
-        <h1 className="text-2xl font-bold text-gray-900">Sprint Studio</h1>
-        <p className="text-gray-600 mt-1">Create New Sprint for your Organization</p>
+      {/* Header Card */}
+      <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">Sprint Studio</h1>
+        <p className="text-slate-600">Create New Sprint for your Organization</p>
       </div>
 
       <Card>

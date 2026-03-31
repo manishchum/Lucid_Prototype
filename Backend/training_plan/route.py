@@ -3,8 +3,9 @@ import json
 import hashlib
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
+from utils.auth import get_request_auth_required_from_request
 
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
@@ -72,6 +73,7 @@ def parseGeminiJSON(raw_text: str) -> dict:
 @router.post("/training-plan")
 async def POST(request: Request):
     try:
+        auth_ctx = get_request_auth_required_from_request(request)
         body = await request.json()
         user_id = body.get("user_id")
         module_id = body.get("module_id")
@@ -79,6 +81,12 @@ async def POST(request: Request):
 
         if not user_id:
             return JSONResponse(content={"error": "user_id is required"}, status_code=400)
+
+        if str(user_id) != str(auth_ctx.user_id):
+            return JSONResponse(
+                content={"error": "user_id does not match authenticated token"},
+                status_code=403,
+            )
 
         # Resolve company_id upfront
         company_id = None
@@ -941,6 +949,9 @@ async def POST(request: Request):
 
         return JSONResponse(content={"plan": plan, "reasoning": reasoning})
 
+    except HTTPException as error:
+        print("[Training Plan API] HTTP error:", error.detail)
+        return JSONResponse(content={"error": error.detail}, status_code=error.status_code)
     except Exception as error:
         print("[Training Plan API] Unexpected error:", error)
-        return JSONResponse(content={"error": "Unexpected error occurred"}, status_code=500)
+        return JSONResponse(content={"error": "Unexpected error occurred", "details": str(error)}, status_code=500)

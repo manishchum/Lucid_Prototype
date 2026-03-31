@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import nodemailer from 'nodemailer'
+import { generateUnsubscribeToken, buildUnsubscribeUrl } from '@/lib/unsubscribe-token'
 
 // Email transporter configuration with fallback to Ethereal for testing
 const createTransporter = async () => {
@@ -49,7 +50,9 @@ const generateAdminNotificationTemplate = (
   moduleTitle: string, 
   companyName: string,
   completionDate: string,
-  employeeEmail: string
+  employeeEmail: string,
+  unsubscribeUrl: string,
+  adminUserId: string
 ) => {
   return {
     subject: `Module Completed: ${employeeName} finished "${moduleTitle}"`,
@@ -117,7 +120,8 @@ const generateAdminNotificationTemplate = (
           </div>
           <div class="footer">
             <p>This is an automated notification from Lucid Learning Platform.<br>
-            You are receiving this because you are an administrator for ${companyName}.</p>
+            You are receiving this because you are an administrator for ${companyName}.<br>
+            <a href="${unsubscribeUrl}" style="color: #666; text-decoration: none; font-size: 12px;">Unsubscribe from these notifications</a></p>
           </div>
         </div>
       </body>
@@ -140,6 +144,9 @@ const generateAdminNotificationTemplate = (
       
       Best regards,
       The Lucid Learning System
+      
+      ---
+      To unsubscribe from these notifications, visit: ${unsubscribeUrl}
     `
   }
 }
@@ -220,16 +227,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Get admin users for this company using the new role-based system
-    // Fetch users with role level >= 3 (Admin level)
+    // Fetch users with role level >= 3 (Admin level) and NOT unsubscribed
     const { data: adminData, error: adminError } = await supabase
       .from('user_role_assignments')
       .select(`
         user_id,
-        users!inner(email, name, company_id),
-        roles!inner(name, level)
+        users!inner(email, name, company_id, email_unsubscribed)
       `)
       .eq('users.company_id', employeeData.company_id)
       .gte('roles.level', 3)
+      .eq('users.email_unsubscribed', false) // Only get subscribed admins
       .eq('is_active', true)
       .eq('scope_type', 'COMPANY')
       .eq('scope_id', employeeData.company_id)
@@ -250,8 +257,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const adminEmails = adminData.map((admin: any) => admin.users.email)
-    // console.log(`📧 DEBUG: Sending notifications to ${adminEmails.length} admins:`, adminEmails)
+    const adminEmails = adminData.map((admin: any) => ({
+      email: admin.users.email,
+      userId: admin.user_id,
+      name: admin.users.name
+    }))
+    // console.log(`📧 DEBUG: Sending notifications to ${adminEmails.length} admins:`, adminEmails.map((a:any) => a.email))
 
     // Create email transporter
     const transporter = await createTransporter()
@@ -260,35 +271,47 @@ export async function POST(request: NextRequest) {
     const formattedDate = completionDate ? new Date(completionDate).toLocaleString() : new Date().toLocaleString()
 
     // Send emails to all admins
-    const emailPromises = adminEmails.map(async (adminEmail: any) => {
+    const emailPromises = adminEmails.map(async (admin: any) => {
+      // Generate unsubscribe token for this admin
+      let unsubscribeUrl = ''
+      try {
+        const token = generateUnsubscribeToken(admin.email, admin.userId)
+        unsubscribeUrl = buildUnsubscribeUrl(token)
+      } catch (tokenError) {
+        console.error('Failed to generate unsubscribe token for admin:', tokenError)
+        unsubscribeUrl = `${process.env.NEXT_PUBLIC_APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000'}/unsubscribe-error`
+      }
+
       const emailTemplate = generateAdminNotificationTemplate(
         employeeData.name || 'Employee',
         moduleData.title,
         companyData.name,
         formattedDate,
-        employeeData.email
+        employeeData.email,
+        unsubscribeUrl,
+        admin.userId
       )
 
       try {
         await transporter.sendMail({
           from: `"Lucid Learning System" <${process.env.SMTP_USER || 'no-reply@ethereal.email'}>`,
-          to: adminEmail.trim(),
+          to: admin.email.trim(),
           subject: emailTemplate.subject,
           html: emailTemplate.html,
           text: emailTemplate.text,
         })
 
-        // console.log(`📧 DEBUG: Admin notification sent successfully to ${adminEmail}`)
+        // console.log(`📧 DEBUG: Admin notification sent successfully to ${admin.email}`)
         return { 
           success: true, 
-          email: adminEmail,
-          adminEmail
+          email: admin.email,
+          adminName: admin.name
         }
       } catch (emailError) {
-        console.error(`📧 DEBUG: Failed to send admin notification to ${adminEmail}:`, emailError)
+        console.error(`📧 DEBUG: Failed to send admin notification to ${admin.email}:`, emailError)
         return { 
           success: false, 
-          email: adminEmail,
+          email: admin.email,
           error: emailError instanceof Error ? emailError.message : 'Unknown error'
         }
       }

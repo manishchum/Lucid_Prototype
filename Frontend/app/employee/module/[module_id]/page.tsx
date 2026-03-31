@@ -15,6 +15,7 @@ import jsPDF from 'jspdf';
 import VoiceInput from '@/components/VoiceInput';
 import VoiceOutput from '@/components/VoiceOutput';
 import { callGemini } from "@/lib/gemini-helper";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -44,7 +45,7 @@ const fetchModuleData = async (employee: any, moduleId: string) => {
         "X-User-ID": employee.user_id,
       };
 
-      const res = await fetch(`${API_BASE}/api/processed-modules/${moduleId}`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/${moduleId}`, {
         headers,
       });
 
@@ -54,7 +55,7 @@ const fetchModuleData = async (employee: any, moduleId: string) => {
 
       // Fallback for cases where navigation passes original_module_id instead of processed_module_id.
       if (res.status === 404) {
-        const originalRes = await fetch(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
+        const originalRes = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
           headers,
         });
 
@@ -157,7 +158,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   setChatLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE}/api/module-chat`, {
+      const response = await fetchWithAuth(`${API_BASE}/api/module-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -234,10 +235,19 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   }
 
   return (
-    <div className="min-h-screen">
-      <div className="px-12 py-8">
-        <div className="w-full mx-auto">
-          <div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <div className="px-4 py-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-4">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">
+              {module.title}
+              {module.sprint_name && (
+                <span className="text-lg text-slate-600 font-normal"> [{module.sprint_name}]</span>
+              )}
+            </h1>
+            <p className="text-slate-600">Professional learning content tailored for you</p>
+          </div>
+          <div className="w-full mx-auto">
             <main className="w-full">
               <div className="bg-white rounded-lg shadow-sm border p-12 w-full min-h-screen">
                 <div className="mb-8">
@@ -253,11 +263,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                     <ChevronLeft className="w-4 h-4" />
                     Back
                   </Button>
-                </div>
-
-                <div className="mb-10">
-                  <h1 className="text-4xl font-bold text-gray-900 mb-2">{module.title}</h1>
-                  <p className="text-lg text-gray-600">Professional learning content tailored for you</p>
                 </div>
 
                 <ContentTransformer
@@ -1103,7 +1108,7 @@ function ContentTransformer({
     setRoleplayLoading(true);
 
     try {
-      const response = await fetch('/api/roleplay', {
+      const response = await fetchWithAuth('/api/roleplay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1190,7 +1195,7 @@ function ContentTransformer({
               setMindmapLoading(true);
               try {
                 const studyText = module.content || '';
-                const res = await fetch(`${API_BASE}/api/generate-mindmap`, {
+                const res = await fetchWithAuth(`${API_BASE}/api/generate-mindmap`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ content: studyText, title: module.title }),
@@ -1202,7 +1207,7 @@ function ContentTransformer({
                   setMindmapData(data);
 
                   if (employeeId) {
-                    await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                    await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
                       body: JSON.stringify({ mindmap_data: data }),
@@ -1243,7 +1248,7 @@ function ContentTransformer({
                 setFlashcardLoading(true);
 
                 const studyText = module.content || '';
-                const res = await fetch(`${API_BASE}/api/generate-flashcards-gemini`, {
+                const res = await fetchWithAuth(`${API_BASE}/api/generate-flashcards-gemini`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ content: studyText }),
@@ -1261,7 +1266,7 @@ function ContentTransformer({
                   setFlashcardSections(data);
 
                   if (employeeId) {
-                    await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                    await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
                       body: JSON.stringify({ flashcard_data: data }),
@@ -1303,7 +1308,7 @@ function ContentTransformer({
                 setInfographicLoading(true);
                 const contentText = module.content || '';
 
-                const res = await fetch(`${API_BASE}/api/generate-infographic`, {
+                const res = await fetchWithAuth(`${API_BASE}/api/generate-infographic`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -1324,7 +1329,7 @@ function ContentTransformer({
                   setInfographicData(data);
 
                   if (employeeId) {
-                    await fetch(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                    await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
                       body: JSON.stringify({ infographic_data: data }),
@@ -2209,7 +2214,7 @@ function GenerateAudioButton({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=${language}`);
+      const res = await fetchWithAuth(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=${language}`);
       const data = await res.json();
       if (res.ok && data.audioUrl) {
         onAudioGenerated(data.audioUrl, {
@@ -2254,7 +2259,7 @@ function GenerateVideoButton({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/gpt-video`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/gpt-video`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ processed_module_id: moduleId }),

@@ -30,6 +30,7 @@ import {
 import { toast as shadcnToast } from '@/hooks/use-toast';
 import { formatContentType } from '@/lib/contentType';
 import { useRouter } from 'next/navigation';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 // Types
 interface Admin {
@@ -162,7 +163,7 @@ export default function EmployeesPage() {
 
     try {
       // First get user by email via API (no auth needed for bootstrap)
-      const userRes = await fetch(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
+      const userRes = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
 
       if (!userRes.ok) {
         setError("User not found or inactive");
@@ -172,7 +173,7 @@ export default function EmployeesPage() {
       const { user: userData } = await userRes.json();
 
       // Get user roles via backend API instead of direct Supabase call
-      const rolesRes = await fetch(`${API_URL}/api/roles/users/${userData.user_id}`, {
+      const rolesRes = await fetchWithAuth(`${API_URL}/api/roles/users/${userData.user_id}`, {
         headers: { 'X-User-ID': userData.user_id }
       });
 
@@ -204,7 +205,7 @@ export default function EmployeesPage() {
       // Fetch company name for the admin
       let companyName = '';
       try {
-        const companyRes = await fetch(`${API_URL}/api/companies/${userData.company_id}`, {
+        const companyRes = await fetchWithAuth(`${API_URL}/api/companies/${userData.company_id}`, {
           headers: { 'X-User-ID': userData.user_id }
         });
         if (companyRes.ok) {
@@ -235,8 +236,8 @@ export default function EmployeesPage() {
   const loadUsers = async (companyId: string) => {
     try {
       
-      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
-        headers: { 'X-User-ID': currentUserId }
+      const res = await fetchWithAuth(`${API_URL}/api/users/company/${companyId}`, {
+        headers: { 'X-User-ID': `${currentUserId ?? admin?.user_id ?? ''}` }
       });
       if (!res.ok) throw await res.json();
       const payload = await res.json();
@@ -254,7 +255,9 @@ export default function EmployeesPage() {
       // Note: Assuming departments are linked to company via users
       const { data, error } = await supabase
         .from('sub_department')
-        .select('*');
+        .select('*')
+        .order('department_name')
+        .order('sub_department_name');
 
       if (error) throw error;
       setDepartments(data || []);
@@ -280,7 +283,7 @@ export default function EmployeesPage() {
   const loadTrainingModules = async (companyId: string) => {
     try {
       const adminId = admin?.user_id || sessionStorage.getItem('lucid_admin_user_id') ||'';
-      const res = await fetch(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
         headers: { 'X-User-ID': adminId || ''}
       });
       if (!res.ok) {
@@ -305,7 +308,7 @@ export default function EmployeesPage() {
         return;
       }
 
-      const lpRes = await fetch(
+      const lpRes = await fetchWithAuth(
         `${API_URL}/api/learning-plans/?limit=5000`,
         { headers: { 'X-User-ID': adminId } }
       );
@@ -387,7 +390,7 @@ export default function EmployeesPage() {
   };
 
   const selectAllDepartments = () => {
-    const uniqueDepartments = Array.from(new Set(departments.map(dept => dept.department_name)));
+    const uniqueDepartments = Array.from(new Set(departments.map(dept => dept.department_name))).sort();
     setSelectedDepartments(uniqueDepartments);
     setSelectedSubDepartments([]);
   };
@@ -401,7 +404,12 @@ export default function EmployeesPage() {
     const availableSubDepartments = selectedDepartments.length > 0
       ? departments.filter(dept => selectedDepartments.includes(dept.department_name))
       : departments;
-    const allSubDeptIds = availableSubDepartments.map(dept => dept.department_id);
+    const sortedSubDepartments = availableSubDepartments.sort((a, b) => {
+      const deptSort = (a.department_name || '').localeCompare(b.department_name || '');
+      if (deptSort !== 0) return deptSort;
+      return (a.sub_department_name || '').localeCompare(b.sub_department_name || '');
+    });
+    const allSubDeptIds = sortedSubDepartments.map(dept => dept.department_id);
     setSelectedSubDepartments(allSubDeptIds);
   };
 
@@ -464,7 +472,7 @@ export default function EmployeesPage() {
       setError('');
       
       // Use API to delete user (soft delete)
-      const res = await fetch(`${API_URL}/api/users/${userToDelete.user_id}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/users/${userToDelete.user_id}`, {
         method: 'DELETE',
         headers: { 'X-User-ID': currentUserId },
       });
@@ -521,7 +529,7 @@ export default function EmployeesPage() {
 
   const createUser = async (data: any) => {
     if (!currentUserId) throw new Error('User not authenticated');
-    const res = await fetch(`${API_URL}/api/users`, {
+    const res = await fetchWithAuth(`${API_URL}/api/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUserId },
       body: JSON.stringify(data),
@@ -531,8 +539,9 @@ export default function EmployeesPage() {
   };
 
   const updateUser = async (id: string, updates: any) => {
+
     if (!currentUserId) throw new Error('User not authenticated');
-    const res = await fetch(`${API_URL}/api/users/${id}`, {
+    const res = await fetchWithAuth(`${API_URL}/api/users/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUserId },
       body: JSON.stringify(updates),
@@ -543,7 +552,7 @@ export default function EmployeesPage() {
 
   const deleteUser = async (id: string) => {
     if (!currentUserId) throw new Error('User not authenticated');
-    const res = await fetch(`${API_URL}/api/users/${id}`, {
+    const res = await fetchWithAuth(`${API_URL}/api/users/${id}`, {
       method: 'DELETE',
       headers: { 'X-User-ID': currentUserId },
     });
@@ -573,9 +582,10 @@ export default function EmployeesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="border-b border-gray-200 pb-4">
-        <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-        <p className="text-gray-600 mt-1">Manage users, assign sprints, and organize by departments</p>
+      {/* Header Card */}
+      <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">User Management</h1>
+        <p className="text-slate-600">Manage users, assign sprints, and organize by departments</p>
       </div>
       
       {/* success banners are shown via unified Radix toasts now */}
@@ -586,15 +596,15 @@ export default function EmployeesPage() {
       )}
 
       {/* Navigation Tabs */}
-      <div className="flex gap-4 border-b">
-        <Button
+      {/* <div className="flex gap-4 border-b"> */}
+        {/* <Button
           variant={!showAssignmentsView ? "default" : "ghost"}
           onClick={() => setShowAssignmentsView(false)}
           className="border-b-2 border-transparent data-[active=true]:border-blue-500"
         >
           <Users className="w-4 h-4 mr-2" />
           User Management
-        </Button>
+        </Button> */}
         {/* <Button
           variant={showAssignmentsView ? "default" : "ghost"}
           onClick={() => setShowAssignmentsView(true)}
@@ -603,7 +613,7 @@ export default function EmployeesPage() {
           <BookOpen className="w-4 h-4 mr-2" />
           Performance Sprint Assignments
         </Button> */}
-      </div>
+      {/* </div> */}
 
       {!showAssignmentsView ? (
         <>
@@ -778,20 +788,32 @@ export default function EmployeesPage() {
                             
                             {/* Department grid */}
                             <div className="p-2 grid grid-cols-1 gap-2">
-                              {Array.from(new Set(departments.map(dept => dept.department_name))).map(department => (
-                                <label
-                                  key={department}
-                                  className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedDepartments.includes(department)}
-                                    onChange={() => handleDepartmentToggle(department)}
-                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                  />
-                                  <span className="text-sm">{department}</span>
-                                </label>
-                              ))}
+                              {[...departments]
+                                .sort((a, b) => {
+                                  const fullNameA = `${a.department_name} - ${a.sub_department_name}`;
+                                  const fullNameB = `${b.department_name} - ${b.sub_department_name}`;
+                                  return fullNameA.localeCompare(fullNameB);
+                                })
+                                .map(dept => ({
+                                  id: dept.department_id,
+                                  name: dept.department_name,
+                                  fullName: `${dept.department_name} - ${dept.sub_department_name}`
+                                }))
+                                .filter((value, index, self) => self.findIndex(v => v.id === value.id) === index)
+                                .map(dept => (
+                                  <label
+                                    key={dept.id}
+                                    className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedDepartments.includes(dept.name)}
+                                      onChange={() => handleDepartmentToggle(dept.name)}
+                                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    <span className="text-sm">{dept.fullName}</span>
+                                  </label>
+                                ))}
                             </div>
                           </div>
                         )}
@@ -1228,7 +1250,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
   const checkEmailExists = async (email: string): Promise<boolean> => {
     try {
       if (!companyId || !adminId) return false;
-      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/users/company/${companyId}`, {
         headers: { 'X-User-ID': adminId }
       });
       
@@ -1289,7 +1311,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       for (const email of emails) {
         try {
           // Check if email already exists via API
-          const checkRes = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+          const checkRes = await fetchWithAuth(`${API_URL}/api/users/company/${companyId}`, {
             headers: { 'X-User-ID': adminId }
           });
           let exists = false;
@@ -1302,7 +1324,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             continue;
           }
           // Create user via backend API
-          const createRes = await fetch(`${API_URL}/api/users/`, {
+          const createRes = await fetchWithAuth(`${API_URL}/api/users/`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1417,7 +1439,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       const { data: departmentsData } = await supabase.from('sub_department').select('department_id, department_name, sub_department_name');
       let companiesData: any[] = [];
       try{
-        const compRes = await fetch(`${API_URL}/api/companies`, {
+        const compRes = await fetchWithAuth(`${API_URL}/api/companies`, {
           headers: { 'X-User-ID': adminId }
         });
         if (compRes.ok) {
@@ -1486,7 +1508,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
 
           // Create user via API
           try {
-            const createRes = await fetch(`${API_URL}/api/users/`, {
+            const createRes = await fetchWithAuth(`${API_URL}/api/users/`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -1527,30 +1549,6 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
               if (learningStyleError) {
                 console.error('Failed to set default learning style:', learningStyleError);
                 // Don't fail the entire operation if learning style insert fails
-              }
-            }
-
-            // If roles are selected, create multiple role assignments
-            if (formData.selected_roles.length > 0) {
-              for (const roleId of formData.selected_roles) {
-                try {
-                  await fetch(`${API_URL}/api/roles/assignments`, {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'X-User-ID': adminId
-                    },
-                    body: JSON.stringify({
-                      user_id: userData.user_id,
-                      role_id: roleId,
-                      scope_type: 'COMPANY',
-                      scope_id: companyId,
-                      notes: 'Assigned during user creation'
-                    })
-                  });
-                } catch (err) {
-                  console.error('Role assignment failed for role', roleId, err);
-                }
               }
             }
 
@@ -1846,7 +1844,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
     try {
       try{
         const companiesUrl = `${(API_URL || '').replace(/\/$/, '')}/api/companies/`;
-        const compRes = await fetch(companiesUrl, {
+        const compRes = await fetchWithAuth(companiesUrl, {
           headers: { 'X-User-ID': adminId }
         });
           if (!compRes.ok) {
@@ -1884,9 +1882,10 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
   // Check if email already exists in database (excluding current user)
   const checkEmailExists = async (email: string, currentUserId: string): Promise<boolean> => {
     try {
-      const targetCompanyId = isDeveloper ? selectedCompanyId : companyId;
+      const activeCompanyId = companyId;
+      const targetCompanyId = isDeveloper ? selectedCompanyId : activeCompanyId;
       if (!targetCompanyId || targetCompanyId === '__create_new__' || !adminId) return false;
-      const res = await fetch(`${API_URL}/api/users/company/${targetCompanyId}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/users/company/${targetCompanyId}`, {
         headers: { 'X-User-ID': adminId }
       });
       
@@ -1948,7 +1947,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
 
     setCreatingCompany(true);
     try {
-      const res = await fetch(`${API_URL}/api/companies/`, {
+      const res = await fetchWithAuth(`${API_URL}/api/companies/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2010,7 +2009,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       // Fetch company's learning style setting
       let learningStyleEnabled: boolean | null = null;
       try {
-        const companyRes = await fetch(`${API_URL}/api/companies/${encodeURIComponent(targetCompanyId)}`);
+        const companyRes = await fetchWithAuth(`${API_URL}/api/companies/${encodeURIComponent(targetCompanyId)}`);
         if (companyRes.ok) {
           const compPayload = await companyRes.json().catch(() => null);
           const companyData = compPayload?.company ?? compPayload;
@@ -2022,7 +2021,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
         console.error('Failed to fetch company data:', compErr);
       }
       // Create user via API
-      const createRes = await fetch(`${API_URL}/api/users/`, {
+      const createRes = await fetchWithAuth(`${API_URL}/api/users/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2080,7 +2079,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       if (formData.selected_roles.length > 0) {
         for (const roleId of formData.selected_roles) {
           try {
-            await fetch(`${API_URL}/api/roles/assignments`, {
+            await fetchWithAuth(`${API_URL}/api/roles/assignments`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -2134,13 +2133,18 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
   };
 
   // Get unique departments
-  const uniqueDepartments = Array.from(new Set(departments.map((sd: any) => sd.department_name)));
+  const uniqueDepartments = Array.from(new Set(departments.map((sd: any) => sd.department_name))).sort();
 
   // Get subdepartments for selected department
   const selectedDepartmentName = departments.find((sd: any) => sd.department_id === formData.department_id)?.department_name;
-  const availableSubDepartments = selectedDepartmentName 
-    ? departments.filter((sd: any) => sd.department_name === selectedDepartmentName)
-    : departments;
+  const availableSubDepartments = (selectedDepartmentName
+  ? departments.filter((sd: any) => sd.department_name === selectedDepartmentName)
+  : departments
+).sort((a: any, b: any) => {
+  const deptSort = (a.department_name || '').localeCompare(b.department_name || '');
+  if (deptSort !== 0) return deptSort;
+  return (a.sub_department_name || '').localeCompare(b.sub_department_name || '');
+});
 
   if (!isOpen) return null;
   
@@ -2486,7 +2490,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
     try {
       let completedModuleIds: string[] = [];
       try {
-        const jobsRes = await fetch(`${API_URL}/api/content-jobs/?status=completed&limit=1000`, {
+        const jobsRes = await fetchWithAuth(`${API_URL}/api/content-jobs/?status=completed&limit=1000`, {
           headers: { 'X-User-ID': adminId }
         });
         if (!jobsRes.ok) {
@@ -2512,7 +2516,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       }
       
       try{
-        const tmRes = await fetch(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
+        const tmRes = await fetchWithAuth(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
           headers: { 'X-User-ID': adminId }
         });
         if(!tmRes.ok) {
@@ -2607,7 +2611,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         return;
       }
 
-      const lpRes = await fetch(
+      const lpRes = await fetchWithAuth(
         `${API_URL}/api/learning-plans/?limit=5000`,
         { headers: { 'X-User-ID': adminId } }
       );
@@ -2663,7 +2667,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
 
       for (const plan of learningPlans) {
         try {
-          const createRes = await fetch(`${API_URL}/api/learning-plans/`, {
+          const createRes = await fetchWithAuth(`${API_URL}/api/learning-plans/`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -3205,7 +3209,7 @@ function UpdateEmployeeModal({
   const loadUserRoles = async () => {
     try {
       // Get user roles via backend API instead of direct Supabase call
-      const rolesRes = await fetch(`${API_URL}/api/roles/users/${employee.user_id}`, {
+      const rolesRes = await fetchWithAuth(`${API_URL}/api/roles/users/${employee.user_id}`, {
         headers: { 'X-User-ID': adminId }
       });
 
@@ -3249,7 +3253,7 @@ function UpdateEmployeeModal({
       setRoles(rolesData || []);
 
       try{
-        const compRes = await fetch(`${API_URL}/api/companies`, {
+        const compRes = await fetchWithAuth(`${API_URL}/api/companies`, {
           headers: { 'X-User-ID': adminId }
         });
         if (!compRes.ok) {
@@ -3294,7 +3298,7 @@ function UpdateEmployeeModal({
     }));
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData((prev: any) => ({ ...prev, [name]: value }));
     // only run email check when email field changes
@@ -3307,8 +3311,10 @@ function UpdateEmployeeModal({
 
   const checkEmailExists = async (email: string, currentUserId?: string): Promise<boolean> => {
     try {
-      if (!companyId || !adminId) return false;
-      const res = await fetch(`${API_URL}/api/users/company/${companyId}`, {
+      const selectedCompanyId = employee.company_id ?? '';
+      const targetCompanyId = selectedCompanyId;
+      if (!targetCompanyId || !adminId) return false;
+      const res = await fetchWithAuth(`${API_URL}/api/users/company/${targetCompanyId}`, {
         headers: { 'X-User-ID': adminId }
       });
       if (!res.ok) return false;
@@ -3368,7 +3374,7 @@ function UpdateEmployeeModal({
 
     try {
       // Update user via API
-      const updateRes = await fetch(`${API_URL}/api/users/${employee.user_id}`, {
+      const updateRes = await fetchWithAuth(`${API_URL}/api/users/${employee.user_id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -3391,7 +3397,7 @@ function UpdateEmployeeModal({
 
       // Update role assignments via backend API
       // First, get current role assignments
-      const currentRolesRes = await fetch(`${API_URL}/api/roles/users/${employee.user_id}`, {
+      const currentRolesRes = await fetchWithAuth(`${API_URL}/api/roles/users/${employee.user_id}`, {
         headers: { 'X-User-ID': adminId }
       });
 
@@ -3407,7 +3413,7 @@ function UpdateEmployeeModal({
 
         for (const assignment of rolesToRevoke) {
           try {
-            await fetch(`${API_URL}/api/roles/assignments/${assignment.user_role_assignment_id}`, {
+            await fetchWithAuth(`${API_URL}/api/roles/assignments/${assignment.user_role_assignment_id}`, {
               method: 'DELETE',
               headers: { 'X-User-ID': adminId }
             });
@@ -3418,7 +3424,7 @@ function UpdateEmployeeModal({
 
         for (const roleId of rolesToAdd) {
           try {
-            await fetch(`${API_URL}/api/roles/assignments`, {
+            await fetchWithAuth(`${API_URL}/api/roles/assignments`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -3440,7 +3446,7 @@ function UpdateEmployeeModal({
         // Fallback: couldn't load current roles, assign all selected
         for (const roleId of formData.selected_roles) {
           try {
-            await fetch(`${API_URL}/api/roles/assignments`, {
+            await fetchWithAuth(`${API_URL}/api/roles/assignments`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -3479,7 +3485,11 @@ function UpdateEmployeeModal({
   };
 
   // Get available subdepartments based on current selection
-  const availableSubDepartments = subDepartments;
+  const availableSubDepartments = subDepartments.sort((a: any, b: any) => {
+    const deptSort = (a.department_name || '').localeCompare(b.department_name || '');
+    if (deptSort !== 0) return deptSort;
+    return (a.sub_department_name || '').localeCompare(b.sub_department_name || '');
+  });
 
   if (!isOpen) return null;
   

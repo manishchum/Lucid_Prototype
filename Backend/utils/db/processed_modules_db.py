@@ -81,6 +81,7 @@ async def get_processed_module_by_id(
     """
     Fetch a specific processed module by ID.
     Permission: User must have access to the original training module.
+    Includes sprint (training module) information.
     """
     try:
         # Get the processed module with original_module_id
@@ -103,7 +104,20 @@ async def get_processed_module_by_id(
                 "error": "Permission denied: No access to this module"
             }
         
-        return {"data": response.data, "error": None}
+        # Fetch sprint (training module) info
+        sprint_response = supabase.table('training_modules').select('module_id, title').eq(
+            'module_id', original_module_id
+        ).maybe_single().execute()
+        
+        sprint_data = sprint_response.data if sprint_response.data else {}
+        sprint_name = sprint_data.get('title', '')
+        
+        # Add sprint information to the response
+        module_data = response.data.copy()
+        module_data['sprint_name'] = sprint_name
+        module_data['sprint_id'] = original_module_id
+        
+        return {"data": module_data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 

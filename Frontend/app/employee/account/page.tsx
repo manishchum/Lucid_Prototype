@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/auth-context";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { ArrowLeft, User, Mail, Calendar, Building, Save, Edit3, Lock, Eye, EyeOff, X, CheckCircle } from "lucide-react";
 
 interface Employee {
@@ -67,7 +68,7 @@ export default function AccountPage() {
           path: `/api/companies/${companyId}`,
         }),
         async () => {
-          const res = await fetch(`${API_URL}/api/companies/${companyId}`);
+          const res = await fetchWithAuth(`${API_URL}/api/companies/${companyId}`);
           if (!res.ok) {
             throw new Error(`Company fetch failed: ${res.status}`);
           }
@@ -115,10 +116,10 @@ export default function AccountPage() {
 
     setSaving(true);
     try {
-      const updRes = await fetch(`${API_URL}/api/users/${encodeURIComponent(employee.user_id)}`, {
+      const updRes = await fetchWithAuth(`${API_URL}/api/users/${encodeURIComponent(employee.user_id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json",
-          "X-User-ID": employee.user_id,
+          // "X-User-ID": employee.user_id,
          },
          body: JSON.stringify({
           name: formData.name,
@@ -144,6 +145,49 @@ export default function AccountPage() {
     } catch (error) {
       console.error("Update error:", error);
       alert("Failed to save changes. Please try again.");
+              <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <Card className="w-full">
+                  <CardHeader>
+                    <CardTitle>Account Information</CardTitle>
+                    <CardDescription>
+                      Additional account details and settings
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
+                        <div>
+                          <h3 className="font-medium">Account Status</h3>
+                          <p className="text-sm text-gray-600">Your account is active and in good standing</p>
+                        </div>
+                        <div className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                          Active
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                        <div>
+                          <h3 className="font-medium flex items-center gap-2">
+                            <Lock className="w-4 h-4" />
+                            Password
+                          </h3>
+                          <p className="text-sm text-gray-600">Change your account password</p>
+                        </div>
+                        <Button onClick={openPasswordModal} variant="outline">
+                          Change Password
+                        </Button>
+                      </div>
+                      
+                      <div className="p-4 bg-yellow-50 rounded-lg">
+                        <h3 className="font-medium text-yellow-800">Need Help?</h3>
+                        <p className="text-sm text-yellow-700 mt-1">
+                          Contact your administrator if you need to update your email address or company information.
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
     } finally {
       setSaving(false);
     }
@@ -187,11 +231,11 @@ export default function AccountPage() {
     setPasswordLoading(true);
     setPasswordError("");
     try {
-      const res = await fetch(`${API_URL}/api/change-password`, {
+      const res = await fetchWithAuth(`${API_URL}/api/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id: employee?.user_id,
+          // user_id: employee?.user_id,
           current_password: currentPassword,
           new_password: "", // Empty for validation step
         }),
@@ -229,11 +273,11 @@ export default function AccountPage() {
     setPasswordLoading(true);
     setPasswordError("");
     try {
-      const res = await fetch(`${API_URL}/api/change-password`, {
+      const res = await fetchWithAuth(`${API_URL}/api/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id: employee?.user_id,
+          // user_id: employee?.user_id,
           current_password: currentPassword,
           new_password: newPassword,
         }),
@@ -263,29 +307,20 @@ export default function AccountPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
-        <div className="bg-white shadow-sm border-b">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center py-4">
-              <div className="flex items-center">
-                <User className="w-8 h-8 text-green-600 mr-3" />
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900">Account Settings</h1>
-                  <p className="text-sm text-gray-600">Manage your personal information</p>
-                </div>
-              </div>
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <div className="px-4 py-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">
+              Account Settings
+            </h1>
+            <p className="text-slate-600">Manage your personal information</p>
           </div>
-        </div>
-
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
-        <div className="grid gap-8">
-          <Card>
+          <Card className="w-full mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 mt-16">
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <User className="w-5 h-5" />
+                  <User className="text-3xlw-5 h-5" />
                   Personal Information
                 </CardTitle>
                 <CardDescription>
@@ -386,7 +421,7 @@ export default function AccountPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="w-full">
             <CardHeader>
               <CardTitle>Account Information</CardTitle>
               <CardDescription>
@@ -427,7 +462,6 @@ export default function AccountPage() {
               </div>
             </CardContent>
           </Card>
-        </div>
         </div>
 
       {showPasswordModal && (
@@ -537,6 +571,7 @@ export default function AccountPage() {
           </div>
         </div>
       )}
-    </div>
+        </div>
+      </div>
   );
 }

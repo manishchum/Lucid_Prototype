@@ -14,6 +14,7 @@ import AssessmentReportComponent from '@/components/roleplay/AssessmentReport';
 import { createRolePlayAssessment } from '@/lib/roleplayDatabase';
 import { supabase } from '@/lib/supabase';
 import { callGemini } from '@/lib/gemini-helper';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 interface AssessmentReport {
@@ -324,7 +325,9 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
       if (error) {
         console.error('Error assigning scenario:', error);
-        setError('Failed to assign scenario');
+        const assignmentErrorMessage = error?.message || 'Failed to assign scenario';
+        setError(assignmentErrorMessage);
+        alert(assignmentErrorMessage);
         return;
       }
 
@@ -384,7 +387,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
     try {
       console.log('📊 Generating fresh assessment...');
-      const response = await fetch(`${API_URL}/api/roleplay/assessment`, {
+      const response = await fetchWithAuth(`${API_URL}/api/roleplay/assessment`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -483,7 +486,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-slate-600">Loading...</p>
@@ -493,11 +496,12 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       {currentScreen === 'rolePlay' && selectedScenario ? (
         <RolePlayConversation
           scenario={selectedScenario}
           onEndSession={handleEndSession}
+          onBack={handleBackToScenarios}
           moduleId={moduleId || undefined}
           employeeId={employeeId || undefined}
           voiceGender={roleplayConfig?.voiceGender || 'female'}
@@ -526,14 +530,15 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         )}
 
         {currentScreen === 'scenarioSelection' && (
-          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200">
-            <h2 className="text-3xl font-bold text-gray-800 mb-2 text-center">
-              Choose Your <span className="text-purple-600">Role-Play</span> Scenario
-            </h2>
-            <p className="text-center text-slate-600 mb-8">
-              Select a scenario to start practicing your skills
-            </p>
-
+          <div>
+            <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-4">
+              <h2 className="text-3xl font-bold text-gray-800 mb-2">
+                Choose Your <span className="text-purple-600">Role-Play</span> Scenario
+              </h2>
+              <p className="text-slate-600">
+                Select a scenario to start practicing your skills
+              </p>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
               {loadingScenarios ? (
                 <div className="col-span-2 text-center text-slate-500">Loading scenarios...</div>

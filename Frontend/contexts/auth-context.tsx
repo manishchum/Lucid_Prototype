@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useState } from "react"
 import { type User, onAuthStateChanged, signOut } from "firebase/auth"
 import { auth } from "@/lib/firebase"
 import { createCacheKey, sharedDataClient } from "@/lib/data-client"
+import { fetchWithAuth } from "@/lib/fetch-with-auth"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL
 const MANUAL_AUTH_STORAGE_KEY = "lucid:manual-auth-user"
@@ -22,6 +23,7 @@ interface AuthContextType {
   userRoles: string[]
   isAdmin: boolean
   isSuperAdmin: boolean
+  isDeveloper: boolean
   userId: string | null
   employeeData: any | null
   login: (userData: any) => Promise<void>
@@ -35,6 +37,7 @@ const AuthContext = createContext<AuthContextType>({
   userRoles: [],
   isAdmin: false,
   isSuperAdmin: false,
+  isDeveloper: false,
   userId: null,
   employeeData: null,
   login: async () => {},
@@ -53,7 +56,7 @@ export const useAuth = () => {
 const fetchUserByEmail = async (email: string | undefined | null) => {
   if (!email) return null
   try {
-    const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`)
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`)
     if (!res.ok) {
       console.error('[auth-context] Failed to fetch user by email:', res.status)
       return null
@@ -70,13 +73,13 @@ const fetchUserByEmail = async (email: string | undefined | null) => {
 
 const fetchUserRoles = async (userId: string) => {
   try {
-    const rolesRes = await fetch(`${API_BASE}/api/roles/users/${userId}`, {
+    const rolesRes = await fetchWithAuth(`${API_BASE}/api/roles/users/${userId}`, {
       headers: { 'X-User-ID': userId }
     })
 
     if (!rolesRes.ok) {
       console.error('[auth-context] Failed to fetch user roles:', rolesRes.status)
-      return { roles: [], isAdmin: false }
+      return { roles: [], isAdmin: false, isSuperAdmin: false, isDeveloper: false }
     }
 
     const payload = await rolesRes.json().catch(() => null)
@@ -106,10 +109,15 @@ const fetchUserRoles = async (userId: string) => {
       return r.level >= 4 || ['superadmin','super_admin','ceo'].includes(name)
     })
 
-    return { roles: roleNames, isAdmin: hasAdminRole, isSuperAdmin: hasSuperAdminRole }
+    const hasDeveloperRole = normalizedRoles.some((r: any) => {
+      const name = (r.name || '').toLowerCase().replace(/[-_\s]/g, '')
+      return r.level >= 6 || ['developer'].includes(name)
+    })
+
+    return { roles: roleNames, isAdmin: hasAdminRole, isSuperAdmin: hasSuperAdminRole, isDeveloper: hasDeveloperRole }
   } catch (e) {
     console.error('[auth-context] Error fetching user roles:', e)
-    return { roles: [], isAdmin: false }
+    return { roles: [], isAdmin: false, isSuperAdmin: false, isDeveloper: false }
   }
 }
 
@@ -136,7 +144,8 @@ const loadCachedFullProfile = async (authUser: AuthUserLike) => {
         userId: empData.user_id,
         userRoles: rolesData.roles,
         isAdmin: rolesData.isAdmin,
-        isSuperAdmin: rolesData.isSuperAdmin
+        isSuperAdmin: rolesData.isSuperAdmin,
+        isDeveloper: rolesData.isDeveloper
       }
     },
     {
@@ -186,6 +195,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userRoles, setUserRoles] = useState<string[]>([])
   const [isAdmin, setIsAdmin] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [isDeveloper, setIsDeveloper] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const [employeeData, setEmployeeData] = useState<any | null>(null)
 
@@ -203,12 +213,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUserRoles(profile.userRoles)
           setIsAdmin(profile.isAdmin)
           setIsSuperAdmin(profile.isSuperAdmin)
+          setIsDeveloper(Boolean(profile.isDeveloper))
         } else {
           setEmployeeData(null)
           setUserId(null)
           setUserRoles([])
           setIsAdmin(false)
           setIsSuperAdmin(false)
+          setIsDeveloper(false)
         }
 
         if (!firebaseUser) {
@@ -223,6 +235,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUserRoles([])
         setIsAdmin(false)
         setIsSuperAdmin(false)
+        setIsDeveloper(false)
       }
       
       setLoading(false)
@@ -259,12 +272,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUserRoles(profile.userRoles)
           setIsAdmin(profile.isAdmin)
           setIsSuperAdmin(profile.isSuperAdmin)
+          setIsDeveloper(Boolean(profile.isDeveloper))
         } else {
           setEmployeeData(null)
           setUserId(null)
           setUserRoles([])
           setIsAdmin(false)
           setIsSuperAdmin(false)
+          setIsDeveloper(false)
         }
       }
       
@@ -286,6 +301,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUserRoles([])
     setIsAdmin(false)
     setIsSuperAdmin(false)
+    setIsDeveloper(false)
   }
 
   const refreshProfile = async () => {
@@ -304,6 +320,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUserRoles(profile.userRoles)
           setIsAdmin(profile.isAdmin)
           setIsSuperAdmin(profile.isSuperAdmin)
+          setIsDeveloper(Boolean(profile.isDeveloper))
         }
       }
     }
@@ -317,6 +334,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         userRoles, 
         isAdmin, 
         isSuperAdmin,
+        isDeveloper,
         userId, 
         employeeData, 
         login, 

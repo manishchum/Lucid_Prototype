@@ -58,6 +58,7 @@ class UpdateReviewStageRequest(BaseModel):
 async def list_training_modules(
     company_id: str,
     user_id: str = Header(..., alias="X-User-ID"),
+    x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
     processing_status: Optional[str] = Query(None),
     review_stage: Optional[str] = Query(None)
 ):
@@ -66,9 +67,10 @@ async def list_training_modules(
     Permission: Any user in the company can view modules.
     Optional filters: processing_status, review_stage
     """
+    effective_company_id = x_company_id or company_id
     result = await get_training_modules_by_company(
         user_id, 
-        company_id, 
+        effective_company_id,
         processing_status=processing_status,
         review_stage=review_stage
     )

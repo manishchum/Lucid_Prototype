@@ -20,7 +20,9 @@ const LayoutWithNavigation = ({ children }: LayoutWithNavigationProps) => {
     '/auth/login',
     '/auth/signup',
     '/auth/reset-password',
-    '/auth/forgot-password'
+    '/auth/forgot-password',
+    '/unsubscribe-success',
+    '/unsubscribe-error'
   ];
 
   const shouldShowNavigation = !excludedPaths.includes(pathname || '');

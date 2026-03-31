@@ -1,9 +1,10 @@
 import os
 import json
 from datetime import datetime
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from supabase import create_client, Client
+from utils.auth import get_request_auth_required_from_request
 
 router = APIRouter()
 
@@ -16,6 +17,7 @@ supabase: Client = create_client(
 @router.post("/module-progress")
 async def POST(request: Request):
     try:
+        auth_ctx = get_request_auth_required_from_request(request)
         body = await request.json()
 
         user_id = body.get("user_id")
@@ -31,6 +33,12 @@ async def POST(request: Request):
             return JSONResponse(
                 {"error": "Missing required fields: user_id or processed_module_id"},
                 status_code=400
+            )
+
+        if str(user_id) != str(auth_ctx.user_id):
+            return JSONResponse(
+                {"error": "user_id does not match authenticated token"},
+                status_code=403
             )
 
         print("[module-progress] Recording progress:", {
@@ -183,6 +191,9 @@ async def POST(request: Request):
             "data": result
         })
 
+    except HTTPException as error:
+        print("[module-progress] HTTP error:", error.detail)
+        return JSONResponse({"error": error.detail}, status_code=error.status_code)
     except Exception as error:
         print("[module-progress] Error:", error)
 

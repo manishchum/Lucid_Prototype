@@ -28,6 +28,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 interface KPIIndicator {
   name: string;
@@ -100,7 +101,7 @@ export default function KPIIntelligencePage() {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch('/api/parse-file', {
+      const response = await fetchWithAuth('/api/parse-file', {
         method: 'POST',
         body: formData,
       });
@@ -142,7 +143,7 @@ export default function KPIIntelligencePage() {
     setParsedData(null);
 
     try {
-      const response = await fetch('/api/parse-job-description', {
+      const response = await fetchWithAuth('/api/parse-job-description', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -194,12 +195,12 @@ export default function KPIIntelligencePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <main className="p-8">
-          {/* Header Section */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">KPI Intelligence</h1>
-            <p className="text-gray-600 mt-1">Upload job descriptions extract KPIs, strategies, and indicators</p>
+          {/* Header Card */}
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">KPI Intelligence</h1>
+            <p className="text-slate-600">Upload job descriptions to extract KPIs, strategies, and learning indicators</p>
           </div>
 
           {/* Input Section - Full Width */}

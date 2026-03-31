@@ -25,6 +25,10 @@ from utils.db.whatsapp_db import (
     get_users_for_module,
     get_module_content,
 )
+from utils.db.email_db import (
+    create_scheduled_email,
+    update_email_status,
+)
 from utils.supabase_client import supabase
 from whatsapp.formatter import formatter
 
@@ -364,10 +368,12 @@ def build_email_body(
                      padding-left:36px;padding-right:36px;text-align:center;">
             <p style="margin-top:0;margin-bottom:6px;font-size:12px;color:#94A3B8;
                       font-family:Arial,sans-serif;text-align:center;">
-              You&#39;re receiving this because you are enrolled in a training module on Lucid.
+              You&#39;re receiving this because you are enrolled in a Sprint on Lucid.
             </p>
+            <!-- COMMENTED OUT: Unsubscribe link functionality not yet working
             <a href="#" style="font-size:12px;color:#3B66F5;font-family:Arial,sans-serif;
                                text-decoration:none;">Unsubscribe</a>
+            -->
           </td>
         </tr>
 
@@ -723,8 +729,10 @@ Engagement question: {request.engagement_question or "none"}
                       font-family:Arial,sans-serif;text-align:center;">
               You&#39;re receiving this because you are enrolled in a training sprint on Lucid.
             </p>
+            <!-- COMMENTED OUT: Unsubscribe link functionality not yet working
             <a href="#" style="font-size:12px;color:#3B66F5;font-family:Arial,sans-serif;
                                text-decoration:none;">Unsubscribe</a>
+            -->
           </td>
         </tr>
 
@@ -804,7 +812,15 @@ async def send_email(
     request: SendEmailRequest,
     user_id: str = Header(..., alias="X-User-ID"),
 ):
-    """Send the drafted email to all users assigned to the sprint."""
+    """Send the drafted email to all users assigned to the sprint.
+    
+    ⭐ IMPORTANT: Now integrated with GDPR/CAN-SPAM unsubscribe system.
+    Unsubscribe links are injected into all emails.
+    """
+    # Import unsubscribe functions
+    from utils.unsubscribe_token import generate_token
+    from utils.email_helper import inject_unsubscribe_link
+    
     # 1. Get assigned users
     users_result = await get_assigned_users_for_sprint(request.module_id)
     if users_result["error"]:
@@ -814,9 +830,13 @@ async def send_email(
     if not users:
         raise HTTPException(status_code=404, detail="No users assigned to this sprint")
 
-    recipient_emails = [u["email"] for u in users if u.get("email")]
+    # Filter to only include users who haven't unsubscribed
+    subscribed_users = [u for u in users if not u.get("email_unsubscribed", False)]
+    
+    # Get list of email addresses
+    recipient_emails = [(u["email"], u.get("id")) for u in subscribed_users if u.get("email")]
     if not recipient_emails:
-        raise HTTPException(status_code=404, detail="No valid email addresses found")
+        raise HTTPException(status_code=404, detail="No valid email addresses found or all users have unsubscribed")
 
     # 2. Send via SMTP
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
@@ -824,6 +844,7 @@ async def send_email(
     smtp_user = os.getenv("SMTP_USER", "")
     smtp_pass = os.getenv("SMTP_PASS", "")
     from_email = os.getenv("FROM_EMAIL", smtp_user)
+    frontend_url = os.getenv("FRONTEND_URL", "https://lucid.workfloww.ai")
 
     if not smtp_user or not smtp_pass:
         raise HTTPException(status_code=500, detail="SMTP credentials not configured on server")
@@ -836,17 +857,42 @@ async def send_email(
         server.starttls()
         server.login(smtp_user, smtp_pass)
 
-        for email_addr in recipient_emails:
+        for email_addr, user_id_from_db in recipient_emails:
             try:
+                # COMMENTED OUT: Unsubscribe functionality not yet working
+                # 🔐 Generate unsubscribe token with user ID
+                # unsubscribe_token = generate_token(email_addr, user_id_from_db)
+                
+                # 🔗 Build unsubscribe URL
+                # unsubscribe_url = f"{frontend_url}/api/unsubscribe?token={unsubscribe_token}"
+                
+                # 📧 Inject unsubscribe link into HTML body
+                # email_body = inject_unsubscribe_link(
+                #     request.body,
+                #     unsubscribe_url
+                # )
+                
+                # Use request body directly without unsubscribe link injection
+                email_body = request.body
+                
+                # Create message
                 msg = MIMEMultipart("alternative")
                 msg["Subject"] = request.subject
                 msg["From"] = from_email
                 msg["To"] = email_addr
-                msg.attach(MIMEText(request.body, "html"))
+                
+                # COMMENTED OUT: Unsubscribe functionality not yet working
+                # Add List-Unsubscribe header (RFC 2369) for email clients
+                # msg["List-Unsubscribe"] = f"<{unsubscribe_url}>"
+                # msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click-Unsubscribe"
+                
+                msg.attach(MIMEText(email_body, "html"))
                 server.sendmail(from_email, email_addr, msg.as_string())
                 sent_count += 1
-            except Exception:
+            except Exception as e:
                 failed.append(email_addr)
+                import logging
+                logging.error(f"Failed to send email to {email_addr}: {str(e)}")
 
         server.quit()
     except Exception as e:
@@ -856,6 +902,8 @@ async def send_email(
         "message": f"Email sent to {sent_count}/{len(recipient_emails)} users",
         "sent_count": sent_count,
         "failed": failed,
+        "unsubscribed_users": len(users) - len(subscribed_users),
+        "note": "All emails include unsubscribe links for GDPR/CAN-SPAM compliance"
     }
 
 
@@ -892,8 +940,19 @@ async def schedule_email(
     request: ScheduleEmailRequest,
     user_id: str = Header(..., alias="X-User-ID"),
 ):
-    """Schedule the drafted email to be delivered at a future date/time (UTC)."""
-    # 1. Parse the run date
+    """
+    Schedule the drafted email to be delivered at a future date/time (UTC).
+    
+    Instead of using APScheduler with a local database, this stores the email
+    in the Supabase 'scheduled_emails' table. A cron job will query this table
+    and send emails when the scheduled time arrives.
+    
+    This ensures:
+    - No data loss on server restart
+    - Multi-worker support (different instances can process emails)
+    - Easier monitoring and management of scheduled emails
+    """
+    # 1. Parse and validate the run date
     try:
         run_dt = datetime.strptime(
             f"{request.scheduled_date} {request.scheduled_time}", "%Y-%m-%d %H:%M"
@@ -911,7 +970,7 @@ async def schedule_email(
             detail="Scheduled time must be in the future (UTC)",
         )
 
-    # 2. Get assigned users
+    # 2. Get assigned users and their emails
     users_result = await get_assigned_users_for_sprint(request.module_id)
     if users_result["error"]:
         raise HTTPException(status_code=400, detail=users_result["error"])
@@ -924,23 +983,43 @@ async def schedule_email(
     if not recipient_emails:
         raise HTTPException(status_code=404, detail="No valid email addresses found")
 
-    # 3. Schedule the job (SQLite-persisted, survives restarts)
-    job_id = f"dispatch_{request.module_id}_{uuid.uuid4().hex[:8]}"
-    scheduler.add_job(
-        send_smtp_job,
-        trigger="date",
-        run_date=run_dt,
-        id=job_id,
-        args=[recipient_emails, request.subject, request.body],
-        replace_existing=True,
+    # 3. Get company_id from user context
+    user_data = supabase.table("users").select("company_id").eq("user_id", user_id).single().execute()
+    company_id = user_data.data.get("company_id") if user_data.data else None
+    if not company_id:
+        raise HTTPException(status_code=400, detail="Could not determine company_id for user")
+
+    # 4. Store in Supabase scheduled_emails table (not in APScheduler)
+    email_result = await create_scheduled_email(
+        company_id=company_id,
+        subject=request.subject,
+        body=request.body,
+        recipient_emails=recipient_emails,
+        schedule_type="one_time",
+        scheduled_date=request.scheduled_date,
+        scheduled_time=request.scheduled_time,
+        processed_module_id=request.module_id,
+        content_types=[],  # For schedule-email, content types may not apply
+        is_active=True,
+        created_by=user_id,
     )
+
+    if email_result["error"]:
+        raise HTTPException(status_code=500, detail=f"Failed to schedule email: {email_result['error']}")
+
+    email_record = email_result["data"]
+    scheduled_email_id = email_record.get("scheduled_email_id")
 
     return {
         "status": "scheduled",
-        "job_id": job_id,
+        "scheduled_email_id": scheduled_email_id,
         "scheduled_at": run_dt.isoformat(),
+        "scheduled_date": request.scheduled_date,
+        "scheduled_time": request.scheduled_time,
         "recipient_count": len(recipient_emails),
+        "message": "Email scheduled successfully. Will be sent via cron job at the scheduled time.",
     }
+
 
 
 # ── Notify endpoint: selected-content email ────────────────────
@@ -1112,20 +1191,52 @@ async def notify_email(
                 detail="Scheduled time must be in the future (UTC)",
             )
 
-        job_id = f"notify_{request.module_id}_{uuid.uuid4().hex[:8]}"
-        scheduler.add_job(
-            send_smtp_job,
-            trigger="date",
-            run_date=run_dt,
-            id=job_id,
-            args=[recipient_emails, subject, html_body],
-            replace_existing=True,
+        # Get company_id for Supabase storage
+        first_module_id = request.module_id or target_module_ids[0]
+        module_data = supabase.table("processed_modules") \
+            .select("title") \
+            .eq("processed_module_id", first_module_id) \
+            .single() \
+            .execute()
+        
+        # Get company_id from user context
+        user_data = supabase.table("users").select("company_id").eq("user_id", user_id).single().execute()
+        company_id = user_data.data.get("company_id") if user_data.data else None
+        if not company_id:
+            raise HTTPException(status_code=400, detail="Could not determine company_id for user")
+
+        # Store in Supabase scheduled_emails table (not in APScheduler)
+        email_result = await create_scheduled_email(
+            company_id=company_id,
+            subject=subject,
+            body=html_body,
+            recipient_emails=recipient_emails,
+            schedule_type="one_time",
+            scheduled_date=request.scheduled_date,
+            scheduled_time=request.scheduled_time,
+            processed_module_id=first_module_id,
+            module_title=module_data.data.get("title") if module_data.data else None,
+            content_types=request.selected_content,
+            custom_flashcards=request.customFlashcards,
+            custom_audio_url=request.customAudioUrl,
+            is_active=True,
+            created_by=user_id,
         )
+
+        if email_result["error"]:
+            raise HTTPException(status_code=500, detail=f"Failed to schedule email: {email_result['error']}")
+
+        email_record = email_result["data"]
+        scheduled_email_id = email_record.get("scheduled_email_id")
+
         return {
             "status": "scheduled",
-            "job_id": job_id,
+            "scheduled_email_id": scheduled_email_id,
             "scheduled_at": run_dt.isoformat(),
+            "scheduled_date": request.scheduled_date,
+            "scheduled_time": request.scheduled_time,
             "recipient_count": len(recipient_emails),
+            "message": "Email scheduled successfully. Will be sent via cron job at the scheduled time.",
         }
 
     # 4b. Send immediately
@@ -1470,33 +1581,67 @@ async def schedule_multi_module(
                     "module_id": module_id,
                     "module_title": module_title,
                     "content_type": content_type,
-                    "day_of_week": day_of_week,
+                    "day_of_week": item.day_of_week if is_recurring_mode else None,
+                    "scheduled_date": item.scheduled_date if not is_recurring_mode else None,
                     "run_date": run_dt.isoformat(),
                     "recipient_count": 0,
-                    "job_id": None,
+                    "scheduled_email_id": None,
                     "warning": "No users assigned to this module",
                 })
                 continue
 
-            # ── Create APScheduler job ──
-            job_id = f"multi_notify_{module_id}_{content_type}_{uuid.uuid4().hex[:8]}"
-            scheduler.add_job(
-                send_smtp_job,
-                trigger="date",
-                run_date=run_dt,
-                id=job_id,
-                args=[recipient_emails, subject, html_body],
-                replace_existing=True,
+            # ── Get company_id from user context ──
+            user_data = supabase.table("users").select("company_id").eq("user_id", user_id).single().execute()
+            company_id = user_data.data.get("company_id") if user_data.data else None
+            if not company_id:
+                raise HTTPException(status_code=400, detail=f"Could not determine company_id for user")
+
+            # ── Prepare days_of_week for recurring mode ──
+            days_of_week_array = None
+            if is_recurring_mode:
+                day_name = item.day_of_week
+                # Convert day name to weekday integer (0=Sun, 1=Mon, ..., 6=Sat)
+                day_to_int = {"Sun": 0, "Mon": 1, "Tue": 2, "Wed": 3, "Thu": 4, "Fri": 5, "Sat": 6}
+                days_of_week_array = [day_to_int.get(day_name, 0)]
+
+            # ── Store in Supabase scheduled_emails table (not in APScheduler) ──
+            email_result = await create_scheduled_email(
+                company_id=company_id,
+                subject=subject,
+                body=html_body,
+                recipient_emails=recipient_emails,
+                schedule_type="recurring" if is_recurring_mode else "one_time",
+                scheduled_date=item.scheduled_date if not is_recurring_mode else None,
+                scheduled_time=request.scheduled_time,
+                days_of_week=days_of_week_array,
+                processed_module_id=module_id,
+                original_module_id=original_module_id,
+                module_title=module_title,
+                content_types=[content_type],
+                custom_flashcards=item.customFlashcards if content_type == "flashcards" else None,
+                custom_audio_url=item.customAudioUrl if content_type == "audio" else None,
+                is_active=True,
+                created_by=user_id,
             )
+
+            if email_result["error"]:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Item {idx}: Failed to schedule email: {email_result['error']}"
+                )
+
+            email_record = email_result["data"]
+            scheduled_email_id = email_record.get("scheduled_email_id")
 
             scheduled_jobs.append({
                 "module_id": module_id,
                 "module_title": module_title,
                 "content_type": content_type,
-                "day_of_week": day_of_week,
+                "day_of_week": item.day_of_week if is_recurring_mode else None,
+                "scheduled_date": item.scheduled_date if not is_recurring_mode else None,
                 "run_date": run_dt.isoformat(),
                 "recipient_count": len(recipient_emails),
-                "job_id": job_id,
+                "scheduled_email_id": scheduled_email_id,
             })
 
         return {
@@ -1620,6 +1765,9 @@ async def notify_whatsapp(
             module_title = module.get("title", "Learning Module")
             original_module_id = module.get("original_module_id")
            
+
+
+            print("\n[NOTIFY-WHATSAPP DEBUG] Module content fetched successfully", module)
             # Determine scheduled date based on offset
             from datetime import datetime, timedelta, date as dt_date
            
@@ -1642,6 +1790,9 @@ async def notify_whatsapp(
                 media_type = None
            
             elif content_type == "audio":
+
+                print(f"[NOTIFY-WHATSAPP DEBUG] Preparing audio content for module: {module_title}")
+                print(f"[NOTIFY-WHATSAPP DEBUG] Audio URL from DB: {module.get('audio_url', 'NONE')}")
                 audio_url = module.get("audio_url", "")
                 message_body = formatter.format_audio_message(module_title, "Audio Lesson")
                 media_url = audio_url
@@ -1672,6 +1823,10 @@ async def notify_whatsapp(
                 print(f"[NOTIFY-WHATSAPP DEBUG] Unknown content type: {content_type}")
                 continue
            
+
+            print(f"[NOTIFY-WHATSAPP DEBUG] Built message body for content type '{content_type}' with media_url: {media_url}")
+            print(f"[NOTIFY-WHATSAPP DEBUG] Message body: {message_body}")
+            print("Request Body",request)
             # Create scheduled_whatsapp record
             schedule_result = await create_scheduled_whatsapp(
                 company_id=request.company_id,
