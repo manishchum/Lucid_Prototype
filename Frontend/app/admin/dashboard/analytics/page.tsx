@@ -835,14 +835,14 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       {/* Filters */}
       <div className="flex flex-wrap gap-4 p-4 bg-gray-50 rounded-lg">
         <div className="flex-1 min-w-48">
-          <Label htmlFor="moduleFilter">Filter by Module</Label>
+          <Label htmlFor="moduleFilter">Filter by Sprint</Label>
           <select
             id="moduleFilter"
             value={selectedModule}
             onChange={(e) => setSelectedModule(e.target.value)}
             className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           >
-            <option value="all">All Modules</option>
+            <option value="all">All Sprints</option>
             {modules.map(module => (
               <option key={module.module_id} value={module.module_id}>
                 {module.title}
@@ -903,7 +903,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Training Modules</p>
+                <p className="text-sm font-medium text-gray-600">Sprints</p>
                 <p className="text-2xl font-bold text-green-600">{overallStats.totalModules}</p>
                 <p className="text-xs text-gray-500">Assignments: {overallStats.totalAssignments}</p>
               </div>
@@ -954,7 +954,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
               <CheckCircle className="w-5 h-5 mr-2" />
               Overall Assignment Status
             </CardTitle>
-            <CardDescription>Distribution of assignment statuses across all modules</CardDescription>
+            <CardDescription>Distribution of assignment statuses across all Sprints</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-80">
@@ -1011,8 +1011,9 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
             </div>
           </CardContent>
         </Card>
+      </div>
 
-        {/* Learning Style Distribution Pie Chart - Only show if learning style is enabled */}
+        {/* Learning Style Distribution Pie Chart - Only show if learning style is enabled
         {companyLearningStyleEnabled ? (
           <Card>
             <CardHeader>
@@ -1099,8 +1100,8 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
               </div>
             </CardContent>
           </Card>
-        )}
-      </div>
+        )
+        */}
 
       {/* Charts Row 2 - Performance Metrics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1109,9 +1110,9 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
           <CardHeader>
             <CardTitle className="flex items-center">
               <BarChart3 className="w-5 h-5 mr-2" />
-              Module Completion Rates
+              Sprint Completion Rates
             </CardTitle>
-            <CardDescription>Completion percentage for each training module</CardDescription>
+            <CardDescription>Completion percentage for each Sprint</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-80">
@@ -1367,9 +1368,9 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
           <CardHeader>
             <CardTitle className="flex items-center">
               <BookOpen className="w-5 h-5 mr-2" />
-              Training Progress Distribution
+              Performance Distribution
             </CardTitle>
-            <CardDescription>Current status distribution across all modules</CardDescription>
+            <CardDescription>Current status distribution across all Sprints</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-80">
@@ -1475,7 +1476,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
             <FileText className="w-5 h-5 mr-2" />
             Assessment Performance
           </CardTitle>
-          <CardDescription>Performance metrics for baseline and module assessments</CardDescription>
+          <CardDescription>Performance metrics for baseline and Sprint's assessments</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -1483,7 +1484,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
               <thead>
                 <tr className="border-b bg-gray-50">
                   <th className="text-left p-3 font-medium text-gray-700">Assessment Type</th>
-                  <th className="text-left p-3 font-medium text-gray-700">Module</th>
+                  <th className="text-left p-3 font-medium text-gray-700">Sprint</th>
                   <th className="text-center p-3 font-medium text-gray-700">Total Attempts</th>
                   <th className="text-center p-3 font-medium text-gray-700">Completed</th>
                   <th className="text-center p-3 font-medium text-gray-700">Completion Rate</th>
@@ -1614,16 +1615,16 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
         <CardHeader>
           <CardTitle className="flex items-center">
             <BarChart3 className="w-5 h-5 mr-2" />
-            Module Performance Overview
+            Sprint Performance Overview
           </CardTitle>
-          <CardDescription>Statistics for each training module including baseline assessments</CardDescription>
+          <CardDescription>Statistics for each Sprint including baseline assessments</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b bg-gray-50">
-                  <th className="text-left p-3 font-medium text-gray-700">Module</th>
+                  <th className="text-left p-3 font-medium text-gray-700">Sprint</th>
                   <th className="text-center p-3 font-medium text-gray-700">Status</th>
                   <th className="text-center p-3 font-medium text-gray-700">Total Assigned</th>
                   <th className="text-center p-3 font-medium text-gray-700">Completed</th>
@@ -1763,7 +1764,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
             <div className="text-center py-8 text-gray-500">
               <BarChart3 className="w-12 h-12 mx-auto mb-4 opacity-50" />
               <p>No progress data found</p>
-              <p className="text-sm">Assign modules to employees to see progress tracking</p>
+              <p className="text-sm">Assign Sprints to employees to see progress tracking</p>
             </div>
           )}
 
@@ -1897,7 +1898,7 @@ export default function AnalyticsPage() {
           Analytics & Reports
         </h1>
         <p className="text-slate-600">
-          Track employee progress across all training modules with detailed insights and performance metrics
+          Track Employee Progress across all Sprints with detailed insights and performance metrics
         </p>
       </div>
       
