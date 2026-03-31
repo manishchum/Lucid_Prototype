@@ -241,7 +241,7 @@ export default function EmployeesPage() {
       });
       if (!res.ok) throw await res.json();
       const payload = await res.json();
-      const users = payload.users || [];
+      const users = payload.data?.users || payload.users || [];
 
       setUsers(users);
       console.log("payload:", payload)

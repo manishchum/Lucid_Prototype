@@ -80,7 +80,7 @@ export default function AccountPage() {
       );
 
       const payload = result.data;
-      setCompany(payload?.company ?? payload);
+      setCompany(payload?.data ?? payload?.company ?? payload);
     } catch (error) {
       console.error("Failed to fetch company:", error);
       setCompany(null);
