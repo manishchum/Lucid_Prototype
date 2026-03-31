@@ -340,36 +340,36 @@ export default function SignupPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Back Button */}
-        <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-800 mb-6 transition-colors">
+        <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-800 mb-4 md:mb-6 transition-colors text-xs md:text-sm">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Home
         </Link>
 
         {/* Signup Card */}
         <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
-          <CardHeader className="text-center pb-8">
+          <CardHeader className="text-center pb-6 md:pb-8">
             {/* Logo */}
-            <div className="flex items-center justify-center space-x-2 mb-6">
+            <div className="flex items-center justify-center space-x-2 mb-4 md:mb-6">
               <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
                 <Brain className="w-6 h-6 text-white" />
               </div>
-              <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              <span className="text-xl md:text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                 Lucid
               </span>
             </div>
             
-            <CardTitle className="text-2xl font-bold text-gray-800 mb-2">
+            <CardTitle className="text-xl md:text-2xl font-bold text-gray-800 mb-1 md:mb-2">
               Create Account
             </CardTitle>
-            <p className="text-gray-600">
+            <p className="text-xs md:text-sm text-gray-600">
               Join Lucid and make your team extraordinary
             </p>
           </CardHeader>
 
-          <CardContent className="space-y-6">
-            <form onSubmit={handleSignup} className="space-y-4">
-              <div className="space-y-2 relative" ref={suggestionRef}>
-                <Label htmlFor="companyName" className="text-sm font-medium text-gray-700">
+          <CardContent className="space-y-5 md:space-y-6">
+            <form onSubmit={handleSignup} className="space-y-3 md:space-y-4">
+              <div className="space-y-1.5 md:space-y-2 relative" ref={suggestionRef}>
+                <Label htmlFor="companyName" className="text-xs md:text-sm font-medium text-gray-700">
                   Company Name
                 </Label>
                 <div className="relative">
@@ -380,7 +380,7 @@ export default function SignupPage() {
                     placeholder="Start typing your company name..."
                     value={formData.companyName}
                     onChange={handleCompanyInputChange}
-                    className="h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 pr-10"
+                    className="h-10 md:h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 pr-10 text-sm"
                     required
                     autoComplete="off"
                   />
@@ -399,24 +399,24 @@ export default function SignupPage() {
                         key={company.company_id}
                         type="button"
                         onClick={() => handleCompanySelect(company)}
-                        className="w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-b-0 flex flex-col"
+                        className="w-full px-3 md:px-4 py-2 md:py-3 text-left hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-b-0 flex flex-col"
                       >
-                        <span className="font-medium text-gray-900">{company.name}</span>
-                        <span className="text-sm text-gray-500">{company.domain}</span>
+                        <span className="font-medium text-xs md:text-sm text-gray-900">{company.name}</span>
+                        <span className="text-[10px] md:text-xs text-gray-500">{company.domain}</span>
                       </button>
                     ))}
                   </div>
                 )}
 
                 {showSuggestions && companySuggestions.length === 0 && !searchingCompany && formData.companyName.length >= 2 && (
-                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-4">
-                    <p className="text-sm text-gray-500">No companies found. Please check the spelling or contact support.</p>
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-2 md:p-4">
+                    <p className="text-[10px] md:text-xs text-gray-500">No companies found. Please check the spelling or contact support.</p>
                   </div>
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="name" className="text-sm font-medium text-gray-700">
+              <div className="space-y-1.5 md:space-y-2">
+                <Label htmlFor="name" className="text-xs md:text-sm font-medium text-gray-700">
                   Full Name
                 </Label>
                 <Input
@@ -426,13 +426,13 @@ export default function SignupPage() {
                   placeholder="John Doe"
                   value={formData.name}
                   onChange={handleInputChange}
-                  className="h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500"
+                  className="h-10 md:h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 text-sm"
                   required
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-medium text-gray-700">
+              <div className="space-y-1.5 md:space-y-2">
+                <Label htmlFor="email" className="text-xs md:text-sm font-medium text-gray-700">
                   Email Address
                 </Label>
                 <Input
@@ -442,13 +442,13 @@ export default function SignupPage() {
                   placeholder="your.email@company.com"
                   value={formData.email}
                   onChange={handleInputChange}
-                  className="h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500"
+                  className="h-10 md:h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 text-sm"
                   required
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium text-gray-700">
+              <div className="space-y-1.5 md:space-y-2">
+                <Label htmlFor="password" className="text-xs md:text-sm font-medium text-gray-700">
                   Password
                 </Label>
                 <div className="relative">
@@ -459,7 +459,7 @@ export default function SignupPage() {
                     placeholder="At least 8 characters"
                     value={formData.password}
                     onChange={handleInputChange}
-                    className="h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 pr-10"
+                    className="h-10 md:h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 pr-10 text-sm"
                     required
                   />
                   <button
@@ -472,8 +472,8 @@ export default function SignupPage() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword" className="text-sm font-medium text-gray-700">
+              <div className="space-y-1.5 md:space-y-2">
+                <Label htmlFor="confirmPassword" className="text-xs md:text-sm font-medium text-gray-700">
                   Confirm Password
                 </Label>
                 <div className="relative">
@@ -484,7 +484,7 @@ export default function SignupPage() {
                     placeholder="Confirm your password"
                     value={formData.confirmPassword}
                     onChange={handleInputChange}
-                    className="h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 pr-10"
+                    className="h-10 md:h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 pr-10 text-sm"
                     required
                   />
                   <button
@@ -497,8 +497,8 @@ export default function SignupPage() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="phoneNumber" className="text-sm font-medium text-gray-700">
+              <div className="space-y-1.5 md:space-y-2">
+                <Label htmlFor="phoneNumber" className="text-xs md:text-sm font-medium text-gray-700">
                   Phone Number
                 </Label>
                 <Input
@@ -508,33 +508,33 @@ export default function SignupPage() {
                   placeholder="+1 (555) 123-4567"
                   value={formData.phoneNumber}
                   onChange={handleInputChange}
-                  className="h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500"
+                  className="h-10 md:h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 text-sm"
                   required
                 />
               </div>
 
               {error && (
                 <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
+                  <AlertDescription className="text-xs md:text-sm">{error}</AlertDescription>
                 </Alert>
               )}
 
               {success && (
                 <Alert>
-                  <AlertDescription>{success}</AlertDescription>
+                  <AlertDescription className="text-xs md:text-sm">{success}</AlertDescription>
                 </Alert>
               )}
 
               <Button
                 type="submit"
-                className="w-full h-11 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium transition-all duration-200"
+                className="w-full h-10 md:h-11 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium transition-all duration-200 text-sm"
                 disabled={loading}
               >
                 {loading ? "Creating Account..." : "Create Account"}
               </Button>
             </form>
 
-            <div className="text-center text-sm text-gray-600">
+            <div className="text-center text-xs md:text-sm text-gray-600">
               <p>
                 Already have an account?{" "}
                 <Link href="/login" className="text-blue-600 hover:text-blue-700 font-medium">

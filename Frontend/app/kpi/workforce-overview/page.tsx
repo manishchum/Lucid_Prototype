@@ -472,13 +472,13 @@ export default function WorkforceOverview() {
     <div className="min-h-screen bg-gray-50">
       <main className="p-6 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Workforce Overview</h1>
             <p className="text-gray-600 text-sm">Monitor workforce capabilities and sprint allocation.</p>
           </div>
           
-          <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6">
+          <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 mt-4 md:mt-0">
             <Filter size={16} className="mr-2" />
             Export Report
           </Button>
@@ -489,14 +489,14 @@ export default function WorkforceOverview() {
           <h3 className="text-2xl font-bold text-gray-900 mb-4">Learning Overview</h3>
 
           {/* Filters */}
-          <div className="flex items-center gap-4 mb-8">
+          <div className="flex flex-col md:flex-row items-center gap-4 mb-8">
             <div className="flex items-center gap-2 text-gray-600">
               <Filter size={18} />
               <span className="text-sm font-medium">Select Role:</span>
             </div>
             
-            <div className="flex items-center gap-3 flex-1">
-              <div className="flex-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-1 w-full">
+              <div className="w-full">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Function</div>
                 <select 
                   value={selectedFunctionId}

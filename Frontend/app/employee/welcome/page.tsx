@@ -214,89 +214,152 @@ export default function EmployeeWelcome() {
          </div>
        )}
 
-       <main className="pt-8 pb-12">
-         <div className="max-w-6xl mx-auto px-6 lg:px-8">
+       <main className="min-h-screen pt-4 md:pt-8 pb-8 md:pb-12 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-6xl mx-auto w-full">
           
            {/* Dashboard Header */}
-           <div className="flex items-center gap-4 mb-10">
-             <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100">
-               <Users className="w-6 h-6 text-blue-600" />
-             </div>
-             <div>
-               <h1 className="text-3xl font-black text-slate-900 tracking-tight">
-                 {employee?.name ? `Welcome, ${employee.name.split(' ')[0]}` : "Learner Dashboard"}
-               </h1>
-               <p className="text-slate-500 font-medium text-sm">{employee?.email || "Personalized learning hub"}</p>
-             </div>
-           </div>
+           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-6 md:mb-10">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100 shrink-0">
+              <Users className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
+            </div>
 
-           <div className="grid gap-8">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight break-words">
+                {employee?.name ? `Welcome, ${employee.name.split(" ")[0]}` : "Learner Dashboard"}
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-500 font-medium break-all sm:break-normal">
+                {employee?.email || "Personalized learning hub"}
+              </p>
+            </div>
+          </div>
+
+           <div className="grid gap-4 md:gap-8">
              {/* Progress Nudge Card (Premium Circular Design) */}
              {nudgeMessage && (
+              <Card className="rounded-3xl border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] bg-white overflow-hidden">
+                <CardContent className="p-4 sm:p-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div className="flex items-start gap-4 flex-1 min-w-0">
+                      <div className="w-10 h-10 sm:w-14 sm:h-14 bg-blue-50 rounded-xl flex items-center justify-center shrink-0">
+                        {progressPercentage === 100 ? (
+                          <Trophy className="text-blue-600 w-5 h-5 sm:w-6 sm:h-6" />
+                        ) : (
+                          <Zap className="text-blue-600 w-5 h-5 sm:w-6 sm:h-6" />
+                        )}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-base sm:text-lg font-black text-slate-900">
+                          Your Progress
+                        </h3>
+                        <p className="text-slate-500 mt-1 font-medium leading-relaxed text-xs sm:text-sm">
+                          {nudgeMessage}
+                        </p>
+
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          <Badge
+                            variant="secondary"
+                            className="bg-slate-100 text-slate-600 border-none font-bold text-[10px] sm:text-xs"
+                          >
+                            63 COMPLETED
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-center justify-center self-center sm:self-auto">
+                      <div
+                        className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center bg-white border-4 ${
+                          progressPercentage >= 100 ? "border-green-100" : "border-blue-50"
+                        }`}
+                      >
+                        <span
+                          className={`text-lg sm:text-2xl font-black ${
+                            progressPercentage >= 100 ? "text-green-600" : "text-blue-600"
+                          }`}
+                        >
+                          27.6%
+                        </span>
+                      </div>
+
+                      <div className="mt-2 text-[10px] sm:text-xs font-black uppercase tracking-[0.05em] text-slate-400 text-center">
+                        96 of 348
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+             {/* {nudgeMessage && (
                <Card className="rounded-3xl border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] bg-white overflow-hidden relative">
-                 <CardContent className="py-10 px-10">
-                   <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-                     <div className="flex items-center gap-8 flex-1">
-                       <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center shrink-0">
-                         {progressPercentage === 100 ? <Trophy className="text-blue-600" size={32} /> : <Zap className="text-blue-600" size={32} />}
-                       </div>
-                       <div>
-                         <h3 className="text-2xl font-black text-slate-900">Your Progress</h3>
-                         <p className="text-slate-500 mt-2 font-medium max-w-md leading-relaxed">{nudgeMessage}</p>
-                         <div className="mt-4 flex gap-3">
-                           <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-none font-bold">
-                             {/* {companyStats.completedEmployees} COLLEAGUES COMPLETED */}
-                             63 COLLEAGUES COMPLETED
-                           </Badge>
+                 <CardContent className="py-4 sm:py-6 md:py-8 px-4 sm:px-6 md:px-8">
+                   <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
+                     <div className="flex flex-col gap-3 w-full md:w-auto md:flex-1">
+                       <div className="flex items-start gap-3">
+                         <div className="w-12 md:w-14 h-12 md:h-14 bg-blue-50 rounded-xl md:rounded-2xl flex items-center justify-center shrink-0">
+                           {progressPercentage === 100 ? <Trophy className="text-blue-600 w-5 md:w-6 h-5 md:h-6" /> : <Zap className="text-blue-600 w-5 md:w-6 h-5 md:h-6" />}
                          </div>
+                         <div className="min-w-0 flex-1">
+                           <h3 className="text-base sm:text-lg md:text-lg font-black text-slate-900">Your Progress</h3>
+                           <p className="text-slate-500 mt-1 font-medium leading-relaxed text-xs sm:text-sm md:text-sm line-clamp-3">{nudgeMessage}</p>
+                         </div>
+                       </div>
+                       <div className="flex gap-1.5 md:gap-2 flex-wrap">
+                         <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-none font-bold text-[8px] sm:text-[9px] md:text-xs whitespace-nowrap">
+                           63 COMPLETED
+                         </Badge>
                        </div>
                      </div>
 
-                     <div className="flex flex-col items-center">
-                       <div className={`relative w-28 h-28 rounded-full flex items-center justify-center bg-white border-[10px] ${progressPercentage >= 100 ? 'border-green-100' : 'border-blue-50'}`}>
-                         <span className={`text-3xl font-black ${progressPercentage >= 100 ? 'text-green-600' : 'text-blue-600'}`}>
-                           {/* {progressPercentage}% */}
+                     <div className="flex flex-col items-center w-full md:w-auto md:ml-auto">
+                       <div className={`relative w-16 md:w-20 h-16 md:h-20 rounded-full flex items-center justify-center bg-white border-4 md:border-6 ${progressPercentage >= 100 ? 'border-green-100' : 'border-blue-50'}`}>
+                         <span className={`text-lg md:text-xl font-black ${progressPercentage >= 100 ? 'text-green-600' : 'text-blue-600'}`}>
                            27.6%
                          </span>
                        </div>
-                       <div className="mt-4 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-                         {/* Rank #{companyStats.userRank || '—'} of {companyStats.totalEmployees} */}
+                       <div className="mt-1 md:mt-2 text-[7px] md:text-[8px] font-black uppercase tracking-[0.05em] text-slate-400 text-center">
                          96 of 348
                        </div>
                      </div>
                    </div>
                  </CardContent>
                </Card>
-             )}
+             )} */}
 
              {/* Learning Style Card (Sequential Logic) */}
              {companyLearningStyleEnabled && (
                <Card className="rounded-2xl border-none shadow-sm bg-white overflow-visible">
-                 <CardContent className="p-8">
+                 <CardContent className="p-4 sm:p-6">
                    {learningStyle ? (
-                     <div className="flex items-center gap-10">
-                       <div className="w-24 h-24 rounded-full bg-blue-600 text-white flex items-center justify-center text-3xl font-black shadow-xl shadow-blue-100">
-                         {learningStyle}
-                       </div>
-                       <div className="flex-1">
-                         <h4 className="text-lg font-extrabold text-slate-900">Your Learning Style</h4>
-                         <div className="mt-2 text-slate-500">
-                           <LearningStyleBlurb styleCode={learningStyle} />
-                         </div>
-                         <Button variant="link" className="text-blue-600 font-bold p-0 h-auto mt-4" onClick={() => router.push('/employee/score-history')}>
-                           Get full report <ArrowRight size={14} className="ml-1" />
-                         </Button>
-                       </div>
-                     </div>
+                     <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left">
+                      <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-blue-600 text-white flex items-center justify-center text-xl sm:text-2xl font-black shadow-xl shadow-blue-100 shrink-0">
+                        {learningStyle}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-sm sm:text-base font-extrabold text-slate-900">
+                          Your Learning Style
+                        </h4>
+                        <div className="mt-2 text-xs sm:text-sm text-slate-500">
+                          <LearningStyleBlurb styleCode={learningStyle} />
+                        </div>
+                        <Button
+                          variant="link"
+                          className="text-blue-600 font-bold p-0 h-auto mt-3 text-xs sm:text-sm"
+                          onClick={() => router.push("/employee/score-history")}
+                        >
+                          Get full report <ArrowRight size={14} className="ml-1" />
+                        </Button>
+                      </div>
+                    </div>
                    ) : (
-                     <div className="flex items-center justify-between relative">
-                       <div className="max-w-md">
-                         <h4 className="text-xl font-black text-slate-900 mb-2">Discover Your Learning Style
-                         </h4>
-                         <p className="text-slate-500 font-medium">Take our 5-minute cognitive survey to unlock your personalized training path.</p>
+                     <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-4">
+                       <div className="w-full sm:max-w-md text-center sm:text-left">
+                         <h4 className="text-base md:text-lg font-black text-slate-900 mb-1">Discover Your Learning Style</h4>
+                         <p className="text-xs md:text-sm text-slate-500 font-medium">Take our 5-minute survey to unlock your personalized path.</p>
                        </div>
                       
-                       <div className="relative">
+                       <div className="relative mt-2 sm:mt-0">
                          {/* Profile Dropdown - Commented Out */}
                          {/* 
                          <button
@@ -348,14 +411,14 @@ export default function EmployeeWelcome() {
                  )}
                  */}
                          {/* Callout Bubble from Ref Code */}
-                         <div className="absolute -top-24 right-0 z-10 w-72 animate-bounce">
-                           <div className="bg-blue-600 text-white rounded-2xl px-5 py-3 shadow-xl text-sm">
-                             <p className="font-black">Step 1: Start Here!</p>
-                             <p className="text-blue-100 text-xs">Complete survey to unlock modules.</p>
+                         <div className="hidden sm:block absolute -top-20 sm:-top-24 right-0 z-10 w-64 sm:w-72 animate-bounce">
+                           <div className="bg-blue-600 text-white rounded-2xl px-4 sm:px-5 py-2 sm:py-3 shadow-xl text-xs sm:text-sm">
+                             <p className="font-black text-xs sm:text-sm">Step 1: Start Here!</p>
+                             <p className="text-blue-100 text-[10px] sm:text-xs">Complete survey to unlock modules.</p>
                              <div className="absolute right-8 -bottom-2 w-4 h-4 bg-blue-600 rotate-45"></div>
                            </div>
                          </div>
-                         <Button onClick={() => router.push('/employee/learning-style')} className="bg-slate-900 hover:bg-black text-white px-8 py-6 rounded-xl font-bold">
+                         <Button onClick={() => router.push('/employee/learning-style')} className="bg-slate-900 hover:bg-black text-white px-6 sm:px-8 py-2 sm:py-3 rounded-xl font-bold h-10 sm:h-11 text-xs sm:text-sm">
                            Take Survey
                          </Button>
                        </div>
@@ -367,52 +430,44 @@ export default function EmployeeWelcome() {
 
              {/* Assigned Modules (Locked State preserved) */}
              <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-               <CardHeader className="bg-slate-50/50 border-b border-slate-50 px-8 py-6">
-                 <CardTitle className="text-lg font-black text-slate-900">Assigned Sprints</CardTitle>
+               <CardHeader className="bg-slate-50/50 border-b border-slate-50 px-4 md:px-6 py-3 md:py-4">
+                 <CardTitle className="text-sm md:text-base font-black text-slate-900">Assigned Sprints</CardTitle>
                </CardHeader>
                <CardContent className="p-0">
                  {/* Only lock modules if learning style is enabled AND user hasn't completed survey */}
                  {companyLearningStyleEnabled && !learningStyle ? (
-                   <div className="py-16 flex flex-col items-center text-center px-8">
-                     <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-4">
-                       <ShieldCheck size={32} />
+                   <div className="py-8 sm:py-12 flex flex-col items-center text-center px-4">
+                     <div className="w-12 h-12 sm:w-14 sm:h-14 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-3">
+                       <ShieldCheck size={24} className="sm:w-7 sm:h-7" />
                      </div>
-                     <h5 className="text-lg font-bold text-slate-900">Modules are currently locked</h5>
-                     <p className="text-slate-500 text-sm max-w-xs mt-2 font-medium">Complete your learning preference survey to access your baseline and training plan.</p>
+                     <h5 className="text-sm sm:text-base font-bold text-slate-900">Modules are currently locked</h5>
+                     <p className="text-xs sm:text-sm text-slate-500 max-w-xs mt-1 font-medium">Complete your learning preference survey to access your baseline and training plan.</p>
                    </div>
                  ) : assignedModules.length === 0 ? (
-                   <div className="py-16 flex flex-col items-center text-center px-8">
-                     <p className="text-slate-500 text-base font-medium">No Sprints Assigned</p>
+                   <div className="py-8 sm:py-12 flex flex-col items-center text-center px-4">
+                     <p className="text-slate-500 text-xs sm:text-sm font-medium">No Sprints Assigned</p>
                    </div>
                  ) : (
                    <div>
                      <div className={`divide-y divide-slate-50 ${showAllModules ? 'max-h-[500px] overflow-y-auto' : ''}`}>
                        {(showAllModules ? assignedModules : assignedModules.slice(0, 3)).map((m) => (
-                         <div key={m.id} className="flex flex-col md:flex-row items-center gap-6 p-6 bg-white">
-                           <div className="flex items-center gap-4 min-w-0">
-                             {/* <div className="w-14 h-14 rounded-full border-4 border-slate-50 flex items-center justify-center text-sm font-extrabold text-slate-500 bg-white">
-                               0%
-                             </div> */}
-
-                             <div className="min-w-0">
-                               <p className="text-lg font-extrabold text-slate-900 truncate max-w-[70vw] md:max-w-[40vw]">{m.title || `Module ${m.id}`}</p>
-                               {m.moduleName && (
-                                 <div className="text-sm text-slate-500 truncate mt-1">{m.moduleName}</div>
-                               )}
-                               {/* <p className="text-xs font-black text-blue-600 uppercase tracking-wide mt-1">Baseline Pending</p> */}
-                             </div>
+                         <div key={m.id} className="flex flex-col items-start gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4 md:p-6 bg-white">
+                           <div className="flex-1 min-w-0 w-full sm:w-auto">
+                             <p className="text-sm sm:text-base font-extrabold text-slate-900 break-words">{m.title || `Module ${m.id}`}</p>
+                             {m.moduleName && (
+                               <div className="text-xs text-slate-500 break-words mt-0.5">{m.moduleName}</div>
+                             )}
                            </div>
 
-                           <div className="flex items-center justify-center gap-3 w-full md:w-auto md:ml-auto">
-                             {/* Only show Baseline button when admin/learning_plan enables baseline for this module */}
+                           <div className="flex gap-2 w-full sm:w-auto flex-shrink-0">
                              {m.hasBaseline ? (
-                               <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-4 py-2 rounded-md border border-slate-200 text-sm font-bold text-slate-700 bg-white hover:bg-slate-50">
+                               <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-3 py-2 rounded text-xs border border-slate-200 font-bold text-slate-700 bg-white hover:bg-slate-50 flex-1 sm:flex-none h-10">
                                  Baseline
                                </button>
                              ) : null}
 
-                             <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-5 py-2 rounded-md bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
-                               Start Your Sprint
+                             <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-3 sm:px-4 py-2 rounded text-xs bg-blue-600 text-white font-bold hover:bg-blue-700 flex-1 sm:flex-none h-10">
+                               Start
                              </button>
                            </div>
                          </div>
@@ -421,10 +476,10 @@ export default function EmployeeWelcome() {
                      
                      {/* Show More / Show Less button */}
                      {assignedModules.length > 3 && (
-                       <div className="p-6 bg-slate-50/50 flex justify-end">
+                       <div className="p-3 sm:p-4 bg-slate-50/50 flex justify-center sm:justify-end">
                          <button
                            onClick={() => setShowAllModules(!showAllModules)}
-                           className="px-4 py-1.5 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600 transition-all flex items-center gap-1.5"
+                           className="px-4 py-2 rounded-lg bg-blue-500 text-white text-xs sm:text-sm font-semibold hover:bg-blue-600 transition-all flex items-center gap-1.5 h-9 w-full sm:w-auto justify-center"
                          >
                            {showAllModules ? (
                              <>
@@ -489,7 +544,7 @@ function LearningStyleBlurb({ styleCode }: { styleCode: string }) {
   };
   const info = meta[styleCode as keyof typeof meta] || { label: "Cognitive Learner", blurb: "Your plan is being personalized to your unique learning style." };
   return (
-    <div className="text-sm font-medium leading-relaxed">
+    <div className="text-xs sm:text-sm font-medium leading-relaxed">
       <span className="font-black text-slate-900 block mb-1">{info.label}</span>
       {info.blurb}
     </div>
