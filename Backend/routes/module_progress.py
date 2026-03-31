@@ -120,6 +120,7 @@ async def get_user_module_progress(
 async def get_company_progress(
     company_id: str,
     user_id: str = Header(..., alias="X-User-ID"),
+    x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
     target_user_id: Optional[str] = Query(None),
     completed_only: bool = Query(False)
 ):
@@ -128,7 +129,8 @@ async def get_company_progress(
     Optionally filter by user.
     Permission: Manager+ in the company.
     """
-    result = await get_progress_by_company(user_id, company_id, target_user_id, completed_only)
+    effective_company_id = x_company_id or company_id
+    result = await get_progress_by_company(user_id, effective_company_id, target_user_id, completed_only)
     
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
@@ -142,13 +144,15 @@ async def get_company_progress(
 @router.get("/company/{company_id}/stats")
 async def get_company_completion_stats(
     company_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    user_id: str = Header(..., alias="X-User-ID"),
+    x_company_id: Optional[str] = Header(None, alias="X-Company-ID")
 ):
     """
     Get completion statistics for a company.
     Permission: Manager+ in the company.
     """
-    result = await get_completion_stats(user_id, company_id)
+    effective_company_id = x_company_id or company_id
+    result = await get_completion_stats(user_id, effective_company_id)
     
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])

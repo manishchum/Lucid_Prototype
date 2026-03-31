@@ -6,6 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
+import { useTenant } from "@/contexts/tenant-context";
+import CompanySelector from "@/components/company-selector";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { 
@@ -35,6 +37,7 @@ interface ModuleAssessmentStatus {
 
 export default function EmployeeWelcome() {
   const { user, loading: authLoading, logout } = useAuth();
+  const { activeCompanyId, isDeveloperMode } = useTenant();
   const router = useRouter();
 
   // --- Logic State (Preserved from your code) ---
@@ -84,16 +87,19 @@ export default function EmployeeWelcome() {
   // Behavior: login/signup pages should set sessionStorage.setItem('show_login_toast_next', '1')
   // right before redirecting to the home/welcome page. This component will read that flag,
   // show the toast once, then remove the flag so subsequent navigations won't re-show it.
-  const fetchDashboardData = async (employeeData: any) => {
+  const fetchDashboardData = async (employeeData: any, effectiveCompanyId: string) => {
     const result = await sharedDataClient.query(
       createCacheKey({
         namespace: "dashboard",
-        tenantId: employeeData.company_id,
+        tenantId: effectiveCompanyId,
         userId: employeeData.user_id,
         path: "/employee/dashboard"
       }),
       async () => {
-        const headers = { 'X-User-ID': employeeData.user_id };
+        const headers = {
+          'X-User-ID': employeeData.user_id,
+          'X-Company-ID': effectiveCompanyId,
+        };
 
         const [plansRes, modulesRes, progressRes, usersRes, companyRes, learningStyleRes] = await Promise.all([
           fetchWithAuth(`${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
@@ -136,7 +142,16 @@ export default function EmployeeWelcome() {
 
       setEmployee(emp);
 
-      const data = await fetchDashboardData(emp);
+      const selectedCompanyId = isDeveloperMode && activeCompanyId
+        ? activeCompanyId
+        : emp.company_id;
+
+      if (!selectedCompanyId) {
+        setLoading(false);
+        return;
+      }
+
+      const data = await fetchDashboardData(emp, selectedCompanyId);
       const plans = data?.plans || [];
       const modules = data?.modules || [];
       const progress = Array.isArray(data?.progress) ? data.progress : [];
@@ -185,7 +200,7 @@ export default function EmployeeWelcome() {
     if (!authLoading && !user) {
       router.push("/login");
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, activeCompanyId, isDeveloperMode]);
 
    const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
      if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint and earned the SME tag!");
@@ -222,6 +237,22 @@ export default function EmployeeWelcome() {
             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100 shrink-0">
               <Users className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
             </div>
+           <div className="flex flex-col gap-4 mb-10 md:flex-row md:items-start md:justify-between">
+             <div className="flex items-center gap-4">
+               <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100">
+                 <Users className="w-6 h-6 text-blue-600" />
+               </div>
+               <div>
+                 <h1 className="text-3xl font-black text-slate-900 tracking-tight">
+                   {employee?.name ? `Welcome, ${employee.name.split(' ')[0]}` : "Learner Dashboard"}
+                 </h1>
+                 <p className="text-slate-500 font-medium text-sm">{employee?.email || "Personalized learning hub"}</p>
+               </div>
+             </div>
+             <div className="w-full md:w-[320px]">
+               <CompanySelector showLabel />
+             </div>
+           </div>
 
             <div className="min-w-0 flex-1">
               <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight break-words">

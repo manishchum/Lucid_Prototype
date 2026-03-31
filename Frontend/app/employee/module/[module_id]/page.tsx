@@ -235,10 +235,19 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   }
 
   return (
-    <div className="min-h-screen">
-      <div className="px-12 py-8">
-        <div className="w-full mx-auto">
-          <div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <div className="px-4 py-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-4">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">
+              {module.title}
+              {module.sprint_name && (
+                <span className="text-lg text-slate-600 font-normal"> [{module.sprint_name}]</span>
+              )}
+            </h1>
+            <p className="text-slate-600">Professional learning content tailored for you</p>
+          </div>
+          <div className="w-full mx-auto">
             <main className="w-full">
               <div className="bg-white rounded-lg shadow-sm border p-12 w-full min-h-screen">
                 <div className="mb-8">
@@ -254,11 +263,6 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                     <ChevronLeft className="w-4 h-4" />
                     Back
                   </Button>
-                </div>
-
-                <div className="mb-10">
-                  <h1 className="text-4xl font-bold text-gray-900 mb-2">{module.title}</h1>
-                  <p className="text-lg text-gray-600">Professional learning content tailored for you</p>
                 </div>
 
                 <ContentTransformer

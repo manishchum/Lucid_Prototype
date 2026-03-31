@@ -885,6 +885,10 @@ export default function AdminDispatchCenterPage() {
       });
       if (res.ok) {
         setWhatsappResult(await res.json());
+
+        console.log('[FRONTEND DEBUG] WhatsApp Payload Sent:', JSON.stringify(whatsappPayload, null, 2));
+        console.log(whatsappResult)
+        // console.log(await res.json())
       } else {
         const err = await res.json().catch(() => null);
         alert(err?.detail || 'Failed to send WhatsApp messages');
@@ -921,15 +925,12 @@ export default function AdminDispatchCenterPage() {
 
       <main className="flex-1  p-8">
         <div className="max-w-[2000px] mx-auto">
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-[#1E293B] flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center">
-                <MessageSquare className="text-white" size={20} />
-              </div>
+          {/* Header Card */}
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">
               Admin Dispatch Center
             </h1>
-            <p className="text-slate-500">
+            <p className="text-slate-600">
               Send nudge emails or WhatsApp messages to employees assigned to a sprint.
             </p>
           </div>

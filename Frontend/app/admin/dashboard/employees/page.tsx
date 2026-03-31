@@ -241,7 +241,7 @@ export default function EmployeesPage() {
       });
       if (!res.ok) throw await res.json();
       const payload = await res.json();
-      const users = payload.users || [];
+      const users = payload.data?.users || payload.users || [];
 
       setUsers(users);
       console.log("payload:", payload)
@@ -255,7 +255,9 @@ export default function EmployeesPage() {
       // Note: Assuming departments are linked to company via users
       const { data, error } = await supabase
         .from('sub_department')
-        .select('*');
+        .select('*')
+        .order('department_name')
+        .order('sub_department_name');
 
       if (error) throw error;
       setDepartments(data || []);
@@ -388,7 +390,7 @@ export default function EmployeesPage() {
   };
 
   const selectAllDepartments = () => {
-    const uniqueDepartments = Array.from(new Set(departments.map(dept => dept.department_name)));
+    const uniqueDepartments = Array.from(new Set(departments.map(dept => dept.department_name))).sort();
     setSelectedDepartments(uniqueDepartments);
     setSelectedSubDepartments([]);
   };
@@ -402,7 +404,12 @@ export default function EmployeesPage() {
     const availableSubDepartments = selectedDepartments.length > 0
       ? departments.filter(dept => selectedDepartments.includes(dept.department_name))
       : departments;
-    const allSubDeptIds = availableSubDepartments.map(dept => dept.department_id);
+    const sortedSubDepartments = availableSubDepartments.sort((a, b) => {
+      const deptSort = (a.department_name || '').localeCompare(b.department_name || '');
+      if (deptSort !== 0) return deptSort;
+      return (a.sub_department_name || '').localeCompare(b.sub_department_name || '');
+    });
+    const allSubDeptIds = sortedSubDepartments.map(dept => dept.department_id);
     setSelectedSubDepartments(allSubDeptIds);
   };
 
@@ -575,9 +582,10 @@ export default function EmployeesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="border-b border-gray-200 pb-4">
-        <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-        <p className="text-gray-600 mt-1">Manage users, assign sprints, and organize by departments</p>
+      {/* Header Card */}
+      <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">User Management</h1>
+        <p className="text-slate-600">Manage users, assign sprints, and organize by departments</p>
       </div>
       
       {/* success banners are shown via unified Radix toasts now */}
@@ -588,15 +596,15 @@ export default function EmployeesPage() {
       )}
 
       {/* Navigation Tabs */}
-      <div className="flex gap-4 border-b">
-        <Button
+      {/* <div className="flex gap-4 border-b"> */}
+        {/* <Button
           variant={!showAssignmentsView ? "default" : "ghost"}
           onClick={() => setShowAssignmentsView(false)}
           className="border-b-2 border-transparent data-[active=true]:border-blue-500"
         >
           <Users className="w-4 h-4 mr-2" />
           User Management
-        </Button>
+        </Button> */}
         {/* <Button
           variant={showAssignmentsView ? "default" : "ghost"}
           onClick={() => setShowAssignmentsView(true)}
@@ -605,7 +613,7 @@ export default function EmployeesPage() {
           <BookOpen className="w-4 h-4 mr-2" />
           Performance Sprint Assignments
         </Button> */}
-      </div>
+      {/* </div> */}
 
       {!showAssignmentsView ? (
         <>
@@ -780,20 +788,32 @@ export default function EmployeesPage() {
                             
                             {/* Department grid */}
                             <div className="p-2 grid grid-cols-1 gap-2">
-                              {Array.from(new Set(departments.map(dept => dept.department_name))).map(department => (
-                                <label
-                                  key={department}
-                                  className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedDepartments.includes(department)}
-                                    onChange={() => handleDepartmentToggle(department)}
-                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                  />
-                                  <span className="text-sm">{department}</span>
-                                </label>
-                              ))}
+                              {[...departments]
+                                .sort((a, b) => {
+                                  const fullNameA = `${a.department_name} - ${a.sub_department_name}`;
+                                  const fullNameB = `${b.department_name} - ${b.sub_department_name}`;
+                                  return fullNameA.localeCompare(fullNameB);
+                                })
+                                .map(dept => ({
+                                  id: dept.department_id,
+                                  name: dept.department_name,
+                                  fullName: `${dept.department_name} - ${dept.sub_department_name}`
+                                }))
+                                .filter((value, index, self) => self.findIndex(v => v.id === value.id) === index)
+                                .map(dept => (
+                                  <label
+                                    key={dept.id}
+                                    className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedDepartments.includes(dept.name)}
+                                      onChange={() => handleDepartmentToggle(dept.name)}
+                                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    <span className="text-sm">{dept.fullName}</span>
+                                  </label>
+                                ))}
                             </div>
                           </div>
                         )}
@@ -2113,13 +2133,18 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
   };
 
   // Get unique departments
-  const uniqueDepartments = Array.from(new Set(departments.map((sd: any) => sd.department_name)));
+  const uniqueDepartments = Array.from(new Set(departments.map((sd: any) => sd.department_name))).sort();
 
   // Get subdepartments for selected department
   const selectedDepartmentName = departments.find((sd: any) => sd.department_id === formData.department_id)?.department_name;
-  const availableSubDepartments = selectedDepartmentName 
-    ? departments.filter((sd: any) => sd.department_name === selectedDepartmentName)
-    : departments;
+  const availableSubDepartments = (selectedDepartmentName
+  ? departments.filter((sd: any) => sd.department_name === selectedDepartmentName)
+  : departments
+).sort((a: any, b: any) => {
+  const deptSort = (a.department_name || '').localeCompare(b.department_name || '');
+  if (deptSort !== 0) return deptSort;
+  return (a.sub_department_name || '').localeCompare(b.sub_department_name || '');
+});
 
   if (!isOpen) return null;
   
@@ -3460,7 +3485,11 @@ function UpdateEmployeeModal({
   };
 
   // Get available subdepartments based on current selection
-  const availableSubDepartments = subDepartments;
+  const availableSubDepartments = subDepartments.sort((a: any, b: any) => {
+    const deptSort = (a.department_name || '').localeCompare(b.department_name || '');
+    if (deptSort !== 0) return deptSort;
+    return (a.sub_department_name || '').localeCompare(b.sub_department_name || '');
+  });
 
   if (!isOpen) return null;
   

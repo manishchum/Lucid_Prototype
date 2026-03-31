@@ -82,6 +82,16 @@ export default function ContentLibraryPage() {
   // Allow all authenticated users to view the Content Library.
   // Only surface upload/create-folder controls to admins.
   return (
-    <ContentLibrary isAdmin={isAdmin} onNavigate={(s) => console.log('nav', s)} />
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <div className="px-4 py-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-4">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">Browse Sprints</h1>
+            <p className="text-slate-600">Browse, manage, and launch your sprints</p>
+          </div>
+          <ContentLibrary isAdmin={isAdmin} onNavigate={(s) => console.log('nav', s)} />
+        </div>
+      </div>
+    </div>
   );
 }

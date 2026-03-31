@@ -1890,10 +1890,15 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="border-b border-gray-200 pb-4">
-        <h1 className="text-2xl font-bold text-gray-900">Analytics & Reports</h1>
-        <p className="text-gray-600 mt-1">Track employee progress across all training modules with detailed insights and performance metrics</p>
+    <div>
+      {/* Header Card */}
+      <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">
+          Analytics & Reports
+        </h1>
+        <p className="text-slate-600">
+          Track employee progress across all training modules with detailed insights and performance metrics
+        </p>
       </div>
       
       <ProgressAnalytics companyId={admin.company_id} adminUserId={admin?.user_id} />

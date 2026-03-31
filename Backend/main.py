@@ -6,9 +6,13 @@ if sys.platform.startswith("win"):
 
 
 # Import FastAPI and middleware Routes
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import HTTPException
 from config import FRONTEND_URL
+from utils.exceptions import ApiException
+from utils.logging import ErrorLogger
 from openai_upload.route import router as openai_upload_router
 from start_content_generation.route import router as start_content_generation_router
 from learning_style.route import router as learning_style_router
@@ -33,6 +37,7 @@ from routes import users, roles, assessments, companies, content_jobs, learning_
 # from routes.users import router as users_router
 from roleplay.assessment.route import router as roleplay_assessment_router
 from roleplay.assessment.conversation.route import router as roleplay_conversation_router
+from roleplay.realtime_ws.route import router as roleplay_realtime_router
 from ingestion.embedder import router as embed_router
 
 # Create FastAPI app
@@ -56,6 +61,69 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ──────────────────────────────────────────────────────────────
+# GLOBAL EXCEPTION HANDLERS
+# ──────────────────────────────────────────────────────────────
+
+@app.exception_handler(ApiException)
+async def api_exception_handler(request: Request, exc: ApiException):
+    """Handle custom API exceptions."""
+    ErrorLogger.log_error(
+        exc.message,
+        error_type=exc.error_code or "API_ERROR",
+        status_code=exc.status_code,
+        context={"path": request.url.path, "method": request.method}
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.to_dict()
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handle FastAPI HTTP exceptions."""
+    ErrorLogger.log_error(
+        exc.detail,
+        error_type="HTTP_ERROR",
+        status_code=exc.status_code,
+        context={"path": request.url.path, "method": request.method}
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "data": None,
+            "error": exc.detail,
+            "error_code": None,
+            "details": None
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle all unhandled exceptions."""
+    ErrorLogger.log_unhandled_error(
+        exc,
+        context={
+            "path": request.url.path,
+            "method": request.method,
+            "client": request.client.host if request.client else None
+        }
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "data": None,
+            "error": "An unexpected error occurred. Please try again later.",
+            "error_code": "INTERNAL_ERROR",
+            "details": None
+        }
+    )
 
 
 @app.get("/")
@@ -106,6 +174,7 @@ app.include_router(flashcard_generation_router, prefix="/api", tags=["flashcard-
 app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindmap"])
 app.include_router(roleplay_assessment_router, prefix="/api", tags=["roleplay-assessment"])
 app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
+app.include_router(roleplay_realtime_router, tags=["roleplay-realtime"])
 app.include_router(embed_router, prefix="/api", tags=["embeddings"])
 app.include_router(module_chat, prefix="/api", tags=["module-chat"])
 app.include_router(module_progress_router, prefix="/api", tags=["module-progress"])

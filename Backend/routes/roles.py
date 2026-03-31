@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, Header, Query
 from pydantic import BaseModel
 from typing import Optional, List
 
@@ -10,6 +10,8 @@ from utils.db.roles_db import (
     update_role_assignment,
     revoke_role_assignment
 )
+
+from utils.exceptions import ValidationError
 
 router = APIRouter(prefix="/api/roles", tags=["roles"])
 
@@ -39,10 +41,15 @@ async def list_all_roles(
     """
     result = await get_all_roles(user_id)
     
-    if result["error"]:
-        raise HTTPException(status_code=400, detail=result["error"])
+    # result is {"data": [...], "error": ...} from service layer
+    # Handle both None and missing key
+    roles = result.get("data") or []
     
-    return {"roles": result["data"]}
+    return {
+        "success": True,
+        "data": roles,
+        "error": result.get("error")
+    }
 
 
 @router.get("/assignments/company/{company_id}")
@@ -57,10 +64,15 @@ async def list_company_role_assignments(
     """
     result = await get_all_role_assignments(user_id, company_id, include_inactive)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # result is {"data": [...], "error": ...} from service layer
+    # Handle both None and missing key
+    assignments = result.get("data") or []
     
-    return {"assignments": result["data"]}
+    return {
+        "success": True,
+        "data": assignments,
+        "error": result.get("error")
+    }
 
 
 @router.get("/users/{target_user_id}")
@@ -74,10 +86,15 @@ async def get_user_role_assignments(
     """
     result = await get_user_roles(user_id, target_user_id)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # result is {"data": [...], "error": ...} from service layer
+    # Handle both None and missing key
+    assignments = result.get("data") or []
     
-    return {"assignments": result["data"]}
+    return {
+        "success": True,
+        "assignments": assignments,
+        "error": result.get("error")
+    }
 
 
 @router.post("/assignments")
@@ -103,14 +120,12 @@ async def create_role_assignment(
         "notes": request.notes
     }
     
-    result = await assign_user_role(user_id, request.user_id, role_data)
-    
-    if result["error"]:
-        raise HTTPException(status_code=400, detail=result["error"])
+    data = await assign_user_role(user_id, request.user_id, role_data)
     
     return {
-        "message": "Role assigned successfully",
-        "assignment": result["data"]
+        "success": True,
+        "data": data,
+        "error": None
     }
 
 
@@ -132,17 +147,12 @@ async def update_assignment(
     if request.is_active is not None:
         updates["is_active"] = request.is_active
     
-    if not updates:
-        raise HTTPException(status_code=400, detail="No fields to update")
-    
-    result = await update_role_assignment(user_id, assignment_id, updates)
-    
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    data = await update_role_assignment(user_id, assignment_id, updates)
     
     return {
-        "message": "Role assignment updated successfully",
-        "assignment": result["data"]
+        "success": True,
+        "data": data,
+        "error": None
     }
 
 
@@ -155,12 +165,10 @@ async def revoke_assignment(
     Revoke a role assignment (soft delete, sets is_active=false).
     Permission: Company admin+ in the same company.
     """
-    result = await revoke_role_assignment(user_id, assignment_id)
-    
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    data = await revoke_role_assignment(user_id, assignment_id)
     
     return {
-        "message": "Role assignment revoked successfully",
-        "assignment": result["data"]
+        "success": True,
+        "data": data,
+        "error": None
     }

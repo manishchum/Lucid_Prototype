@@ -118,6 +118,7 @@ async def list_users_by_filter(
     employment_status: Optional[str] = Query(None),
     auth_ctx: RequestAuth = Depends(get_request_auth_optional),
 ):
+    """List users by filter criteria."""
     filters = {}
     if function_id:
         filters["function_id"] = function_id
@@ -130,10 +131,13 @@ async def list_users_by_filter(
     if employment_status:
         filters["employment_status"] = employment_status
 
-    result = await get_users_by_filter(filters)
-    if result["error"]:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return {"users": result["data"] or [], "count": len(result["data"] or [])}
+    data = await get_users_by_filter(filters)
+    
+    return {
+        "success": True,
+        "data": {"users": data or [], "count": len(data) if data else 0},
+        "error": None
+    }
 
 
 @router.get("/company/{company_id}")
@@ -151,7 +155,12 @@ async def list_users(
         users = [u for u in users if u.get("employment_status") == status]
     if department_id:
         users = [u for u in users if u.get("department_id") == department_id]
-    return {"users": users, "count": len(users)}
+    
+    return {
+        "success": True,
+        "data": {"users": users or [], "count": len(users) if users else 0},
+        "error": None
+    }
 
 
 @router.get("/{target_user_id}")
@@ -168,9 +177,10 @@ async def get_user(
 
 
 @router.post("/signup")
-async def create_user_endpoint(
+async def signup_endpoint(
     request: CreateUserRequest
 ):
+    """Create a new user via signup endpoint (no auth required)."""
     user_data = request.dict()
     # NOTE: hash password before storing in production
     result = await create_user_signup(user_data)
@@ -179,16 +189,21 @@ async def create_user_endpoint(
     result["data"] = _ensure_firebase_and_persist_uid(result.get("data"), request.password)
     reactivated = result.get("reactivated", False)
     return {
-        "user": result["data"],
-        "message": "User reactivated successfully" if reactivated else "User created successfully",
-        "reactivated": reactivated
+        "success": True,
+        "data": {
+            "user": result["data"],
+            "reactivated": reactivated
+        },
+        "error": None
     }
+
 
 @router.post("/")
 async def create_user_endpoint(
     request: CreateUserRequest,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    """Create a new user (requires authentication and authorization)."""
     user_data = request.dict()
     # NOTE: hash password before storing in production
     result = await create_user(auth_ctx.user_id, user_data)
@@ -197,9 +212,12 @@ async def create_user_endpoint(
     result["data"] = _ensure_firebase_and_persist_uid(result.get("data"), request.password)
     reactivated = result.get("reactivated", False)
     return {
-        "user": result["data"],
-        "message": "User reactivated successfully" if reactivated else "User created successfully",
-        "reactivated": reactivated
+        "success": True,
+        "data": {
+            "user": result["data"],
+            "reactivated": reactivated
+        },
+        "error": None
     }
 
 
@@ -209,6 +227,7 @@ async def update_user_endpoint(
     request: UpdateUserRequest,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    """Update user details."""
     updates = {k: v for k, v in request.dict().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -259,10 +278,31 @@ async def get_user_by_email_route(
 ):
     requesting_user_id = auth_ctx.user_id
     result = await get_user_by_email(requesting_user_id, email)
-    if result["error"]:
-        err_lower = (result["error"] or "").lower()
-        print(f"[by-email route] error for {email}: {result['error']!r}")
-        if "not found" in err_lower or "no rows" in err_lower:
-            raise HTTPException(status_code=404, detail=result["error"])
-        raise HTTPException(status_code=403, detail=result["error"])
-    return {"user": result["data"]}
+    
+    # result is {"data": user, "error": ...} from the service layer
+    user_data = result.get("data")
+    
+    return {
+        "success": True,
+        "user": user_data,
+        "error": None
+    }
+
+
+
+@router.get("/by-phone/{phone}")
+async def get_user_by_phone_route(
+    phone: str,
+    auth_ctx: RequestAuth = Depends(get_request_auth_optional),
+):
+    requesting_user_id = auth_ctx.user_id
+    result = await get_user_by_phone_route(requesting_user_id, phone)
+    
+    # result is {"data": user, "error": ...} from the service layer
+    user_data = result.get("data")
+    
+    return {
+        "success": True,
+        "user": user_data,
+        "error": None
+    }

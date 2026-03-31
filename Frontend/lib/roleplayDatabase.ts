@@ -227,7 +227,7 @@ export async function fetchAssignedScenarioIdsForUser(userId: string): Promise<{
     if (error) {
       return { data: null, error };
     }
-    const scenarioIds = data ? data.map(item => item.scenario_id) : [];
+    const scenarioIds = data ? data.map((item: any) => item.scenario_id) : [];
     return { data: scenarioIds, error: null };
   } catch (error) {
     return { data: null, error };
@@ -812,6 +812,12 @@ export async function updateRolePlaySession(
   messages: Message[],
   isCompleted: boolean = false
 ): Promise<{ data: any; error: any }> {
+  console.log('[updateRolePlaySession] Saving session:', {
+    sessionId,
+    messagesCount: messages.length,
+    isCompleted
+  });
+
   const updateData: any = {
     conversation_transcript: messages,
     message_count: messages.length,
@@ -835,6 +841,12 @@ export async function updateRolePlaySession(
     .select()
     .single();
 
+  if (error) {
+    console.error('[updateRolePlaySession] Error:', error);
+  } else {
+    console.log('[updateRolePlaySession] Success:', { id: data?.id });
+  }
+
   return { data, error };
 }
 
@@ -851,10 +863,13 @@ export async function createRolePlayAssessment(
     recommendations: string[];
   }
 ): Promise<{ data: any; error: any }> {
+  console.log('[createRolePlayAssessment] Saving assessment:', {
+    sessionId,
+    employeeId,
+    overallScore: assessmentData.overallScore,
+    parametersCount: assessmentData.parameters.length
+  });
 
-
-  console.log("This is saving the assessment")
-  console.log("This is the session id",sessionId);
   const { data, error } = await supabase
     .from('roleplay_assessments')
     .insert({
@@ -867,6 +882,12 @@ export async function createRolePlayAssessment(
     })
     .select()
     .single();
+
+  if (error) {
+    console.error('[createRolePlayAssessment] Error:', error);
+  } else {
+    console.log('[createRolePlayAssessment] Success:', { id: data?.id, score: data?.overall_score });
+  }
 
   return { data, error };
 }

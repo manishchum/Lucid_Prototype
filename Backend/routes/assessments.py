@@ -14,6 +14,8 @@ from utils.db.assessments_db import (
     delete_assessment
 )
 
+from utils.exceptions import NotFoundError, ValidationError
+
 router = APIRouter(prefix="/api/assessments", tags=["assessments"])
 
 
@@ -48,10 +50,14 @@ async def create_assessment_endpoint(
     assessment_data = request.dict(exclude_none=True)
     result = await create_assessment(auth_ctx.user_id, assessment_data)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
     
-    return {"assessment": result["data"]}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.get("/{assessment_id}")
@@ -65,11 +71,14 @@ async def get_assessment_endpoint(
     """
     result = await get_assessment_by_id(auth_ctx.user_id, assessment_id)
     
-    if result["error"]:
-        status_code = 404 if result["error"] == "Assessment not found" else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
     
-    return {"assessment": result["data"]}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.get("/company/{company_id}")
@@ -84,10 +93,14 @@ async def get_company_assessments_endpoint(
     """
     result = await get_assessments_by_company(auth_ctx.user_id, company_id, type)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessments = result.get("data") or []
     
-    return {"assessments": result["data"], "count": len(result["data"] or [])}
+    return {
+        "success": True,
+        "data": {"assessments": assessments, "count": len(assessments)},
+        "error": result.get("error")
+    }
 
 
 @router.get("/filter/search")
@@ -114,10 +127,14 @@ async def filter_assessments_endpoint(
         user_id=user_id_filter
     )
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessments = result.get("data") or []
     
-    return {"assessments": result["data"], "count": len(result["data"] or [])}
+    return {
+        "success": True,
+        "data": {"assessments": assessments, "count": len(assessments)},
+        "error": result.get("error")
+    }
 
 
 @router.get("/baseline/{company_id}/{original_module_id}")
@@ -132,10 +149,14 @@ async def get_baseline_endpoint(
     """
     result = await get_baseline_assessment(auth_ctx.user_id, company_id, original_module_id)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
     
-    return {"assessment": result["data"]}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.get("/module/{processed_module_id}")
@@ -151,10 +172,14 @@ async def get_module_assessment_endpoint(
     """
     result = await get_module_assessment(auth_ctx.user_id, processed_module_id, learning_style, target_user_id)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
     
-    return {"assessment": result["data"]}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.put("/{assessment_id}")
@@ -170,14 +195,18 @@ async def update_assessment_endpoint(
     update_data = request.dict(exclude_none=True)
     
     if not update_data:
-        raise HTTPException(status_code=400, detail="No update data provided")
+        raise ValidationError("No update data provided")
     
     result = await update_assessment(auth_ctx.user_id, assessment_id, update_data)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    assessment = result.get("data") or None
     
-    return {"assessment": result["data"]}
+    return {
+        "success": True,
+        "data": assessment,
+        "error": result.get("error")
+    }
 
 
 @router.delete("/{assessment_id}")
@@ -191,9 +220,13 @@ async def delete_assessment_endpoint(
     """
     result = await delete_assessment(auth_ctx.user_id, assessment_id)
     
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+    # Unwrap service layer response
+    deleted = result.get("data") or None
     
-    return {"message": "Assessment deleted successfully", "assessment": result["data"]}
+    return {
+        "success": True,
+        "data": deleted,
+        "error": result.get("error")
+    }
 
 
