@@ -290,8 +290,12 @@ export default function EditModulePage() {
         throw new Error(error.detail || 'Failed to fetch pending history');
       }
 
+
+      console.log("Inside the pending history")
       const data = await response.json();
-      const historyData = data.history || [];
+      console.log(data)
+      console.log(response)
+      const historyData = data.data?.history || [];
 
       if (historyData && historyData.length > 0) {
         // Build a map: processed_module_id -> latest in_review history entry
@@ -455,6 +459,7 @@ export default function EditModulePage() {
           })
         });
 
+        console.log(response)
         if (!response.ok) {
           const error = await response.json();
           throw new Error(error.detail || 'Failed to create history entry');
