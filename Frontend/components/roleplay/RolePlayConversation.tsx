@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Scenario, Message } from "@/lib/roleplay/types";
 import { createRolePlaySession, updateRolePlaySession } from "@/lib/roleplayDatabase";
+import { callGemini } from "@/lib/gemini-helper";
 
 interface RolePlayConversationProps {
   scenario: Scenario;
@@ -140,9 +141,25 @@ export default function RolePlayConversation({
 
   // ✅ FIX 3 — Connect audio processor only after WebSocket is open
   const connectToRealtime = (stream: MediaStream) => {
-    const wsUrl = `${API_URL?.replace("http", "ws") || "ws://localhost:8000"}/roleplay/realtime`;
+    // const wsUrl = `${API_URL?.replace("http", "ws") || "ws://localhost:8000"}/roleplay/realtime`;
+    // const ws = new WebSocket(wsUrl);
+
+
+
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    
+    // ✅ FIXED: Extract host from API_URL and remove protocol
+    const apiHost = API_URL?.replace(/^https?:\/\//, '').replace(/\/$/, '') || 'localhost:8000';
+    
+    // ✅ FIXED: Build correct WebSocket URL without duplicate session ID in path
+    const wsUrl = `${wsProtocol}//${apiHost}/roleplay/realtime`;
+    
+    console.log("Connecting to WebSocket at:", wsUrl);
     const ws = new WebSocket(wsUrl);
 
+
+    console.log("Connecting to WebSocket at:", wsUrl);
     ws.onopen = async () => {
       console.log("✅ Connected to Realtime WS");
 
