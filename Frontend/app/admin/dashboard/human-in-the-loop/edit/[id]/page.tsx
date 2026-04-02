@@ -291,7 +291,7 @@ export default function EditModulePage() {
       }
 
       const data = await response.json();
-      const historyData = data.history || [];
+      const historyData = data.data.history || [];
 
       if (historyData && historyData.length > 0) {
         // Build a map: processed_module_id -> latest in_review history entry

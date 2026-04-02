@@ -287,3 +287,22 @@ async def get_user_by_email_route(
         "user": user_data,
         "error": None
     }
+
+
+
+@router.get("/by-phone/{phone}")
+async def get_user_by_phone_route(
+    phone: str,
+    auth_ctx: RequestAuth = Depends(get_request_auth_optional),
+):
+    requesting_user_id = auth_ctx.user_id
+    result = await get_user_by_phone_route(requesting_user_id, phone)
+    
+    # result is {"data": user, "error": ...} from the service layer
+    user_data = result.get("data")
+    
+    return {
+        "success": True,
+        "user": user_data,
+        "error": None
+    }

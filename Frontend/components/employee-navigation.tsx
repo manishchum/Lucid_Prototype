@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
+import CompanySelector from "@/components/company-selector";
 import { supabase } from "@/lib/supabase";
 
 interface EmployeeNavigationProps {
@@ -174,6 +175,10 @@ const EmployeeNavigation = ({
                 <p className="text-[14px] font-bold text-[#1E293B] leading-tight truncate">{displayUser?.name || 'User'}</p>
                 <p className="text-[11px] text-slate-500 truncate font-medium mt-0.5">{displayUser?.email}</p>
               </div>
+            </div>
+
+            <div className="mt-3">
+              <CompanySelector compact showLabel />
             </div>
           </div>
         )}

@@ -304,7 +304,7 @@ export default function ScoreHistoryPage() {
       },
     );
 
-    let employee = (employeePayload as any)?.user ?? employeePayload;
+    let employee = (employeePayload as any)?.data?.user ?? (employeePayload as any)?.data ?? (employeePayload as any)?.user ?? employeePayload;
     if (Array.isArray(employee)) {
       employee = employee[0];
     }
@@ -335,7 +335,7 @@ export default function ScoreHistoryPage() {
       },
     );
 
-    return (companyPayload as any)?.company ?? companyPayload;
+    return (companyPayload as any)?.data?.company ?? (companyPayload as any)?.data ?? (companyPayload as any)?.company ?? companyPayload;
   };
 
   const getAssessments = async (employee: any) => {
@@ -362,9 +362,8 @@ export default function ScoreHistoryPage() {
       },
     );
 
-    const assessments = Array.isArray((assessmentsPayload as any)?.assessments)
-      ? (assessmentsPayload as any).assessments
-      : (Array.isArray((assessmentsPayload as any)?.data) ? (assessmentsPayload as any).data : []);
+    const assessments = assessmentsPayload?.data?.assessments ?? assessmentsPayload?.assessments ?? 
+      (Array.isArray((assessmentsPayload as any)?.data) ? (assessmentsPayload as any).data : []);
 
     const assessmentIds: string[] = Array.from(
       new Set<string>(
@@ -402,7 +401,7 @@ export default function ScoreHistoryPage() {
 
     const assessmentMap = new Map<string, any>();
     (Array.isArray(detailsPayload) ? detailsPayload : []).forEach((payload: any) => {
-      const assessment = payload?.assessment || payload;
+      const assessment = payload?.data?.assessment ?? payload?.data ?? payload?.assessment ?? payload;
       if (assessment?.assessment_id) {
         assessmentMap.set(String(assessment.assessment_id), assessment);
       }
@@ -451,9 +450,9 @@ export default function ScoreHistoryPage() {
       },
     );
 
-    const mods = Array.isArray((modulesPayload as any)?.data) ? (modulesPayload as any).data : [];
+    const mods = modulesPayload?.data?.modules ?? modulesPayload?.data ?? modulesPayload?.modules ?? modulesPayload ?? [];
     const titleMap = new Map<string, string>();
-    mods.forEach((m: any) => {
+    (Array.isArray(mods) ? mods : []).forEach((m: any) => {
       if (m?.processed_module_id && m?.title) {
         titleMap.set(String(m.processed_module_id), m.title);
       }

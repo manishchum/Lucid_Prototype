@@ -17,7 +17,7 @@ const fetchUserByEmail = async (email: string) => {
     const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
     if (!res.ok) return null;
     const payload = await res.json();
-    let u = payload?.user ?? payload;
+    let u = payload?.data ?? payload?.user ?? payload;
     if (Array.isArray(u)) u = u[0];
     return u || null;
   } catch (e) {
@@ -346,7 +346,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         );
         if (res.ok) {
           const data = await res.json();
-          assessment = data.assessments && data.assessments.length > 0 ? data.assessments[0] : null;
+          const assessmentList = data?.data?.assessments ?? data?.assessments ?? [];
+          assessment = assessmentList.length > 0 ? assessmentList[0] : null;
         }
       } catch (e) {
         console.error('[QUIZ] Error fetching assessment:', e);
@@ -390,9 +391,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             );
             if (assessmentRes.ok) {
               const assessmentData = await assessmentRes.json();
-              const newAssessment = assessmentData.assessments && assessmentData.assessments.length > 0 
-                ? assessmentData.assessments[0] 
-                : null;
+              const newAssessmentList = assessmentData?.data?.assessments ?? assessmentData?.assessments ?? [];
+              const newAssessment = newAssessmentList.length > 0 ? newAssessmentList[0] : null;
               // console.log("This is the module id:", moduleId)
               // console.log('[QUIZ DEBUG] New assessment after quiz generation:', newAssessment);
               if (newAssessment && newAssessment.assessment_id) setAssessmentId(newAssessment.assessment_id);

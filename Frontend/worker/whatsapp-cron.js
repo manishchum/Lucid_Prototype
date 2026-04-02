@@ -83,6 +83,45 @@ async function getUserNameById(userId) {
   return name || 'there';
 }
 
+function extractAudioPath(url) {
+  if (!url) return null;
+
+  const marker = '/module_audio/module-audio/';
+  const index = url.indexOf(marker);
+
+  if (index === -1) return null;
+
+  return url.substring(index + marker.length);
+}
+function extractVideoPath(url) {
+  if (!url) return null;
+
+  const marker = '/module-visuals/';
+  const index = url.indexOf(marker);
+
+  if (index === -1) return null;
+
+  return url.substring(index + marker.length);
+}
+
+function extractModuleName(message) {
+  if (!message) return null;
+
+  const match = message.match(/\*?Module:\*?\s*(.+)/i);
+
+  if (!match) return null;
+
+  return match[1]
+    .split('\n')[0]     // stop at next line
+    .replace(/\*/g, '') // remove any leftover *
+    .trim();
+}
+
+
+
+
+
+
 // ── WhatsApp Sender ───────────────────────────────────────────
 
 async function sendWhatsApp(dispatch, schedule, userName) {
@@ -157,42 +196,150 @@ console.log(schedule.message_body)
 
 
 
+
+
+// let payload = {
+//   messaging_product: 'whatsapp',
+//   to: dispatch.phone_number,
+//   type: 'template',
+//   template: {
+//     name: 'lucidwhatsapp',
+//     language: { code: 'en' }, // 🔥 MUST match exactly
+
+//     components: [
+//       // ✅ BODY PARAM (username)
+//       {
+//         type: 'body',
+//         parameters: [
+//           {
+//             type: 'text',
+//             parameter_name: 'username', // 🔥 MUST match EXACT placeholder name in template
+//             text: userName || 'Learner'
+//           },
+//           {
+//             type: 'text',
+//             parameter_name: 'content', // 🔥 MUST match EXACT placeholder name in template
+//             text: schedule.message_body || 'Default body content'
+
+//           }
+//         ]
+//       },
+
+//       // ✅ BUTTON PARAM (for dynamic URL)
+//       {
+//         type: 'button',
+//         sub_type: 'url',
+//         index: '1', // ⚠️ second button (0-based index)
+//         parameters: [
+//           {
+//             type: 'text',
+//             text: "e8be8e06-de88-4408-8af9-b43408926590/e3fd2afc-b24e-4cff-bbda-e8b8be4e9d19.wav"
+//           }
+//         ]
+//       }
+//     ]
+//   }
+// };
+
+
+
+
+
+const audioPath = extractAudioPath(schedule.media_url);
+const moduleName = extractModuleName(schedule.message_body);
+
+
+console.log("Audio Path",audioPath)
+console.log("Module Name",moduleName)
+if (!audioPath) {
+  console.warn('Invalid audio URL:', schedule.media_url);
+}
 let payload = {
   messaging_product: 'whatsapp',
   to: dispatch.phone_number,
   type: 'template',
   template: {
-    name: 'podcasttemplate',
-    language: { code: 'en' }, // 🔥 MUST match exactly
+    name: 'workflowwwhatsapp',
+    language: { code: 'en' },
 
     components: [
-      // ✅ BODY PARAM (username)
       {
         type: 'body',
         parameters: [
           {
             type: 'text',
-            parameter_name: 'username', // 🔥 MUST match EXACT placeholder name in template
+            parameter_name: 'username',
             text: userName || 'Learner'
           },
           {
             type: 'text',
-            parameter_name: 'content', // 🔥 MUST match EXACT placeholder name in template
-            text: schedule.message_body || 'Default body content'
-
+            parameter_name: 'content',
+            text: moduleName || 'Default body content'
           }
         ]
       },
 
-      // ✅ BUTTON PARAM (for dynamic URL)
       {
         type: 'button',
         sub_type: 'url',
-        index: '1', // ⚠️ second button (0-based index)
+        index: '1',
         parameters: [
           {
             type: 'text',
-            text: "e8be8e06-de88-4408-8af9-b43408926590/e3fd2afc-b24e-4cff-bbda-e8b8be4e9d19.wav"
+            text: audioPath
+          }
+        ]
+      }
+    ]
+  }
+};
+
+
+
+
+
+
+
+
+let videoPathExtracted = extractVideoPath(schedule.media_url);
+console.log("Video Path", videoPathExtracted)
+console.log("Module Name",moduleName)
+if (!videoPathExtracted) {
+  console.warn('Invalid video URL:', schedule.media_url);
+}
+let payload2 = {
+  messaging_product: 'whatsapp',
+  to: dispatch.phone_number,
+  type: 'template',
+  template: {
+    name: 'lucidwhatsapp',
+    language: { code: 'en' },
+
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          {
+            type: 'text',
+            parameter_name: 'username',
+            text: userName || 'Learner'
+          },
+          {
+            type: 'text',
+            parameter_name: 'content',
+            text: moduleName || 'Default body content'
+          }
+        ]
+      },
+
+      {
+        type: 'button',
+        sub_type: 'url',
+        index: '1',
+        parameters: [
+          {
+            type: 'text',
+            text: videoPathExtracted
           }
         ]
       }
@@ -244,8 +391,12 @@ let payload = {
 //     ]
 //   }
 // };
+  const mediaType = (schedule.media_type || '').toLowerCase();
+  const payloadToSend = mediaType === 'video' ? payload2 : payload;
+
   console.log("Sending the request to the meta")
-  console.log(payload)
+  console.log(`Media type: ${mediaType || 'audio(default)'}`)
+  console.log(payloadToSend)
   console.log(url)
   const res = await fetch(url, {
     method: 'POST',
@@ -253,7 +404,7 @@ let payload = {
       Authorization: `Bearer ${WHATSAPP_TOKEN}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payloadToSend),
   });
 
   const data = await res.json();

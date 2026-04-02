@@ -210,7 +210,7 @@ export default function EmployeesPage() {
         });
         if (companyRes.ok) {
           const companyData = await companyRes.json();
-          companyName = companyData?.company?.name || companyData?.name || '';
+          companyName = companyData?.data?.name || companyData?.company?.name || companyData?.name || '';
         }
       } catch (e) {
         console.error('Failed to fetch company name:', e);
@@ -241,7 +241,7 @@ export default function EmployeesPage() {
       });
       if (!res.ok) throw await res.json();
       const payload = await res.json();
-      const users = payload.users || [];
+      const users = payload.data?.users || payload.users || [];
 
       setUsers(users);
       console.log("payload:", payload)
@@ -1444,7 +1444,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
         });
         if (compRes.ok) {
           const compPayload = await compRes.json().catch(() => null);
-          companiesData = compPayload?.companies ?? compPayload.data ?? compPayload ?? [];
+          companiesData = compPayload?.data?.companies ?? compPayload?.companies ?? (Array.isArray(compPayload?.data) ? compPayload.data : []) ?? [];
       }else{
         console.warn('Failed to fetch companies for bulk upload mapping');
       }
@@ -1852,7 +1852,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
             setCompanies([]);
           } else {
             const compPayload = await compRes.json().catch(()=> null);
-            const companiesData = compPayload?.companies ?? compPayload.data ?? compPayload ?? [];
+            const companiesData = compPayload?.data?.companies ?? compPayload?.companies ?? (Array.isArray(compPayload?.data) ? compPayload.data : []) ?? [];
             setCompanies(companiesData || []);
           }
       } catch (e) {
@@ -2046,9 +2046,8 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       const responseData = await createRes.json();
       console.log(responseData);
       // Handle both array and object responses from backend
-      const userData = Array.isArray(responseData.user) 
-        ? responseData.user[0] 
-        : responseData.user;
+      const userPayload = responseData?.data?.user || responseData?.user;
+      const userData = Array.isArray(userPayload) ? userPayload[0] : userPayload;
       
       // Validate that we received a valid user with user_id
       if (!userData || !userData.user_id) {
@@ -3261,7 +3260,7 @@ function UpdateEmployeeModal({
           setCompanies([]);
         } else {
           const compPayload = await compRes.json().catch(() => null);
-          const companiesData = compPayload?.companies ?? compPayload?.data ?? compPayload ?? [];
+          const companiesData = compPayload?.data?.companies ?? compPayload?.companies ?? (Array.isArray(compPayload?.data) ? compPayload.data : []) ?? [];
           setCompanies(companiesData || []);
         }
       } catch (e) {

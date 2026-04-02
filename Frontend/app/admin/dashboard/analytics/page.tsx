@@ -57,7 +57,7 @@ const fetchCompanyUsers = async (companyId: string, adminUserId?: string) => {
     });
     if (!res.ok) return [];
     const payload = await res.json();
-    const users = payload?.users ?? payload;
+    const users = payload?.data?.users ?? payload?.users ?? payload;
     return Array.isArray(users) ? users : users ? [users] : [];
   } catch (e) {
     console.error('[fetchCompanyUsers] error', e);
@@ -75,7 +75,7 @@ const loadModules = async (companyId: string, adminUserId?: string) => {
       return [];
     }
     const payload = await res.json().catch(() => ({}));
-    return payload?.modules || [];
+    return payload?.data?.modules ?? payload?.modules ?? [];
   } catch (e) {
     console.error('[loadModules] error', e);
     return [];
@@ -123,7 +123,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
         const compRes = await fetchWithAuth(`${API_URL}/api/companies/${encodeURIComponent(companyId)}`);
         if (compRes.ok) {
           const compPayload = await compRes.json().catch(() => null);
-          const companyData = compPayload?.company ?? compPayload;
+          const companyData = compPayload?.data?.company ?? compPayload?.data ?? compPayload?.company ?? compPayload;
           setCompanyLearningStyleEnabled(companyData?.learning_style_enabled ?? true);
         } else {
           console.warn('Failed to fetch company data for learning style setting');
@@ -165,7 +165,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       // Query learning_plan for users in this company via backend API
       const lpRes = await fetchWithAuth(
         `${API_URL}/api/learning-plans/?limit=5000`,
-        { headers: { 'X-User-ID': userId || '' } }
+        { headers: { 'X-User-ID': adminUserId || '' } }
       );
 
       if (!lpRes.ok) {
@@ -176,8 +176,8 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       }
 
       const lpData = await lpRes.json();
-      let allPlans = lpData?.plans || [];
-      
+      let allPlans = lpData?.data?.plans ?? lpData?.plans ?? [];
+
       // Filter by company users
       let learningPlans = allPlans.filter((lp: any) => companyUserIds.includes(lp.user_id));
 
@@ -216,8 +216,8 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
               continue;
             }
             const pmPayload = await pmRes.json().catch(()=> ({}));
-            const pms = pmPayload?.data || [];
-            (pms || []).forEach((pm: any) => {
+            const pms = pmPayload?.data?.modules ?? pmPayload?.data ?? pmPayload?.modules ?? pmPayload ?? [];
+            (Array.isArray(pms) ? pms : []).forEach((pm: any) => {
               processedModulesData.push({
                 processed_module_id: pm.processed_module_id,
                 original_module_id: pm.original_module_id
@@ -252,7 +252,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
               }
 
               const mpPayload = await mpRes.json().catch(()=> ({}));
-              const items = mpPayload?.progress || mpPayload || [];
+              const items = mpPayload?.data?.progress ?? mpPayload?.data ?? mpPayload?.progress ?? mpPayload ?? [];
               (Array.isArray(items) ? items : [items]).forEach((rec: any) => {
                 if (rec.user_id && rec.processed_module_id) {
                   moduleProgressData.push({
@@ -335,7 +335,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       }
 
       const assessmentPayload = await assessmentRes.json().catch(() => ({ assessments: [] }));
-      let assessmentResults = assessmentPayload?.assessments || [];
+      let assessmentResults = assessmentPayload?.data?.assessments ?? assessmentPayload?.assessments ?? [];
 
       // Apply time range filter on frontend since backend doesn't support it yet
       if (selectedTimeRange !== 'all') {
@@ -360,7 +360,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
           });
           if (res.ok) {
             const data = await res.json();
-            const assessment = data?.assessment || data;
+            const assessment = data?.data?.assessment ?? data?.data ?? data?.assessment ?? data;
             assessmentDetailsMap.set(assessId, assessment);
           }
         } catch (e) {
@@ -384,7 +384,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
           });
           if (res.ok) {
             const data = await res.json();
-            const pm = data?.module || data;
+            const pm = data?.data?.module ?? data?.data ?? data?.module ?? data;
             processedModulesMap.set(pmId, pm);
           }
         } catch (e) {
@@ -408,7 +408,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
           });
           if (res.ok) {
             const data = await res.json();
-            const module = data?.module || data;
+            const module = data?.data?.module ?? data?.data ?? data?.module ?? data;
             trainingModulesMap.set(modId, module);
           }
         } catch (e) {
@@ -542,7 +542,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
           console.log("Assessment response status:", assessmentRes);
           if (assessmentRes.ok) {
             const payload = await assessmentRes.json().catch(() => ({ assessments: [] }));
-            assessmentData = payload?.assessments || [];
+            assessmentData = payload?.data?.assessments ?? payload?.assessments ?? [];
           } else {
             console.log("Failed in else");
             console.warn('[loadOverallStatistics] Failed to fetch assessments:', assessmentRes.status);
@@ -1810,7 +1810,7 @@ export default function AnalyticsPage() {
       const responseData = await userRes.json();
       
       // Handle both wrapped and unwrapped responses
-      const userData = responseData.user || responseData;
+      const userData = responseData?.data?.user ?? responseData?.data ?? responseData?.user ?? responseData;
       
       // Validate response
       if (!userData || !userData.user_id) {
@@ -1831,7 +1831,7 @@ export default function AnalyticsPage() {
       }
 
       const rolesResponseData = await rolesRes.json();
-      const roleData = rolesResponseData.assignments || rolesResponseData;
+      const roleData = rolesResponseData?.data?.assignments ?? rolesResponseData?.data ?? rolesResponseData?.assignments ?? rolesResponseData;
 
       if (!roleData || roleData.length === 0) {
         console.error("No active roles found for user");
