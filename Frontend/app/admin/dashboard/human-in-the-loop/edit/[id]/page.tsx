@@ -293,9 +293,7 @@ export default function EditModulePage() {
 
       console.log("Inside the pending history")
       const data = await response.json();
-      console.log(data)
-      console.log(response)
-      const historyData = data.data?.history || [];
+      const historyData = data.data.history || [];
 
       if (historyData && historyData.length > 0) {
         // Build a map: processed_module_id -> latest in_review history entry
