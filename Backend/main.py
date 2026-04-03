@@ -63,69 +63,6 @@ app.add_middleware(
 )
 
 
-# ──────────────────────────────────────────────────────────────
-# GLOBAL EXCEPTION HANDLERS
-# ──────────────────────────────────────────────────────────────
-
-@app.exception_handler(ApiException)
-async def api_exception_handler(request: Request, exc: ApiException):
-    """Handle custom API exceptions."""
-    ErrorLogger.log_error(
-        exc.message,
-        error_type=exc.error_code or "API_ERROR",
-        status_code=exc.status_code,
-        context={"path": request.url.path, "method": request.method}
-    )
-    return JSONResponse(
-        status_code=exc.status_code,
-        content=exc.to_dict()
-    )
-
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    """Handle FastAPI HTTP exceptions."""
-    ErrorLogger.log_error(
-        exc.detail,
-        error_type="HTTP_ERROR",
-        status_code=exc.status_code,
-        context={"path": request.url.path, "method": request.method}
-    )
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "success": False,
-            "data": None,
-            "error": exc.detail,
-            "error_code": None,
-            "details": None
-        }
-    )
-
-
-@app.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
-    """Handle all unhandled exceptions."""
-    ErrorLogger.log_unhandled_error(
-        exc,
-        context={
-            "path": request.url.path,
-            "method": request.method,
-            "client": request.client.host if request.client else None
-        }
-    )
-    return JSONResponse(
-        status_code=500,
-        content={
-            "success": False,
-            "data": None,
-            "error": "An unexpected error occurred. Please try again later.",
-            "error_code": "INTERNAL_ERROR",
-            "details": None
-        }
-    )
-
-
 @app.get("/")
 async def root():
     return {"message": "Lucid Backend API is running"}
@@ -198,42 +135,6 @@ app.include_router(processed_modules.router)  # processed modules router
 app.include_router(dispatch.router)  # dispatch router
 app.include_router(module_progress.router)  # module progress router
 app.include_router(employee_assessment.router)  # employee assessment router
-
-
-# ── Initialize WhatsApp Cron Job ────────────────────────────────────
-
-# @app.on_event("startup")
-# async def startup_event():
-#     """
-#     Initialize background jobs on application startup.
-#     """
-#     from apscheduler.triggers.interval import IntervalTrigger
-#     from whatsapp.cron import run_whatsapp_cron
-    
-#     # Add WhatsApp cron job to run every 5 minutes
-#     scheduler.add_job(
-#         run_whatsapp_cron,
-#         trigger=IntervalTrigger(minutes=5),
-#         id="whatsapp_cron_worker",
-#         name="WhatsApp Message Dispatch Worker",
-#         replace_existing=True,
-#     )
-    
-#     # Start the scheduler
-#     if not scheduler.running:
-#         scheduler.start()
-    
-#     print("✅ WhatsApp cron job initialized and scheduler started")
-
-
-# @app.on_event("shutdown")
-# async def shutdown_event():
-#     """
-#     Gracefully shutdown background jobs.
-#     """
-#     if scheduler.running:
-#         scheduler.shutdown()
-#     print("🛑 Scheduler shutdown complete")
 
 
 if __name__ == "__main__":

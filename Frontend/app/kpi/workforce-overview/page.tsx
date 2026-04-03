@@ -51,7 +51,7 @@ const fetchUsersByFilter = async (filters: {
     const res = await fetchWithAuth(`${API_BASE}/api/users?${params.toString()}`);
     if (!res.ok) return [];
     const payload = await res.json();
-    const users = payload?.users ?? payload;
+    const users = payload?.data?.users ?? payload?.users ?? payload;
     return Array.isArray(users) ? users : users ? [users] : [];
   } catch (e) {
     console.error('[fetchUsersByFilter] error', e);
@@ -81,7 +81,7 @@ const fetchUsersByFilter = async (filters: {
 //     const res = await fetch(`${API_BASE}/api/users?${params.toString()}`);
 //     if (!res.ok) return [];
 //     const payload = await res.json();
-//     const users = payload?.users ?? payload;
+//     const users = payload?.data?.users ?? payload?.users ?? payload;
 //     return Array.isArray(users) ? users : users ? [users] : [];
 //   } catch (e) {
 //     console.error('[fetchUsersByFilter] error', e);
