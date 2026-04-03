@@ -548,7 +548,7 @@ export default function WorkforceOverview() {
               <div className="text-gray-500">Retrieving information…</div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Module Assignments Distribution */}
               <Card className="bg-gray-50 border-gray-200 shadow-sm p-6">
                 <div className="flex items-center justify-between mb-6">
@@ -643,7 +643,7 @@ export default function WorkforceOverview() {
           ) : (
             <div className="space-y-6">
               {/* Header Row */}
-              <div className="grid grid-cols-2 gap-6">
+              <div className="hidden md:grid grid-cols-2 gap-6">
                 <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">
                   Key Performance Indicator (KPI)
                 </div>
@@ -654,7 +654,7 @@ export default function WorkforceOverview() {
 
               {/* KPI Mappings - Each KPI with its modules in a row */}
               {kpiMappings.map((kpi, idx) => (
-                <div key={idx} className="grid grid-cols-2 gap-6">
+                <div key={idx} className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Business KPI Card */}
                   <Card className="bg-gray-50 border-gray-200 shadow-sm p-6">
                     <h4 className="text-lg font-bold text-gray-900 mb-2">{kpi.kpi_name}</h4>
