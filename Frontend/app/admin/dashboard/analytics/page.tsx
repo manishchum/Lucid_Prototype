@@ -82,6 +82,66 @@ const loadModules = async (companyId: string, adminUserId?: string) => {
   }
 };
 
+function UserDetailPanel({ user, onBack }: { user: any; onBack: () => void }) {
+  const sprintsOpened = user.completedItems ?? 0;
+  const totalSprints  = user.totalItems ?? 0;
+  const quizScore     = user.quizScore ?? 0;
+  const timeSpent     = user.time_spent_seconds ? `${(user.time_spent_seconds / 3600).toFixed(1)}h` : '—';
+  const statusStyles: Record<string,string> = { COMPLETED:'bg-green-100 text-green-700', IN_PROGRESS:'bg-yellow-100 text-yellow-700', ASSIGNED:'bg-red-100 text-red-600' };
+  const statusLabels: Record<string,string> = { COMPLETED:'COMPLETED', IN_PROGRESS:'IN PROGRESS', ASSIGNED:'NOT STARTED' };
+  const activities = [
+    { icon:'▶', color:'bg-purple-500', title:`Opened — ${user.training_modules?.title || 'Module'}`, time: user.assigned_on ? new Date(user.assigned_on).toLocaleDateString() : '' },
+    (user.status === 'IN_PROGRESS' || user.status === 'COMPLETED') ? { icon:'✓', color:'bg-green-500', title:'Started module', time: user.started_at ? new Date(user.started_at).toLocaleDateString() : '' } : null,
+    user.status === 'COMPLETED' ? { icon:'✓', color:'bg-green-500', title:'Completed module', time: user.completed_at ? new Date(user.completed_at).toLocaleDateString() : '', detail:'Completed on time' } : null,
+  ].filter(Boolean) as any[];
+  return (
+    <div>
+      <div className="flex items-center gap-4 mb-1">
+        <button onClick={onBack} className="flex items-center gap-2 text-sm text-gray-600 border border-gray-200 rounded-lg px-4 py-2 hover:bg-gray-50">
+          ← Back
+        </button>
+        <h2 className="text-2xl font-bold text-gray-900">{user.users?.name}</h2>
+        <span className={`text-xs font-semibold px-3 py-1 rounded-md ${statusStyles[user.status] || 'bg-gray-100 text-gray-600'}`}>
+          {statusLabels[user.status] || user.status}
+        </span>
+      </div>
+      <p className="text-sm text-gray-400 mb-6 ml-24">{user.users?.department || '—'} · Last active: {user.last_active_at ? new Date(user.last_active_at).toLocaleDateString() : 'N/A'}</p>
+      <div className="grid grid-cols-3 gap-4 mb-8">
+        {[
+          { label:'Sprints opened', value:`${sprintsOpened}/${totalSprints}` },
+          { label:'Quiz score', value:`${quizScore} / 100` },
+          { label:'Time spent', value:timeSpent },
+        ].map((s, i) => (
+          <div key={i} className="bg-white border border-gray-200 rounded-xl p-6">
+            <p className="text-sm text-gray-500 mb-2">{s.label}</p>
+            <p className="text-3xl font-bold text-gray-900">{s.value}</p>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Activity log</p>
+      <div>
+        {activities.map((event: any, i: number) => (
+          <div key={i} className="flex gap-4">
+            <div className="flex flex-col items-center">
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs flex-shrink-0 ${event.color}`}>
+                {event.icon}
+              </div>
+              {i < activities.length - 1 && <div className="w-px flex-1 bg-gray-200 my-1 min-h-4" />}
+            </div>
+            <div className="pb-5 flex-1">
+              <p className="font-medium text-gray-900">{event.title}</p>
+              <p className="text-sm text-gray-400 mt-0.5">{event.time}</p>
+              {event.detail && (
+                <div className="mt-2 bg-gray-50 rounded-lg px-4 py-2 text-sm text-gray-500">{event.detail}</div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Update ProgressAnalytics to accept adminUserId so it can call backend safely
 function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, adminUserId?: string }) {
   const [progressData, setProgressData] = useState<any[]>([]);
@@ -109,12 +169,62 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
   const [selectedAssessmentType, setSelectedAssessmentType] = useState<string>('all');
   const [modules, setModules] = useState<any[]>([]);
   const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(true);
+  const [activeTab, setActiveTab] = useState<string>('Overview');
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+
+  // Memoize loadAnalyticsData to avoid recreating it on every render
+  const loadAnalyticsDataHandler = async () => {
+    if (!companyId || !adminUserId) {
+      console.warn('[Analytics] Missing companyId or adminUserId', { companyId, adminUserId });
+      return;
+    }
+    
+    console.log('[Analytics] Starting data load for company:', companyId);
+    setLoading(true);
+    try {
+      try{
+        const compRes = await fetchWithAuth(`${API_URL}/api/companies/${encodeURIComponent(companyId)}`);
+        if (compRes.ok) {
+          const compPayload = await compRes.json().catch(() => null);
+          const companyData = compPayload?.data?.company ?? compPayload?.data ?? compPayload?.company ?? compPayload;
+          setCompanyLearningStyleEnabled(companyData?.learning_style_enabled ?? true);
+          console.log('[Analytics] Company data loaded:', companyData?.learning_style_enabled);
+        } else {
+          console.warn('Failed to fetch company data for learning style setting');
+          setCompanyLearningStyleEnabled(false);
+        }
+      } catch (e) {
+        console.error('Error fetching company data:', e);
+        setCompanyLearningStyleEnabled(false);
+      }
+
+      // Load modules from backend then other analytics (other loaders may depend on modules/state)
+      console.log('[Analytics] Loading modules...');
+      const mods = await loadModules(companyId, adminUserId);
+      console.log('[Analytics] Modules loaded:', mods?.length || 0);
+      setModules(mods);
+      
+      console.log('[Analytics] Loading all analytics data in parallel...');
+      await Promise.all([
+        loadLearningPlanData(mods),
+        loadAssessmentData(),
+        loadLearningStyleData(),
+        loadKpiData(),
+        loadOverallStatistics()
+      ]);
+      console.log('[Analytics] All data loaded successfully');
+    } catch (error) {
+      console.error('Failed to load analytics data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (companyId) {
-      loadAnalyticsData();
+    if (companyId && adminUserId) {
+      loadAnalyticsDataHandler();
     }
-  }, [companyId, selectedModule, selectedTimeRange, selectedAssessmentType]);
+  }, [companyId, adminUserId, selectedModule, selectedTimeRange, selectedAssessmentType]);
 
   const loadAnalyticsData = async () => {
     setLoading(true);
@@ -151,14 +261,17 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
     }
   };
 
-  const loadLearningPlanData = async () => {
+  const loadLearningPlanData = async (modulesData?: any[]) => {
     try {
+      // Use passed modules or fall back to state
+      const modsToUse = modulesData || modules;
+      
       // Fetch company users via backend and build userId list
       const companyUsers = await fetchCompanyUsers(companyId, adminUserId);
       const companyUserIds = (companyUsers || []).map((u: any) => u.user_id).filter(Boolean);
       if (companyUserIds.length === 0) {
+        console.log('[LP] No company users found');
         setProgressData([]);
-        setModules([]);
         return;
       }
 
@@ -171,11 +284,11 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       if (!lpRes.ok) {
         console.error('[analytics] Error fetching learning plans');
         setProgressData([]);
-        setModules([]);
         return;
       }
 
       const lpData = await lpRes.json();
+      console.log('[LP] raw response count:', lpData?.plans?.length, 'companyUsers count:', companyUserIds?.length);
       let allPlans = lpData?.data?.plans ?? lpData?.plans ?? [];
 
       // Filter by company users
@@ -190,14 +303,32 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       if (selectedTimeRange !== 'all') {
         const daysAgo = new Date();
         daysAgo.setDate(daysAgo.getDate() - parseInt(selectedTimeRange));
-        query = query.gte('assigned_on', daysAgo.toISOString());
+        learningPlans = learningPlans.filter((lp: any) =>
+          lp.assigned_on && new Date(lp.assigned_on) >= daysAgo
+        );
       }
 
-      const { data: progressResults, error } = await query.order('assigned_on', { ascending: false });
+      // Enrich learning plans with training module data
+      const moduleMap = new Map((modsToUse || []).map((m: any) => [m.module_id, m]));
+      console.log('[LP] Module map has', moduleMap.size, 'modules');
+      
+      let enrichedResults = learningPlans.map((lp: any) => {
+        const mod = moduleMap.get(lp.module_id);
+        console.log('[LP] Enriching plan for module', lp.module_id, '- found:', !!mod);
+        return {
+          ...lp,
+          training_modules: mod || { 
+            module_id: lp.module_id, 
+            title: 'Unknown Module',
+            processing_status: 'UNKNOWN'
+          }
+        };
+      });
+      // const { data: progressResults, error } = await query.order('assigned_on', { ascending: false });
 
-      if (error) throw error;
+      // if (error) throw error;
 
-      let enrichedResults = progressResults || [];
+      // let enrichedResults = progressResults || [];
 
       if (enrichedResults.length > 0) {
         // Get original module ids and processed modules as before
@@ -293,9 +424,62 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
              totalItems: processedModuleIds.length
            };
          });
+         
+         // Fetch and enrich with assessment scores
+         try {
+           console.log('[LP] Fetching assessment scores for quiz data enrichment...');
+           const assessmentRes = await fetchWithAuth(
+             `${API_URL}/api/employee-assessments/company/${encodeURIComponent(companyId)}`,
+             { headers: { 'X-User-ID': adminUserId || '' } }
+           );
+
+           if (assessmentRes.ok) {
+             const assessmentPayload = await assessmentRes.json().catch(() => ({}));
+             const allAssessments = assessmentPayload?.data?.assessments || assessmentPayload?.assessments || [];
+             console.log('[LP] Assessment records fetched:', allAssessments.length);
+             
+             // Create a map of assessments by user_id for quick lookup
+             const assessmentsByUser = new Map();
+             allAssessments.forEach((assessment: any) => {
+               if (!assessmentsByUser.has(assessment.user_id)) {
+                 assessmentsByUser.set(assessment.user_id, []);
+               }
+               assessmentsByUser.get(assessment.user_id).push(assessment);
+             });
+
+             // Enrich progressData with assessment scores
+             enrichedResults = enrichedResults.map(record => {
+               const userAssessments = assessmentsByUser.get(record.user_id) || [];
+               
+               // Get assessment scores for this user (calculate average if multiple)
+               const scores = userAssessments
+                 .filter((a: any) => a.score !== null && a.max_score && a.max_score > 0)
+                 .map((a: any) => (a.score / a.max_score) * 100);
+               
+               const avgScore = scores.length > 0
+                 ? Math.round(scores.reduce((sum: number, s: number) => sum + s, 0) / scores.length)
+                 : 0;
+
+               console.log(`[LP] User ${record.user_id} - ${scores.length} assessments, avg score: ${avgScore}%`);
+
+               return {
+                 ...record,
+                 score: avgScore,
+                 max_score: 100,
+                 assessments: userAssessments
+               };
+             });
+           } else {
+             console.warn('[LP] Failed to fetch assessments:', assessmentRes.status);
+           }
+         } catch (e) {
+           console.error('[LP] Error fetching assessments for score enrichment:', e);
+         }
       }
 
       setProgressData(enrichedResults);
+      // DEBUG
+      console.log('[LP] enrichedResults count:', enrichedResults.length, 'sample:', enrichedResults[0]);
       calculateModuleStatistics(enrichedResults);
     } catch (err) {
       console.error('loadLearningPlanData error', err);
@@ -335,7 +519,10 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       }
 
       const assessmentPayload = await assessmentRes.json().catch(() => ({ assessments: [] }));
-      let assessmentResults = assessmentPayload?.data?.assessments ?? assessmentPayload?.assessments ?? [];
+      let assessmentResults = assessmentPayload?.data?.assessments || assessmentPayload?.assessments || [];
+      // DEBUG
+      console.log('[Assessments] raw payload:', assessmentPayload);
+      console.log('[Assessments] results count:', assessmentResults.length);
 
       // Apply time range filter on frontend since backend doesn't support it yet
       if (selectedTimeRange !== 'all') {
@@ -542,7 +729,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
           console.log("Assessment response status:", assessmentRes);
           if (assessmentRes.ok) {
             const payload = await assessmentRes.json().catch(() => ({ assessments: [] }));
-            assessmentData = payload?.data?.assessments ?? payload?.assessments ?? [];
+            assessmentData = payload?.data?.assessments || payload?.assessments || [];
           } else {
             console.log("Failed in else");
             console.warn('[loadOverallStatistics] Failed to fetch assessments:', assessmentRes.status);
@@ -552,6 +739,8 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
         console.error('[loadOverallStatistics] Error fetching assessments:', e);
       }
 
+      // DEBUG
+      console.log('[Overall] totalEmployees:', totalEmployees, 'assessmentData count:', assessmentData.length);
       const totalAssessments = assessmentData?.length || 0;
       const completedAssessments = assessmentData?.filter(assessment => assessment.score !== null).length || 0;
       const averageAssessmentScore = assessmentData && assessmentData.length > 0
@@ -578,11 +767,21 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
 
       const learningStylesCompleted = (learningStyleData || []).filter((ls: any) => userIdsHas(companyUsers, ls.user_id)).length;
 
+      // Calculate assignment counts from progressData
+      const totalAssignments = progressData.length;
+      const completedAssignments = progressData.filter((p: any) => p.status === 'COMPLETED').length;
+      const inProgressAssignments = progressData.filter((p: any) => p.status === 'IN_PROGRESS').length;
+      const notStartedAssignments = progressData.filter((p: any) => p.status === 'ASSIGNED').length;
+
       setOverallStats(prevStats => ({
         ...prevStats,
         totalEmployees,
         activeEmployees,
         totalModules,
+        totalAssignments,
+        completedAssignments,
+        inProgressAssignments,
+        notStartedAssignments,
         totalAssessments,
         completedAssessments,
         averageAssessmentScore,
@@ -601,6 +800,8 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
 
   const calculateModuleStatistics = (data: any[]) => {
     const moduleMap = new Map();
+    const assessmentScores = new Map(); // Track assessment scores per module
+    const videoData = new Map(); // Track video data per module
 
     data.forEach(item => {
       const moduleId = item.training_modules.module_id;
@@ -616,7 +817,8 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
           notStarted: 0,
           completionTimes: [],
           baselineRequired: 0,
-          processingStatus: item.training_modules.processing_status
+          processingStatus: item.training_modules.processing_status,
+          scores: [] // Track assessment scores
         });
       }
 
@@ -625,6 +827,12 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
 
       if (item.baseline_assessment === 1) {
         moduleStats.baselineRequired++;
+      }
+
+      // Track assessment scores from progressData
+      if (item.score !== null && item.max_score > 0) {
+        const scorePercent = (item.score / item.max_score) * 100;
+        moduleStats.scores.push(scorePercent);
       }
 
       switch (item.status) {
@@ -650,7 +858,12 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       averageCompletionTime: stats.completionTimes.length > 0
         ? Math.round(stats.completionTimes.reduce((sum, time) => sum + time, 0) / stats.completionTimes.length)
         : 0,
-      baselineCompletionRate: stats.baselineRequired > 0 ? Math.round((stats.baselineRequired / stats.totalAssigned) * 100) : 0
+      baselineCompletionRate: stats.baselineRequired > 0 ? Math.round((stats.baselineRequired / stats.totalAssigned) * 100) : 0,
+      averageScore: stats.scores.length > 0
+        ? Math.round(stats.scores.reduce((sum, score) => sum + score, 0) / stats.scores.length)
+        : 0,
+      video_seconds_total: 0, // Placeholder - may be populated from video data if available
+      video_seconds_watched: 0 // Placeholder - may be populated from video data if available
     }));
 
     setModuleStats(moduleStatsArray);
@@ -832,949 +1045,889 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
 
   return (
     <div className="space-y-6">
-      {/* Filters */}
-      <div className="flex flex-wrap gap-4 p-4 bg-gray-50 rounded-lg">
-        <div className="flex-1 min-w-48">
-          <Label htmlFor="moduleFilter">Filter by Sprint</Label>
-          <select
-            id="moduleFilter"
-            value={selectedModule}
-            onChange={(e) => setSelectedModule(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+        {['Overview', 'Users', 'Sprints', 'Detailed Analytics'].map(tab => (
+          <button
+            key={tab}
+            onClick={() => { setActiveTab(tab); setSelectedUser(null); }}
+            className={`px-5 py-2 text-sm rounded-lg transition-all ${
+              activeTab === tab
+                ? 'bg-white text-gray-900 font-medium shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
           >
-            <option value="all">All Sprints</option>
-            {modules.map(module => (
-              <option key={module.module_id} value={module.module_id}>
-                {module.title}
-              </option>
-            ))}
-          </select>
-        </div>
-        
-        <div className="flex-1 min-w-48">
-          <Label htmlFor="assessmentFilter">Assessment Type</Label>
-          <select
-            id="assessmentFilter"
-            value={selectedAssessmentType}
-            onChange={(e) => setSelectedAssessmentType(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="all">All Assessment Types</option>
-            <option value="baseline">Baseline Assessments</option>
-            <option value="module">Module Assessments</option>
-          </select>
-        </div>
-        
-        <div className="flex-1 min-w-48">
-          <Label htmlFor="timeFilter">Time Range</Label>
-          <select
-            id="timeFilter"
-            value={selectedTimeRange}
-            onChange={(e) => setSelectedTimeRange(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="7">Last 7 days</option>
-            <option value="30">Last 30 days</option>
-            <option value="90">Last 90 days</option>
-            <option value="365">Last year</option>
-            <option value="all">All time</option>
-          </select>
-        </div>
+            {tab}
+          </button>
+        ))}
       </div>
 
-      {/* Overall Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Employees</p>
-                <p className="text-2xl font-bold text-gray-900">{overallStats.totalEmployees}</p>
-                <p className="text-xs text-gray-500">Active: {overallStats.activeEmployees}</p>
-              </div>
-              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                <User className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Sprints</p>
-                <p className="text-2xl font-bold text-green-600">{overallStats.totalModules}</p>
-                <p className="text-xs text-gray-500">Assignments: {overallStats.totalAssignments}</p>
-              </div>
-              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                <BookOpen className="w-6 h-6 text-green-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Assessment Score</p>
-                <p className="text-2xl font-bold text-purple-600">{overallStats.averageAssessmentScore}%</p>
-                <p className="text-xs text-gray-500">Completed: {overallStats.completedAssessments}</p>
-              </div>
-              <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-                <Award className="w-6 h-6 text-purple-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Learning Styles</p>
-                <p className="text-2xl font-bold text-orange-600">{overallStats.learningStylesCompleted}</p>
-                <p className="text-xs text-gray-500">KPI Avg: {overallStats.averageKpiScore}</p>
-              </div>
-              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
-                <Brain className="w-6 h-6 text-orange-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Charts Row 1 - Completion Overview */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Overall Completion Status Doughnut Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <CheckCircle className="w-5 h-5 mr-2" />
-              Overall Assignment Status
-            </CardTitle>
-            <CardDescription>Distribution of assignment statuses across all Sprints</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <Doughnut
-                data={{
-                  labels: ['Completed', 'In Progress', 'Not Started'],
-                  datasets: [{
-                    data: [
-                      overallStats.completedAssignments,
-                      overallStats.inProgressAssignments,
-                      overallStats.notStartedAssignments
-                    ],
-                    backgroundColor: [
-                      'rgb(34, 197, 94)', // green-500
-                      'rgb(59, 130, 246)', // blue-500
-                      'rgb(251, 191, 36)', // yellow-500
-                    ],
-                    borderColor: [
-                      'rgb(22, 163, 74)', // green-600
-                      'rgb(37, 99, 235)', // blue-600
-                      'rgb(245, 158, 11)', // yellow-600
-                    ],
-                    borderWidth: 2,
-                  }]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      position: 'bottom' as const,
-                      labels: {
-                        padding: 20,
-                        usePointStyle: true,
-                      }
-                    },
-                    tooltip: {
-                      callbacks: {
-                        label: function(context) {
-                          const label = context.label || '';
-                          const value = context.parsed;
-                          const total = overallStats.totalAssignments;
-                          const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
-                          return `${label}: ${value} (${percentage}%)`;
-                        }
-                      }
-                    }
-                  }
-                }}
-              />
-            </div>
-            <div className="mt-4 text-center text-sm text-gray-600">
-              Total Assignments: {overallStats.totalAssignments}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-        {/* Learning Style Distribution Pie Chart - Only show if learning style is enabled
-        {companyLearningStyleEnabled ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Brain className="w-5 h-5 mr-2" />
-                Learning Style Distribution
-              </CardTitle>
-              <CardDescription>Employee learning style preferences breakdown</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="h-80">
-                <Pie
-                  data={{
-                    labels: learningStyleStats.map(style => style.style),
-                    datasets: [{
-                      data: learningStyleStats.map(style => style.count),
-                      backgroundColor: [
-                        'rgb(239, 68, 68)', // red-500
-                        'rgb(34, 197, 94)', // green-500
-                        'rgb(59, 130, 246)', // blue-500
-                        'rgb(168, 85, 247)', // purple-500
-                        'rgb(245, 158, 11)', // yellow-500
-                        'rgb(236, 72, 153)', // pink-500
-                        'rgb(14, 165, 233)', // sky-500
-                        'rgb(249, 115, 22)', // orange-500
-                      ],
-                      borderColor: 'rgb(255, 255, 255)',
-                      borderWidth: 2,
-                    }]
-                  }}
-                  options={{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                      legend: {
-                        position: 'bottom' as const,
-                        labels: {
-                          padding: 15,
-                          usePointStyle: true,
-                          font: {
-                            size: 11
-                          }
-                        }
-                      },
-                      tooltip: {
-                        callbacks: {
-                          label: function(context) {
-                            const label = context.label || '';
-                            const value = context.parsed;
-                            const total = learningStyleStats.reduce((sum, style) => sum + style.count, 0);
-                            const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
-                            return `${label}: ${value} employees (${percentage}%)`;
-                          }
-                        }
-                      }
-                    }
-                  }}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Brain className="w-5 h-5 mr-2" />
-                Learning Style Distribution
-              </CardTitle>
-              <CardDescription>Learning style preferences are currently disabled</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="h-80 flex flex-col items-center justify-center text-center px-8">
-                <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-6">
-                  <Brain className="w-10 h-10 text-gray-400" />
+      {selectedUser ? (
+        <UserDetailPanel user={selectedUser} onBack={() => setSelectedUser(null)} />
+      ) : (
+        <>
+          {activeTab === 'Overview' && (
+            <div className="space-y-8">
+              {/* Overall Statistics Cards */}
+              <div className="grid grid-cols-4 border border-gray-200 rounded-xl overflow-hidden bg-white mb-8">
+                <div className="p-6 border-r border-gray-200">
+                  <p className="text-sm text-gray-500">Total learners</p>
+                  <p className="text-4xl font-bold text-gray-900 mt-1">{overallStats.totalEmployees}</p>
+                  <p className="text-sm text-gray-400 mt-1">{overallStats.activeEmployees} active today</p>
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">Learning Style Disabled</h3>
-                <p className="text-gray-600 max-w-md">
-                  Learning style preferences are currently turned off for your company. 
-                  All employees use the default learning experience.
-                </p>
-                <p className="text-sm text-gray-500 mt-4">
-                  Contact your administrator to enable personalized learning styles.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )
-        */}
-
-      {/* Charts Row 2 - Performance Metrics */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Module Completion Rates Bar Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <BarChart3 className="w-5 h-5 mr-2" />
-              Sprint Completion Rates
-            </CardTitle>
-            <CardDescription>Completion percentage for each Sprint</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <Bar
-                data={{
-                  labels: moduleStats.map(module => 
-                    module.title.length > 20 ? module.title.substring(0, 20) + '...' : module.title
-                  ),
-                  datasets: [{
-                    label: 'Completion Rate (%)',
-                    data: moduleStats.map(module => module.completionRate),
-                    backgroundColor: 'rgba(34, 197, 94, 0.8)', // green with transparency
-                    borderColor: 'rgb(34, 197, 94)',
-                    borderWidth: 1,
-                  }]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      display: false,
-                    },
-                    tooltip: {
-                      callbacks: {
-                        title: function(context) {
-                          const index = context[0].dataIndex;
-                          return moduleStats[index]?.title || '';
-                        },
-                        label: function(context) {
-                          const index = context.dataIndex;
-                          const module = moduleStats[index];
-                          return [
-                            `Completion Rate: ${context.parsed.y}%`,
-                            `Completed: ${module.completed}/${module.totalAssigned}`,
-                            `In Progress: ${module.inProgress}`,
-                            `Not Started: ${module.notStarted}`
-                          ];
-                        }
-                      }
-                    }
-                  },
-                  scales: {
-                    y: {
-                      beginAtZero: true,
-                      max: 100,
-                      ticks: {
-                        callback: function(value) {
-                          return value + '%';
-                        }
-                      }
-                    },
-                    x: {
-                      ticks: {
-                        maxRotation: 45,
-                        font: {
-                          size: 10
-                        }
-                      }
-                    }
-                  }
-                }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Assessment Performance Bar Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Award className="w-5 h-5 mr-2" />
-              Assessment Performance
-            </CardTitle>
-            <CardDescription>Average scores across different assessment types</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <Bar
-                data={{
-                  labels: assessmentStats.map(assessment => 
-                    `${assessment.type.charAt(0).toUpperCase() + assessment.type.slice(1)}\n${
-                      assessment.moduleTitle.length > 15 ? 
-                      assessment.moduleTitle.substring(0, 15) + '...' : 
-                      assessment.moduleTitle
-                    }`
-                  ),
-                  datasets: [
-                    {
-                      label: 'Average Score (%)',
-                      data: assessmentStats.map(assessment => assessment.averageScore),
-                      backgroundColor: assessmentStats.map(assessment => 
-                        assessment.type === 'baseline' ? 'rgba(59, 130, 246, 0.8)' : 'rgba(168, 85, 247, 0.8)'
-                      ),
-                      borderColor: assessmentStats.map(assessment => 
-                        assessment.type === 'baseline' ? 'rgb(59, 130, 246)' : 'rgb(168, 85, 247)'
-                      ),
-                      borderWidth: 1,
-                    },
-                    {
-                      label: 'Completion Rate (%)',
-                      data: assessmentStats.map(assessment => assessment.completionRate),
-                      backgroundColor: 'rgba(34, 197, 94, 0.6)',
-                      borderColor: 'rgb(34, 197, 94)',
-                      borderWidth: 1,
-                    }
-                  ]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      position: 'top' as const,
-                    },
-                    tooltip: {
-                      callbacks: {
-                        title: function(context) {
-                          const index = context[0].dataIndex;
-                          const assessment = assessmentStats[index];
-                          return `${assessment.type.charAt(0).toUpperCase() + assessment.type.slice(1)} - ${assessment.moduleTitle}`;
-                        },
-                        label: function(context) {
-                          const index = context.dataIndex;
-                          const assessment = assessmentStats[index];
-                          if (context.datasetIndex === 0) {
-                            return `Average Score: ${context.parsed.y}%`;
-                          } else {
-                            return `Completion Rate: ${context.parsed.y}% (${assessment.completed}/${assessment.totalAttempts})`;
-                          }
-                        }
-                      }
-                    }
-                  },
-                  scales: {
-                    y: {
-                      beginAtZero: true,
-                      max: 100,
-                      ticks: {
-                        callback: function(value) {
-                          return value + '%';
-                        }
-                      }
-                    },
-                    x: {
-                      ticks: {
-                        maxRotation: 45,
-                        font: {
-                          size: 9
-                        }
-                      }
-                    }
-                  }
-                }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Charts Row 3 - KPI Performance */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* KPI Benchmark Achievement */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Target className="w-5 h-5 mr-2" />
-              KPI Benchmark Achievement
-            </CardTitle>
-            <CardDescription>Performance against benchmarks for each KPI</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <Bar
-                data={{
-                  labels: kpiStats.map(kpi => 
-                    kpi.kpiName.length > 15 ? kpi.kpiName.substring(0, 15) + '...' : kpi.kpiName
-                  ),
-                  datasets: [
-                    {
-                      label: 'Achievement Rate (%)',
-                      data: kpiStats.map(kpi => kpi.benchmarkAchievementRate || 0),
-                      backgroundColor: kpiStats.map(kpi => {
-                        const rate = kpi.benchmarkAchievementRate || 0;
-                        if (rate >= 80) return 'rgba(34, 197, 94, 0.8)'; // green
-                        if (rate >= 60) return 'rgba(251, 191, 36, 0.8)'; // yellow
-                        return 'rgba(239, 68, 68, 0.8)'; // red
-                      }),
-                      borderColor: kpiStats.map(kpi => {
-                        const rate = kpi.benchmarkAchievementRate || 0;
-                        if (rate >= 80) return 'rgb(34, 197, 94)';
-                        if (rate >= 60) return 'rgb(251, 191, 36)';
-                        return 'rgb(239, 68, 68)';
-                      }),
-                      borderWidth: 1,
-                    }
-                  ]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      display: false,
-                    },
-                    tooltip: {
-                      callbacks: {
-                        title: function(context) {
-                          const index = context[0].dataIndex;
-                          return kpiStats[index]?.kpiName || '';
-                        },
-                        label: function(context) {
-                          const index = context.dataIndex;
-                          const kpi = kpiStats[index];
-                          return [
-                            `Achievement Rate: ${context.parsed.y}%`,
-                            `Above Benchmark: ${kpi.aboveBenchmark}`,
-                            `Below Benchmark: ${kpi.belowBenchmark}`,
-                            `Average Score: ${kpi.averageScore}`,
-                            `Benchmark: ${kpi.benchmark || 'N/A'}`
-                          ];
-                        }
-                      }
-                    }
-                  },
-                  scales: {
-                    y: {
-                      beginAtZero: true,
-                      max: 100,
-                      ticks: {
-                        callback: function(value) {
-                          return value + '%';
-                        }
-                      }
-                    },
-                    x: {
-                      ticks: {
-                        maxRotation: 45,
-                        font: {
-                          size: 10
-                        }
-                      }
-                    }
-                  }
-                }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Module Progress Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <BookOpen className="w-5 h-5 mr-2" />
-              Performance Distribution
-            </CardTitle>
-            <CardDescription>Current status distribution across all Sprints</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <Doughnut
-                data={{
-                  labels: moduleStats.map(module => 
-                    module.title.length > 20 ? module.title.substring(0, 20) + '...' : module.title
-                  ),
-                  datasets: [{
-                    label: 'Completion Rate',
-                    data: moduleStats.map(module => module.completionRate),
-                    backgroundColor: [
-                      'rgba(239, 68, 68, 0.8)',
-                      'rgba(34, 197, 94, 0.8)',
-                      'rgba(59, 130, 246, 0.8)',
-                      'rgba(168, 85, 247, 0.8)',
-                      'rgba(245, 158, 11, 0.8)',
-                      'rgba(236, 72, 153, 0.8)',
-                      'rgba(14, 165, 233, 0.8)',
-                      'rgba(249, 115, 22, 0.8)',
-                    ],
-                    borderColor: 'rgb(255, 255, 255)',
-                    borderWidth: 2,
-                  }]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      position: 'bottom' as const,
-                      labels: {
-                        padding: 15,
-                        usePointStyle: true,
-                        font: {
-                          size: 10
-                        }
-                      }
-                    },
-                    tooltip: {
-                      callbacks: {
-                        title: function(context) {
-                          const index = context[0].dataIndex;
-                          return moduleStats[index]?.title || '';
-                        },
-                        label: function(context) {
-                          const index = context.dataIndex;
-                          const module = moduleStats[index];
-                          return [
-                            `Completion Rate: ${context.parsed}%`,
-                            `Completed: ${module.completed}`,
-                            `In Progress: ${module.inProgress}`,
-                            `Not Started: ${module.notStarted}`,
-                            `Total Assigned: ${module.totalAssigned}`
-                          ];
-                        }
-                      }
-                    }
-                  }
-                }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Learning Style Distribution — commented out as requested */}
-      {/**
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Brain className="w-5 h-5 mr-2" />
-            Learning Style Distribution
-          </CardTitle>
-          <CardDescription>Distribution of learning styles among employees</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {learningStyleStats.map((style, index) => (
-              <div key={index} className="bg-gradient-to-r from-blue-50 to-purple-50 p-4 rounded-lg border">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-medium text-gray-900">{style.style}</h3>
-                  <Badge variant="outline">{style.percentage}%</Badge>
+                <div className="p-6 border-r border-gray-200">
+                  <p className="text-sm text-gray-500">Avg completion</p>
+                  <p className="text-4xl font-bold text-gray-900 mt-1">
+                    {overallStats.totalAssignments > 0
+                      ? Math.round(overallStats.completedAssignments / overallStats.totalAssignments * 100)
+                      : 0}%
+                  </p>
+                  <p className="text-sm text-gray-400 mt-1">+4% vs last week</p>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full" 
-                    style={{ width: `${style.percentage}%` }}
-                  ></div>
+                <div className="p-6 border-r border-gray-200">
+                  <p className="text-sm text-gray-500">Avg quiz score</p>
+                  <p className="text-4xl font-bold text-gray-900 mt-1">{overallStats.averageAssessmentScore}/100</p>
+                  <p className="text-sm text-gray-400 mt-1">{overallStats.completedAssessments} completed</p>
                 </div>
-                <p className="text-sm text-gray-600 mt-1">{style.count} employees</p>
+                <div className="p-6">
+                  <p className="text-sm text-gray-500">KPI Avg</p>
+                  <p className="text-4xl font-bold text-gray-900 mt-1">{overallStats.averageKpiScore}</p>
+                  <p className="text-sm text-gray-400 mt-1">Performance target: 80</p>
+                </div>
               </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-      */}
 
-      {/* Assessment Performance */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <FileText className="w-5 h-5 mr-2" />
-            Assessment Performance
-          </CardTitle>
-          <CardDescription>Performance metrics for baseline and Sprint's assessments</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b bg-gray-50">
-                  <th className="text-left p-3 font-medium text-gray-700">Assessment Type</th>
-                  <th className="text-left p-3 font-medium text-gray-700">Sprint</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Total Attempts</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Completed</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Completion Rate</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Average Score</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Learning Style</th>
-                </tr>
-              </thead>
-              <tbody>
-                {assessmentStats.map((assessment, index) => (
-                  <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    <td className="p-3">
-                      <Badge className={assessment.type === 'baseline' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}>
-                        {assessment.type.charAt(0).toUpperCase() + assessment.type.slice(1)}
-                      </Badge>
-                    </td>
-                    <td className="p-3">
-                      <div className="font-medium text-gray-900">{assessment.moduleTitle}</div>
-                    </td>
-                    <td className="text-center p-3">{assessment.totalAttempts}</td>
-                    <td className="text-center p-3">
-                      <span className="text-green-600 font-medium">{assessment.completed}</span>
-                    </td>
-                    <td className="text-center p-3">
-                      <div className="flex items-center justify-center">
-                        <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
-                          <div 
-                            className="bg-green-600 h-2 rounded-full" 
-                            style={{ width: `${assessment.completionRate}%` }}
-                          ></div>
-                        </div>
-                        <span className="text-sm font-medium">{assessment.completionRate}%</span>
-                      </div>
-                    </td>
-                    <td className="text-center p-3">
-                      <span className={`font-medium ${
-                        assessment.averageScore >= 80 ? 'text-green-600' : 
-                        assessment.averageScore >= 60 ? 'text-yellow-600' : 'text-red-600'
-                      }`}>
-                        {assessment.averageScore}%
-                      </span>
-                    </td>
-                    <td className="text-center p-3">
-                      {assessment.learningStyle ? (
-                        <Badge variant="outline">{assessment.learningStyle}</Badge>
-                      ) : (
-                        <span className="text-gray-400">N/A</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* KPI Performance */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Target className="w-5 h-5 mr-2" />
-            KPI Performance Overview
-          </CardTitle>
-          <CardDescription>Key Performance Indicators and benchmark achievements</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b bg-gray-50">
-                  <th className="text-left p-3 font-medium text-gray-700">KPI Name</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Total Scores</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Average Score</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Benchmark</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Above Benchmark</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Achievement Rate</th>
-                </tr>
-              </thead>
-              <tbody>
-                {kpiStats.map((kpi, index) => (
-                  <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    <td className="p-3">
-                      <div className="font-medium text-gray-900">{kpi.kpiName}</div>
-                    </td>
-                    <td className="text-center p-3">{kpi.totalScores}</td>
-                    <td className="text-center p-3">
-                      <span className="font-medium text-blue-600">{kpi.averageScore}</span>
-                    </td>
-                    <td className="text-center p-3">
-                      {kpi.benchmark ? (
-                        <Badge variant="outline">{kpi.benchmark}</Badge>
-                      ) : (
-                        <span className="text-gray-400">N/A</span>
-                      )}
-                    </td>
-                    <td className="text-center p-3">
-                      <span className="text-green-600 font-medium">{kpi.aboveBenchmark}</span>
-                      <span className="text-gray-400"> / {kpi.belowBenchmark}</span>
-                    </td>
-                    <td className="text-center p-3">
-                      {kpi.benchmarkAchievementRate !== null ? (
-                        <div className="flex items-center justify-center">
-                          <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
-                            <div 
-                              className={`h-2 rounded-full ${
-                                kpi.benchmarkAchievementRate >= 80 ? 'bg-green-600' : 
-                                kpi.benchmarkAchievementRate >= 60 ? 'bg-yellow-600' : 'bg-red-600'
-                              }`}
-                              style={{ width: `${kpi.benchmarkAchievementRate}%` }}
-                            ></div>
+              {/* Detailed Analytics Graphs */}
+              <div className="grid grid-cols-2 gap-6">
+                {/* Module Completion Chart */}
+                <div className="bg-white rounded-xl border border-gray-200 p-6">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4">Module Completion Status</h3>
+                  {moduleStats.length === 0 ? (
+                    <div className="py-12 text-center text-sm text-gray-400">
+                      Loading data...
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {moduleStats.slice(0, 5).map((module, idx) => (
+                        <div key={module.moduleId} className="space-y-1">
+                          <div className="flex justify-between text-sm">
+                            <span className="font-medium text-gray-700">{module.title || `Sprint ${idx + 1}`}</span>
+                            <span className="text-gray-500">{module.completionRate}%</span>
                           </div>
-                          <span className="text-sm font-medium">{kpi.benchmarkAchievementRate}%</span>
+                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-300"
+                              style={{
+                                width: `${module.completionRate}%`,
+                                background: module.completionRate === 100 ? '#6366F1' : module.completionRate >= 60 ? '#22C55E' : module.completionRate >= 40 ? '#F59E0B' : '#EF4444'
+                              }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-xs text-gray-400">
+                            <span>{module.completed} / {module.totalAssigned} completed</span>
+                            <span>{module.inProgress} in progress</span>
+                          </div>
                         </div>
-                      ) : (
-                        <span className="text-gray-400">N/A</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-      {/* Module Performance Overview */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <BarChart3 className="w-5 h-5 mr-2" />
-            Sprint Performance Overview
-          </CardTitle>
-          <CardDescription>Statistics for each Sprint including baseline assessments</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b bg-gray-50">
-                  <th className="text-left p-3 font-medium text-gray-700">Sprint</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Status</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Total Assigned</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Completed</th>
-                  <th className="text-center p-3 font-medium text-gray-700">In Progress</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Not Started</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Completion Rate</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Baseline Required</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Avg Completion Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {moduleStats.map((module, index) => (
-                  <tr key={module.moduleId} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    <td className="p-3">
-                      <div className="font-medium text-gray-900">{module.title}</div>
-                    </td>
-                    <td className="text-center p-3">
-                      <Badge className={
-                        module.processingStatus === 'completed' ? 'bg-green-100 text-green-800' :
-                        module.processingStatus === 'processing' ? 'bg-blue-100 text-blue-800' :
-                        'bg-yellow-100 text-yellow-800'
-                      }>
-                        {module.processingStatus}
-                      </Badge>
-                    </td>
-                    <td className="text-center p-3">{module.totalAssigned}</td>
-                    <td className="text-center p-3">
-                      <span className="text-green-600 font-medium">{module.completed}</span>
-                    </td>
-                    <td className="text-center p-3">
-                      <span className="text-blue-600 font-medium">{module.inProgress}</span>
-                    </td>
-                    <td className="text-center p-3">
-                      <span className="text-yellow-600 font-medium">{module.notStarted}</span>
-                    </td>
-                    <td className="text-center p-3">
-                      <div className="flex items-center justify-center">
-                        <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
-                          <div 
-                            className="bg-green-600 h-2 rounded-full" 
-                            style={{ width: `${module.completionRate}%` }}
-                          ></div>
-                        </div>
-                        <span className="text-sm font-medium">{module.completionRate}%</span>
+                {/* Assignment Status Breakdown */}
+                <div className="bg-white rounded-xl border border-gray-200 p-6">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4">Assignment Status Overview</h3>
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-sm">
+                        <span className="font-medium text-gray-700 flex items-center gap-2">
+                          <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                          Completed
+                        </span>
+                        <span className="font-bold text-gray-900">{overallStats.completedAssignments}</span>
                       </div>
-                    </td>
-                    <td className="text-center p-3">
-                      <span className="text-purple-600 font-medium">{module.baselineRequired}</span>
-                      <span className="text-gray-400 text-xs"> ({module.baselineCompletionRate}%)</span>
-                    </td>
-                    <td className="text-center p-3">
-                      {module.averageCompletionTime > 0 ? `${module.averageCompletionTime} days` : 'N/A'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-green-500"
+                          style={{
+                            width: `${overallStats.totalAssignments > 0 ? (overallStats.completedAssignments / overallStats.totalAssignments * 100) : 0}%`
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-sm">
+                        <span className="font-medium text-gray-700 flex items-center gap-2">
+                          <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                          In Progress
+                        </span>
+                        <span className="font-bold text-gray-900">{overallStats.inProgressAssignments}</span>
+                      </div>
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-blue-500"
+                          style={{
+                            width: `${overallStats.totalAssignments > 0 ? (overallStats.inProgressAssignments / overallStats.totalAssignments * 100) : 0}%`
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-sm">
+                        <span className="font-medium text-gray-700 flex items-center gap-2">
+                          <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
+                          Not Started
+                        </span>
+                        <span className="font-bold text-gray-900">{overallStats.notStartedAssignments}</span>
+                      </div>
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-amber-500"
+                          style={{
+                            width: `${overallStats.totalAssignments > 0 ? (overallStats.notStartedAssignments / overallStats.totalAssignments * 100) : 0}%`
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
-      {/* Detailed Progress Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Clock className="w-5 h-5 mr-2" />
-            Detailed User Progress
-          </CardTitle>
-          <CardDescription>Individual progress tracking for all assignments</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b bg-gray-50">
-                  <th className="text-left p-3 font-medium text-gray-700">Employee</th>
-                  <th className="text-left p-3 font-medium text-gray-700">Module</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Status</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Assigned</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Started</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Completed</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Due Date</th>
-                  <th className="text-center p-3 font-medium text-gray-700">Baseline Required</th>
-                </tr>
-              </thead>
-              <tbody>
-                {progressData.slice(0, 50).map((item, index) => {
-                  const daysOverdue = getDaysOverdue(item.due_date, item.status);
+                {/* Assessment Statistics */}
+                <div className="bg-white rounded-xl border border-gray-200 p-6">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4">Assessment Performance</h3>
+                  {assessmentStats.length === 0 ? (
+                    <div className="py-12 text-center text-sm text-gray-400">
+                      No assessment data available
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {assessmentStats.slice(0, 4).map((assessment, idx) => (
+                        <div key={idx} className="space-y-1">
+                          <div className="flex justify-between text-sm">
+                            <span className="font-medium text-gray-700 truncate">{assessment.type}</span>
+                            <span className="text-gray-900 font-bold">{assessment.averageScore}%</span>
+                          </div>
+                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-indigo-500 transition-all duration-300"
+                              style={{ width: `${assessment.averageScore}%` }}
+                            />
+                          </div>
+                          <div className="text-xs text-gray-400">
+                            {assessment.completed} / {assessment.totalAttempts} completed
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-                  return (
-                    <tr key={item.learning_plan_id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                      <td className="p-3">
-                        <div>
-                          <div className="font-medium text-gray-900">{item.users.name}</div>
-                          <div className="text-sm text-gray-500">{item.users.email}</div>
+                {/* Learning Styles Distribution */}
+                <div className="bg-white rounded-xl border border-gray-200 p-6">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4">Learning Styles Distribution</h3>
+                  {learningStyleStats.length === 0 ? (
+                    <div className="py-12 text-center text-sm text-gray-400">
+                      No learning style data available
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {learningStyleStats.map((style, idx) => {
+                        const colors = ['bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500', 'bg-pink-500'];
+                        return (
+                          <div key={idx} className="space-y-1">
+                            <div className="flex justify-between text-sm">
+                              <span className="font-medium text-gray-700">{style.style}</span>
+                              <span className="text-gray-900 font-bold">{style.percentage}%</span>
+                            </div>
+                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full transition-all duration-300 ${colors[idx % colors.length]}`}
+                                style={{ width: `${style.percentage}%` }}
+                              />
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              {style.count} learners
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* KPI Performance - COMMENTED OUT */}
+              {/* 
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <h3 className="text-lg font-bold text-gray-900 mb-4">KPI Performance Metrics</h3>
+                {kpiStats.length === 0 ? (
+                  <div className="py-12 text-center text-sm text-gray-400">
+                    No KPI data available
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {kpiStats.map((kpi, idx) => (
+                      <div key={idx} className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-200">
+                        <p className="text-sm font-medium text-gray-700 mb-2 truncate">{kpi.kpiName}</p>
+                        <p className="text-2xl font-bold text-gray-900">{kpi.averageScore}</p>
+                        <p className="text-xs text-gray-500 mt-1">Average score</p>
+                        <div className="mt-3 pt-3 border-t border-gray-200">
+                          <p className="text-xs text-gray-600">{kpi.totalScores} records</p>
                         </div>
-                      </td>
-                      <td className="p-3">
-                        <div className="font-medium text-gray-700">{item.training_modules.title}</div>
-                      </td>
-                      <td className="text-center p-3">
-                        <div className="flex flex-col items-center gap-1">
-                          {getStatusBadge(item.status)}
-                          {daysOverdue && (
-                            <span className="text-xs text-red-600 flex items-center">
-                              <AlertCircle className="w-3 h-3 mr-1" />
-                              {daysOverdue} days overdue
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="text-center p-3 text-sm">{formatDate(item.assigned_on)}</td>
-                      <td className="text-center p-3 text-sm">{formatDate(item.started_at)}</td>
-                      <td className="text-center p-3 text-sm">{formatDate(item.completed_at)}</td>
-                      <td className="text-center p-3 text-sm">
-                        {item.due_date ? (
-                          <span className={daysOverdue ? 'text-red-600 font-medium' : ''}>
-                            {formatDate(item.due_date)}
-                          </span>
-                        ) : 'No due date'}
-                      </td>
-                      <td className="text-center p-3">
-                        {item.baseline_assessment === 1 ? (
-                          <Badge variant="outline" className="text-blue-600 border-blue-600">Required</Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-gray-600 border-gray-600">Not Required</Badge>
-                        )}
-                      </td>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              */}
+            </div>
+          )}
+
+          {activeTab === 'Users' && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-gray-900">All learners</h2>
+                <select className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700">
+                  <option>All status</option>
+                  <option>Completed</option>
+                  <option>In Progress</option>
+                  <option>Not Started</option>
+                </select>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-100">
+                      {['Name','Department','Sprints opened','Quiz score','Time spent','Status'].map(h => (
+                        <th key={h} className="text-left px-6 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">{h}</th>
+                      ))}
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          
-          {progressData.length === 0 && (
-            <div className="text-center py-8 text-gray-500">
-              <BarChart3 className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No progress data found</p>
-              <p className="text-sm">Assign Sprints to employees to see progress tracking</p>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {[...new Map(progressData.map((p: any) => [p.user_id, p])).values()].map((item: any, i: number) => {
+                      const initials = item.users?.name?.split(' ').map((n: string) => n[0]).join('') || '?';
+                      const avatarColors = ['bg-purple-100 text-purple-600','bg-blue-100 text-blue-600','bg-green-100 text-green-600','bg-amber-100 text-amber-600'];
+                      const statusStyles: Record<string,string> = { COMPLETED:'bg-green-100 text-green-700', IN_PROGRESS:'bg-yellow-100 text-yellow-700', ASSIGNED:'bg-red-100 text-red-600' };
+                      const statusLabels: Record<string,string> = { COMPLETED:'COMPLETED', IN_PROGRESS:'IN PROGRESS', ASSIGNED:'NOT STARTED' };
+                      return (
+                        <tr key={i} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedUser(item)}>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0 ${avatarColors[i % avatarColors.length]}`}>
+                                {initials}
+                              </div>
+                              <span className="font-medium text-gray-900">{item.users?.name}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-gray-500">{item.users?.department || '—'}</td>
+                          <td className="px-6 py-4 font-medium">{item.completedItems}/{item.totalItems}</td>
+                          <td className="px-6 py-4 font-medium">{item.quizScore ?? '—'}</td>
+                          <td className="px-6 py-4 text-gray-500">{item.time_spent_seconds ? `${(item.time_spent_seconds / 3600).toFixed(1)}h` : '—'}</td>
+                          <td className="px-6 py-4">
+                            <span className={`text-xs font-semibold px-3 py-1 rounded-md ${statusStyles[item.status] || 'bg-gray-100 text-gray-600'}`}>
+                              {statusLabels[item.status] || item.status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
-          {progressData.length > 50 && (
-            <div className="text-center py-4 text-gray-500 border-t">
-              <p className="text-sm">Showing first 50 entries of {progressData.length} total records</p>
+          {activeTab === 'Sprints' && (
+            <div className="space-y-6">
+              {/* <h2 className="text-xl font-bold text-gray-900 mb-6">Sprint performance</h2> */}
+              
+              {/* Sprint Cards Grid */}
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Sprint Details</h3>
+                {moduleStats.length === 0 ? (
+                  <div className="py-12 text-center text-sm text-gray-400">
+                    <p>No sprint data available</p>
+                    <p className="text-xs mt-2">moduleStats count: {moduleStats.length}</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-4">
+                    {moduleStats.map((sprint: any, i: number) => {
+                    const barColors = ['#6366F1','#22C55E','#F59E0B','#EF4444','#A855F7','#3B82F6'];
+                    const color = barColors[i % barColors.length];
+                    const videoPct = (sprint.video_seconds_total ?? 0) > 0
+                      ? Math.round((sprint.video_seconds_watched ?? 0) / sprint.video_seconds_total * 100)
+                      : null;
+                    return (
+                      <div key={sprint.moduleId} className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
+                        <div className="mb-4">
+                          <h3 className="font-bold text-gray-900 text-lg mb-1">{sprint.title || 'Unknown Sprint'}</h3>
+                          {/* <p className="text-xs text-gray-500">ID: {sprint.moduleId}</p> */}
+                        </div>
+                        
+                        {/* Key Metrics */}
+                        <div className="grid grid-cols-2 gap-3 mb-6">
+                          <div className="bg-blue-50 rounded-lg p-3">
+                            <p className="text-xs text-gray-600 mb-1">Assigned</p>
+                            <p className="text-xl font-bold text-gray-900">{sprint.totalAssigned || 0}</p>
+                          </div>
+                          <div className="bg-green-50 rounded-lg p-3">
+                            <p className="text-xs text-gray-600 mb-1">Completed</p>
+                            <p className="text-xl font-bold text-gray-900">{sprint.completed || 0}</p>
+                          </div>
+                          <div className="bg-yellow-50 rounded-lg p-3">
+                            <p className="text-xs text-gray-600 mb-1">In Progress</p>
+                            <p className="text-xl font-bold text-gray-900">{sprint.inProgress || 0}</p>
+                          </div>
+                          <div className="bg-red-50 rounded-lg p-3">
+                            <p className="text-xs text-gray-600 mb-1">Not Started</p>
+                            <p className="text-xl font-bold text-gray-900">{sprint.notStarted || 0}</p>
+                          </div>
+                        </div>
+
+                        {/* Completion Rate */}
+                        <div className="mb-6">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm text-gray-600 font-medium">Completion Rate</span>
+                            <span className="font-bold text-gray-900">{sprint.completionRate || 0}%</span>
+                          </div>
+                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all" style={{ width:`${sprint.completionRate || 0}%`, background:color }} />
+                          </div>
+                        </div>
+
+                        {/* Performance Metrics */}
+                        <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-200">
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Avg Score</p>
+                            <p className="text-2xl font-bold text-gray-900">{sprint.averageScore ?? 0}%</p>
+                            <p className="text-xs text-gray-500 mt-1">Quiz performance</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Avg Time</p>
+                            <p className="text-2xl font-bold text-gray-900">{sprint.averageCompletionTime ?? 0}</p>
+                            <p className="text-xs text-gray-500 mt-1">days to complete</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  </div>
+                )}
+              </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+
+          {activeTab === 'Detailed Analytics' && (
+            <div className="space-y-6">
+              <div className="bg-white border border-gray-200 rounded-xl p-5">
+                <div className="grid grid-cols-3 gap-6">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Sprint filter</p>
+                    <select value={selectedModule} onChange={(e) => setSelectedModule(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white text-gray-700">
+                      <option value="all">All Sprints</option>
+                      {modules.map((m: any) => <option key={m.module_id} value={m.module_id}>{m.title}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Assessment type</p>
+                    <select value={selectedAssessmentType} onChange={(e) => setSelectedAssessmentType(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white text-gray-700">
+                      <option value="all">All Types</option>
+                      <option value="baseline">Baseline</option>
+                      <option value="module">Module</option>
+                    </select>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Time range</p>
+                    <select value={selectedTimeRange} onChange={(e) => setSelectedTimeRange(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white text-gray-700">
+                      <option value="7">Last 7 days</option>
+                      <option value="30">Last 30 days</option>
+                      <option value="90">Last 90 days</option>
+                      <option value="all">All time</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Overall Completion Status Doughnut Chart */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <CheckCircle className="w-5 h-5 mr-2" />
+                      Overall Assignment Status
+                    </CardTitle>
+                    <CardDescription>Distribution of assignment statuses across all Sprints</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-80">
+                      <Doughnut
+                        data={{
+                          labels: ['Completed', 'In Progress', 'Not Started'],
+                          datasets: [{
+                            data: [
+                              overallStats.completedAssignments,
+                              overallStats.inProgressAssignments,
+                              overallStats.notStartedAssignments
+                            ],
+                            backgroundColor: [
+                              'rgb(34, 197, 94)', // green-500
+                              'rgb(59, 130, 246)', // blue-500
+                              'rgb(251, 191, 36)', // yellow-500
+                            ],
+                            borderColor: [
+                              'rgb(22, 163, 74)', // green-600
+                              'rgb(37, 99, 235)', // blue-600
+                              'rgb(245, 158, 11)', // yellow-600
+                            ],
+                            borderWidth: 2,
+                          }]
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: {
+                            legend: {
+                              position: 'bottom' as const,
+                              labels: {
+                                padding: 20,
+                                usePointStyle: true,
+                              }
+                            },
+                            tooltip: {
+                              callbacks: {
+                                label: function(context) {
+                                  const label = context.label || '';
+                                  const value = context.parsed;
+                                  const total = overallStats.totalAssignments;
+                                  const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
+                                  return `${label}: ${value} (${percentage}%)`;
+                                }
+                              }
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="mt-4 text-center text-sm text-gray-600">
+                      Total Assignments: {overallStats.totalAssignments}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Sprint Completion Rates Bar Chart */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <BarChart3 className="w-5 h-5 mr-2" />
+                      Sprint Completion Rates
+                    </CardTitle>
+                    <CardDescription>Completion percentage for each Sprint</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-80">
+                      <Bar
+                        data={{
+                          labels: moduleStats.map(module => 
+                            module.title.length > 20 ? module.title.substring(0, 20) + '...' : module.title
+                          ),
+                          datasets: [{
+                            label: 'Completion Rate (%)',
+                            data: moduleStats.map(module => module.completionRate),
+                            backgroundColor: 'rgba(34, 197, 94, 0.8)', // green with transparency
+                            borderColor: 'rgb(34, 197, 94)',
+                            borderWidth: 1,
+                          }]
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: {
+                            legend: {
+                              display: false,
+                            },
+                            tooltip: {
+                              callbacks: {
+                                title: function(context) {
+                                  const index = context[0].dataIndex;
+                                  return moduleStats[index]?.title || '';
+                                },
+                                label: function(context) {
+                                  const index = context.dataIndex;
+                                  const module = moduleStats[index];
+                                  return [
+                                    `Completion Rate: ${context.parsed.y}%`,
+                                    `Completed: ${module.completed}/${module.totalAssigned}`,
+                                    `In Progress: ${module.inProgress}`,
+                                    `Not Started: ${module.notStarted}`
+                                  ];
+                                }
+                              }
+                            }
+                          },
+                          scales: {
+                            y: {
+                              beginAtZero: true,
+                              max: 100,
+                              ticks: {
+                                callback: function(value) {
+                                  return value + '%';
+                                }
+                              }
+                            },
+                            x: {
+                              ticks: {
+                                maxRotation: 45,
+                                font: {
+                                  size: 10
+                                }
+                              }
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Assessment Performance Bar Chart */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <Award className="w-5 h-5 mr-2" />
+                      Assessment Performance
+                    </CardTitle>
+                    <CardDescription>Average scores across different assessment types</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-80">
+                      <Bar
+                        data={{
+                          labels: assessmentStats.map(assessment => 
+                            `${assessment.type.charAt(0).toUpperCase() + assessment.type.slice(1)}\n${
+                              assessment.moduleTitle.length > 15 ? 
+                              assessment.moduleTitle.substring(0, 15) + '...' : 
+                              assessment.moduleTitle
+                            }`
+                          ),
+                          datasets: [
+                            {
+                              label: 'Average Score (%)',
+                              data: assessmentStats.map(assessment => assessment.averageScore),
+                              backgroundColor: assessmentStats.map(assessment => 
+                                assessment.type === 'baseline' ? 'rgba(59, 130, 246, 0.8)' : 'rgba(168, 85, 247, 0.8)'
+                              ),
+                              borderColor: assessmentStats.map(assessment => 
+                                assessment.type === 'baseline' ? 'rgb(59, 130, 246)' : 'rgb(168, 85, 247)'
+                              ),
+                              borderWidth: 1,
+                            },
+                            {
+                              label: 'Completion Rate (%)',
+                              data: assessmentStats.map(assessment => assessment.completionRate),
+                              backgroundColor: 'rgba(34, 197, 94, 0.6)',
+                              borderColor: 'rgb(34, 197, 94)',
+                              borderWidth: 1,
+                            }
+                          ]
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: {
+                            legend: {
+                              position: 'top' as const,
+                            },
+                            tooltip: {
+                              callbacks: {
+                                title: function(context) {
+                                  const index = context[0].dataIndex;
+                                  const assessment = assessmentStats[index];
+                                  return `${assessment.type.charAt(0).toUpperCase() + assessment.type.slice(1)} - ${assessment.moduleTitle}`;
+                                },
+                                label: function(context) {
+                                  const index = context.dataIndex;
+                                  const assessment = assessmentStats[index];
+                                  if (context.datasetIndex === 0) {
+                                    return `Average Score: ${context.parsed.y}%`;
+                                  } else {
+                                    return `Completion Rate: ${context.parsed.y}% (${assessment.completed}/${assessment.totalAttempts})`;
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          scales: {
+                            y: {
+                              beginAtZero: true,
+                              max: 100,
+                              ticks: {
+                                callback: function(value) {
+                                  return value + '%';
+                                }
+                              }
+                            },
+                            x: {
+                              ticks: {
+                                maxRotation: 45,
+                                font: {
+                                  size: 9
+                                }
+                              }
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Learning Style Distribution Pie Chart - Only show if learning style is enabled */}
+                {companyLearningStyleEnabled ? (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center">
+                        <Brain className="w-5 h-5 mr-2" />
+                        Learning Style Distribution
+                      </CardTitle>
+                      <CardDescription>Employee learning style preferences breakdown</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-80">
+                        <Pie
+                          data={{
+                            labels: learningStyleStats.map(style => style.style),
+                            datasets: [{
+                              data: learningStyleStats.map(style => style.count),
+                              backgroundColor: [
+                                'rgb(239, 68, 68)', // red-500
+                                'rgb(34, 197, 94)', // green-500
+                                'rgb(59, 130, 246)', // blue-500
+                                'rgb(168, 85, 247)', // purple-500
+                                'rgb(245, 158, 11)', // yellow-500
+                                'rgb(236, 72, 153)', // pink-500
+                                'rgb(14, 165, 233)', // sky-500
+                                'rgb(249, 115, 22)', // orange-500
+                              ],
+                              borderColor: 'rgb(255, 255, 255)',
+                              borderWidth: 2,
+                            }]
+                          }}
+                          options={{
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                              legend: {
+                                position: 'bottom' as const,
+                                labels: {
+                                  padding: 15,
+                                  usePointStyle: true,
+                                  font: {
+                                    size: 11
+                                  }
+                                }
+                              },
+                              tooltip: {
+                                callbacks: {
+                                  label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.parsed;
+                                    const total = learningStyleStats.reduce((sum, style) => sum + style.count, 0);
+                                    const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
+                                    return `${label}: ${value} employees (${percentage}%)`;
+                                  }
+                                }
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center">
+                        <Brain className="w-5 h-5 mr-2" />
+                        Learning Style Distribution
+                      </CardTitle>
+                      <CardDescription>Learning style preferences are currently disabled</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-80 flex flex-col items-center justify-center text-center px-8">
+                        <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-6">
+                          <Brain className="w-10 h-10 text-gray-400" />
+                        </div>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-2">Learning Style Disabled</h3>
+                        <p className="text-gray-600 max-w-md">
+                          Learning style preferences are currently turned off for your company. 
+                          All employees use the default learning experience.
+                        </p>
+                        <p className="text-sm text-gray-500 mt-4">
+                          Contact your administrator to enable personalized learning styles.
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+
+              {/* Assessment Performance Table */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <FileText className="w-5 h-5 mr-2" />
+                    Assessment Performance
+                  </CardTitle>
+                  <CardDescription>Performance metrics for baseline and Sprint's assessments</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b">
+                          {['Assessment Type', 'Module', 'Avg Score', 'Completion Rate', 'Total Attempts', 'Completed'].map(h => (
+                            <th key={h} className="text-left px-4 py-3 font-medium text-gray-700">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {assessmentStats.map((assessment: any, i: number) => (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-4 py-3">{assessment.type}</td>
+                            <td className="px-4 py-3">{assessment.moduleTitle}</td>
+                            <td className="px-4 py-3 font-medium">{assessment.averageScore}%</td>
+                            <td className="px-4 py-3">{assessment.completionRate}%</td>
+                            <td className="px-4 py-3">{assessment.totalAttempts}</td>
+                            <td className="px-4 py-3 text-green-600 font-medium">{assessment.completed}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* KPI Performance Table */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Target className="w-5 h-5 mr-2" />
+                    KPI Performance Overview
+                  </CardTitle>
+                  <CardDescription>Key Performance Indicators and benchmark achievements</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b">
+                          {['KPI Name', 'Benchmark', 'Avg Score', 'Achievement Rate', 'Above Benchmark', 'Below Benchmark'].map(h => (
+                            <th key={h} className="text-left px-4 py-3 font-medium text-gray-700">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {kpiStats.map((kpi: any, i: number) => (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 font-medium">{kpi.kpiName}</td>
+                            <td className="px-4 py-3">{kpi.benchmark || '—'}</td>
+                            <td className="px-4 py-3 font-medium">{kpi.averageScore}</td>
+                            <td className="px-4 py-3">{kpi.benchmarkAchievementRate !== null ? `${kpi.benchmarkAchievementRate}%` : '—'}</td>
+                            <td className="px-4 py-3 text-green-600 font-medium">{kpi.aboveBenchmark}</td>
+                            <td className="px-4 py-3 text-red-600 font-medium">{kpi.belowBenchmark}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Detailed Progress Table */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Clock className="w-5 h-5 mr-2" />
+                    Detailed User Progress
+                  </CardTitle>
+                  <CardDescription>Individual progress tracking for all assignments</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b">
+                          {['User', 'Sprint', 'Status', 'Assigned Date', 'Started Date', 'Completed Date', 'Days Overdue'].map(h => (
+                            <th key={h} className="text-left px-3 py-2 font-medium text-gray-700">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {progressData.slice(0, 50).map((item: any, i: number) => (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-3 py-2">{item.users?.name || 'Unknown'}</td>
+                            <td className="px-3 py-2">{item.training_modules?.title || '—'}</td>
+                            <td className="px-3 py-2">{getStatusBadge(item.status)}</td>
+                            <td className="px-3 py-2">{formatDate(item.assigned_on)}</td>
+                            <td className="px-3 py-2">{formatDate(item.started_at)}</td>
+                            <td className="px-3 py-2">{formatDate(item.completed_at)}</td>
+                            <td className="px-3 py-2">{getDaysOverdue(item.due_date, item.status) ? `${getDaysOverdue(item.due_date, item.status)} days` : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {progressData.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      <p>No progress data available</p>
+                    </div>
+                  )}
+
+                  {progressData.length > 50 && (
+                    <div className="mt-4 text-sm text-gray-500 text-center">
+                      Showing 50 of {progressData.length} records. Use filters to narrow results.
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 mb-4">Sprint Performance Overview</h2>
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        {['Sprint','Assigned','Completed','In Progress','Completion Rate','Avg Time'].map(h => (
+                          <th key={h} className="text-left px-6 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {moduleStats.map((m: any, i: number) => (
+                        <tr key={i} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 font-medium text-gray-900">{m.title}</td>
+                          <td className="px-6 py-4">{m.totalAssigned}</td>
+                          <td className="px-6 py-4 text-green-600 font-medium">{m.completed}</td>
+                          <td className="px-6 py-4 text-blue-600 font-medium">{m.inProgress}</td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-green-500 rounded-full" style={{ width:`${m.completionRate}%` }} />
+                              </div>
+                              <span className="text-sm font-medium">{m.completionRate}%</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-gray-500">{m.averageCompletionTime > 0 ? `${m.averageCompletionTime} days` : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
