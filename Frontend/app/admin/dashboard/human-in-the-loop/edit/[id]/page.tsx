@@ -4,11 +4,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
-import { ArrowLeft, Eye, GitCompare, Edit3, Sparkles, ShieldAlert, Lock, RotateCcw, XCircle, AlertTriangle, CheckCircle, FileText, Upload, UserCheck, Clock, History } from 'lucide-react';
+import { ArrowLeft, Eye, GitCompare, Edit3, Sparkles, ShieldAlert, Lock, RotateCcw, XCircle, AlertTriangle, CheckCircle, FileText, Upload, UserCheck, Clock, History, Image as ImageIcon, Video, Music2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import EmployeeNavigation from '@/components/employee-navigation';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
+import { MediaAwareHtml, buildMediaEmbedMarkup, type ModuleMediaType } from '@/lib/module-media-embeds';
 
 interface TrainingModule {
   module_id: string;
@@ -330,6 +331,37 @@ export default function EditModulePage() {
     setSelectedSubModule(subModule);
     setHasUnsavedChanges(false);
     setActiveView('edit');
+  };
+
+  const insertMediaEmbedAtCursor = (type: ModuleMediaType) => {
+    if (!contentEditableRef.current) return;
+
+    const mediaUrl = window.prompt(`Enter a public ${type} URL (https://...):`);
+    if (!mediaUrl) return;
+
+    if (!/^https?:\/\//i.test(mediaUrl.trim())) {
+      alert('Please enter a valid http/https URL.');
+      return;
+    }
+
+    const title = window.prompt('Optional title for this media:', `${type.toUpperCase()} embed`) || '';
+    const description = window.prompt('Optional short description:') || '';
+
+    const embedMarkup = buildMediaEmbedMarkup({
+      type,
+      src: mediaUrl.trim(),
+      title,
+      description,
+    });
+
+    if (!embedMarkup) {
+      alert('Could not create media embed from the provided URL.');
+      return;
+    }
+
+    contentEditableRef.current.focus();
+    document.execCommand('insertHTML', false, embedMarkup);
+    handleContentEditableChange();
   };
 
   // ADMIN: Save edits locally (no DB write yet, just prepare for request approval)
@@ -701,7 +733,8 @@ export default function EditModulePage() {
 
   const ContentRenderer = ({ htmlContent }: { htmlContent: string }) => {
     return (
-      <div
+      <MediaAwareHtml
+        html={htmlContent}
         className="prose prose-sm max-w-none
           prose-headings:font-bold prose-headings:text-[#1E293B]
           prose-h1:text-3xl prose-h1:mb-6 prose-h1:mt-8
@@ -719,7 +752,6 @@ export default function EditModulePage() {
           prose-th:border prose-th:border-slate-300 prose-th:px-4 prose-th:py-3 prose-th:text-left prose-th:font-semibold prose-th:text-slate-900
           prose-td:border prose-td:border-slate-200 prose-td:px-4 prose-td:py-3 prose-td:text-slate-700
           prose-img:rounded-lg prose-img:shadow-md prose-img:my-6"
-        dangerouslySetInnerHTML={{ __html: htmlContent }}
       />
     );
   };
@@ -1027,11 +1059,44 @@ export default function EditModulePage() {
                             You can make edits to the content. Click "Save Edits" to update, then "Final Approval" to push live.
                           </p>
                         )}
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => insertMediaEmbedAtCursor('image')}
+                            className="border-slate-300"
+                          >
+                            <ImageIcon size={14} className="mr-2" />
+                            Embed Image
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => insertMediaEmbedAtCursor('video')}
+                            className="border-slate-300"
+                          >
+                            <Video size={14} className="mr-2" />
+                            Embed Video
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => insertMediaEmbedAtCursor('audio')}
+                            className="border-slate-300"
+                          >
+                            <Music2 size={14} className="mr-2" />
+                            Embed Audio
+                          </Button>
+                        </div>
                       </div>
                       <EditableContent htmlContent={editedContent} />
                       <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                         <p className="text-xs text-blue-800">
-                          <strong>💡 Editing Tips:</strong> Click anywhere to start editing. Use Ctrl+B for bold, Ctrl+I for italic. Your HTML structure will be preserved.
+                          <strong>💡 Editing Tips:</strong> Click anywhere to start editing. Use Ctrl+B for bold and Ctrl+I for italic. Use the embed buttons to insert image, video, and audio blocks between text sections.
                         </p>
                       </div>
                     </div>

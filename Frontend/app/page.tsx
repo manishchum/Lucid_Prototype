@@ -11,9 +11,7 @@ import {
   Puzzle, 
   Map, 
   TrendingUp, 
-  UserCheck, 
-  ShieldCheck, 
-  Fingerprint 
+  UserCheck
 } from "lucide-react";
 
 export default function LandingPage() {
@@ -170,6 +168,9 @@ export default function LandingPage() {
            </div> */}
         </div>
         <div className="flex items-center gap-4">
+          <Link href="/privacy-policy" className="text-xs font-semibold text-slate-500 hover:text-[#2563EB] transition-colors">
+            Privacy Policy
+          </Link>
           {/* <p className="text-[9px] text-slate-300 font-black uppercase tracking-widest">Powered By</p>
           <div className="px-4 py-2 bg-slate-50 rounded-full border border-slate-100 font-black text-[10px] text-[#0F172A]">Google Gemini</div> */}
         </div>
@@ -192,6 +193,7 @@ export default function LandingPage() {
           <nav className="flex flex-col items-center justify-center flex-1 gap-8 -mt-10">
             <a href="#features" className="text-xl font-black text-[#0F172A]">Features</a>
             <a href="#pricing" className="text-xl font-black text-[#0F172A]">Pricing</a>
+            <Link href="/privacy-policy" className="text-xl font-black text-[#0F172A]">Privacy Policy</Link>
             <Link href="/login" className="text-xl font-black text-[#0F172A]">Log In</Link>
             <Link href="/signup" className="w-full max-w-xs">
               <button className="w-full px-6 py-4 bg-[#2563EB] text-white rounded-full font-black text-lg shadow-lg">Sign up</button>

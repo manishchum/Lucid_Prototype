@@ -16,6 +16,7 @@ import VoiceInput from '@/components/VoiceInput';
 import VoiceOutput from '@/components/VoiceOutput';
 import { callGemini } from "@/lib/gemini-helper";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
+import { MediaAwareHtml } from '@/lib/module-media-embeds';
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -577,9 +578,9 @@ function ContentCards({ content }: { content: string }) {
                 </h2>
               </div>
             )}
-            <div
+            <MediaAwareHtml
+              html={formatContent(section.content)}
               className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: formatContent(section.content) }}
             />
           </div>
         );
