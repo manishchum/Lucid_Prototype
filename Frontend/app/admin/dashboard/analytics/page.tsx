@@ -82,18 +82,52 @@ const loadModules = async (companyId: string, adminUserId?: string) => {
   }
 };
 
-function UserDetailPanel({ user, onBack }: { user: any; onBack: () => void }) {
+function UserDetailPanel({ user, onBack, allProgressData }: { user: any; onBack: () => void; allProgressData?: any[] }) {
   const sprintsOpened = user.completedItems ?? 0;
   const totalSprints  = user.totalItems ?? 0;
   const quizScore     = user.quizScore ?? 0;
-  const timeSpent     = user.time_spent_seconds ? `${(user.time_spent_seconds / 3600).toFixed(1)}h` : '—';
+  
+  // Get all sprints for this user and calculate time spent from them
+  const userSprints = allProgressData?.filter((p: any) => p.user_id === user.user_id) || [];
+  const totalTimeSeconds = userSprints.reduce((sum, p: any) => sum + (p.time_spent_seconds || 0), 0);
+  const timeSpent = totalTimeSeconds > 0 ? `${(totalTimeSeconds / 3600).toFixed(1)}h` : '—';
+  
   const statusStyles: Record<string,string> = { COMPLETED:'bg-green-100 text-green-700', IN_PROGRESS:'bg-yellow-100 text-yellow-700', ASSIGNED:'bg-red-100 text-red-600' };
   const statusLabels: Record<string,string> = { COMPLETED:'COMPLETED', IN_PROGRESS:'IN PROGRESS', ASSIGNED:'NOT STARTED' };
-  const activities = [
-    { icon:'▶', color:'bg-purple-500', title:`Opened — ${user.training_modules?.title || 'Module'}`, time: user.assigned_on ? new Date(user.assigned_on).toLocaleDateString() : '' },
-    (user.status === 'IN_PROGRESS' || user.status === 'COMPLETED') ? { icon:'✓', color:'bg-green-500', title:'Started module', time: user.started_at ? new Date(user.started_at).toLocaleDateString() : '' } : null,
-    user.status === 'COMPLETED' ? { icon:'✓', color:'bg-green-500', title:'Completed module', time: user.completed_at ? new Date(user.completed_at).toLocaleDateString() : '', detail:'Completed on time' } : null,
-  ].filter(Boolean) as any[];
+  
+  // Create comprehensive activity log with timestamps
+  const activities = userSprints
+    .sort((a: any, b: any) => new Date(b.assigned_on).getTime() - new Date(a.assigned_on).getTime())
+    .map((sprint: any) => [
+      { 
+        icon:'📖', 
+        color:'bg-purple-500', 
+        title:`Opened — ${sprint.training_modules?.title || 'Sprint'}`, 
+        time: sprint.assigned_on ? new Date(sprint.assigned_on).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '', 
+        sprintId: sprint.module_id,
+        timestamp: sprint.assigned_on
+      },
+      (sprint.status === 'IN_PROGRESS' || sprint.status === 'COMPLETED') && sprint.started_at ? { 
+        icon:'▶️', 
+        color:'bg-blue-500', 
+        title:`Started — ${sprint.training_modules?.title || 'Sprint'}`, 
+        time: new Date(sprint.started_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }), 
+        sprintId: sprint.module_id,
+        timestamp: sprint.started_at
+      } : null,
+      sprint.status === 'COMPLETED' && sprint.completed_at ? { 
+        icon:'✓', 
+        color:'bg-green-500', 
+        title:`Completed — ${sprint.training_modules?.title || 'Sprint'}`, 
+        time: new Date(sprint.completed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }), 
+        detail:`Completed on time • Quiz Score: ${sprint.score ? `${sprint.score}%` : 'Not graded'}`,
+        sprintId: sprint.module_id,
+        timestamp: sprint.completed_at
+      } : null,
+    ].filter(Boolean))
+    .flat()
+    .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) as any[];
+
   return (
     <div>
       <div className="flex items-center gap-4 mb-1">
@@ -105,7 +139,7 @@ function UserDetailPanel({ user, onBack }: { user: any; onBack: () => void }) {
           {statusLabels[user.status] || user.status}
         </span>
       </div>
-      <p className="text-sm text-gray-400 mb-6 ml-24">{user.users?.department || '—'} · Last active: {user.last_active_at ? new Date(user.last_active_at).toLocaleDateString() : 'N/A'}</p>
+      <p className="text-sm text-gray-400 mb-6 ml-24">Last active: {user.last_active_at ? new Date(user.last_active_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Never'}</p>
       <div className="grid grid-cols-3 gap-4 mb-8">
         {[
           { label:'Sprints opened', value:`${sprintsOpened}/${totalSprints}` },
@@ -118,25 +152,35 @@ function UserDetailPanel({ user, onBack }: { user: any; onBack: () => void }) {
           </div>
         ))}
       </div>
-      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Activity log</p>
-      <div>
-        {activities.map((event: any, i: number) => (
-          <div key={i} className="flex gap-4">
-            <div className="flex flex-col items-center">
-              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs flex-shrink-0 ${event.color}`}>
-                {event.icon}
-              </div>
-              {i < activities.length - 1 && <div className="w-px flex-1 bg-gray-200 my-1 min-h-4" />}
-            </div>
-            <div className="pb-5 flex-1">
-              <p className="font-medium text-gray-900">{event.title}</p>
-              <p className="text-sm text-gray-400 mt-0.5">{event.time}</p>
-              {event.detail && (
-                <div className="mt-2 bg-gray-50 rounded-lg px-4 py-2 text-sm text-gray-500">{event.detail}</div>
-              )}
-            </div>
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Activity Timeline</p>
+      <div className="space-y-1">
+        {activities.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">
+            <p>No activity recorded yet</p>
           </div>
-        ))}
+        ) : (
+          activities.map((event: any, i: number) => (
+            <div key={i} className="flex gap-4 pb-4">
+              <div className="flex flex-col items-center">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-base flex-shrink-0 ${event.color}`}>
+                  {event.icon}
+                </div>
+                {i < activities.length - 1 && <div className="w-0.5 flex-1 bg-gray-200 my-2 min-h-6" />}
+              </div>
+              <div className="pb-5 flex-1 pt-1">
+                <p className="font-medium text-gray-900">{event.title}</p>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {event.time}
+                </p>
+                {event.detail && (
+                  <div className="mt-2 bg-blue-50 rounded-lg px-3 py-2 text-sm text-gray-600 border border-blue-100">
+                    {event.detail}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -1062,36 +1106,28 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       </div>
 
       {selectedUser ? (
-        <UserDetailPanel user={selectedUser} onBack={() => setSelectedUser(null)} />
+        <UserDetailPanel user={selectedUser} onBack={() => setSelectedUser(null)} allProgressData={progressData} />
       ) : (
         <>
           {activeTab === 'Overview' && (
             <div className="space-y-8">
               {/* Overall Statistics Cards */}
-              <div className="grid grid-cols-4 border border-gray-200 rounded-xl overflow-hidden bg-white mb-8">
+              <div className="grid grid-cols-3 border border-gray-200 rounded-xl overflow-hidden bg-white mb-8">
                 <div className="p-6 border-r border-gray-200">
                   <p className="text-sm text-gray-500">Total learners</p>
                   <p className="text-4xl font-bold text-gray-900 mt-1">{overallStats.totalEmployees}</p>
-                  <p className="text-sm text-gray-400 mt-1">{overallStats.activeEmployees} active today</p>
                 </div>
                 <div className="p-6 border-r border-gray-200">
-                  <p className="text-sm text-gray-500">Avg completion</p>
+                  <p className="text-sm text-gray-500">Completion Rate</p>
                   <p className="text-4xl font-bold text-gray-900 mt-1">
                     {overallStats.totalAssignments > 0
                       ? Math.round(overallStats.completedAssignments / overallStats.totalAssignments * 100)
                       : 0}%
                   </p>
-                  <p className="text-sm text-gray-400 mt-1">+4% vs last week</p>
-                </div>
-                <div className="p-6 border-r border-gray-200">
-                  <p className="text-sm text-gray-500">Avg quiz score</p>
-                  <p className="text-4xl font-bold text-gray-900 mt-1">{overallStats.averageAssessmentScore}/100</p>
-                  <p className="text-sm text-gray-400 mt-1">{overallStats.completedAssessments} completed</p>
                 </div>
                 <div className="p-6">
-                  <p className="text-sm text-gray-500">KPI Avg</p>
-                  <p className="text-4xl font-bold text-gray-900 mt-1">{overallStats.averageKpiScore}</p>
-                  <p className="text-sm text-gray-400 mt-1">Performance target: 80</p>
+                  <p className="text-sm text-gray-500">Quiz Score</p>
+                  <p className="text-4xl font-bold text-gray-900 mt-1">{overallStats.averageAssessmentScore}/100</p>
                 </div>
               </div>
 
@@ -1099,7 +1135,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
               <div className="grid grid-cols-2 gap-6">
                 {/* Module Completion Chart */}
                 <div className="bg-white rounded-xl border border-gray-200 p-6">
-                  <h3 className="text-lg font-bold text-gray-900 mb-4">Module Completion Status</h3>
+                  <h3 className="text-lg font-bold text-gray-900 mb-4">Sprint Completion Status</h3>
                   {moduleStats.length === 0 ? (
                     <div className="py-12 text-center text-sm text-gray-400">
                       Loading data...
@@ -1201,7 +1237,10 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                       {assessmentStats.slice(0, 4).map((assessment, idx) => (
                         <div key={idx} className="space-y-1">
                           <div className="flex justify-between text-sm">
-                            <span className="font-medium text-gray-700 truncate">{assessment.type}</span>
+                            <span className="font-medium text-gray-700 truncate">
+                              <span className="text-xs bg-gray-100 px-2 py-0.5 rounded mr-1">Sprint</span>
+                              {assessment.moduleTitle}
+                            </span>
                             <span className="text-gray-900 font-bold">{assessment.averageScore}%</span>
                           </div>
                           <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -1211,7 +1250,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                             />
                           </div>
                           <div className="text-xs text-gray-400">
-                            {assessment.completed} / {assessment.totalAttempts} completed
+                            {assessment.completed} / {assessment.totalAttempts} Completed
                           </div>
                         </div>
                       ))}
@@ -1243,7 +1282,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                               />
                             </div>
                             <div className="text-xs text-gray-400">
-                              {style.count} learners
+                              {style.count} Learners
                             </div>
                           </div>
                         );
@@ -1295,34 +1334,76 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-gray-100">
-                      {['Name','Department','Sprints opened','Quiz score','Time spent','Status'].map(h => (
+                      {['Name','Sprints opened','Quiz score','Time spent','Status'].map(h => (
                         <th key={h} className="text-left px-6 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {[...new Map(progressData.map((p: any) => [p.user_id, p])).values()].map((item: any, i: number) => {
-                      const initials = item.users?.name?.split(' ').map((n: string) => n[0]).join('') || '?';
+                      // Get all sprints for this user to calculate aggregates
+                      const userAllSprints = progressData.filter((p: any) => p.user_id === item.user_id);
+                      
+                      // Calculate totals
+                      const totalSprints = userAllSprints.length;
+                      const completedSprints = userAllSprints.filter((p: any) => p.status === 'COMPLETED').length;
+                      
+                      // Calculate average quiz score from enriched score field
+                      const scoresWithQuiz = userAllSprints
+                        .filter((p: any) => p.score !== null && p.score !== undefined && p.score !== 0)
+                        .map((p: any) => p.score);
+                      const avgQuizScore = scoresWithQuiz.length > 0 
+                        ? Math.round(scoresWithQuiz.reduce((sum, s) => sum + s, 0) / scoresWithQuiz.length)
+                        : null;
+                      
+                      // Calculate total time spent in hours
+                      const totalTimeSeconds = userAllSprints.reduce((sum, p: any) => sum + (p.time_spent_seconds || 0), 0);
+                      const timeSpentHours = totalTimeSeconds > 0 ? (totalTimeSeconds / 3600).toFixed(1) : '—';
+                      
+                      // Get user info - use first sprint's user data (same for all sprints)
+                      const userInfo = item.users || {};
+                      // Try to get department name, fallback to just showing "—" if not available
+                      const department = userInfo.department_name || userInfo.department || '—';
+                      
+                      // Get most recent activity date
+                      const allDates = userAllSprints
+                        .map((p: any) => [p.completed_at, p.started_at, p.assigned_on].filter(Boolean))
+                        .flat()
+                        .map((d: any) => new Date(d))
+                        .sort((a, b) => b.getTime() - a.getTime());
+                      const lastActivityDate = allDates.length > 0 ? allDates[0] : null;
+                      
+                      // Determine overall status (if any completed, show completed; if any in progress, show in progress; else not started)
+                      const overallStatus = completedSprints > 0 ? 'COMPLETED' : 
+                                            userAllSprints.some((p: any) => p.status === 'IN_PROGRESS') ? 'IN_PROGRESS' : 
+                                            'ASSIGNED';
+                      
+                      const initials = userInfo.name?.split(' ').map((n: string) => n[0]).join('') || '?';
                       const avatarColors = ['bg-purple-100 text-purple-600','bg-blue-100 text-blue-600','bg-green-100 text-green-600','bg-amber-100 text-amber-600'];
                       const statusStyles: Record<string,string> = { COMPLETED:'bg-green-100 text-green-700', IN_PROGRESS:'bg-yellow-100 text-yellow-700', ASSIGNED:'bg-red-100 text-red-600' };
                       const statusLabels: Record<string,string> = { COMPLETED:'COMPLETED', IN_PROGRESS:'IN PROGRESS', ASSIGNED:'NOT STARTED' };
+                      
                       return (
-                        <tr key={i} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedUser(item)}>
+                        <tr 
+                          key={i} 
+                          className="hover:bg-gray-50 cursor-pointer transition-colors"
+                          onClick={() => setSelectedUser({...item, quizScore: avgQuizScore, time_spent_seconds: totalTimeSeconds, completedItems: completedSprints, totalItems: totalSprints, status: overallStatus, last_active_at: lastActivityDate?.toISOString()})}
+                          title={`Click to view details for ${userInfo.name}`}
+                        >
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
                               <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0 ${avatarColors[i % avatarColors.length]}`}>
                                 {initials}
                               </div>
-                              <span className="font-medium text-gray-900">{item.users?.name}</span>
+                              <span className="font-medium text-gray-900">{userInfo.name || 'Unknown'}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-gray-500">{item.users?.department || '—'}</td>
-                          <td className="px-6 py-4 font-medium">{item.completedItems}/{item.totalItems}</td>
-                          <td className="px-6 py-4 font-medium">{item.quizScore ?? '—'}</td>
-                          <td className="px-6 py-4 text-gray-500">{item.time_spent_seconds ? `${(item.time_spent_seconds / 3600).toFixed(1)}h` : '—'}</td>
+                          <td className="px-6 py-4 font-medium text-gray-900">{completedSprints}/{totalSprints}</td>
+                          <td className="px-6 py-4 font-medium text-gray-900">{avgQuizScore !== null ? `${avgQuizScore}` : '—'}</td>
+                          <td className="px-6 py-4 text-gray-500 text-sm">{timeSpentHours === '—' ? '—' : `${timeSpentHours}h`}</td>
                           <td className="px-6 py-4">
-                            <span className={`text-xs font-semibold px-3 py-1 rounded-md ${statusStyles[item.status] || 'bg-gray-100 text-gray-600'}`}>
-                              {statusLabels[item.status] || item.status}
+                            <span className={`text-xs font-semibold px-3 py-1 rounded-md ${statusStyles[overallStatus] || 'bg-gray-100 text-gray-600'}`}>
+                              {statusLabels[overallStatus] || overallStatus}
                             </span>
                           </td>
                         </tr>
@@ -1395,14 +1476,14 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                         {/* Performance Metrics */}
                         <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-200">
                           <div>
-                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Avg Score</p>
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Score</p>
                             <p className="text-2xl font-bold text-gray-900">{sprint.averageScore ?? 0}%</p>
-                            <p className="text-xs text-gray-500 mt-1">Quiz performance</p>
+                            <p className="text-xs text-gray-500 mt-1">Quiz Performance</p>
                           </div>
                           <div>
-                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Avg Time</p>
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Completion Time</p>
                             <p className="text-2xl font-bold text-gray-900">{sprint.averageCompletionTime ?? 0}</p>
-                            <p className="text-xs text-gray-500 mt-1">days to complete</p>
+                            <p className="text-xs text-gray-500 mt-1">Days To Complete</p>
                           </div>
                         </div>
                       </div>
@@ -1430,7 +1511,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                     <select value={selectedAssessmentType} onChange={(e) => setSelectedAssessmentType(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white text-gray-700">
                       <option value="all">All Types</option>
                       <option value="baseline">Baseline</option>
-                      <option value="module">Module</option>
+                      <option value="module">Sprint</option>
                     </select>
                   </div>
                   <div>
@@ -1439,7 +1520,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                       <option value="7">Last 7 days</option>
                       <option value="30">Last 30 days</option>
                       <option value="90">Last 90 days</option>
-                      <option value="all">All time</option>
+                      <option value="all">All Time</option>
                     </select>
                   </div>
                 </div>
@@ -1453,7 +1534,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                       <CheckCircle className="w-5 h-5 mr-2" />
                       Overall Assignment Status
                     </CardTitle>
-                    <CardDescription>Distribution of assignment statuses across all Sprints</CardDescription>
+                    <CardDescription>Distribution Of Assignment Status  Across All Sprints</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="h-80">
@@ -1518,7 +1599,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                       <BarChart3 className="w-5 h-5 mr-2" />
                       Sprint Completion Rates
                     </CardTitle>
-                    <CardDescription>Completion percentage for each Sprint</CardDescription>
+                    <CardDescription>Completion Rates For Each Sprint</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="h-80">
@@ -1595,14 +1676,14 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                       <Award className="w-5 h-5 mr-2" />
                       Assessment Performance
                     </CardTitle>
-                    <CardDescription>Average scores across different assessment types</CardDescription>
+                    <CardDescription>Scores Across Different Assessment Types</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="h-80">
                       <Bar
                         data={{
                           labels: assessmentStats.map(assessment => 
-                            `${assessment.type.charAt(0).toUpperCase() + assessment.type.slice(1)}\n${
+                            `Sprint\n${
                               assessment.moduleTitle.length > 15 ? 
                               assessment.moduleTitle.substring(0, 15) + '...' : 
                               assessment.moduleTitle
@@ -1777,14 +1858,14 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                     <FileText className="w-5 h-5 mr-2" />
                     Assessment Performance
                   </CardTitle>
-                  <CardDescription>Performance metrics for baseline and Sprint's assessments</CardDescription>
+                  <CardDescription>Performance Metrics for baseline and Sprint's assessments</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b">
-                          {['Assessment Type', 'Module', 'Avg Score', 'Completion Rate', 'Total Attempts', 'Completed'].map(h => (
+                          {['Assessment Type', 'Sprint', 'Avg Score', 'Completion Rate', 'Total Attempts', 'Completed'].map(h => (
                             <th key={h} className="text-left px-4 py-3 font-medium text-gray-700">{h}</th>
                           ))}
                         </tr>
@@ -2051,7 +2132,7 @@ export default function AnalyticsPage() {
           Analytics & Reports
         </h1>
         <p className="text-slate-600">
-          Track Employee Progress across all Sprints with detailed insights and performance metrics
+          Track Progress Across All Sprints With Detailed Insights & Performance Metrics
         </p>
       </div>
       
