@@ -233,36 +233,24 @@ export default function EmployeeWelcome() {
           <div className="max-w-6xl mx-auto w-full">
           
            {/* Dashboard Header */}
-           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-6 md:mb-10">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100 shrink-0">
-              <Users className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
-            </div>
-           <div className="flex flex-col gap-4 mb-10 md:flex-row md:items-start md:justify-between">
-             <div className="flex items-center gap-4">
-               <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100">
-                 <Users className="w-6 h-6 text-blue-600" />
+           <div className="mb-6 md:mb-10 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+             <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+               <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100 shrink-0">
+                 <Users className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
                </div>
-               <div>
-                 <h1 className="text-3xl font-black text-slate-900 tracking-tight">
-                   {employee?.name ? `Welcome, ${employee.name.split(' ')[0]}` : "Learner Dashboard"}
+               <div className="min-w-0 flex-1">
+                 <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight break-words">
+                   {employee?.name ? `Welcome, ${employee.name.split(" ")[0]}` : "Learner Dashboard"}
                  </h1>
-                 <p className="text-slate-500 font-medium text-sm">{employee?.email || "Personalized learning hub"}</p>
+                 <p className="text-xs sm:text-sm text-slate-500 font-medium break-all sm:break-normal">
+                   {employee?.email || "Personalized learning hub"}
+                 </p>
                </div>
              </div>
              <div className="w-full md:w-[320px]">
                <CompanySelector showLabel />
              </div>
            </div>
-
-            <div className="min-w-0 flex-1">
-              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight break-words">
-                {employee?.name ? `Welcome, ${employee.name.split(" ")[0]}` : "Learner Dashboard"}
-              </h1>
-              <p className="text-xs sm:text-sm text-slate-500 font-medium break-all sm:break-normal">
-                {employee?.email || "Personalized learning hub"}
-              </p>
-            </div>
-          </div>
 
            <div className="grid gap-4 md:gap-8">
              {/* Progress Nudge Card (Premium Circular Design) */}

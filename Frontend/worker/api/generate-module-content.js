@@ -16,11 +16,15 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 console.log("Supabase client created successfully")
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY  });
+const WORKER_BUILD_TAG = 'gemini-upload-fix-v3-2026-04-08';
+console.log(`[WORKER] Loaded generate-module-content (${WORKER_BUILD_TAG})`);
 
 // Configs 
 const TEMPERATURE = 0.1;
 const TOP_P = 1.0;
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+
 async function generateWithRetry(callFn, retries = 3) {
   let lastErr;
 
@@ -59,7 +63,8 @@ async function generateModuleContent({ moduleId = null } = {}) {
         ai_modules,
         ai_topics,
         ai_objectives,
-        gpt_summary
+        gpt_summary,
+        match_chunks
       )
     `)
     .or('content.is.null,content.eq.\'\',content.eq.""');
@@ -217,12 +222,25 @@ ${objectivesText}
       console.log(`[RAG] Fetching top-K chunks from vector DB...`);
       console.log(`[RAG] Module ID: ${mod.original_module_id}, Match count: 6`);
       
+      let matchChunks = 2; // fallback
+
+      if (Array.isArray(mod.training_modules)) {
+        for (const tm of mod.training_modules) {
+          if (tm.match_chunks) {
+            matchChunks = tm.match_chunks;
+            break;
+          }
+        }
+      }
+
+      console.log(`[RAG] Using dynamic match_chunks: ${matchChunks}`);
+
       const { data: matchedChunks, error: matchError } = await supabase.rpc(
         'match_module_chunks',
         {
           query_embedding: queryEmbedding,
           p_module_id: mod.original_module_id,
-          match_count: 6
+          match_count: matchChunks
 
         }
       );
@@ -235,27 +253,17 @@ ${objectivesText}
       }
 
       // -------------------------------------
-      // STEP 2.5: Fetch Images using ranked matched chunk_ids
+      // STEP 2.5: Fetch Images, Upload to Gemini, and Build Context
       // -------------------------------------
-
-      let matchedImages = [];
-
+      const imageContextParts = [];
+      const imageUrlReferences = [];
       if (matchedChunks && matchedChunks.length > 0) {
         const rankedChunkIds = matchedChunks.map(c => c.chunk_id);
-
         console.log(`[IMAGES] Fetching images for ranked chunk IDs:`, rankedChunkIds);
 
         const { data: images, error: imageError } = await supabase
           .from('vectordb_images')
-          .select(`
-            image_id,
-            image_url,
-            caption,
-            surrounding_text,
-            chunk_id,
-            module_id,
-            created_at
-          `)
+          .select('image_id, storage_path, caption, surrounding_text, chunk_id, module_id')
           .in('chunk_id', rankedChunkIds);
 
         if (imageError) {
@@ -264,9 +272,7 @@ ${objectivesText}
           const allImages = images || [];
           console.log(`[IMAGES] Total fetched images: ${allImages.length}`);
 
-          // Group images by chunk_id
           const imagesByChunkId = new Map();
-
           for (const img of allImages) {
             if (!imagesByChunkId.has(img.chunk_id)) {
               imagesByChunkId.set(img.chunk_id, []);
@@ -274,81 +280,105 @@ ${objectivesText}
             imagesByChunkId.get(img.chunk_id).push(img);
           }
 
-          // Rebuild image order based on matchedChunks priority
           const prioritizedImages = [];
           const MAX_TOTAL_IMAGES = 12;
-
-          // Only consider top 4 matched chunks
           const primaryChunks = (matchedChunks || []).slice(0, 6);
 
           for (let i = 0; i < primaryChunks.length; i++) {
             const chunk = primaryChunks[i];
             const chunkImages = imagesByChunkId.get(chunk.chunk_id) || [];
-
-            console.log(
-              `[IMAGES] Chunk rank ${i + 1} | chunk_id=${chunk.chunk_id} | available=${chunkImages.length}`
-            );
-
             for (const img of chunkImages) {
-              if (prioritizedImages.length >= MAX_TOTAL_IMAGES) break;
-
-              prioritizedImages.push({
-                ...img,
-                chunk_rank: i + 1,
-                chunk_similarity: chunk.similarity ?? null,
-              });
-            }
-
-            if (prioritizedImages.length >= MAX_TOTAL_IMAGES) {
-              console.log(`[IMAGES] Reached max total image cap: ${MAX_TOTAL_IMAGES}`);
-              break;
+              if (prioritizedImages.length < MAX_TOTAL_IMAGES) {
+                prioritizedImages.push({ ...img, chunk_rank: i + 1 });
+              }
             }
           }
 
-          matchedImages = prioritizedImages;
+          console.log(`[GEMINI] Uploading ${prioritizedImages.length} images...`);
+          for (const [index, img] of prioritizedImages.entries()) {
+            try {
+              const path = img.storage_path;
+              if (!path) {
+                  console.warn(`[GEMINI] Image object is missing storage_path`, img);
+                  continue;
+              }
 
-          console.log(
-            `[IMAGES] Prioritized images count after chunk-order rebuild: ${matchedImages.length}`
-          );
+              console.log(`[GEMINI] Downloading from private path: ${path}`);
+              console.log(`[GEMINI] Full image object:`, JSON.stringify(img, null, 2)); // Added for detailed logging
+              const { data: blob, error: downloadError } = await supabase.storage
+                .from('module-assets')
+                .download(path);
 
-          console.log(
-            '[IMAGES] Final ordered image sequence:',
-            matchedImages.map(img => ({
-              chunk_rank: img.chunk_rank,
-              chunk_id: img.chunk_id,
-              image_url: img.image_url
-            }))
-          );
+              if (downloadError) {
+                console.error(`[GEMINI] Supabase download error for path ${path}:`, downloadError.message);
+                throw downloadError;
+              }
+
+              const buffer = Buffer.from(await blob.arrayBuffer());
+
+              // Determine mimeType from file extension as a fallback
+              const fileName = path.split('/').pop();
+              const extension = fileName.split('.').pop().toLowerCase();
+              let mimeType = blob.type;
+              if (!mimeType || mimeType === 'application/octet-stream') {
+                switch (extension) {
+                  case 'png': mimeType = 'image/png'; break;
+                  case 'jpg':
+                  case 'jpeg':
+                    mimeType = 'image/jpeg'; break;
+                  case 'gif': mimeType = 'image/gif'; break;
+                  case 'webp': mimeType = 'image/webp'; break;
+                  default:
+                    console.warn(`[GEMINI] Unknown extension ${extension} for ${path}, using application/octet-stream`);
+                    mimeType = 'application/octet-stream';
+                }
+              }
+
+              console.log(`[GEMINI] Upload prep -> file: ${fileName}, ext: ${extension}, blob.type: ${blob.type || 'n/a'}, mimeType: ${mimeType}`);
+
+              const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+                .from('module-assets')
+                .createSignedUrl(path, 7 * 24 * 60 * 60);
+
+              if (signedUrlError) {
+                console.warn(`[GEMINI] Failed to create signed URL for ${path}:`, signedUrlError.message);
+              } else if (signedUrlData?.signedUrl) {
+                imageUrlReferences.push({
+                  url: signedUrlData.signedUrl,
+                  caption: img.caption || 'No caption',
+                  surroundingText: img.surrounding_text || 'N/A',
+                  storagePath: path,
+                  chunkId: img.chunk_id || '',
+                  chunkRank: img.chunk_rank || ''
+                });
+              }
+
+              const fileBlob = new Blob([buffer], { type: mimeType });
+              const file = await ai.files.upload({
+                file: fileBlob,
+                config: {
+                  mimeType,
+                  displayName: fileName
+                }
+              });
+
+              console.log(`[GEMINI] Uploaded ${file.displayName} as ${file.name}`);
+
+              imageContextParts.push(
+                { text: `\n[IMAGE ${index + 1} START]\n` },
+                { fileData: { mimeType: file.mimeType, fileUri: file.uri } },
+                { text: `\nCaption: ${img.caption || 'No caption'}\nRelated Text: ${img.surrounding_text || 'N/A'}\n[IMAGE ${index + 1} END]\n` }
+              );
+
+            } catch (err) {
+              console.error(`[GEMINI] Failed to process and upload image ${img.storage_path || img.image_id}:`, err.message);
+              if (err?.stack) {
+                console.error('[GEMINI] Upload error stack:', err.stack);
+              }
+            }
+          }
         }
       }
-
-      // -------------------------------------
-      // STEP 2.6: Build Image Context
-      // -------------------------------------
-
-      const imageContext = matchedImages.length > 0
-        ? `
-      -----------------------------
-      RETRIEVED IMAGE CONTEXT (AUTHORITATIVE)
-      -----------------------------
-      The following images were extracted from the source document.
-      They are ordered by matched chunk priority.
-      Images from the most relevant chunk appear first.
-      You MUST use them where contextually relevant.
-      Do NOT invent new images.
-
-      ${matchedImages.map((img, idx) => `
-      [IMAGE ${idx + 1}]
-      Chunk Priority: ${img.chunk_rank}
-      URL: ${img.image_url}
-      Caption: ${img.caption || 'No caption provided'}
-      Related Text: ${img.surrounding_text || 'N/A'}
-      Belongs to Chunk: ${img.chunk_id}
-      `).join('\n')}
-      `
-        : '';
-
-      console.log(`[IMAGES] Image context built: ${matchedImages.length}`);
 
       // -------------------------------------
       // STEP 3: Build RAG context
@@ -377,8 +407,23 @@ All entities present here are FACTUAL and must be reused verbatim when relevant.
 ${ragContext}
 `
         : '';
+
+      const imageUrlContext = imageUrlReferences.length > 0
+  ? `
+-----------------------------
+AVAILABLE IMAGE URLS (USE ONLY THESE)
+-----------------------------
+${imageUrlReferences.map((img, idx) => `${idx + 1}. URL: ${img.url}\n   Chunk ID: ${img.chunkId || 'N/A'}\n   Chunk Rank: ${img.chunkRank || 'N/A'}\n   Caption: ${img.caption}\n   Related Text: ${img.surroundingText}`).join('\n\n')}
+`
+  : `
+-----------------------------
+AVAILABLE IMAGE URLS (USE ONLY THESE)
+-----------------------------
+No image URLs are available for this module.
+`;
       
       console.log(`[RAG] Document context built: ${documentContext ? 'YES' : 'NO'}, Length: ${documentContext.length}`);
+      console.log(`[IMAGES] Signed URLs available for output: ${imageUrlReferences.length}`);
 
       // Compose prompt for the learning style of this row
       const style = mod.learning_style;
@@ -405,7 +450,8 @@ The following content is extracted verbatim from the source document.
 All entities present here are FACTUAL.
 
 ${documentContext}
-${imageContext}
+
+${imageUrlContext}
 
 ANTI-REPETITION RULE (CRITICAL)
 
@@ -432,6 +478,12 @@ The model MUST NOT:
 - Provide a general overview before sections
 
 The first section must immediately address a concept specific to the module title.
+
+STRICT TOPIC FOCUS RULE (CRITICAL)
+The model MUST focus exclusively on the topic defined by the **Module Title**.
+Do NOT introduce or discuss other topics, even if they are related.
+The entire module must be about the single, specific topic of "${mod.title}".
+If the source context contains information about multiple topics, you must ONLY use the information relevant to "${mod.title}".
 -----------------------------
 MODULE ISOLATION RULE (CRITICAL)
 -----------------------------
@@ -612,40 +664,40 @@ those specifics MUST appear verbatim in the generated content.
 If a concept is mentioned without specifics, keep explanations abstract and
 do NOT introduce specificity.
 
-If the source document is conceptual or educational
-(e.g., AI, GenAI, leadership theory, etc.) and does NOT contain
-company-specific entities:
 
 Do NOT force company references
 Stay domain-correct
 Do NOT introduce enterprise frameworks not present in the source
 
-**SOURCE TABLE REPLICATION RULE (MANDATORY)**
+SOURCE TABLE USAGE RULE (OPTIONAL, NOT MANDATORY)
 
-If ANY table exists in ${documentContext}:
+If a relevant table exists in ${documentContext}, the model MAY reproduce it in the module only when it directly helps explain the specific module topic.
 
-1. You MUST reproduce that table in the module.
-2. All rows, columns, headers, numbers, and wording MUST match verbatim.
-3. You may reformat it into valid HTML5 table structure,
-   but you MUST NOT:
-   - Modify wording
-   - Add rows
-   - Remove rows
-   - Summarize content
-   - Combine cells
-   - Interpret the table
-   - Add new comparison columns
+The model is NOT required to include a table in every module.
 
-If multiple tables exist:
-→ Include ALL of them.
+If a table is included:
 
-If numeric values, thresholds, limits, or caps appear in a table:
+All rows, columns, headers, numbers, and wording must match the source verbatim.
+The table may be reformatted into valid HTML5 table structure.
+The model MUST NOT:
+Modify wording
+Add rows
+Remove rows
+Summarize content
+Combine cells
+Interpret the table
+Add new comparison columns
+
+If multiple tables exist in the source:
+→ Include only those that are directly relevant to "${mod.title}".
+→ Do NOT include unrelated tables just because they exist.
+
+If numeric values, thresholds, limits, or caps appear in an included table:
 → They MUST appear unchanged.
 
-If no table exists in the document:
-→ Only create a table if the document logically structures
-   comparative or stepwise content.
-→ Do NOT invent comparison categories.
+If no relevant table exists for this module topic:
+→ Do NOT create a table.
+→ Tables are optional and should only be used when clearly useful.
 -----------------------------
 CONTROLLED EXPLANATION RULE
 -----------------------------
@@ -687,19 +739,41 @@ If the instructions above create a logical conflict, the model MUST:
 
 Under no circumstances should the response be empty.
 
+SECTION RULE:
+
+Do NOT include all sections every time.
+
+Use only what is needed from below:
+
+Concept Overview → for explanation
+Key Points → for listing
+Steps → only if process exists
+Comparison → only if comparing items
+Key Takeaway → optional (1–2 lines)
+
+IMPORTANT:
+
+Use maximum 2–3 sections only
+Do NOT repeat same idea in multiple sections
 ----------------------------------
-MINIMUM OUTPUT LENGTH REQUIREMENT
+OUTPUT LENGTH REQUIREMENT
 ----------------------------------
 
-The generated HTML must contain AT LEAST 8000 characters.
+The generated HTML for this module should target approximately 1400 characters total.
 
-If the content is shorter than 8000 characters, the model MUST:
+Preferred range:
+- Minimum: 1200 characters
+- Target: 1300 to 1500 characters
+- Hard upper preference: 1600 characters
 
-• Expand explanations of existing concepts
-• Add additional breakdown tables
-• Add deeper clarification paragraphs
-• Expand the module summary
-• Expand the learning activity instructions
+Rules:
+- Stop once the module is complete within the preferred range
+- Do NOT expand content artificially
+- Do NOT repeat the same explanation in different sections
+- Do NOT add filler tables or filler bullets
+- Keep the module concise but complete
+- If the source is too small, produce the best complete module possible without forced padding
+- If the content grows too long, prioritize the most relevant material for this module title only
 
 ----------------------------------
 DEADLOCK RESOLUTION RULE
@@ -722,16 +796,6 @@ Do NOT use Markdown symbols (#, **, ---, etc)
 Close all HTML tags properly
 Do NOT wrap the entire output in a single <div>
 
------------------------------
-TABLE REQUIREMENTS
------------------------------
-Use tables when comparing concepts, steps, or categories
-Comparison tables MUST include:
-  <table data-comparison="true">
-Step tables MUST include columns:
-  Step # | Action | Explanation
-All tables MUST use <thead> and <tbody>
-Every table must have a <caption> OR a heading immediately before it
 
 
 STRICT DOCUMENT LOCK:
@@ -778,43 +842,61 @@ REQUIRED HTML STRUCTURE
 <section class="module-section">
   <h2>Section 1: Descriptive Title</h2>
 
-  <h3>Concept Explanation</h3>
-  <p>Explain the concept clearly and thoroughly.</p>
+  <h3>Concept Overview</h3>
+  <p>Explain only the content needed for this module topic.</p>
 
-  <h3>Practical Interpretation</h3>
-  <p>Describe how this concept is commonly applied in real-world systems using generic, non-attributed examples.</p>
+  <!-- Optional blocks: include only if needed by the source -->
+  <!-- <h3>Key Points</h3>
+  <ul>
+    <li>Point 1</li>
+    <li>Point 2</li>
+  </ul> -->
 
-  <h3>Key Concept Breakdown</h3>
+  <!-- <h3>Steps</h3>
   <table>
     <thead>
       <tr>
-        <th>Aspect</th>
-        <th>Description</th>
-        <th>Illustrative Example</th>
+        <th>Step #</th>
+        <th>Action</th>
+        <th>Explanation</th>
       </tr>
     </thead>
     <tbody>
       <tr>
-        <td>Aspect 1</td>
-        <td>Description</td>
-        <td>Example</td>
+        <td>1</td>
+        <td>Action</td>
+        <td>Explanation</td>
       </tr>
     </tbody>
-  </table>
+  </table> -->
+
+  <!-- <h3>Comparison</h3>
+  <table data-comparison="true">
+    <thead>
+      <tr>
+        <th>Aspect</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Aspect</td>
+        <td>Description</td>
+      </tr>
+    </tbody>
+  </table> -->
 
   <blockquote class="key-takeaway">
-    <strong>Key Takeaway:</strong> Summarize the most important learning point.
+    <strong>Key Takeaway:</strong> Summarize only the most important point if useful.
   </blockquote>
 </section>
 
 <section class="activity">
   <h3>Learning Activity</h3>
   <p><strong>Objective:</strong> What the learner should achieve</p>
-  <p><strong>Time:</strong> Estimated duration</p>
   <ol>
     <li>Instruction step one</li>
     <li>Instruction step two</li>
-    <li>Reflection or deliverable</li>
   </ol>
 </section>
 
@@ -823,7 +905,6 @@ REQUIRED HTML STRUCTURE
   <ul>
     <li>Key takeaway 1</li>
     <li>Key takeaway 2</li>
-    <li>Key takeaway 3</li>
   </ul>
 </section>
 
@@ -844,68 +925,15 @@ Module is fully self-contained
       console.log(`[GEMINI] Prompt length: ${stylePrompt.length} chars`);
 
       const geminiContents = [
-      {
-        role: "user",
-        parts: [
-          { text: stylePrompt }
-        ]
-      }
-    ];
-
-    function getMimeType(url) {
-      if (url.endsWith('.png')) return 'image/png';
-      if (url.endsWith('.webp')) return 'image/webp';
-      return 'image/jpeg';
-    }
-
-    // Attach images if available
-    // if (matchedImages && matchedImages.length > 0) {
-    //   console.log(`[GEMINI] Attaching ${matchedImages.length} images to prompt`);
-
-    //   for (const img of matchedImages) {
-    //     geminiContents[0].parts.push({
-    //       fileData: {
-    //         fileUri: img.image_url, // must be public or signed URL
-    //         mimeType: getMimeType(img.image_url)
-    //       }
-    //     });
-    //   }
-    // }
-    const skipImagesForThisModule = false;
-    if(skipImagesForThisModule){
-      console.log("skipping image for first module");
-    }
-    if (matchedImages && matchedImages.length > 0 && !skipImagesForThisModule) {
-      console.log(`[GEMINI] Attaching ${matchedImages.length} images to prompt`);
-
-      for (const img of matchedImages) {
-
-        try {
-
-          const head = await axios.head(img.image_url, { timeout: 5000 });
-          const contentType = head.headers['content-type'] || '';
-
-          if (!contentType.startsWith('image/')) {
-            console.warn("[GEMINI] Skipping non-image:", img.image_url);
-            continue;
-          }
-
-          // console.log("[GEMINI] Attaching image:", img.image_url);
-
-          geminiContents[0].parts.push({
-            fileData: {
-              fileUri: img.image_url,
-              mimeType: contentType
-            }
-          });
-
-        } catch (err) {
-          console.warn("[GEMINI] Skipping unreachable image:", img.image_url);
+        {
+          role: "user",
+          parts: [
+            { text: stylePrompt },
+            ...imageContextParts
+          ]
         }
+      ];
 
-      }
-    }
-      
       // const response = await ai.models.generateContent({
       //   model: 'gemini-3-pro-preview',
       //   contents: geminiContents,
@@ -979,7 +1007,7 @@ Module is fully self-contained
             model: 'gemini-3-pro-preview',
             contents: geminiContents,
             generationConfig: {
-              maxOutputTokens: 2000,
+              maxOutputTokens: 1400,
               temperature: TEMPERATURE,
               topP: TOP_P
             }
@@ -1004,7 +1032,7 @@ Module is fully self-contained
               model: 'gemini-3-pro-preview',
               contents: geminiContents,
               generationConfig: {
-                maxOutputTokens: 2000,
+                maxOutputTokens: 1400,
                 temperature: TEMPERATURE,
                 topP: TOP_P
               }
@@ -1016,6 +1044,19 @@ Module is fully self-contained
       }
 
 
+    // Clean up uploaded files
+    for (const part of imageContextParts) {
+      if (part.fileData) {
+        try {
+          const fileUri = part.fileData.fileUri;
+          const fileName = fileUri.split('/').pop();
+          await ai.files.delete({ name: `files/${fileName}` });
+          console.log(`[GEMINI] Deleted uploaded file: ${fileName}`);
+        } catch (err) {
+          console.warn(`[GEMINI] Failed to delete file:`, err.message);
+        }
+      }
+    }
       
       let aiContent = '';
 
@@ -1041,6 +1082,21 @@ Module is fully self-contained
       if (!aiContent) {
         console.warn(`[CLEAN] No content generated for module: ${mod.processed_module_id} style: ${style}`);
         continue;
+      }
+
+      if (imageUrlReferences.length > 0 && !/<img\b/i.test(aiContent)) {
+        const fallbackFigures = imageUrlReferences.slice(0, 2).map((img) => {
+          const safeCaption = String(img.caption || 'Supporting visual')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+
+          return `<figure style="margin: 24px 0; text-align: center;">\n  <img \n    src="${img.url}"\n    alt="${safeCaption}"\n    style="width:250px; max-width:100%; height:auto; display:block; margin-left:auto; margin-right:auto;"\n    loading="lazy"\n  />\n  <figcaption style="margin-top:8px; text-align:center;">${safeCaption}</figcaption>\n</figure>`;
+        }).join('\n');
+
+        aiContent += `\n\n<section class="module-section">\n  <h2>Visual Reference</h2>\n  ${fallbackFigures}\n</section>`;
+        console.log('[GEMINI] Injected fallback figures because model output contained no <img> tags.');
       }
 
       // Remove any learning style code references (CS, CR, AS, AR) from content
