@@ -531,7 +531,10 @@ export default function EditModulePage() {
       }
 
       const data = await response.json();
-      const pendingEntries = data.history || [];
+      
+      
+      console.log(data)
+      const pendingEntries = data.history || data.data.history || [];
 
       if (!pendingEntries || pendingEntries.length === 0) {
         alert('No pending changes to approve.');
