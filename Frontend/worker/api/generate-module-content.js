@@ -304,7 +304,7 @@ ${objectivesText}
               }
 
               console.log(`[GEMINI] Downloading from private path: ${path}`);
-              console.log(`[GEMINI] Full image object:`, JSON.stringify(img, null, 2)); // Added for detailed logging
+              // console.log(`[GEMINI] Full image object:`, JSON.stringify(img, null, 2)); // Added for detailed logging
               const { data: blob, error: downloadError } = await supabase.storage
                 .from('module-assets')
                 .download(path);
@@ -662,7 +662,7 @@ Introduce examples that could apply equally to any other organization
 If a concept is mentioned with specifics (numbers, durations, caps, product names),
 those specifics MUST appear verbatim in the generated content.
 If a concept is mentioned without specifics, keep explanations abstract and
-do NOT introduce specificity.
+do NOT introduce specificity. 
 
 
 Do NOT force company references
@@ -762,9 +762,9 @@ OUTPUT LENGTH REQUIREMENT
 The generated HTML for this module should target approximately 1400 characters total.
 
 Preferred range:
-- Minimum: 1200 characters
-- Target: 1300 to 1500 characters
-- Hard upper preference: 1600 characters
+- Minimum: 8000 characters
+- Target: 5500 to 8500 characters
+- Hard upper preference: 8000 characters
 
 Rules:
 - Stop once the module is complete within the preferred range
@@ -1007,7 +1007,7 @@ Module is fully self-contained
             model: 'gemini-3-pro-preview',
             contents: geminiContents,
             generationConfig: {
-              maxOutputTokens: 1400,
+              maxOutputTokens: 3400,
               temperature: TEMPERATURE,
               topP: TOP_P
             }
@@ -1032,7 +1032,7 @@ Module is fully self-contained
               model: 'gemini-3-pro-preview',
               contents: geminiContents,
               generationConfig: {
-                maxOutputTokens: 1400,
+                maxOutputTokens: 3400,
                 temperature: TEMPERATURE,
                 topP: TOP_P
               }
