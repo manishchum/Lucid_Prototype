@@ -71,10 +71,10 @@ export default function LandingPage() {
         </div> */}
         
         <div className="hidden md:flex items-center gap-4">
-          <Link href="/login" className="text-sm font-bold text-slate-600 hover:text-blue-600 px-3 py-2">Log In</Link>
-          <Link href="/signup">
+          {/* <Link href="/login" className="text-sm font-bold text-slate-600 hover:text-blue-600 px-3 py-2">Log In</Link> */}
+          <Link href="/login">
             <button className="px-5 py-2.5 bg-[#2563EB] text-white rounded-full font-bold text-sm hover:bg-blue-700 transition-all shadow-md shadow-blue-100">
-              Sign Up
+              Log In
             </button>
           </Link>
         </div>
@@ -105,7 +105,7 @@ export default function LandingPage() {
 
           {/* Centered CTA with equal spacing above and below */}
           <div className="flex justify-center my-8">
-            <Link href="/signup" className="inline-flex items-center justify-center px-10 py-4 bg-gradient-to-r from-[#2563EB] via-[#6366F1] to-[#9333EA] text-white rounded-full text-xl font-black shadow-xl hover:scale-105 transition-all">
+            <Link href="/login" className="inline-flex items-center justify-center px-10 py-4 bg-gradient-to-r from-[#2563EB] via-[#6366F1] to-[#9333EA] text-white rounded-full text-xl font-black shadow-xl hover:scale-105 transition-all">
               Explore Lucid <ArrowRight size={20} className="ml-2" />
             </Link>
           </div>

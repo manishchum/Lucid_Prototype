@@ -80,8 +80,11 @@ export default function EditModulePage() {
   const [pendingHistoryMap, setPendingHistoryMap] = useState<Record<string, ContentHistory>>({});
   const [hasPendingReview, setHasPendingReview] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
 
   const contentEditableRef = useRef<HTMLDivElement>(null);
+  const videoUploadInputRef = useRef<HTMLInputElement>(null);
+  const savedSelectionRef = useRef<Range | null>(null);
 
   // Check authentication on mount
   useEffect(() => {
@@ -322,6 +325,58 @@ export default function EditModulePage() {
     }
   };
 
+  const saveCurrentSelection = () => {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      savedSelectionRef.current = selection.getRangeAt(0).cloneRange();
+    }
+  };
+
+  const restoreSavedSelection = () => {
+    const selection = window.getSelection();
+    if (selection && savedSelectionRef.current) {
+      selection.removeAllRanges();
+      selection.addRange(savedSelectionRef.current);
+    }
+  };
+
+  const insertMarkupAtCursor = (markup: string) => {
+    console.log("Attempting to insert markup at cursor:", markup); 
+    if (!contentEditableRef.current || !markup) return;
+    console.log("Content editable ref and markup are valid. Proceeding with insertion.");
+    const activeProcessedModuleId = selectedSubModule?.processed_module_id;
+    contentEditableRef.current.focus();
+
+    let nextContent = contentEditableRef.current.innerHTML;
+    if (savedSelectionRef.current) {
+      console.log("Inside the if block")
+      restoreSavedSelection();
+      document.execCommand('insertHTML', false, markup);
+      nextContent = `${contentEditableRef.current.innerHTML}+${markup}`;
+      
+    } else {
+      console.log("Inside the else block")
+      console.log(markup)
+      nextContent = `${contentEditableRef.current.innerHTML}${markup}`;
+    }
+
+    console.log(nextContent)
+    console.log(markup)
+    setEditedContent(nextContent);
+    setSelectedSubModule((previous) => previous ? { ...previous, content: nextContent } : previous);
+    if (activeProcessedModuleId) {
+      setSubModules((previous) => previous.map((subModule) => (
+        subModule.processed_module_id === activeProcessedModuleId
+          ? { ...subModule, content: nextContent }
+          : subModule
+      )));
+    }
+    console.log(editedContent)
+    console.log(contentEditableRef.current.innerHTML)
+    saveCurrentSelection();
+    handleContentEditableChange();
+  };
+
   const handleSubModuleClick = (subModule: ProcessedModule) => {
     if (hasUnsavedChanges) {
       if (!confirm('You have unsaved changes. Do you want to discard them?')) {
@@ -359,9 +414,64 @@ export default function EditModulePage() {
       return;
     }
 
-    contentEditableRef.current.focus();
-    document.execCommand('insertHTML', false, embedMarkup);
-    handleContentEditableChange();
+    insertMarkupAtCursor(embedMarkup);
+  };
+
+  const handleVideoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file) return;
+
+    if (!file.type.startsWith('video/') && !/\.(mp4|mov|webm|m4v|avi)$/i.test(file.name)) {
+      alert('Please choose a video file.');
+      return;
+    }
+
+    setIsUploadingVideo(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('moduleId', moduleId);
+
+      const response = await fetch('/api/module-media/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || error.detail || 'Video upload failed');
+      }
+
+      const payload = await response.json();
+      const mediaUrl = payload?.url as string | undefined;
+
+      if (!mediaUrl) {
+        throw new Error('Video upload succeeded, but no public URL was returned.');
+      }
+
+      const title = window.prompt('Optional title for this video:', file.name.replace(/\.[^.]+$/, '')) || 'Video embed';
+      const description = window.prompt('Optional short description for this video:') || '';
+
+      const embedMarkup = buildMediaEmbedMarkup({
+        type: 'video',
+        src: mediaUrl,
+        title,
+        description,
+      });
+
+      if (!embedMarkup) {
+        throw new Error('Could not build the video embed markup.');
+      }
+
+      insertMarkupAtCursor(embedMarkup);
+    } catch (error) {
+      console.error('Video upload error:', error);
+      alert(error instanceof Error ? error.message : 'Failed to upload video');
+    } finally {
+      setIsUploadingVideo(false);
+    }
   };
 
   // ADMIN: Save edits locally (no DB write yet, just prepare for request approval)
@@ -770,6 +880,8 @@ export default function EditModulePage() {
       <div
         ref={contentEditableRef}
         contentEditable={true}
+        onMouseUp={saveCurrentSelection}
+        onKeyUp={saveCurrentSelection}
         onInput={handleContentEditableChange}
         onBlur={handleContentEditableChange}
         suppressContentEditableWarning={true}
@@ -1068,6 +1180,7 @@ export default function EditModulePage() {
                             type="button"
                             size="sm"
                             variant="outline"
+                            onMouseDown={saveCurrentSelection}
                             onClick={() => insertMediaEmbedAtCursor('image')}
                             className="border-slate-300"
                           >
@@ -1078,6 +1191,7 @@ export default function EditModulePage() {
                             type="button"
                             size="sm"
                             variant="outline"
+                            onMouseDown={saveCurrentSelection}
                             onClick={() => insertMediaEmbedAtCursor('video')}
                             className="border-slate-300"
                           >
@@ -1088,6 +1202,19 @@ export default function EditModulePage() {
                             type="button"
                             size="sm"
                             variant="outline"
+                            onMouseDown={saveCurrentSelection}
+                            onClick={() => videoUploadInputRef.current?.click()}
+                            disabled={isUploadingVideo}
+                            className="border-slate-300"
+                          >
+                            <Upload size={14} className="mr-2" />
+                            {isUploadingVideo ? 'Uploading Video...' : 'Upload Video'}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onMouseDown={saveCurrentSelection}
                             onClick={() => insertMediaEmbedAtCursor('audio')}
                             className="border-slate-300"
                           >
@@ -1095,11 +1222,18 @@ export default function EditModulePage() {
                             Embed Audio
                           </Button>
                         </div>
+                        <input
+                          ref={videoUploadInputRef}
+                          type="file"
+                          accept="video/*,.mp4,.mov,.webm,.m4v,.avi"
+                          className="hidden"
+                          onChange={handleVideoUpload}
+                        />
                       </div>
                       <EditableContent htmlContent={editedContent} />
                       <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                         <p className="text-xs text-blue-800">
-                          <strong>💡 Editing Tips:</strong> Click anywhere to start editing. Use Ctrl+B for bold and Ctrl+I for italic. Use the embed buttons to insert image, video, and audio blocks between text sections.
+                          <strong>💡 Editing Tips:</strong> Click anywhere to start editing. Use Ctrl+B for bold and Ctrl+I for italic. Use the embed buttons to insert image, video, and audio blocks between text sections. Video uploads are saved to storage and inserted as public bucket links.
                         </p>
                       </div>
                     </div>
