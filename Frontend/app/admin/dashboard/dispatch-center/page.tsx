@@ -1364,62 +1364,13 @@ export default function AdminDispatchCenterPage() {
                 </div>
               )}
 
-              {/* 6. Sprint Image - Email only */}
-              {selectedSprintId && selectedChannel === 'email' && (
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
-                    6. Sprint Image (for email hero)
-                  </label>
-                  <div className="space-y-3">
-                    {/* Auto-fetched preview or loading */}
-                    {loadingImage ? (
-                      <div className="flex items-center gap-2 text-sm text-slate-400">
-                        <Loader2 size={14} className="animate-spin" /> Looking for sprint image…
-                      </div>
-                    ) : sprintImageUrl ? (
-                      <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
-                        <img
-                          src={sprintImageUrl}
-                          alt="Sprint image preview"
-                          className="w-full h-36 object-cover"
-                        />
-                        <button
-                          onClick={() => { setSprintImageUrl(''); setDraftedEmail(null); }}
-                          className="absolute top-2 right-2 w-7 h-7 bg-white/90 hover:bg-white rounded-full flex items-center justify-center shadow text-slate-600 hover:text-red-500 transition-colors"
-                          title="Remove image"
-                        >
-                          <X size={14} />
-                        </button>
-                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/40 to-transparent px-3 py-2">
-                          <p className="text-[11px] text-white/90 font-medium truncate">
-                            {sprintImageUrl.length > 60 ? sprintImageUrl.slice(0, 60) + '…' : sprintImageUrl}
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 text-sm">
-                        <span>🖼️</span> No image found for this sprint — paste a URL below.
-                      </div>
-                    )}
-                    {/* Manual URL override */}
-                    <input
-                      type="url"
-                      value={sprintImageUrl}
-                      onChange={(e) => { setSprintImageUrl(e.target.value); setDraftedEmail(null); }}
-                      placeholder="Paste an image URL to use in the email…"
-                      className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-blue-400 text-slate-700"
-                    />
-                  </div>
-                </div>
-              )}
-
               {/* 7. Dispatch Scheduling */}
               {selectedSprintId && (
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-2">
                       <Calendar size={14} />
-                      7. Dispatch Scheduling
+                      6. Dispatch Scheduling
                     </label>
                     <button
                       onClick={() => setScheduleEnabled(!scheduleEnabled)}

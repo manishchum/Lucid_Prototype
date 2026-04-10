@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import JSONResponse
 from google.generativeai import GenerativeModel
 import google.generativeai as genai
 from supabase import create_client, Client
 import os
 import asyncio
+
+from utils.auth import RequestAuth, get_request_auth_optional
 
 router = APIRouter()
 
@@ -20,6 +22,45 @@ supabase: Client = create_client(
 
 # WebSocket connections store
 connections = set()
+
+
+def _resolve_company_id(user_id: str | None, fallback_company_id: str | None) -> str | None:
+    if fallback_company_id:
+        return fallback_company_id
+
+    if not user_id:
+        return None
+
+    try:
+        company_res = supabase.table("users") \
+            .select("company_id") \
+            .eq("user_id", user_id) \
+            .single() \
+            .execute()
+
+        if company_res.data:
+            return company_res.data.get("company_id")
+    except Exception as lookup_error:
+        print("[module-chat] Failed to resolve company_id:", lookup_error)
+
+    return None
+
+
+def _persist_conversation(
+    processed_module_id: str,
+    user_id: str | None,
+    company_id: str | None,
+    conversation_payload: list[dict],
+) -> None:
+    try:
+        supabase.table("module_chat_conversations").insert({
+            "company_id": company_id,
+            "user_id": user_id,
+            "processed_module_id": processed_module_id,
+            "conversation": conversation_payload
+        }).execute()
+    except Exception as save_error:
+        print("[module-chat] Failed to persist conversation:", save_error)
 
 
 # Process STT (mock)
@@ -72,6 +113,29 @@ async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     connections.add(ws)
 
+    auth_ctx = get_request_auth_optional(
+        authorization=ws.headers.get("Authorization"),
+        x_user_id=ws.headers.get("X-User-ID"),
+    )
+    processed_module_id = ws.query_params.get("processed_module_id")
+    fallback_user_id = ws.query_params.get("user_id")
+    fallback_company_id = ws.query_params.get("company_id")
+    user_id = auth_ctx.user_id or fallback_user_id
+    company_id = _resolve_company_id(user_id, fallback_company_id)
+
+    if not processed_module_id or not user_id or not company_id:
+        await ws.send_json({
+            "error": "Missing required identifiers",
+            "details": {
+                "processed_module_id": processed_module_id,
+                "user_id": user_id,
+                "company_id": company_id
+            }
+        })
+        await ws.close(code=1008)
+        connections.remove(ws)
+        return
+
     print("New WebSocket connection for voice chat")
 
     try:
@@ -85,6 +149,19 @@ async def websocket_endpoint(ws: WebSocket):
                 llmResponse = await callLLM(transcript)
 
                 await streamTTS(ws, llmResponse)
+
+                if processed_module_id:
+                    _persist_conversation(
+                        processed_module_id=processed_module_id,
+                        user_id=user_id,
+                        company_id=company_id,
+                        conversation_payload=[
+                            {"role": "user", "content": transcript},
+                            {"role": "assistant", "content": llmResponse}
+                        ]
+                    )
+                else:
+                    print("[module-chat] WebSocket missing processed_module_id; skipping persistence")
 
             except Exception as error:
                 print("Error processing audio:", error)
@@ -102,7 +179,10 @@ async def websocket_endpoint(ws: WebSocket):
 
 # POST route
 @router.post("/module-chat")
-async def POST(request: Request):
+async def POST(
+    request: Request,
+    auth_ctx: RequestAuth = Depends(get_request_auth_optional),
+):
 
     try:
 
@@ -111,6 +191,8 @@ async def POST(request: Request):
         processed_module_id = body.get("processed_module_id")
         user_message = body.get("user_message")
         chat_history = body.get("chat_history")
+        fallback_user_id = body.get("user_id")
+        fallback_company_id = body.get("company_id")
 
         if not processed_module_id or not user_message:
 
@@ -169,6 +251,43 @@ Provide response in plain text. DO NOT include any HTML or markdown formatting. 
         result = model.generate_content(prompt)
 
         assistantMessage = result.text
+
+        conversation_payload = []
+
+        if chat_history and len(chat_history) > 0:
+            conversation_payload.extend(chat_history)
+
+        conversation_payload.append({
+            "role": "user",
+            "content": user_message
+        })
+
+        conversation_payload.append({
+            "role": "assistant",
+            "content": assistantMessage
+        })
+
+        user_id = auth_ctx.user_id or fallback_user_id
+        company_id = _resolve_company_id(user_id, fallback_company_id)
+
+        if not user_id or not company_id:
+            return JSONResponse(
+                {
+                    "error": "Missing required identifiers",
+                    "details": {
+                        "user_id": user_id,
+                        "company_id": company_id
+                    }
+                },
+                status_code=400
+            )
+
+        _persist_conversation(
+            processed_module_id=processed_module_id,
+            user_id=user_id,
+            company_id=company_id,
+            conversation_payload=conversation_payload
+        )
 
         return JSONResponse({
             "success": True,

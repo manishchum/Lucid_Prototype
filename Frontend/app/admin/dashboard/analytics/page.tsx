@@ -25,6 +25,7 @@ import {
   LineElement,
 } from 'chart.js';
 import { Bar, Pie, Doughnut, Line } from 'react-chartjs-2';
+import * as xlsx from 'xlsx';
 import { useRouter } from "next/navigation";
 
 // Register ChartJS components
@@ -120,7 +121,6 @@ function UserDetailPanel({ user, onBack, allProgressData }: { user: any; onBack:
         color:'bg-green-500', 
         title:`Completed — ${sprint.training_modules?.title || 'Sprint'}`, 
         time: new Date(sprint.completed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }), 
-        detail:`Completed on time • Quiz Score: ${sprint.score ? `${sprint.score}%` : 'Not graded'}`,
         sprintId: sprint.module_id,
         timestamp: sprint.completed_at
       } : null,
@@ -143,7 +143,6 @@ function UserDetailPanel({ user, onBack, allProgressData }: { user: any; onBack:
       <div className="grid grid-cols-3 gap-4 mb-8">
         {[
           { label:'Sprints opened', value:`${sprintsOpened}/${totalSprints}` },
-          { label:'Quiz score', value:`${quizScore} / 100` },
           { label:'Time spent', value:timeSpent },
         ].map((s, i) => (
           <div key={i} className="bg-white border border-gray-200 rounded-xl p-6">
@@ -1090,7 +1089,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
   return (
     <div className="space-y-6">
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
-        {['Overview', 'Users', 'Sprints', 'Detailed Analytics'].map(tab => (
+        {['Overview', 'Sprints', 'Detailed Analytics'].map(tab => (
           <button
             key={tab}
             onClick={() => { setActiveTab(tab); setSelectedUser(null); }}
@@ -1105,6 +1104,51 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
         ))}
       </div>
 
+      <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="grid grid-cols-3 gap-6">
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Sprint filter</p>
+            <select
+              value={selectedModule}
+              onChange={(e) => setSelectedModule(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white text-gray-700"
+            >
+              <option value="all">All Sprints</option>
+              {modules.map((module: any) => (
+                <option key={module.module_id} value={module.module_id}>
+                  {module.title}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Assessment type</p>
+            <select
+              value={selectedAssessmentType}
+              onChange={(e) => setSelectedAssessmentType(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white text-gray-700"
+            >
+              <option value="all">All Types</option>
+              <option value="baseline">Baseline</option>
+              <option value="module">Sprint</option>
+            </select>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Time range</p>
+            <select
+              value={selectedTimeRange}
+              onChange={(e) => setSelectedTimeRange(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white text-gray-700"
+            >
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="all">All Time</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       {selectedUser ? (
         <UserDetailPanel user={selectedUser} onBack={() => setSelectedUser(null)} allProgressData={progressData} />
       ) : (
@@ -1112,7 +1156,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
           {activeTab === 'Overview' && (
             <div className="space-y-8">
               {/* Overall Statistics Cards */}
-              <div className="grid grid-cols-3 border border-gray-200 rounded-xl overflow-hidden bg-white mb-8">
+              <div className="grid grid-cols-2 border border-gray-200 rounded-xl overflow-hidden bg-white mb-8">
                 <div className="p-6 border-r border-gray-200">
                   <p className="text-sm text-gray-500">Total learners</p>
                   <p className="text-4xl font-bold text-gray-900 mt-1">{overallStats.totalEmployees}</p>
@@ -1124,10 +1168,6 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                       ? Math.round(overallStats.completedAssignments / overallStats.totalAssignments * 100)
                       : 0}%
                   </p>
-                </div>
-                <div className="p-6">
-                  <p className="text-sm text-gray-500">Quiz Score</p>
-                  <p className="text-4xl font-bold text-gray-900 mt-1">{overallStats.averageAssessmentScore}/100</p>
                 </div>
               </div>
 
@@ -1233,9 +1273,9 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                       No assessment data available
                     </div>
                   ) : (
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                       {assessmentStats.slice(0, 4).map((assessment, idx) => (
-                        <div key={idx} className="space-y-1">
+                        <div key={idx} className="space-y-2">
                           <div className="flex justify-between text-sm">
                             <span className="font-medium text-gray-700 truncate">
                               <span className="text-xs bg-gray-100 px-2 py-0.5 rounded mr-1">Sprint</span>
@@ -1248,9 +1288,6 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                               className="h-full bg-indigo-500 transition-all duration-300"
                               style={{ width: `${assessment.averageScore}%` }}
                             />
-                          </div>
-                          <div className="text-xs text-gray-400">
-                            {assessment.completed} / {assessment.totalAttempts} Completed
                           </div>
                         </div>
                       ))}
@@ -1319,6 +1356,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
             </div>
           )}
 
+          {/*
           {activeTab === 'Users' && (
             <div>
               <div className="flex items-center justify-between mb-4">
@@ -1334,50 +1372,28 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-gray-100">
-                      {['Name','Sprints opened','Quiz score','Time spent','Status'].map(h => (
+                      {['Name','Sprints opened','Time spent','Status'].map(h => (
                         <th key={h} className="text-left px-6 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {[...new Map(progressData.map((p: any) => [p.user_id, p])).values()].map((item: any, i: number) => {
-                      // Get all sprints for this user to calculate aggregates
                       const userAllSprints = progressData.filter((p: any) => p.user_id === item.user_id);
-                      
-                      // Calculate totals
                       const totalSprints = userAllSprints.length;
                       const completedSprints = userAllSprints.filter((p: any) => p.status === 'COMPLETED').length;
-                      
-                      // Calculate average quiz score from enriched score field
-                      const scoresWithQuiz = userAllSprints
-                        .filter((p: any) => p.score !== null && p.score !== undefined && p.score !== 0)
-                        .map((p: any) => p.score);
-                      const avgQuizScore = scoresWithQuiz.length > 0 
-                        ? Math.round(scoresWithQuiz.reduce((sum, s) => sum + s, 0) / scoresWithQuiz.length)
-                        : null;
-                      
-                      // Calculate total time spent in hours
                       const totalTimeSeconds = userAllSprints.reduce((sum, p: any) => sum + (p.time_spent_seconds || 0), 0);
                       const timeSpentHours = totalTimeSeconds > 0 ? (totalTimeSeconds / 3600).toFixed(1) : '—';
-                      
-                      // Get user info - use first sprint's user data (same for all sprints)
                       const userInfo = item.users || {};
-                      // Try to get department name, fallback to just showing "—" if not available
-                      const department = userInfo.department_name || userInfo.department || '—';
-                      
-                      // Get most recent activity date
                       const allDates = userAllSprints
                         .map((p: any) => [p.completed_at, p.started_at, p.assigned_on].filter(Boolean))
                         .flat()
                         .map((d: any) => new Date(d))
                         .sort((a, b) => b.getTime() - a.getTime());
                       const lastActivityDate = allDates.length > 0 ? allDates[0] : null;
-                      
-                      // Determine overall status (if any completed, show completed; if any in progress, show in progress; else not started)
                       const overallStatus = completedSprints > 0 ? 'COMPLETED' : 
                                             userAllSprints.some((p: any) => p.status === 'IN_PROGRESS') ? 'IN_PROGRESS' : 
                                             'ASSIGNED';
-                      
                       const initials = userInfo.name?.split(' ').map((n: string) => n[0]).join('') || '?';
                       const avatarColors = ['bg-purple-100 text-purple-600','bg-blue-100 text-blue-600','bg-green-100 text-green-600','bg-amber-100 text-amber-600'];
                       const statusStyles: Record<string,string> = { COMPLETED:'bg-green-100 text-green-700', IN_PROGRESS:'bg-yellow-100 text-yellow-700', ASSIGNED:'bg-red-100 text-red-600' };
@@ -1387,7 +1403,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                         <tr 
                           key={i} 
                           className="hover:bg-gray-50 cursor-pointer transition-colors"
-                          onClick={() => setSelectedUser({...item, quizScore: avgQuizScore, time_spent_seconds: totalTimeSeconds, completedItems: completedSprints, totalItems: totalSprints, status: overallStatus, last_active_at: lastActivityDate?.toISOString()})}
+                          onClick={() => setSelectedUser({...item, time_spent_seconds: totalTimeSeconds, completedItems: completedSprints, totalItems: totalSprints, status: overallStatus, last_active_at: lastActivityDate?.toISOString()})}
                           title={`Click to view details for ${userInfo.name}`}
                         >
                           <td className="px-6 py-4">
@@ -1399,7 +1415,6 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                             </div>
                           </td>
                           <td className="px-6 py-4 font-medium text-gray-900">{completedSprints}/{totalSprints}</td>
-                          <td className="px-6 py-4 font-medium text-gray-900">{avgQuizScore !== null ? `${avgQuizScore}` : '—'}</td>
                           <td className="px-6 py-4 text-gray-500 text-sm">{timeSpentHours === '—' ? '—' : `${timeSpentHours}h`}</td>
                           <td className="px-6 py-4">
                             <span className={`text-xs font-semibold px-3 py-1 rounded-md ${statusStyles[overallStatus] || 'bg-gray-100 text-gray-600'}`}>
@@ -1414,6 +1429,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
               </div>
             </div>
           )}
+          */}
 
           {activeTab === 'Sprints' && (
             <div className="space-y-6">
@@ -1497,35 +1513,6 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
 
           {activeTab === 'Detailed Analytics' && (
             <div className="space-y-6">
-              <div className="bg-white border border-gray-200 rounded-xl p-5">
-                <div className="grid grid-cols-3 gap-6">
-                  <div>
-                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Sprint filter</p>
-                    <select value={selectedModule} onChange={(e) => setSelectedModule(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white text-gray-700">
-                      <option value="all">All Sprints</option>
-                      {modules.map((m: any) => <option key={m.module_id} value={m.module_id}>{m.title}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Assessment type</p>
-                    <select value={selectedAssessmentType} onChange={(e) => setSelectedAssessmentType(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white text-gray-700">
-                      <option value="all">All Types</option>
-                      <option value="baseline">Baseline</option>
-                      <option value="module">Sprint</option>
-                    </select>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Time range</p>
-                    <select value={selectedTimeRange} onChange={(e) => setSelectedTimeRange(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white text-gray-700">
-                      <option value="7">Last 7 days</option>
-                      <option value="30">Last 30 days</option>
-                      <option value="90">Last 90 days</option>
-                      <option value="all">All Time</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
               <div className="grid grid-cols-2 gap-4">
                 {/* Overall Completion Status Doughnut Chart */}
                 <Card>
@@ -2018,6 +2005,7 @@ export default function AnalyticsPage() {
   const { user,loading:authLoading } = useAuth();
   const [admin, setAdmin] = useState<Admin|null>(null);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   // const currentUserId = admin?.user_id || null;
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   useEffect(() => {
@@ -2124,16 +2112,69 @@ export default function AnalyticsPage() {
     );
   }
 
+  const handleExport = async () => {
+    if (!admin?.company_id || !admin?.user_id) return;
+    setExporting(true);
+    try {
+      const res = await fetchWithAuth(
+        `${API_URL}/api/analytics/export/users/${encodeURIComponent(admin.company_id)}`,
+        { headers: { 'X-User-ID': admin.user_id } }
+      );
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => 'Failed to export');
+        throw new Error(errorText);
+      }
+      const payload = await res.json().catch(() => ({}));
+      const rows = payload?.data?.rows ?? payload?.rows ?? [];
+      const columns = payload?.data?.columns ?? payload?.columns ?? [];
+      if (!Array.isArray(rows) || rows.length === 0) {
+        console.warn('[analytics export] No rows returned for export');
+      }
+
+      const worksheet = xlsx.utils.json_to_sheet(rows, columns?.length ? { header: columns } : undefined);
+      const workbook = xlsx.utils.book_new();
+      xlsx.utils.book_append_sheet(workbook, worksheet, 'User Analytics');
+      const workbookArray = xlsx.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([workbookArray], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `user-analytics-${admin.company_id}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('[analytics export] Failed to export data:', error);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div>
       {/* Header Card */}
       <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-2">
-          Analytics & Reports
-        </h1>
-        <p className="text-slate-600">
-          Track Progress Across All Sprints With Detailed Insights & Performance Metrics
-        </p>
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">
+              Analytics & Reports
+            </h1>
+            <p className="text-slate-600">
+              Track Progress Across All Sprints With Detailed Insights & Performance Metrics
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={exporting}
+            className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {exporting ? 'Exporting…' : 'Export Excel'}
+          </button>
+        </div>
       </div>
       
       <ProgressAnalytics companyId={admin.company_id} adminUserId={admin?.user_id} />
