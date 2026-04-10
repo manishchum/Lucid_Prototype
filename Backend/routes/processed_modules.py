@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel
 from typing import Optional, List
+from utils.auth import RequestAuth, get_request_auth_required
 
 from utils.db.processed_modules_db import (
     get_processed_modules_by_original_module,
@@ -71,14 +72,14 @@ class GetMultipleRequest(BaseModel):
 async def get_processed_modules_by_original_module_route(
     original_module_id: str,
     learning_style: Optional[str] = Query(None),
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
     Get all processed modules for a specific original training module.
     Optional query parameter: learning_style
     """
     result = await get_processed_modules_by_original_module(
-        user_id, original_module_id, learning_style
+        auth_ctx.user_id, original_module_id, learning_style, auth_claims=auth_ctx.claims
     )
     
     if result["error"]:
@@ -91,12 +92,12 @@ async def get_processed_modules_by_original_module_route(
 @router.get("/{processed_module_id}")
 async def get_processed_module_by_id_route(
     processed_module_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
     Get a specific processed module by ID.
     """
-    result = await get_processed_module_by_id(user_id, processed_module_id)
+    result = await get_processed_module_by_id(auth_ctx.user_id, processed_module_id, auth_claims=auth_ctx.claims)
     
     if result["error"]:
         raise HTTPException(

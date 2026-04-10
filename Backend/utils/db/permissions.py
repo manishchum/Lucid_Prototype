@@ -1,5 +1,5 @@
 from typing import Dict, Any
-from ..supabase_client import supabase
+from ..auth_bridge import get_service_supabase_client
 
 # ==================== PERMISSION HELPERS ====================
 
@@ -10,6 +10,7 @@ async def check_user_permission(user_id: str, required_role: str) -> bool:
     - Accepts synonyms for common role names (e.g. 'company_admin' -> ADMIN).
     """
     try:
+        service_supabase = get_service_supabase_client()
         # normalize required_role to a level
         role_aliases = {
             'developer': 6, 'DEVELOPER': 6,
@@ -28,7 +29,7 @@ async def check_user_permission(user_id: str, required_role: str) -> bool:
                 req_level = 2
 
         # fetch active role assignments for the user with joined role level
-        resp = supabase.table('user_role_assignments').select('is_active, role:roles(level,name)').eq(
+        resp = service_supabase.table('user_role_assignments').select('is_active, role:roles(level,name)').eq(
             'user_id', user_id
         ).execute()
 
@@ -59,11 +60,12 @@ async def check_company_access(user_id: str, company_id: str) -> bool:
     Ensure the user belongs to the given company_id.
     """
     try:
+        service_supabase = get_service_supabase_client()
         # Developers can operate across companies.
         if await check_user_permission(user_id, 'developer'):
             return True
 
-        resp = supabase.table('users').select('company_id').eq('user_id', user_id).single().execute()
+        resp = service_supabase.table('users').select('company_id').eq('user_id', user_id).maybe_single().execute()
         if not resp.data:
             return False
         return str(resp.data.get('company_id')) == str(company_id)

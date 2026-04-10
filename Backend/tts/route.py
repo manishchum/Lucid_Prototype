@@ -550,7 +550,7 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
 
     if not ensured.get("ok"):
         return {
-            "error": f"Bucket not found and could not be created: {ensured.get('error')}. Ensure SUPABASE_SERVICE_ROLE_KEY is set or create the bucket manually.",
+            "error": f"Bucket not found and could not be created: {ensured.get('error')}. Ensure Supabase server key env vars are set or create the bucket manually.",
             "status": 500,
         }
 

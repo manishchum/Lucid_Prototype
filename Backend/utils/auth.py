@@ -2,9 +2,15 @@ import base64
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from fastapi import Header, HTTPException, Request
+from utils.auth_bridge import (
+	BridgeConfigurationError,
+	BridgeResolutionError,
+	log_bridge_event,
+	resolve_user_context_from_claims,
+)
 from utils.supabase_client import supabase
 
 
@@ -92,26 +98,32 @@ def _verify_firebase_token(token: str) -> Dict[str, Any]:
 		raise HTTPException(status_code=401, detail="Invalid or expired bearer token") from exc
 
 
-def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> str:
-	if not email:
-		return fallback_user_id
 
-	try:
-		res = (
-			supabase
-			.table("users")
-			.select("user_id")
-			.eq("email", email)
-			.maybe_single()
-			.execute()
-		)
-		data = getattr(res, "data", None)
-		if isinstance(data, dict) and data.get("user_id"):
-			return str(data.get("user_id"))
-	except Exception as exc:
-		print(f"[auth] Failed to resolve internal user_id by email: {exc}")
+def _resolve_internal_user_context(
+	email: Optional[str],
+	fallback_user_id: str,
+	firebase_claims: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, Optional[str]]:
+	claims = firebase_claims or {}
+	context = None
 
-	return fallback_user_id
+	if claims:
+		try:
+			context = resolve_user_context_from_claims(claims, fail_fast=True)
+		except BridgeConfigurationError as exc:
+			raise HTTPException(status_code=500, detail=f"Bridge configuration failure: {exc}") from exc
+		except BridgeResolutionError as exc:
+			raise HTTPException(status_code=401, detail=f"Bridge user resolution failed: {exc}") from exc
+	elif email:
+		try:
+			context = resolve_user_context_from_claims({"email": email}, fail_fast=False)
+		except Exception as exc:
+			print(f"[auth] Failed to resolve internal user_id by email: {exc}")
+
+	if context and context.user_id:
+		return context.user_id, context.company_id
+
+	return fallback_user_id, None
 
 
 def get_request_auth_optional(
@@ -125,9 +137,23 @@ def get_request_auth_optional(
 			claims = _verify_firebase_token(token)
 			token_user_id = claims.get("uid") or claims.get("user_id") or claims.get("sub")
 			email = claims.get("email")
-			user_id = _resolve_internal_user_id(str(email) if email else None, str(token_user_id) if token_user_id else "")
+			user_id, company_id = _resolve_internal_user_context(
+				str(email) if email else None,
+				str(token_user_id) if token_user_id else "",
+				claims,
+			)
+			if not user_id or (token_user_id and str(user_id) == str(token_user_id)):
+				raise HTTPException(status_code=401, detail="Authenticated Firebase user is not linked to an app user")
 
 			if user_id:
+				log_bridge_event(
+					"auth_context_resolved",
+					firebase_uid=str(token_user_id) if token_user_id else None,
+					app_user_id=str(user_id),
+					company_id=company_id,
+					token_exp=claims.get("exp"),
+					source="firebase",
+				)
 				print(f"[auth optional] Bearer verified successfully; uid={token_user_id}; resolved_user_id={user_id}")
 				return RequestAuth(
 					user_id=str(user_id),
@@ -136,6 +162,10 @@ def get_request_auth_optional(
 					claims=claims,
 				)
 		except HTTPException as exc:
+			if exc.detail == "Authenticated Firebase user is not linked to an app user":
+				raise
+			if isinstance(exc.detail, str) and exc.detail.startswith("Bridge"):
+				raise
 			cause = exc.__cause__
 			cause_msg = str(cause) if cause else exc.detail
 			if exc.status_code == 401:
@@ -171,10 +201,23 @@ def get_request_auth_jwt_required(
 	claims = _verify_firebase_token(token)
 	token_user_id = claims.get("uid") or claims.get("user_id") or claims.get("sub")
 	email = claims.get("email")
-	user_id = _resolve_internal_user_id(str(email) if email else None, str(token_user_id) if token_user_id else "")
+	user_id, company_id = _resolve_internal_user_context(
+		str(email) if email else None,
+		str(token_user_id) if token_user_id else "",
+		claims,
+	)
 
-	if not user_id:
-		raise HTTPException(status_code=401, detail="Bearer token missing uid claim")
+	if not user_id or (token_user_id and str(user_id) == str(token_user_id)):
+		raise HTTPException(status_code=401, detail="Authenticated Firebase user is not linked to an app user")
+
+	log_bridge_event(
+		"auth_context_resolved",
+		firebase_uid=str(token_user_id) if token_user_id else None,
+		app_user_id=str(user_id),
+		company_id=company_id,
+		token_exp=claims.get("exp"),
+		source="firebase",
+	)
 
 	return RequestAuth(
 		user_id=str(user_id),

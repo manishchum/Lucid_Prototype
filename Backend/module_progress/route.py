@@ -1,17 +1,11 @@
-import os
 import json
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from supabase import create_client, Client
 from utils.auth import get_request_auth_required_from_request
+from utils.supabase_client import supabase
 
 router = APIRouter()
-
-supabase: Client = create_client(
-    os.environ["NEXT_PUBLIC_SUPABASE_URL"],
-    os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-)
 
 
 @router.post("/module-progress")

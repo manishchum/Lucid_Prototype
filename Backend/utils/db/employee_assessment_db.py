@@ -5,15 +5,17 @@ Handles CRUD operations with permission checks.
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from ..supabase_client import supabase
+from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
 
 async def get_user_company_id(user_id: str) -> Optional[str]:
     """Helper function to get user's company_id"""
     try:
-        resp = supabase.table('users').select('company_id').eq(
+        db = get_service_supabase_client()
+        resp = db.table('users').select('company_id').eq(
             'user_id', user_id
-        ).single().execute()
+        ).maybe_single().execute()
         return resp.data.get('company_id') if resp.data else None
     except Exception:
         return None
@@ -30,7 +32,8 @@ async def get_employee_assessment_by_id(
     Permission: Self OR manager+ in same company.
     """
     try:
-        resp = supabase.table('employee_assessments').select(
+        db = get_service_supabase_client()
+        resp = db.table('employee_assessments').select(
             '*, users!inner(company_id, name, email), assessments(assessment_id, type, questions, processed_module_id, learning_style)'
         ).eq('employee_assessment_id', employee_assessment_id).single().execute()
         
@@ -69,8 +72,9 @@ async def get_employee_assessments_by_user(
     Optional filter by assessment_id.
     """
     try:
+        db = get_service_supabase_client()
         # Get target user's company to check permissions
-        user_resp = supabase.table('users').select('company_id').eq(
+        user_resp = db.table('users').select('company_id').eq(
             'user_id', target_user_id
         ).single().execute()
         
@@ -88,7 +92,7 @@ async def get_employee_assessments_by_user(
                 return {"data": None, "error": "Permission denied: Insufficient privileges"}
         
         # Build query
-        query = supabase.table('employee_assessments').select(
+        query = db.table('employee_assessments').select(
             '*, assessments(assessment_id, type, questions, processed_module_id, learning_style)'
         ).eq('user_id', target_user_id).order('completed_at', desc=True).limit(limit)
         
@@ -111,8 +115,9 @@ async def get_employee_assessments_by_assessment(
     Permission: Manager+ in the company that owns the assessment.
     """
     try:
+        db = get_service_supabase_client()
         # Get assessment's company
-        assessment_resp = supabase.table('assessments').select('company_id').eq(
+        assessment_resp = db.table('assessments').select('company_id').eq(
             'assessment_id', assessment_id
         ).single().execute()
         
@@ -128,7 +133,7 @@ async def get_employee_assessments_by_assessment(
         if not has_permission or not has_access:
             return {"data": None, "error": "Permission denied: Manager access required"}
         
-        resp = supabase.table('employee_assessments').select(
+        resp = db.table('employee_assessments').select(
             '*, users!inner(name, email, user_id)'
         ).eq('assessment_id', assessment_id).order('completed_at', desc=True).limit(limit).execute()
         
@@ -150,6 +155,7 @@ async def get_employee_assessments_by_company(
     Optional filters: user_id, assessment_id.
     """
     try:
+        db = get_service_supabase_client()
         has_permission = await check_user_permission(requesting_user_id, 'manager')
         has_access = await check_company_access(requesting_user_id, company_id)
         
@@ -160,7 +166,7 @@ async def get_employee_assessments_by_company(
             }
         
         # Join with users to filter by company
-        query = supabase.table('employee_assessments').select(
+        query = db.table('employee_assessments').select(
             '*, users!inner(company_id, name, email), assessments(assessment_id, type, processed_module_id, learning_style)'
         ).eq('users.company_id', company_id).order('completed_at', desc=True).limit(limit)
         
@@ -327,8 +333,9 @@ async def get_assessment_statistics(
     Permission: Manager+ in the company that owns the assessment.
     """
     try:
+        db = get_service_supabase_client()
         # Get assessment's company
-        assessment_resp = supabase.table('assessments').select('company_id').eq(
+        assessment_resp = db.table('assessments').select('company_id').eq(
             'assessment_id', assessment_id
         ).single().execute()
         
@@ -345,7 +352,7 @@ async def get_assessment_statistics(
             return {"data": None, "error": "Permission denied: Manager access required"}
         
         # Get all employee assessments for this assessment
-        resp = supabase.table('employee_assessments').select('score, max_score').eq(
+        resp = db.table('employee_assessments').select('score, max_score').eq(
             'assessment_id', assessment_id
         ).execute()
         

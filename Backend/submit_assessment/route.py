@@ -6,6 +6,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from utils.auth import get_request_auth_required_from_request
+from utils.auth_bridge import create_user_scoped_supabase_client_from_claims
 
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
@@ -36,6 +37,9 @@ async def POST(request: Request):
     assessmentRes = None
     try:
         auth_ctx = get_request_auth_required_from_request(request)
+        user_supabase = supabase
+        if auth_ctx.claims:
+            user_supabase, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_ctx.claims)
         body = await request.json()
 
         user_id = body.get("user_id")
@@ -57,7 +61,7 @@ async def POST(request: Request):
 
         # Fetch the assessment questions
         assessmentRes = (
-            supabase
+            user_supabase
             .table("assessments")
             .select("questions, type, processed_module_id")
             .eq("assessment_id", assessment_id)
@@ -274,7 +278,7 @@ Review the questions you missed and study the related concepts to improve your u
 
     # Prefer deterministic upsert if a suitable unique constraint exists.
     upsertRes = (
-        supabase
+        user_supabase
         .table("employee_assessments")
         .upsert(rowToSave)
         .execute()
@@ -287,7 +291,7 @@ Review the questions you missed and study the related concepts to improve your u
         print("⚠️ employee_assessments upsert fell back (missing unique constraint):", saveError)
 
         existingRes = (
-            supabase
+            user_supabase
             .table("employee_assessments")
             .select("employee_assessment_id")
             .eq("user_id", user_id)
@@ -304,7 +308,7 @@ Review the questions you missed and study the related concepts to improve your u
             saveError = existingErr
         elif isinstance(existing, dict) and existing.get("employee_assessment_id"):
             updRes = (
-                supabase
+                user_supabase
                 .table("employee_assessments")
                 .update(rowToSave)
                 .eq("employee_assessment_id", existing.get("employee_assessment_id"))
@@ -314,7 +318,7 @@ Review the questions you missed and study the related concepts to improve your u
             saveError = getattr(updRes, "error", None)
         else:
             insRes = (
-                supabase
+                user_supabase
                 .table("employee_assessments")
                 .insert(rowToSave)
                 .execute()

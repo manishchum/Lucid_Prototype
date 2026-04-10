@@ -1,4 +1,5 @@
 import { auth } from "@/lib/firebase";
+import { onAuthStateChanged, type User } from "firebase/auth";
 
 /**
  * Normalizes HeadersInit into a mutable Headers instance.
@@ -11,7 +12,33 @@ function toHeaders(headers?: HeadersInit): Headers {
  * Returns an Authorization bearer token from Firebase auth when available.
  */
 export async function getFirebaseIdToken(): Promise<string> {
-  const user = auth?.currentUser;
+  const resolveCurrentUser = async (): Promise<User | null> => {
+    if (!auth) return null;
+    if (auth.currentUser) return auth.currentUser;
+
+    // On initial page load Firebase can still be hydrating auth state.
+    // Wait briefly so we don't silently drop Authorization on first requests.
+    return await new Promise<User | null>((resolve) => {
+      let settled = false;
+
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        unsubscribe();
+        resolve(auth.currentUser ?? null);
+      }, 1200);
+
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        unsubscribe();
+        resolve(user ?? null);
+      });
+    });
+  };
+
+  const user = await resolveCurrentUser();
   if (!user) {
     return "";
   }
@@ -40,6 +67,8 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
 
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
+  } else if (headers.has("X-User-ID")) {
+    console.warn("[fetch-with-auth] Missing Firebase token for request that includes X-User-ID", { url });
   }
 
   return fetch(url, {

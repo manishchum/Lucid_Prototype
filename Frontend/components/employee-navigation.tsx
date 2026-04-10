@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,24 @@ const EmployeeNavigation = ({
   const [showReportToast, setShowReportToast] = useState(false);
 
   const displayUser = employeeData || authUser;
+  const normalizedRoleSet = useMemo(
+    () =>
+      new Set(
+        (userRoles || []).map((role) =>
+          String(role || "").toLowerCase().replace(/[-_\s]/g, "")
+        )
+      ),
+    [userRoles]
+  );
+  const hasAdminAccess =
+    isAdmin ||
+    isSuperAdmin ||
+    normalizedRoleSet.has("admin") ||
+    normalizedRoleSet.has("companyadmin") ||
+    normalizedRoleSet.has("superadmin") ||
+    normalizedRoleSet.has("ceo");
+  const hasSuperAdminAccess =
+    isSuperAdmin || normalizedRoleSet.has("superadmin") || normalizedRoleSet.has("ceo");
 
   // Update isCollapsed when forceCollapsed prop changes
   useEffect(() => {
@@ -267,7 +285,7 @@ const EmployeeNavigation = ({
             {isCollapsed && <NavTooltip label="Role-Play" />}
           </div>
           {/* Console - visible for Admin and Super Admin */}
-          {isAdmin && (
+          {hasAdminAccess && (
             <div className="relative group">
               <button 
                 onClick={() => isCollapsed ? handleNavigate('/admin/dashboard/analytics') : setAdminDropdownOpen(!adminDropdownOpen)} 
@@ -313,7 +331,7 @@ const EmployeeNavigation = ({
           )}
 
           {/* KPI Panel - visible only for Super Admin */}
-          {isSuperAdmin && (
+          {hasSuperAdminAccess && (
             <div className="relative group">
               <button 
                 onClick={() => isCollapsed ? handleNavigate('/kpi/intelligence') : setKpiDropdownOpen(!kpiDropdownOpen)} 

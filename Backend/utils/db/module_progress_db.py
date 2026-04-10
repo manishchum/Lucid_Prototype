@@ -1,6 +1,7 @@
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from ..supabase_client import supabase
+from ..auth_bridge import create_user_scoped_supabase_client_from_claims
 from .permissions import check_user_permission, check_company_access
 
 # ==================== MODULE PROGRESS OPERATIONS ====================
@@ -39,14 +40,19 @@ async def get_progress_by_id(requesting_user_id: str, progress_id: str) -> Dict[
 
 
 async def get_progress_by_user(requesting_user_id: str, target_user_id: str, 
-                               completed_only: bool = False) -> Dict[str, Any]:
+                               completed_only: bool = False,
+                               auth_claims: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Get all module progress records for a specific user.
     Permission: Self OR manager+ in same company.
     """
     try:
+        query_client = supabase
+        if auth_claims:
+            query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_claims)
+
         # Get target user's company to check permissions
-        user_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).single().execute()
+        user_resp = query_client.table('users').select('company_id').eq('user_id', target_user_id).single().execute()
         
         if not user_resp.data:
             return {"data": None, "error": "User not found"}
@@ -62,7 +68,7 @@ async def get_progress_by_user(requesting_user_id: str, target_user_id: str,
                 return {"data": None, "error": "Permission denied: Insufficient privileges"}
         
         # Build query
-        query = supabase.table('module_progress').select(
+        query = query_client.table('module_progress').select(
             '*, processed_modules(title, original_module_id, learning_style)'
         ).eq('user_id', target_user_id).order('started_at', desc=True)
         

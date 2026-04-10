@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel
 from typing import Optional
+from utils.auth import RequestAuth, get_request_auth_required
 
 from utils.db.module_progress_db import (
     get_progress_by_id,
@@ -60,14 +61,19 @@ async def get_progress_record(
 @router.get("/user/{target_user_id}")
 async def get_user_progress(
     target_user_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     completed_only: bool = Query(False)
 ):
     """
     Get all module progress records for a specific user.
     Permission: Self OR manager+ in same company.
     """
-    result = await get_progress_by_user(user_id, target_user_id, completed_only)
+    result = await get_progress_by_user(
+        auth_ctx.user_id,
+        target_user_id,
+        completed_only,
+        auth_claims=auth_ctx.claims,
+    )
     
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])

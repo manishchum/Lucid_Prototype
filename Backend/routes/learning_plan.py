@@ -3,8 +3,9 @@ FastAPI routes for learning_plan operations.
 """
 
 from typing import Optional
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
+from utils.auth import RequestAuth, get_request_auth_required
 from utils.db import learning_plan_db
 
 
@@ -43,7 +44,7 @@ class UpdateStatusRequest(BaseModel):
 
 @router.get("/")
 async def list_learning_plans(
-    x_user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     user_id: Optional[str] = None,
     module_id: Optional[str] = None,
     status: Optional[str] = None,
@@ -56,7 +57,7 @@ async def list_learning_plans(
     - Managers+ see plans from their company
     """
     result = await learning_plan_db.list_learning_plans(
-        x_user_id, user_id, module_id, status, baseline_assessment, limit
+        auth_ctx.user_id, user_id, module_id, status, baseline_assessment, limit
     )
     
     if result.get("error"):

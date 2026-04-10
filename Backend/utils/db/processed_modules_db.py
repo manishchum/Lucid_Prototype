@@ -4,27 +4,56 @@ Handles CRUD operations with permission checks.
 """
 from typing import Dict, Any, Optional, List
 from ..supabase_client import supabase
+from ..auth_bridge import create_user_scoped_supabase_client_from_claims, get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
 
 async def get_user_company_id(user_id: str) -> Optional[str]:
     """Helper function to get user's company_id"""
     try:
-        resp = supabase.table('users').select('company_id').eq(
+        db = get_service_supabase_client()
+        resp = db.table('users').select('company_id').eq(
             'user_id', user_id
-        ).single().execute()
+        ).maybe_single().execute()
         return resp.data.get('company_id') if resp.data else None
     except Exception:
         return None
 
 
-async def check_module_access(requesting_user_id: str, original_module_id: str) -> bool:
-    """Check if user has access to the original training module"""
+async def resolve_original_module_id(module_identifier: str) -> Optional[str]:
+    """Resolve either an original module ID or processed module ID to original module ID."""
     try:
+        db = get_service_supabase_client()
+
+        tm_resp = db.table('training_modules').select('module_id').eq(
+            'module_id', module_identifier
+        ).maybe_single().execute()
+        if tm_resp.data and tm_resp.data.get('module_id'):
+            return str(tm_resp.data.get('module_id'))
+
+        pm_resp = db.table('processed_modules').select('original_module_id').eq(
+            'processed_module_id', module_identifier
+        ).maybe_single().execute()
+        if pm_resp.data and pm_resp.data.get('original_module_id'):
+            return str(pm_resp.data.get('original_module_id'))
+
+        return None
+    except Exception:
+        return None
+
+
+async def check_module_access(requesting_user_id: str, module_identifier: str) -> bool:
+    """Check if user has access to a module (original or processed identifier)."""
+    try:
+        original_module_id = await resolve_original_module_id(module_identifier)
+        if not original_module_id:
+            return False
+
+        db = get_service_supabase_client()
         # Get the training module's company
-        module_resp = supabase.table('training_modules').select('company_id').eq(
+        module_resp = db.table('training_modules').select('company_id').eq(
             'module_id', original_module_id
-        ).single().execute()
+        ).maybe_single().execute()
         
         if not module_resp.data:
             return False
@@ -44,14 +73,22 @@ async def check_module_access(requesting_user_id: str, original_module_id: str) 
 async def get_processed_modules_by_original_module(
     requesting_user_id: str,
     original_module_id: str,
-    learning_style: Optional[str] = None
+    learning_style: Optional[str] = None,
+    auth_claims: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Fetch all processed modules for a specific original module.
     Permission: User must have access to the original training module.
     Optional filter: learning_style
     """
-    has_access = await check_module_access(requesting_user_id, original_module_id)
+    resolved_original_module_id = await resolve_original_module_id(original_module_id)
+    if not resolved_original_module_id:
+        return {
+            "data": None,
+            "error": "Module not found"
+        }
+
+    has_access = await check_module_access(requesting_user_id, resolved_original_module_id)
     
     if not has_access:
         return {
@@ -60,8 +97,12 @@ async def get_processed_modules_by_original_module(
         }
     
     try:
-        query = supabase.table('processed_modules').select('*').eq(
-            'original_module_id', original_module_id
+        query_client = supabase
+        if auth_claims:
+            query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_claims)
+
+        query = query_client.table('processed_modules').select('*').eq(
+            'original_module_id', resolved_original_module_id
         )
         
         if learning_style:
@@ -76,7 +117,8 @@ async def get_processed_modules_by_original_module(
 
 async def get_processed_module_by_id(
     requesting_user_id: str,
-    processed_module_id: str
+    processed_module_id: str,
+    auth_claims: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Fetch a specific processed module by ID.
@@ -84,15 +126,25 @@ async def get_processed_module_by_id(
     Includes sprint (training module) information.
     """
     try:
-        # Get the processed module with original_module_id
-        response = supabase.table('processed_modules').select('*').eq(
+        db = get_service_supabase_client()
+
+        # Resolve a processed module row even when caller accidentally passes original module id.
+        response = db.table('processed_modules').select('*').eq(
             'processed_module_id', processed_module_id
         ).maybe_single().execute()
-        
-        if not response.data:
+
+        module_row = getattr(response, 'data', None)
+        if not module_row:
+            by_original = db.table('processed_modules').select('*').eq(
+                'original_module_id', processed_module_id
+            ).order('order_index').limit(1).execute()
+            rows = getattr(by_original, 'data', None) or []
+            module_row = rows[0] if rows else None
+
+        if not module_row:
             return {"data": None, "error": "Processed module not found"}
-        
-        original_module_id = response.data.get('original_module_id')
+
+        original_module_id = module_row.get('original_module_id')
         if not original_module_id:
             return {"data": None, "error": "No original module reference found"}
         
@@ -105,15 +157,15 @@ async def get_processed_module_by_id(
             }
         
         # Fetch sprint (training module) info
-        sprint_response = supabase.table('training_modules').select('module_id, title').eq(
+        sprint_response = db.table('training_modules').select('module_id, title').eq(
             'module_id', original_module_id
         ).maybe_single().execute()
-        
-        sprint_data = sprint_response.data if sprint_response.data else {}
+
+        sprint_data = getattr(sprint_response, 'data', None) or {}
         sprint_name = sprint_data.get('title', '')
         
         # Add sprint information to the response
-        module_data = response.data.copy()
+        module_data = module_row.copy()
         module_data['sprint_name'] = sprint_name
         module_data['sprint_id'] = original_module_id
         

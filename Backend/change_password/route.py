@@ -3,16 +3,11 @@ import os
 import httpx
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from supabase import create_client, Client
 
 from utils.auth import RequestAuth, _ensure_firebase_admin_initialized, get_request_auth_jwt_required
+from utils.auth_bridge import get_service_supabase_client
 
 router = APIRouter()
-
-supabase: Client = create_client(
-    os.environ["NEXT_PUBLIC_SUPABASE_URL"],
-    os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-)
 
 
 async def _verify_current_password_with_firebase(email: str, current_password: str) -> bool:
@@ -57,7 +52,14 @@ async def POST(
         current_password = body.get("current_password")
         new_password = body.get("new_password")
 
-        if not current_password:
+        claims = auth_ctx.claims or {}
+        firebase_claims = claims.get("firebase") if isinstance(claims, dict) else {}
+        sign_in_provider = ""
+        if isinstance(firebase_claims, dict):
+            sign_in_provider = str(firebase_claims.get("sign_in_provider") or "").lower()
+        is_password_provider = sign_in_provider in {"password", "email"}
+
+        if is_password_provider and not current_password:
             return JSONResponse(
                 {"error": "current_password is required"},
                 status_code=400
@@ -65,10 +67,11 @@ async def POST(
 
         # Load internal user profile linkage from Supabase.
         try:
-            query = supabase.table("users") \
+            db = get_service_supabase_client()
+            query = db.table("users") \
                 .select("user_id,email,firebase_uid") \
                 .eq("user_id", user_id) \
-                .single() \
+                .maybe_single() \
                 .execute()
 
             userData = query.data
@@ -93,26 +96,28 @@ async def POST(
                 status_code=400
             )
 
-        # Validate current password against Firebase using Identity Toolkit signInWithPassword.
-        try:
-            is_valid = await _verify_current_password_with_firebase(email, current_password)
-            if not is_valid:
+        # Validate current password only for password-based sign-ins.
+        if is_password_provider:
+            try:
+                is_valid = await _verify_current_password_with_firebase(email, current_password)
+                if not is_valid:
+                    return JSONResponse(
+                        {"error": "Current password is incorrect"},
+                        status_code=401
+                    )
+            except RuntimeError as verify_error:
+                print(f"Error verifying password with Firebase: {verify_error}")
                 return JSONResponse(
-                    {"error": "Current password is incorrect"},
-                    status_code=401
+                    {"error": "Error verifying current password"},
+                    status_code=500
                 )
-        except RuntimeError as verify_error:
-            print(f"Error verifying password with Firebase: {verify_error}")
-            return JSONResponse(
-                {"error": "Error verifying current password"},
-                status_code=500
-            )
 
         # If no new password provided, just return success after validating current password
         if not new_password or not new_password.strip():
             return JSONResponse({
-                "message": "Current password validated successfully",
-                "validated": True
+                "message": "Current password validated successfully" if is_password_provider else "Federated sign-in detected; current password check skipped",
+                "validated": True,
+                "provider": sign_in_provider or "unknown"
             })
 
         # Update password in Firebase (source-of-truth).
@@ -124,7 +129,7 @@ async def POST(
                 try:
                     firebase_uid = firebase_auth.get_user_by_email(email).uid
                     # Backfill linkage opportunistically when missing.
-                    supabase.table("users").update({"firebase_uid": firebase_uid}).eq("user_id", user_id).execute()
+                    db.table("users").update({"firebase_uid": firebase_uid}).eq("user_id", user_id).execute()
                 except firebase_auth.UserNotFoundError:
                     return JSONResponse(
                         {"error": "No Firebase account found for this user"},

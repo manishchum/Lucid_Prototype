@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
+from utils.auth import RequestAuth, get_request_auth_required
 
 from utils.db.content_jobs_db import (
     get_content_job_by_id,
@@ -27,7 +28,7 @@ class UpdateContentJobRequest(BaseModel):
 
 @router.get("/")
 async def list_content_jobs_route(
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     status: Optional[str] = Query(None, description="Filter by status (pending, in_progress, completed, failed)"),
     module_id: Optional[str] = Query(None, description="Filter by module_id"),
     limit: Optional[int] = Query(None, description="Limit number of results")
@@ -41,7 +42,7 @@ async def list_content_jobs_route(
     - module_id: Filter by specific module
     - limit: Limit number of results
     """
-    result = await list_content_jobs(user_id, status, module_id, limit)
+    result = await list_content_jobs(auth_ctx.user_id, status, module_id, limit)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     return {
@@ -52,14 +53,14 @@ async def list_content_jobs_route(
 
 @router.get("/stats")
 async def get_stats_route(
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     company_id: Optional[str] = Query(None, description="Company ID (defaults to user's company)")
 ):
     """
     Get content jobs statistics (counts by status).
     Permission: Manager+ can see stats for their company.
     """
-    result = await get_content_jobs_stats(user_id, company_id)
+    result = await get_content_jobs_stats(auth_ctx.user_id, company_id)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     return {"stats": result["data"]}
@@ -68,13 +69,13 @@ async def get_stats_route(
 @router.get("/{job_id}")
 async def get_content_job_route(
     job_id: int,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Get a single content job by ID.
     Permission: Manager+ in the same company as the module.
     """
-    result = await get_content_job_by_id(user_id, job_id)
+    result = await get_content_job_by_id(auth_ctx.user_id, job_id)
     if result["error"]:
         status_code = 404 if "not found" in result["error"].lower() else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
@@ -84,13 +85,13 @@ async def get_content_job_route(
 @router.get("/module/{module_id}")
 async def get_module_jobs_route(
     module_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Get all content jobs for a specific module.
     Permission: Manager+ in the same company as the module.
     """
-    result = await get_content_jobs_by_module(user_id, module_id)
+    result = await get_content_jobs_by_module(auth_ctx.user_id, module_id)
     if result["error"]:
         status_code = 404 if "not found" in result["error"].lower() else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
@@ -104,7 +105,7 @@ async def get_module_jobs_route(
 @router.post("/")
 async def create_content_job_route(
     request: CreateContentJobRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Create a new content job.
@@ -115,7 +116,7 @@ async def create_content_job_route(
     - status: Initial status (default: "pending")
     """
     job_data = request.dict()
-    result = await create_content_job(user_id, job_data)
+    result = await create_content_job(auth_ctx.user_id, job_data)
     if result["error"]:
         if "required" in result["error"].lower():
             raise HTTPException(status_code=400, detail=result["error"])
@@ -130,7 +131,7 @@ async def create_content_job_route(
 async def update_content_job_route(
     job_id: int,
     request: UpdateContentJobRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Update an existing content job.
@@ -143,7 +144,7 @@ async def update_content_job_route(
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     
-    result = await update_content_job(user_id, job_id, updates)
+    result = await update_content_job(auth_ctx.user_id, job_id, updates)
     if result["error"]:
         status_code = 404 if "not found" in result["error"].lower() else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
@@ -156,13 +157,13 @@ async def update_content_job_route(
 @router.delete("/{job_id}")
 async def delete_content_job_route(
     job_id: int,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Delete a content job.
     Permission: Company admin in the same company as the module.
     """
-    result = await delete_content_job(user_id, job_id)
+    result = await delete_content_job(auth_ctx.user_id, job_id)
     if result["error"]:
         status_code = 404 if "not found" in result["error"].lower() else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
@@ -173,7 +174,7 @@ async def delete_content_job_route(
 async def update_job_status_route(
     job_id: int,
     status: str = Query(..., description="New status (pending, in_progress, completed, failed)"),
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Convenient endpoint to update only the status of a content job.
@@ -187,7 +188,7 @@ async def update_job_status_route(
             detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
         )
     
-    result = await update_content_job(user_id, job_id, {"status": status})
+    result = await update_content_job(auth_ctx.user_id, job_id, {"status": status})
     if result["error"]:
         status_code = 404 if "not found" in result["error"].lower() else 403
         raise HTTPException(status_code=status_code, detail=result["error"])

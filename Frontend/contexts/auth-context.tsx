@@ -72,9 +72,14 @@ const fetchUserByEmail = async (email: string | undefined | null) => {
 }
 
 const fetchUserRoles = async (userId: string) => {
+  const normalizedUserId = (userId || '').toString().trim()
+  if (!normalizedUserId || normalizedUserId === 'undefined' || normalizedUserId === 'null') {
+    return { roles: [], isAdmin: false, isSuperAdmin: false, isDeveloper: false }
+  }
+
   try {
-    const rolesRes = await fetchWithAuth(`${API_BASE}/api/roles/users/${userId}`, {
-      headers: { 'X-User-ID': userId }
+    const rolesRes = await fetchWithAuth(`${API_BASE}/api/roles/users/${encodeURIComponent(normalizedUserId)}`, {
+      headers: { 'X-User-ID': normalizedUserId }
     })
 
     if (!rolesRes.ok) {
@@ -83,15 +88,51 @@ const fetchUserRoles = async (userId: string) => {
     }
 
     const payload = await rolesRes.json().catch(() => null)
-    const assignments = payload?.assignments ?? payload?.data ?? payload ?? []
+    let assignments = payload?.assignments ?? payload?.data ?? payload ?? []
 
-    // normalize and extract role objects
+    if (!Array.isArray(assignments) || assignments.length === 0) {
+      const fallbackRes = await fetchWithAuth(
+        `${API_BASE}/api/users/${encodeURIComponent(normalizedUserId)}/roles`,
+        { headers: { 'X-User-ID': normalizedUserId } }
+      )
+      if (fallbackRes.ok) {
+        const fallbackPayload = await fallbackRes.json().catch(() => null)
+        const fallbackAssignments =
+          fallbackPayload?.roles ??
+          fallbackPayload?.assignments ??
+          fallbackPayload?.data ??
+          []
+        if (Array.isArray(fallbackAssignments) && fallbackAssignments.length > 0) {
+          assignments = fallbackAssignments
+        }
+      }
+    }
+
+    // normalize and extract role objects from multiple payload shapes
     const normalizedRoles = (assignments || []).map((ra: any) => {
-      const r = ra.role ?? ra.roles ?? ra
+      const roleNode = ra?.role ?? ra?.roles ?? ra
+      const r = Array.isArray(roleNode) ? (roleNode[0] ?? {}) : (roleNode ?? {})
+
+      const rawName =
+        r?.name ??
+        r?.role_name ??
+        ra?.role_name ??
+        ra?.name ??
+        ''
+
+      const rawLevel =
+        r?.level ??
+        r?.role_level ??
+        ra?.level ??
+        ra?.role_level ??
+        -1
+
+      const parsedLevel = Number(rawLevel)
+
       return {
-        name: (r?.name ?? '').toString(),
-        level: Number(r?.level ?? -1),
-        id: r?.role_id ?? r?.id ?? null
+        name: String(rawName || '').trim(),
+        level: Number.isFinite(parsedLevel) ? parsedLevel : -1,
+        id: r?.role_id ?? r?.id ?? ra?.role_id ?? null
       }
     }).filter((r: any) => r.name || r.level >= 0)
 
@@ -100,13 +141,13 @@ const fetchUserRoles = async (userId: string) => {
     // admin detection: role.level >= 3 OR known admin names
     const hasAdminRole = normalizedRoles.some((r: any) => {
       const name = (r.name || '').toLowerCase().replace(/[-_\s]/g, '')
-      return r.level >= 3 || ['admin','superadmin','super_admin','ceo'].includes(name)
+      return r.level >= 3 || ['admin','companyadmin','superadmin','ceo'].includes(name)
     })
 
     // super_admin detection: role.level >= 4 OR known super_admin names
     const hasSuperAdminRole = normalizedRoles.some((r: any) => {
       const name = (r.name || '').toLowerCase().replace(/[-_\s]/g, '')
-      return r.level >= 4 || ['superadmin','super_admin','ceo'].includes(name)
+      return r.level >= 4 || ['superadmin','ceo'].includes(name)
     })
 
     const hasDeveloperRole = normalizedRoles.some((r: any) => {
@@ -137,11 +178,16 @@ const loadCachedFullProfile = async (authUser: AuthUserLike) => {
       const empData = await fetchUserByEmail(authUser.email)
       if (!empData) return null
 
-      const rolesData = await fetchUserRoles(empData.user_id)
+      const resolvedUserId = (empData.user_id || '').toString().trim()
+      if (!resolvedUserId || resolvedUserId === 'undefined' || resolvedUserId === 'null') {
+        return null
+      }
+
+      const rolesData = await fetchUserRoles(resolvedUserId)
 
       return {
         employeeData: empData,
-        userId: empData.user_id,
+        userId: resolvedUserId,
         userRoles: rolesData.roles,
         isAdmin: rolesData.isAdmin,
         isSuperAdmin: rolesData.isSuperAdmin,

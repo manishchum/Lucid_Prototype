@@ -5,15 +5,17 @@ Handles CRUD operations with permission checks.
 
 from typing import Dict, Any, List, Optional
 from utils.supabase_client import supabase
+from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission
 
 
 async def get_user_company_id(user_id: str) -> Optional[str]:
     """Helper function to get user's company_id"""
     try:
-        resp = supabase.table('users').select('company_id').eq(
+        db = get_service_supabase_client()
+        resp = db.table('users').select('company_id').eq(
             'user_id', user_id
-        ).single().execute()
+        ).maybe_single().execute()
         
         return resp.data.get('company_id') if resp.data else None
     except Exception:
@@ -43,8 +45,9 @@ async def get_learning_plan_by_id(
     Permission: User can view their own plan, manager+ can view plans in their company.
     """
     try:
+        db = get_service_supabase_client()
         # Fetch the learning plan
-        resp = supabase.table('learning_plan').select(
+        resp = db.table('learning_plan').select(
             '*, users(user_id, name, email, company_id), training_modules(module_id, title, company_id)'
         ).eq('learning_plan_id', learning_plan_id).single().execute()
         
@@ -85,8 +88,9 @@ async def list_learning_plans(
     Permission: User sees only their own plans, manager+ sees plans in their company.
     """
     try:
+        db = get_service_supabase_client()
         # Build query
-        query = supabase.table('learning_plan').select(
+        query = db.table('learning_plan').select(
             '*, users(user_id, name, email, company_id), training_modules(module_id, title, company_id)'
         )
         

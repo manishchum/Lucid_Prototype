@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -52,9 +53,8 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
               path: `/api/processed-modules/${currentModuleId}`,
             }),
             async () => {
-              const pmRes = await fetch(
+              const pmRes = await fetchWithAuth(
                 `${API_BASE}/api/processed-modules/${currentModuleId}`,
-                { headers: { "X-User-ID": userId } },
               );
               if (!pmRes.ok) {
                 throw new Error("Failed to fetch current module");
@@ -92,9 +92,8 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
             path: `/api/processed-modules/original-module/${originalModuleId}`,
           }),
           async () => {
-            const modulesRes = await fetch(
+            const modulesRes = await fetchWithAuth(
               `${API_BASE}/api/processed-modules/original-module/${originalModuleId}`,
-              { headers: { "X-User-ID": userId } },
             );
             if (!modulesRes.ok) {
               throw new Error("Failed to fetch sprint modules");

@@ -147,7 +147,7 @@ async def list_users(
     status: Optional[str] = Query(None),
     department_id: Optional[str] = Query(None)
 ):
-    result = await get_users_by_company(auth_ctx.user_id, company_id)
+    result = await get_users_by_company(auth_ctx.user_id, company_id, auth_ctx.claims)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     users = result["data"] or []
@@ -277,7 +277,7 @@ async def get_user_by_email_route(
     auth_ctx: RequestAuth = Depends(get_request_auth_optional),
 ):
     requesting_user_id = auth_ctx.user_id
-    result = await get_user_by_email(requesting_user_id, email)
+    result = await get_user_by_email(requesting_user_id, email, auth_ctx.claims)
     
     # result is {"data": user, "error": ...} from the service layer
     user_data = result.get("data")
@@ -296,7 +296,7 @@ async def get_user_by_phone_route(
     auth_ctx: RequestAuth = Depends(get_request_auth_optional),
 ):
     requesting_user_id = auth_ctx.user_id
-    result = await get_user_by_phone_route(requesting_user_id, phone)
+    result = await get_user_by_phone(requesting_user_id, phone, auth_ctx.claims)
     
     # result is {"data": user, "error": ...} from the service layer
     user_data = result.get("data")

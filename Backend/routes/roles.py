@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from typing import Optional, List
+from utils.auth import RequestAuth, get_request_auth_required
 
 from utils.db.roles_db import (
     get_all_roles,
@@ -14,6 +15,13 @@ from utils.db.roles_db import (
 from utils.exceptions import ValidationError
 
 router = APIRouter(prefix="/api/roles", tags=["roles"])
+
+
+def _normalize_target_user_id(target_user_id: str, auth_user_id: str) -> str:
+    value = (target_user_id or '').strip()
+    if not value or value in {'undefined', 'null', 'None'}:
+        return auth_user_id
+    return value
 
 
 class AssignRoleRequest(BaseModel):
@@ -33,13 +41,13 @@ class UpdateRoleAssignmentRequest(BaseModel):
 
 @router.get("/")
 async def list_all_roles(
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Get all available roles.
     Permission: Any authenticated user (for dropdowns/UI).
     """
-    result = await get_all_roles(user_id)
+    result = await get_all_roles(auth_ctx.user_id)
     
     # result is {"data": [...], "error": ...} from service layer
     # Handle both None and missing key
@@ -55,14 +63,14 @@ async def list_all_roles(
 @router.get("/assignments/company/{company_id}")
 async def list_company_role_assignments(
     company_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     include_inactive: bool = Query(False)
 ):
     """
     Get all role assignments for a company.
     Permission: Manager+ in the company.
     """
-    result = await get_all_role_assignments(user_id, company_id, include_inactive)
+    result = await get_all_role_assignments(auth_ctx.user_id, company_id, include_inactive)
     
     # result is {"data": [...], "error": ...} from service layer
     # Handle both None and missing key
@@ -78,13 +86,14 @@ async def list_company_role_assignments(
 @router.get("/users/{target_user_id}")
 async def get_user_role_assignments(
     target_user_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Get all active role assignments for a specific user.
     Permission: Self OR manager+ in same company.
     """
-    result = await get_user_roles(user_id, target_user_id)
+    normalized_target_user_id = _normalize_target_user_id(target_user_id, auth_ctx.user_id)
+    result = await get_user_roles(auth_ctx.user_id, normalized_target_user_id)
     
     # result is {"data": [...], "error": ...} from service layer
     # Handle both None and missing key
@@ -100,7 +109,7 @@ async def get_user_role_assignments(
 @router.post("/assignments")
 async def create_role_assignment(
     request: AssignRoleRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Assign a role to a user.
@@ -120,7 +129,7 @@ async def create_role_assignment(
         "notes": request.notes
     }
     
-    data = await assign_user_role(user_id, request.user_id, role_data)
+    data = await assign_user_role(auth_ctx.user_id, request.user_id, role_data)
     
     return {
         "success": True,
@@ -133,7 +142,7 @@ async def create_role_assignment(
 async def update_assignment(
     assignment_id: str,
     request: UpdateRoleAssignmentRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Update a role assignment (expires_at, notes, is_active).
@@ -147,7 +156,7 @@ async def update_assignment(
     if request.is_active is not None:
         updates["is_active"] = request.is_active
     
-    data = await update_role_assignment(user_id, assignment_id, updates)
+    data = await update_role_assignment(auth_ctx.user_id, assignment_id, updates)
     
     return {
         "success": True,
@@ -159,13 +168,13 @@ async def update_assignment(
 @router.delete("/assignments/{assignment_id}")
 async def revoke_assignment(
     assignment_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Revoke a role assignment (soft delete, sets is_active=false).
     Permission: Company admin+ in the same company.
     """
-    data = await revoke_role_assignment(user_id, assignment_id)
+    data = await revoke_role_assignment(auth_ctx.user_id, assignment_id)
     
     return {
         "success": True,

@@ -2,6 +2,7 @@ from typing import Dict, Any, Optional, List
 from urllib.parse import urlparse, unquote
 import re
 from ..supabase_client import supabase
+from ..auth_bridge import create_user_scoped_supabase_client_from_claims, get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
 
@@ -102,7 +103,8 @@ async def get_training_modules_by_company(
     requesting_user_id: str,
     company_id: str,
     processing_status: Optional[str] = None,
-    review_stage: Optional[str] = None
+    review_stage: Optional[str] = None,
+    auth_claims: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Fetch all training modules for a company.
@@ -118,7 +120,11 @@ async def get_training_modules_by_company(
         }
     
     try:
-        query = supabase.table('training_modules').select('*').eq('company_id', company_id)
+        query_client = supabase
+        if auth_claims:
+            query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_claims)
+
+        query = query_client.table('training_modules').select('*').eq('company_id', company_id)
         
         if processing_status:
             query = query.eq('processing_status', processing_status)
@@ -135,22 +141,33 @@ async def get_training_modules_by_company(
 
 async def get_training_module_by_id(
     requesting_user_id: str,
-    module_id: str
+    module_id: str,
+    auth_claims: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Fetch a specific training module by ID.
     Permission: Any user in the company can view modules.
     """
     try:
-        response = supabase.table('training_modules').select('*').eq(
+        query_client = get_service_supabase_client()
+        if auth_claims:
+            try:
+                query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_claims)
+            except Exception:
+                # Fall back to backend-authoritative client when bridge resolution fails.
+                query_client = get_service_supabase_client()
+
+        response = query_client.table('training_modules').select('*').eq(
             'module_id', module_id
         ).maybe_single().execute()
         
         if not response.data:
             return {"data": None, "error": "Training module not found"}
         
-        module = response.data
+        module = response.data or {}
         company_id = module.get('company_id')
+        if not company_id:
+            return {"data": None, "error": "Training module has no company mapping"}
         
         # Check if user has access to this company
         has_access = await check_company_access(requesting_user_id, company_id)

@@ -34,6 +34,9 @@ function TrainingPlanContent() {
   const [completedModules] = useState<string[]>([]);
   const [additionalReadings, setAdditionalReadings] = useState<any[] | null>(null);
   const [moduleTitle, setModuleTitle] = useState<string>("");
+  const [fallbackEmployeeData, setFallbackEmployeeData] = useState<any | null>(null);
+
+  const activeEmployee = employeeData?.user_id ? employeeData : fallbackEmployeeData;
 
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
 
@@ -69,12 +72,47 @@ function TrainingPlanContent() {
     );
   };
 
-  const loadPlan = async () => {
-    if (!employeeData || !moduleId) return;
+  const fetchEmployeeByEmail = async (email?: string | null) => {
+    if (!email) return null;
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+      if (!res.ok) return null;
+      const payload = await res.json();
+      let employee = payload?.user ?? payload;
+      if (Array.isArray(employee)) employee = employee[0];
+      return employee || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const fetchModuleTitle = async (selectedModuleId: string, employeeId: string) => {
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/training-modules/${selectedModuleId}`, {
+        headers: { "X-User-ID": employeeId },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const title = data?.module?.title || data?.title || "";
+        setModuleTitle(title);
+      }
+    } catch (err) {
+      console.error("Failed to fetch module title:", err);
+    }
+  };
+
+  const loadPlan = async (employeeOverride?: any, selectedModuleIdOverride?: string) => {
+    const employee = employeeOverride || activeEmployee;
+    const selectedModuleId = selectedModuleIdOverride || moduleId;
+
+    if (!employee?.user_id || !selectedModuleId) {
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     try {
-      const result = await fetchTrainingPlan(employeeData, moduleId);
+      const result = await fetchTrainingPlan(employee, selectedModuleId);
       const data = result.data;
 
       if (data?.error === "BASELINE_REQUIRED") {
@@ -107,32 +145,43 @@ function TrainingPlanContent() {
 
   useEffect(() => {
     if (!authLoading && !user) {
+      setLoading(false);
       router.push("/login");
       return;
     }
 
-    if (!authLoading && employeeData && moduleId) {
-      loadPlan();
-      
-      // Fetch module title
-      const fetchModuleTitle = async () => {
-        try {
-          const res = await fetch(`${API_BASE}/api/training-modules/${moduleId}`, {
-            headers: { "X-User-ID": employeeData.user_id },
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const title = data?.module?.title || data?.title || "";
-            setModuleTitle(title);
-          }
-        } catch (err) {
-          console.error("Failed to fetch module title:", err);
-        }
-      };
-      
-      fetchModuleTitle();
+    if (authLoading) {
+      return;
     }
-  }, [employeeData, moduleId, authLoading, user]);
+
+    const bootstrap = async () => {
+      if (!moduleId) {
+        setLoading(false);
+        return;
+      }
+
+      let resolvedEmployee = activeEmployee;
+      if (!resolvedEmployee?.user_id && user?.email) {
+        resolvedEmployee = await fetchEmployeeByEmail(user.email);
+        if (resolvedEmployee?.user_id) {
+          setFallbackEmployeeData(resolvedEmployee);
+        }
+      }
+
+      if (!resolvedEmployee?.user_id) {
+        setLoading(false);
+        setPlan({ error: "Unable to resolve your profile. Please refresh." });
+        return;
+      }
+
+      await Promise.allSettled([
+        loadPlan(resolvedEmployee, moduleId),
+        fetchModuleTitle(moduleId, resolvedEmployee.user_id),
+      ]);
+    };
+
+    bootstrap();
+  }, [employeeData, moduleId, authLoading, user, router]);
 
   // Helper to render reasoning in a readable format
   function renderReasoning(reasoning: any) {
@@ -287,7 +336,7 @@ function TrainingPlanContent() {
       return String(directResolved);
     }
 
-    if (!employeeData?.user_id) {
+    if (!activeEmployee?.user_id) {
       return null;
     }
 
@@ -300,13 +349,13 @@ function TrainingPlanContent() {
       const result = await sharedDataClient.query(
         createCacheKey({
           namespace: "processed-modules",
-          tenantId: employeeData.company_id,
-          userId: employeeData.user_id,
+          tenantId: activeEmployee.company_id,
+          userId: activeEmployee.user_id,
           path: `/api/processed-modules/original-module/${originalModuleId}`,
         }),
         async () => {
           const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${originalModuleId}`, {
-            headers: { "X-User-ID": employeeData.user_id },
+            headers: { "X-User-ID": activeEmployee.user_id },
           });
           if (!res.ok) {
             return { data: [] };

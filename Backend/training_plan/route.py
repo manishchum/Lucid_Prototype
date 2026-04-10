@@ -6,15 +6,15 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from utils.auth import get_request_auth_required_from_request
+from utils.auth_bridge import get_service_supabase_client
 
-# from supabase import create_client, Client
-from utils.supabase_client import supabase
+# from db import create_client, Client
 import google.generativeai as genai
 
 
 router = APIRouter()
 
-# Supabase init (equivalent of import { supabase } from "@/lib/supabase")
+# Supabase init (equivalent of import { db } from "@/lib/db")
 # supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
 # supabaseKey = (
 #     os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
@@ -22,7 +22,7 @@ router = APIRouter()
 #     or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 #     or ""
 # )
-# supabase: Client = create_client(supabaseUrl, supabaseKey)
+# db: Client = create_client(supabaseUrl, supabaseKey)
 
 # Gemini init
 genAI = genai
@@ -74,8 +74,9 @@ def parseGeminiJSON(raw_text: str) -> dict:
 async def POST(request: Request):
     try:
         auth_ctx = get_request_auth_required_from_request(request)
+        db = get_service_supabase_client()
         body = await request.json()
-        user_id = body.get("user_id")
+        user_id = body.get("user_id") or auth_ctx.user_id
         module_id = body.get("module_id")
         processedModuleIds = body.get("processedModuleIds")
 
@@ -91,7 +92,7 @@ async def POST(request: Request):
         # Resolve company_id upfront
         company_id = None
         empRes = (
-            supabase
+            db
             .table("users")
             .select("company_id")
             .eq("user_id", user_id)
@@ -111,7 +112,7 @@ async def POST(request: Request):
 
         # Fetch company's learning_style setting
         companyRes = (
-            supabase
+            db
             .table("companies")
             .select("learning_style")
             .eq("company_id", company_id)
@@ -130,7 +131,7 @@ async def POST(request: Request):
             print(f"[Training Plan API] Company {company_id} does not use learning styles, skipping learning style customization")
 
         checkForBaselineRes = (
-            supabase
+            db
             .table("learning_plan")
             .select("baseline_assessment")
             .eq("user_id", user_id)
@@ -145,7 +146,7 @@ async def POST(request: Request):
 
         # NOTE: table name has trailing space in TS: 'employee_assessments '
         assessmentDataRes = (
-            supabase
+            db
             .table("employee_assessments")
             .select("assessment_id,assessments!inner(type)")
             .eq("user_id", user_id)
@@ -179,7 +180,7 @@ async def POST(request: Request):
         # Check if we already have a learning plan for this user and module
         if module_id:
             existingPlanRes = (
-                supabase
+                db
                 .table("learning_plan")
                 .select("learning_plan_id, plan_json, status, reasoning")
                 .eq("user_id", user_id)
@@ -236,7 +237,7 @@ async def POST(request: Request):
         baselineRequired = False
         try:
             baselineDefsRes = (
-                supabase
+                db
                 .table("assessments")
                 .select("assessment_id, type, employee_assessments!inner(user_id)")
                 .eq("type", "baseline")
@@ -258,7 +259,7 @@ async def POST(request: Request):
                 ]
                 if len(baselineIds) > 0:
                     userBaselinesRes = (
-                        supabase
+                        db
                         .table("employee_assessments")
                         .select("assessment_id")
                         .in_("assessment_id", baselineIds)
@@ -282,7 +283,7 @@ async def POST(request: Request):
 
         # Fetch all assessments for this employee, including baseline
         assessmentsRes = (
-            supabase
+            db
             .table("employee_assessments")
             .select("score, max_score, feedback, assessment_id, assessments(type, questions)")
             .eq("user_id", user_id)
@@ -348,7 +349,7 @@ async def POST(request: Request):
         try:
             if module_id:
                 epRes = (
-                    supabase
+                    db
                     .table("learning_plan")
                     .select("learning_plan_id, plan_json, reasoning, status, assessment_hash, module_id")
                     .eq("user_id", user_id)
@@ -361,7 +362,7 @@ async def POST(request: Request):
                 )
             else:
                 epRes = (
-                    supabase
+                    db
                     .table("learning_plan")
                     .select("learning_plan_id, plan_json, reasoning, status, assessment_hash, module_id")
                     .eq("user_id", user_id)
@@ -398,12 +399,12 @@ async def POST(request: Request):
         if module_id:
             try:
                 moduleCheckRes = (
-                    supabase
+                    db
                     .table("training_modules")
                     .select("module_id, title")
                     .eq("module_id", module_id)
                     .eq("company_id", company_id)
-                    .single()
+                    .maybe_single()
                     .execute()
                 )
                 moduleCheck = getattr(moduleCheckRes, "data", None)
@@ -420,7 +421,7 @@ async def POST(request: Request):
                     )
 
                 pmRes = (
-                    supabase
+                    db
                     .table("processed_modules")
                     .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
                     .eq("original_module_id", module_id)
@@ -438,7 +439,7 @@ async def POST(request: Request):
 
                 if len(modules) == 0 and (not baselineRequired):
                     tmFallbackRes = (
-                        supabase
+                        db
                         .table("training_modules")
                         .select("module_id, title, gpt_summary, company_id")
                         .eq("module_id", module_id)
@@ -472,7 +473,7 @@ async def POST(request: Request):
             # print("Inside the else statement", company_id)
 
             trainingModuleRowsRes = (
-                supabase
+                db
                 .table("training_modules")
                 .select("module_id")
                 .eq("company_id", company_id)
@@ -494,7 +495,7 @@ async def POST(request: Request):
 
             if len(tmIds) > 0:
                 pmRes = (
-                    supabase
+                    db
                     .table("processed_modules")
                     .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
                     .in_("original_module_id", tmIds)
@@ -512,7 +513,7 @@ async def POST(request: Request):
 
                 if len(modules) == 0 and (not baselineRequired):
                     tmFallbackRes = (
-                        supabase
+                        db
                         .table("training_modules")
                         .select("module_id, title, content, company_id")
                         .in_("module_id", tmIds)
@@ -542,11 +543,11 @@ async def POST(request: Request):
         geminiText = ""
         if useLearningStyle:
             lsRes = (
-                supabase
+                db
                 .table("employee_learning_style")
                 .select("learning_style")
                 .eq("user_id", user_id)
-                .single()
+                .maybe_single()
                 .execute()
             )
             lsData = getattr(lsRes, "data", None)
@@ -557,7 +558,7 @@ async def POST(request: Request):
 
         # Fetch employee KPIs
         kpiRes = (
-            supabase
+            db
             .table("employee_kpi")
             .select("score, kpis(description, target, datatype)")
             .eq("user_id", user_id)
@@ -889,7 +890,7 @@ async def POST(request: Request):
         dbResult = None
         if existingPlan:
             dbResult = (
-                supabase
+                db
                 .table("learning_plan")
                 .update(
                     {
@@ -904,7 +905,7 @@ async def POST(request: Request):
             )
         else:
             dbResult = (
-                supabase
+                db
                 .table("learning_plan")
                 .insert(
                     {
@@ -936,7 +937,7 @@ async def POST(request: Request):
                 try:
                     print("Inside the try catch second")
                     insertRes = (
-                        supabase
+                        db
                         .table("module_progress")
                         .upsert({"user_id": user_id, "processed_module_id": m, "status": "NOT_STARTED"})
                         .execute()

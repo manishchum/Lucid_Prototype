@@ -8,7 +8,8 @@ import { Card } from '@/components/ui/card';
 import { Scenario } from '@/lib/roleplay/types';
 import { insertCustomScenario, updateCustomScenario } from '@/lib/roleplayDatabase';
 import { useAuth } from '@/contexts/auth-context';
-import { supabase } from '@/lib/supabase';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 let userId:any = '';
 let userCompanyId:any = '';
 
@@ -167,8 +168,15 @@ const CreateRoleplayComponent = () => {
   const fetchUserData = async () => {
     console.log('Fetching user data...');
     if (user) {
-      const {data:userData} = await supabase.from('users').select('user_id,company_id').eq('email',user.email).single();
-      if(userData) {
+      const res = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email || '')}`);
+      if (!res.ok) {
+        console.error('Failed to fetch user profile:', res.status);
+        return;
+      }
+      const payload = await res.json();
+      let userData = payload?.user ?? payload;
+      if (Array.isArray(userData)) userData = userData[0];
+      if (userData?.user_id) {
         userId = userData.user_id;
         userCompanyId = userData.company_id;
       }
