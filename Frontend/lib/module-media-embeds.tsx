@@ -7,6 +7,7 @@ export interface ModuleMediaEmbed {
   src: string;
   title: string;
   description?: string;
+  embedId?: string;
 }
 
 type HtmlBlock =
@@ -136,15 +137,23 @@ export function buildMediaEmbedMarkup(input: ModuleMediaEmbed): string {
   const eSrc = escapeAttribute(src);
   const eTitle = escapeAttribute(title);
   const eDescription = escapeAttribute(description);
+  const eEmbedId = input.embedId ? escapeAttribute(input.embedId) : "";
+  const mediaPreview =
+    input.type === "image"
+      ? `<img src="${eSrc}" alt="${eTitle}" style="width:100%;max-height:460px;object-fit:contain;border-radius:8px;background:#f8fafc;" />`
+      : input.type === "video"
+        ? `<video controls preload="metadata" style="width:100%;border-radius:8px;background:#020617;"><source src="${eSrc}" /></video>`
+        : `<audio controls preload="metadata" style="width:100%;"><source src="${eSrc}" /></audio>`;
 
   return [
-    `<figure class="module-media-embed" contenteditable="false" data-media-type="${eType}" data-media-src="${eSrc}" data-media-title="${eTitle}" data-media-description="${eDescription}">`,
+    `<figure class="module-media-embed" contenteditable="false" data-media-type="${eType}" data-media-src="${eSrc}" data-media-title="${eTitle}" data-media-description="${eDescription}"${eEmbedId ? ` data-media-id="${eEmbedId}"` : ""}>`,
     `  <div class="module-media-placeholder" style="padding:12px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc;margin:12px 0;">`,
-    `    <strong style="display:block;color:#1e293b;">${eTitle}</strong>`,
+    `    <div style="margin-bottom:10px;">${mediaPreview}</div>`,
+    `    <strong class="module-media-title" style="display:block;color:#1e293b;">${eTitle}</strong>`,
     `    <span style="display:block;color:#64748b;font-size:12px;">${prettyMediaName(input.type)} embed</span>`,
-    description ? `    <span style="display:block;color:#475569;font-size:12px;margin-top:4px;">${escapeAttribute(description)}</span>` : "",
+    description ? `    <span class="module-media-description" style="display:block;color:#475569;font-size:12px;margin-top:4px;">${escapeAttribute(description)}</span>` : "",
     "  </div>",
-    `  <figcaption>${eTitle}</figcaption>`,
+    `  <figcaption class="module-media-caption">${eTitle}</figcaption>`,
     "</figure>",
     "<p><br/></p>",
   ]
@@ -210,3 +219,6 @@ export function MediaAwareHtml({
     </div>
   );
 }
+
+
+
