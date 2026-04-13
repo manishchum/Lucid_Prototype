@@ -91,24 +91,20 @@ def insert_image_to_supabase(module_id, chunk_id, image, ocr_text):
             {"content-type": "image/png"}
         )
         print(f"[SUPABASE] ✅ Uploaded image for chunk_id {chunk_id} to storage at {file_path}")
-    
 
-        public_url = supabase.storage.from_(BUCKET).get_public_url(file_path)
-        print(f"[SUPABASE] Public URL for image: {public_url}")
-
+        # Store the relative path, not a public URL
         supabase.table("vectordb_images").insert({
-            "module_id":module_id,
+            "module_id": module_id,
             "chunk_id": chunk_id,
-            "image_url": public_url,
-            "storage_path": file_path,
-            "caption": ocr_text,
-            "surrounding_text": ocr_text,
-            "embedding": None,
-            "metadata": {}
+            "storage_path": file_path,  # Store the path directly
+            "caption": "",  # Placeholder for caption
+            "surrounding_text": ocr_text
         }).execute()
-        print(f"[SUPABASE] ✅ Inserted image metadata for chunk_id {chunk_id} into vectordb_images")
+
+        print(f"[SUPABASE] ✅ Linked image path {file_path} to chunk {chunk_id}")
+
     except Exception as e:
-        print(f"[SUPABASE ERROR] Failed to upload image for chunk_id {chunk_id}: {type(e).__name__}")
+        print(f"❌ Failed to upload/insert image for chunk {chunk_id}: {e}")
 
 
 

@@ -471,19 +471,17 @@ export default function WorkforceOverview() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <main className="p-6 space-y-6">
-        {/* Header Card */}
-        <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800 mb-2">Workforce Overview</h1>
-              <p className="text-slate-600">Monitor workforce capabilities and sprint allocation across your organization</p>
-            </div>
-            
-            <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6">
-              <Filter size={16} className="mr-2" />
-              Export Report
-            </Button>
+        {/* Header */}
+        <div className="flex flex-col md:flex-row items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Workforce Overview</h1>
+            <p className="text-gray-600 text-sm">Monitor workforce capabilities and sprint allocation.</p>
           </div>
+          
+          <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 mt-4 md:mt-0">
+            <Filter size={16} className="mr-2" />
+            Export Report
+          </Button>
         </div>
 
         {/* Role Analysis Section */}
@@ -491,14 +489,14 @@ export default function WorkforceOverview() {
           <h3 className="text-2xl font-bold text-gray-900 mb-4">Learning Overview</h3>
 
           {/* Filters */}
-          <div className="flex items-center gap-4 mb-8">
+          <div className="flex flex-col md:flex-row items-center gap-4 mb-8">
             <div className="flex items-center gap-2 text-gray-600">
               <Filter size={18} />
               <span className="text-sm font-medium">Select Role:</span>
             </div>
             
-            <div className="flex items-center gap-3 flex-1">
-              <div className="flex-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-1 w-full">
+              <div className="w-full">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Function</div>
                 <select 
                   value={selectedFunctionId}
@@ -550,7 +548,7 @@ export default function WorkforceOverview() {
               <div className="text-gray-500">Retrieving information…</div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Module Assignments Distribution */}
               <Card className="bg-gray-50 border-gray-200 shadow-sm p-6">
                 <div className="flex items-center justify-between mb-6">
@@ -645,7 +643,7 @@ export default function WorkforceOverview() {
           ) : (
             <div className="space-y-6">
               {/* Header Row */}
-              <div className="grid grid-cols-2 gap-6">
+              <div className="hidden md:grid grid-cols-2 gap-6">
                 <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">
                   Key Performance Indicator (KPI)
                 </div>
@@ -656,7 +654,7 @@ export default function WorkforceOverview() {
 
               {/* KPI Mappings - Each KPI with its modules in a row */}
               {kpiMappings.map((kpi, idx) => (
-                <div key={idx} className="grid grid-cols-2 gap-6">
+                <div key={idx} className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Business KPI Card */}
                   <Card className="bg-gray-50 border-gray-200 shadow-sm p-6">
                     <h4 className="text-lg font-bold text-gray-900 mb-2">{kpi.kpi_name}</h4>

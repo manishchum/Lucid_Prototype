@@ -39,11 +39,12 @@ def embed_chunks(chunks: list[str]) -> np.ndarray:
     Generates embeddings for a list of text chunks
     Returns: numpy array of shape (N, 1024)
     """
+    model = get_model()
     # IMPORTANT: BGE models expect this prefix for best performance
     prefixed = [DOCUMENT_PREFIX + c for c in chunks]
-    embeddings = _model.encode(
+    embeddings = model.encode(
         prefixed,
-        batch_size=4,
+        batch_size=6,
         show_progress_bar=True,
         normalize_embeddings=True,  # VERY IMPORTANT for cosine similarity
     )

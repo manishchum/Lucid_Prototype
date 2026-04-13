@@ -1145,13 +1145,13 @@ export default function KPITurbocharge() {
       <main className="p-6 space-y-6">
         {/* Header Card */}
         <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex flex-col md:flex-row items-start justify-between gap-4">
+            <div className="flex-1">
               <h1 className="text-3xl font-bold text-gray-800 mb-2">KPI Turbocharge</h1>
-              <p className="text-slate-600">Outcome-based learning engine mapping capability to business performance.</p>
+              <p className="text-slate-600 max-w-md">Outcome-based learning engine mapping capability to business performance.</p>
             </div>
             {/* Workforce Readiness Index */}
-            <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200 px-6 py-4">
+            <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200 px-6 py-4 w-full md:w-auto">
               <div className="flex items-center gap-6">
                 <div>
                   <div className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
@@ -1202,14 +1202,14 @@ export default function KPITurbocharge() {
 
         {/* Filters */}
         <Card className="bg-white border-gray-200 shadow-sm p-4">
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col md:flex-row items-center gap-4 w-full">
             <div className="flex items-center gap-2 text-gray-600">
               <Filter size={18} />
               <span className="text-sm font-medium">Select Role:</span>
             </div>
            
-            <div className="flex items-center gap-3 flex-1">
-              <div className="flex-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 flex-1 w-full">
+              <div className="flex-1 min-w-[150px]">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Function</div>
                 <select
                   value={selectedFunctionId}
@@ -1223,7 +1223,7 @@ export default function KPITurbocharge() {
                 </select>
               </div>
 
-              <div className="flex-1">
+              <div className="flex-1 min-w-[150px]">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Sub-Function</div>
                 <select
                   value={selectedSubFunctionId}
@@ -1238,7 +1238,7 @@ export default function KPITurbocharge() {
                 </select>
               </div>
 
-              <div className="flex-1">
+              <div className="flex-1 min-w-[150px]">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Role</div>
                 <select
                   value={selectedTitleId}
@@ -1253,7 +1253,7 @@ export default function KPITurbocharge() {
                 </select>
               </div>
 
-              <div className="flex-1">
+              <div className="flex-1 min-w-[150px]">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Module</div>
                 <select
                   value={selectedModuleId}
@@ -1277,7 +1277,7 @@ export default function KPITurbocharge() {
         ) : (
           <>
             {/* KPI Cards */}
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {kpiData.length > 0 ? kpiData.map((kpi) => (
                 <Card
                   key={kpi.id}
@@ -1546,7 +1546,7 @@ export default function KPITurbocharge() {
               </div>
             </Card>
             {/* Content Evaluation & Recommended Actions */}
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Content Evaluation */}
               <Card className="bg-white border-gray-200 shadow-sm p-6">
                 <div className="flex items-center justify-between mb-6">

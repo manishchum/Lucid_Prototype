@@ -127,16 +127,16 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
   if (loading && modules.length === 0) {
     return (
       <div
-        className="fixed top-0 h-screen w-64 bg-white border-r shadow-sm z-30 overflow-y-auto transition-all duration-300 ease-in-out"
+        className="hidden xl:fixed xl:top-0 xl:h-screen xl:w-64 xl:bg-white xl:border-r xl:shadow-sm xl:z-30 xl:overflow-y-auto xl:transition-all xl:duration-300 xl:ease-in-out"
         style={{ 
           paddingTop: "4rem",
           left: "var(--sidebar-width, 5rem)"
         }}
       >
-        <div className="p-4">
-          <div className="animate-pulse space-y-3">
+        <div className="p-4 md:p-6">
+          <div className="animate-pulse space-y-2 md:space-y-3">
             {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="h-16 bg-gray-200 rounded"></div>
+              <div key={i} className="h-12 md:h-16 bg-gray-200 rounded"></div>
             ))}
           </div>
         </div>
@@ -150,15 +150,15 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
 
   return (
     <div
-      className="fixed top-0 h-screen w-64 bg-white border-r shadow-sm z-30 overflow-y-auto transition-all duration-300 ease-in-out"
+      className="hidden xl:fixed xl:top-0 xl:h-screen xl:w-64 xl:bg-white xl:border-r xl:shadow-sm xl:z-30 xl:overflow-y-auto xl:transition-all xl:duration-300 xl:ease-in-out"
       style={{ 
         paddingTop: "4rem",
         left: "var(--sidebar-width, 5rem)"
       }}
     >
-      <div className="p-6">
-        <h2 className="text-xl font-bold mb-6 text-gray-900">Modules</h2>
-        <div className="space-y-3">
+      <div className="p-4 md:p-6">
+        <h2 className="text-lg md:text-xl font-bold mb-4 md:mb-6 text-gray-900">Modules</h2>
+        <div className="space-y-2 md:space-y-3">
           {modules.map((mod, index) => {
             const isActive = mod.processed_module_id === currentModuleId;
             return (
@@ -166,13 +166,13 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
                 key={mod.processed_module_id}
                 onClick={() => handleModuleClick(mod.processed_module_id)}
                 className={clsx(
-                  "w-full text-left p-4 rounded-lg transition-all duration-200 border",
+                  "w-full text-left p-3 md:p-4 rounded-lg transition-all duration-200 border text-sm md:text-base",
                   isActive
                     ? "bg-blue-100 text-blue-700 font-medium border-blue-200"
                     : "bg-white text-gray-700 hover:bg-gray-50 border-gray-200"
                 )}
               >
-                <div className="text-sm font-medium leading-snug">
+                <div className="font-medium leading-snug">
                   Module {index + 1}: {mod.title}
                 </div>
               </button>

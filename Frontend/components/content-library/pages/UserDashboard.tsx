@@ -748,7 +748,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
             </select>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, maxWidth: 1400 }}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" style={{ maxWidth: 1400 }}>
             {filteredCourses.map(course => (
               <div
                 key={course.category_id}

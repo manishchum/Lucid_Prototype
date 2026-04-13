@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { X, ChevronDown, MessageSquare, Mail, Calendar, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 interface AdminDispatchCenterProps {
   isOpen: boolean;
@@ -121,19 +122,18 @@ const AdminDispatchCenter: React.FC<AdminDispatchCenterProps> = ({ isOpen, onClo
                     2. Target Sprint
                   </label>
                   <div className="relative">
-                    <select
-                      value={selectedSprint}
-                      onChange={(e) => setSelectedSprint(e.target.value)}
-                      className="w-full px-4 py-3.5 rounded-xl border-2 border-slate-200 bg-slate-900 text-white font-semibold appearance-none cursor-pointer hover:border-slate-300 transition-all focus:outline-none focus:border-blue-500"
-                    >
-                      <option value="">Select a sprint...</option>
-                      {sprints.map((sprint) => (
-                        <option key={sprint} value={sprint}>
-                          {sprint}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-white pointer-events-none" size={18} />
+                    <Select value={selectedSprint} onValueChange={setSelectedSprint}>
+                      <SelectTrigger className="w-full px-4 py-6 rounded-xl border-2 border-slate-200 bg-white text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-left h-auto">
+                        <SelectValue placeholder="Select a sprint..." />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px] w-[var(--radix-select-trigger-width)]">
+                        {sprints.map((sprint) => (
+                          <SelectItem key={sprint} value={sprint}>
+                            {sprint}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
 
