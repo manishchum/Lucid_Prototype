@@ -85,6 +85,7 @@ export default function EditModulePage() {
   const contentEditableRef = useRef<HTMLDivElement>(null);
   const videoUploadInputRef = useRef<HTMLInputElement>(null);
   const savedSelectionRef = useRef<Range | null>(null);
+  const CARET_MARKER_ATTR = 'data-lucid-caret-marker';
 
   // Check authentication on mount
   useEffect(() => {
@@ -325,11 +326,65 @@ export default function EditModulePage() {
     }
   };
 
+  const isRangeInsideEditor = (range: Range) => {
+    const editor = contentEditableRef.current;
+    return !!editor && editor.contains(range.commonAncestorContainer);
+  };
+
   const saveCurrentSelection = () => {
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) {
-      savedSelectionRef.current = selection.getRangeAt(0).cloneRange();
+      const range = selection.getRangeAt(0);
+      if (isRangeInsideEditor(range)) {
+        savedSelectionRef.current = range.cloneRange();
+      }
     }
+  };
+
+  const clearCaretMarker = () => {
+    const editor = contentEditableRef.current;
+    if (!editor) return;
+    const marker = editor.querySelector(`span[${CARET_MARKER_ATTR}="true"]`);
+    if (marker) {
+      marker.remove();
+    }
+  };
+
+  const saveSelectionWithMarker = () => {
+    const editor = contentEditableRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    if (!isRangeInsideEditor(range)) return;
+
+    clearCaretMarker();
+
+    const marker = document.createElement('span');
+    marker.setAttribute(CARET_MARKER_ATTR, 'true');
+    marker.setAttribute('aria-hidden', 'true');
+    marker.style.display = 'inline-block';
+    marker.style.width = '0';
+    marker.style.height = '0';
+    marker.style.overflow = 'hidden';
+    marker.style.lineHeight = '0';
+
+    const markerRange = range.cloneRange();
+    markerRange.collapse(true);
+    markerRange.insertNode(marker);
+
+    const afterMarker = document.createRange();
+    afterMarker.setStartAfter(marker);
+    afterMarker.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(afterMarker);
+    savedSelectionRef.current = afterMarker.cloneRange();
+  };
+
+  const handleToolbarMouseDown = (event: React.MouseEvent<HTMLButtonElement>) => {
+    // Keep editor focus/caret intact while still allowing button click handlers to run.
+    event.preventDefault();
+    saveSelectionWithMarker();
   };
 
   const restoreSavedSelection = () => {
@@ -345,20 +400,64 @@ export default function EditModulePage() {
     if (!contentEditableRef.current || !markup) return;
     console.log("Content editable ref and markup are valid. Proceeding with insertion.");
     const activeProcessedModuleId = selectedSubModule?.processed_module_id;
-    contentEditableRef.current.focus();
+    const editor = contentEditableRef.current;
+    editor.focus();
 
-    let nextContent = contentEditableRef.current.innerHTML;
-    if (savedSelectionRef.current) {
-      console.log("Inside the if block")
-      restoreSavedSelection();
-      document.execCommand('insertHTML', false, markup);
-      nextContent = `${contentEditableRef.current.innerHTML}+${markup}`;
-      
+    const marker = editor.querySelector(`span[${CARET_MARKER_ATTR}="true"]`);
+    const selection = window.getSelection();
+
+    if (marker && marker.parentNode) {
+      const tempContainer = document.createElement('div');
+      tempContainer.innerHTML = markup;
+
+      const fragment = document.createDocumentFragment();
+      while (tempContainer.firstChild) {
+        fragment.appendChild(tempContainer.firstChild);
+      }
+
+      const lastInsertedNode = fragment.lastChild;
+      marker.parentNode.insertBefore(fragment, marker.nextSibling);
+      marker.remove();
+
+      if (selection && lastInsertedNode) {
+        const newRange = document.createRange();
+        newRange.setStartAfter(lastInsertedNode);
+        newRange.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+        savedSelectionRef.current = newRange.cloneRange();
+      }
     } else {
-      console.log("Inside the else block")
-      console.log(markup)
-      nextContent = `${contentEditableRef.current.innerHTML}${markup}`;
+      const candidateRange = savedSelectionRef.current?.cloneRange()
+        ?? (selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null);
+
+      if (candidateRange && isRangeInsideEditor(candidateRange)) {
+        const tempContainer = document.createElement('div');
+        tempContainer.innerHTML = markup;
+
+        const fragment = document.createDocumentFragment();
+        while (tempContainer.firstChild) {
+          fragment.appendChild(tempContainer.firstChild);
+        }
+
+        const lastInsertedNode = fragment.lastChild;
+        candidateRange.deleteContents();
+        candidateRange.insertNode(fragment);
+
+        if (selection && lastInsertedNode) {
+          const newRange = document.createRange();
+          newRange.setStartAfter(lastInsertedNode);
+          newRange.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+          savedSelectionRef.current = newRange.cloneRange();
+        }
+      } else {
+        editor.insertAdjacentHTML('beforeend', markup);
+      }
     }
+
+    const nextContent = editor.innerHTML;
 
     console.log(nextContent)
     console.log(markup)
@@ -392,10 +491,14 @@ export default function EditModulePage() {
     if (!contentEditableRef.current) return;
 
     const mediaUrl = window.prompt(`Enter a public ${type} URL (https://...):`);
-    if (!mediaUrl) return;
+    if (!mediaUrl) {
+      clearCaretMarker();
+      return;
+    }
 
     if (!/^https?:\/\//i.test(mediaUrl.trim())) {
       alert('Please enter a valid http/https URL.');
+      clearCaretMarker();
       return;
     }
 
@@ -411,6 +514,7 @@ export default function EditModulePage() {
 
     if (!embedMarkup) {
       alert('Could not create media embed from the provided URL.');
+      clearCaretMarker();
       return;
     }
 
@@ -418,13 +522,20 @@ export default function EditModulePage() {
   };
 
   const handleVideoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    // Preserve the last caret/selection before async upload/file dialog flow.
+    saveSelectionWithMarker();
+
     const file = event.target.files?.[0];
     event.target.value = '';
 
-    if (!file) return;
+    if (!file) {
+      clearCaretMarker();
+      return;
+    }
 
     if (!file.type.startsWith('video/') && !/\.(mp4|mov|webm|m4v|avi)$/i.test(file.name)) {
       alert('Please choose a video file.');
+      clearCaretMarker();
       return;
     }
 
@@ -470,6 +581,7 @@ export default function EditModulePage() {
       console.error('Video upload error:', error);
       alert(error instanceof Error ? error.message : 'Failed to upload video');
     } finally {
+      clearCaretMarker();
       setIsUploadingVideo(false);
     }
   };
@@ -1180,7 +1292,7 @@ export default function EditModulePage() {
                             type="button"
                             size="sm"
                             variant="outline"
-                            onMouseDown={saveCurrentSelection}
+                            onMouseDown={handleToolbarMouseDown}
                             onClick={() => insertMediaEmbedAtCursor('image')}
                             className="border-slate-300"
                           >
@@ -1191,7 +1303,7 @@ export default function EditModulePage() {
                             type="button"
                             size="sm"
                             variant="outline"
-                            onMouseDown={saveCurrentSelection}
+                            onMouseDown={handleToolbarMouseDown}
                             onClick={() => insertMediaEmbedAtCursor('video')}
                             className="border-slate-300"
                           >
@@ -1202,7 +1314,7 @@ export default function EditModulePage() {
                             type="button"
                             size="sm"
                             variant="outline"
-                            onMouseDown={saveCurrentSelection}
+                            onMouseDown={handleToolbarMouseDown}
                             onClick={() => videoUploadInputRef.current?.click()}
                             disabled={isUploadingVideo}
                             className="border-slate-300"
@@ -1214,7 +1326,7 @@ export default function EditModulePage() {
                             type="button"
                             size="sm"
                             variant="outline"
-                            onMouseDown={saveCurrentSelection}
+                            onMouseDown={handleToolbarMouseDown}
                             onClick={() => insertMediaEmbedAtCursor('audio')}
                             className="border-slate-300"
                           >
