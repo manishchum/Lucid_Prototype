@@ -602,7 +602,25 @@ def normalize_gemini_contents(contents):
 
     return normalized
 
+from PyPDF2 import PdfReader
 
+def get_pdf_page_count(file_path: str) -> int:
+            reader = PdfReader(file_path)
+            return len(reader.pages)
+def get_match_chunks(page_count: int) -> int:
+    if page_count <= 15:
+        return 2
+    elif page_count <= 30:
+        return 4
+    elif page_count <= 50:
+        return 5
+    elif page_count <= 70:
+        return 6
+    elif page_count <= 100:
+        return 7
+    else:
+        return 8
+    
 async def processTextContent(text: str, moduleId: str):
     # ✅ same logic: previously OpenAI chat completion
     # Now: Gemini text-only generation (no file upload), but flow unchanged.
@@ -783,7 +801,8 @@ async def openai_upload_file(
 
         #     # send text to Gemini
         #     return await processTextContent(combined_text, moduleId)
-
+        
+        
         merged_pdf_path = os.path.join(tempDir, f"{moduleId}_combined.pdf")
 
         merger = PdfMerger()
@@ -792,6 +811,12 @@ async def openai_upload_file(
 
         merger.write(merged_pdf_path)
         merger.close()
+        total_pages = get_pdf_page_count(merged_pdf_path)
+        print(f"[PAGE COUNT] Total pages in merged PDF: {total_pages}")
+
+        match_chunks = get_match_chunks(total_pages)
+
+        print(f"[MATCH CHUNKS] Selected: {match_chunks}")
 
         # Upload merged PDF to SAME bucket
         with open(merged_pdf_path, "rb") as f:
@@ -835,7 +860,9 @@ async def openai_upload_file(
         }).eq("module_id", moduleId).execute()
 
         supabase.table("training_modules").update({
-            "processing_status": "summarizing"
+            "processing_status": "summarizing",
+            "page_count": total_pages,
+            "match_chunks": match_chunks
         }).eq("module_id", moduleId).execute()
 
         geminiFile = gemini_client.files.upload(file=merged_pdf_path)

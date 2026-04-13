@@ -512,17 +512,15 @@ function TrainingPlanContent() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
         <div className="px-4 py-8">
           <div className="max-w-7xl mx-auto">
-          {/* Back Button */}
-          <button
-            onClick={() => router.push('/employee/welcome')}
-            className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium mb-6 transition-colors"
-          >
-            <ChevronLeft className="w-5 h-5" />
-            Back
-          </button>
-
-          {/* Header Card */}
-          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+          {/* Header Card with Back Button */}
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8 relative">
+            <button
+              onClick={() => router.push('/employee/welcome')}
+              className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium mb-4 transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5" />
+              Back
+            </button>
             <h1 className="text-3xl font-bold text-gray-800 mb-2">
               Learner's Performance Sprint{moduleTitle ? `- ${moduleTitle}` : ''}
             </h1>

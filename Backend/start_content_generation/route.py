@@ -57,6 +57,20 @@ async def POST(req: Request):
                 "job_status": existing[0].get("status"),
             })
 
+        try:
+            print("inside try")
+            
+            print("imported ingest_by_module_id")
+            
+            ingest_by_module_id(module_id)
+            print("[RAG] Ingestion completed successfully")
+             
+        except Exception as ingest_error:
+            print(f"[RAG ERROR] Error during ingestion: {type(ingest_error).__name__}")
+            print(f"[RAG ERROR] Error message: {str(ingest_error)}")
+            import traceback
+            print(f"[RAG ERROR] Traceback:\n{traceback.format_exc()}") 
+
         # Enqueue new job
         inserted_resp = (
             supabase
@@ -93,20 +107,6 @@ async def POST(req: Request):
             requery_data = getattr(requery_resp, "data", None)
             if isinstance(requery_data, list) and len(requery_data) > 0:
                 inserted = requery_data[0]
-
-        try:
-            print("inside try")
-            
-            print("imported ingest_by_module_id")
-            
-            ingest_by_module_id(module_id)
-            print("[RAG] Ingestion completed successfully")
-             
-        except Exception as ingest_error:
-            print(f"[RAG ERROR] Error during ingestion: {type(ingest_error).__name__}")
-            print(f"[RAG ERROR] Error message: {str(ingest_error)}")
-            import traceback
-            print(f"[RAG ERROR] Traceback:\n{traceback.format_exc()}") 
 
         return JSONResponse(content={
             "started": True,

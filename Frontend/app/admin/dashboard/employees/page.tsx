@@ -1012,114 +1012,182 @@ export default function EmployeesPage() {
                   </p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse">
-                    <thead>
-                      <tr className="border-b bg-gray-50">
-                        <th className="text-center p-3 font-medium text-gray-700 w-12">
-                          <input
-                            type="checkbox"
-                            checked={selectedUsers.length === filteredUsers.length && filteredUsers.length > 0}
-                            onChange={handleSelectAllUsers}
-                            className="rounded"
-                          />
-                        </th>
-                        <th className="text-left p-3 font-medium text-gray-700">User</th>
-                        <th className="text-center p-3 font-medium text-gray-700">Department</th>
-                        <th className="text-center p-3 font-medium text-gray-700">Role</th>
-                        <th className="text-center p-3 font-medium text-gray-700">Status</th>
-                        <th className="text-center p-3 font-medium text-gray-700">Position</th>
-                        <th className="text-center p-3 font-medium text-gray-700">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredUsers.map((user, index) => (
-                        <tr key={user.user_id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                          <td className="text-center p-3">
+                <>
+                  {/* Desktop Table View */}
+                  <div className="overflow-x-auto hidden md:block">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="border-b bg-gray-50">
+                          <th className="text-center p-3 font-medium text-gray-700 w-12">
+                            <input
+                              type="checkbox"
+                              checked={selectedUsers.length === filteredUsers.length && filteredUsers.length > 0}
+                              onChange={handleSelectAllUsers}
+                              className="rounded"
+                            />
+                          </th>
+                          <th className="text-left p-3 font-medium text-gray-700">User</th>
+                          <th className="text-center p-3 font-medium text-gray-700">Department</th>
+                          <th className="text-center p-3 font-medium text-gray-700">Role</th>
+                          <th className="text-center p-3 font-medium text-gray-700">Status</th>
+                          <th className="text-center p-3 font-medium text-gray-700">Position</th>
+                          <th className="text-center p-3 font-medium text-gray-700">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredUsers.map((user, index) => (
+                          <tr key={user.user_id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                            <td className="text-center p-3">
+                              <input
+                                type="checkbox"
+                                checked={selectedUsers.includes(user.user_id)}
+                                onChange={() => handleSelectUser(user.user_id)}
+                                className="rounded"
+                              />
+                            </td>
+                            <td className="p-3">
+                              <div>
+                                <div className="font-medium text-gray-900">{user.name || 'No Name'}</div>
+                                <div className="text-sm text-gray-500">{user.email}</div>
+                                {user.phone && (
+                                  <div className="text-xs text-gray-400">{user.phone}</div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="text-center p-3">
+                              <div className="text-sm">
+                                {user.department?.department_name && (
+                                  <div className="font-medium text-gray-700 flex items-center justify-center">
+                                    <Building2 className="w-3 h-3 mr-1" />
+                                    {user.department.department_name}
+                                  </div>
+                                )}
+                                {user.department?.sub_department_name && (
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {user.department.sub_department_name}
+                                  </div>
+                                )}
+                                {!user.department?.department_name && (
+                                  <span className="text-gray-400 text-xs">Not assigned</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="text-center p-3">
+                              <Badge className={
+                                user.role?.name === 'CEO' ? 'bg-purple-100 text-purple-800' :
+                                user.role?.name === 'SUPER_ADMIN' ? 'bg-red-100 text-red-800' :
+                                user.role?.name === 'ADMIN' ? 'bg-blue-100 text-blue-800' :
+                                'bg-gray-100 text-gray-800'
+                              }>
+                                {user.role?.display_name || 'USER'}
+                              </Badge>
+                            </td>
+                            <td className="text-center p-3">
+                              <Badge className={
+                                user.employment_status === 'ACTIVE' ? 'bg-green-100 text-green-800' :
+                                user.employment_status === 'INACTIVE' ? 'bg-gray-100 text-gray-800' :
+                                user.employment_status === 'TERMINATED' ? 'bg-red-100 text-red-800' :
+                                'bg-yellow-100 text-yellow-800'
+                              }>
+                                {user.employment_status || 'ACTIVE'}
+                              </Badge>
+                            </td>
+                            <td className="text-center p-3">
+                              <span className="text-sm text-gray-600">
+                                {user.position || 'Not specified'}
+                              </span>
+                            </td>
+                            <td className="text-center p-3">
+                              <div className="flex justify-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-green-600"
+                                  onClick={() => handleEditUser(user)}
+                                >
+                                  <Edit className="w-4 h-4 mr-1" />
+                                </Button>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className="text-red-600"
+                                  onClick={() => handleDeleteUser(user)}
+                                >
+                                  <Trash2 className="w-4 h-4 mr-1" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile Card View */}
+                  <div className="grid grid-cols-1 gap-4 md:hidden">
+                    {filteredUsers.map(user => (
+                      <div key={user.user_id} className="bg-white rounded-lg border p-4 space-y-3">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-3">
                             <input
                               type="checkbox"
                               checked={selectedUsers.includes(user.user_id)}
                               onChange={() => handleSelectUser(user.user_id)}
-                              className="rounded"
+                              className="rounded mt-1"
                             />
-                          </td>
-                          <td className="p-3">
                             <div>
-                              <div className="font-medium text-gray-900">{user.name || 'No Name'}</div>
-                              <div className="text-sm text-gray-500">{user.email}</div>
-                              {user.phone && (
-                                <div className="text-xs text-gray-400">{user.phone}</div>
-                              )}
+                              <p className="font-semibold text-gray-800">{user.name || 'No Name'}</p>
+                              <p className="text-sm text-gray-500">{user.email}</p>
                             </div>
-                          </td>
-                          <td className="text-center p-3">
-                            <div className="text-sm">
-                              {user.department?.department_name && (
-                                <div className="font-medium text-gray-700 flex items-center justify-center">
-                                  <Building2 className="w-3 h-3 mr-1" />
-                                  {user.department.department_name}
-                                </div>
-                              )}
-                              {user.department?.sub_department_name && (
-                                <div className="text-xs text-gray-500 mt-1">
-                                  {user.department.sub_department_name}
-                                </div>
-                              )}
-                              {!user.department?.department_name && (
-                                <span className="text-gray-400 text-xs">Not assigned</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="text-center p-3">
-                            <Badge className={
-                              user.role?.name === 'CEO' ? 'bg-purple-100 text-purple-800' :
-                              user.role?.name === 'SUPER_ADMIN' ? 'bg-red-100 text-red-800' :
-                              user.role?.name === 'ADMIN' ? 'bg-blue-100 text-blue-800' :
-                              'bg-gray-100 text-gray-800'
-                            }>
-                              {user.role?.display_name || 'USER'}
-                            </Badge>
-                          </td>
-                          <td className="text-center p-3">
-                            <Badge className={
-                              user.employment_status === 'ACTIVE' ? 'bg-green-100 text-green-800' :
-                              user.employment_status === 'INACTIVE' ? 'bg-gray-100 text-gray-800' :
-                              user.employment_status === 'TERMINATED' ? 'bg-red-100 text-red-800' :
-                              'bg-yellow-100 text-yellow-800'
-                            }>
-                              {user.employment_status || 'ACTIVE'}
-                            </Badge>
-                          </td>
-                          <td className="text-center p-3">
-                            <span className="text-sm text-gray-600">
-                              {user.position || 'Not specified'}
-                            </span>
-                          </td>
-                          <td className="text-center p-3">
-                            <div className="flex justify-center gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-green-600"
-                                onClick={() => handleEditUser(user)}
-                              >
-                                <Edit className="w-4 h-4 mr-1" />
-                              </Button>
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                className="text-red-600"
-                                onClick={() => handleDeleteUser(user)}
-                              >
-                                <Trash2 className="w-4 h-4 mr-1" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => handleEditUser(user)}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => handleDeleteUser(user)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 text-sm pt-3 border-t">
+                          <div>
+                            <p className="text-xs text-gray-500 uppercase font-semibold">Status</p>
+                            <Badge variant="outline" className={
+                                user.employment_status === 'ACTIVE' ? 'text-green-800 border-green-300' :
+                                user.employment_status === 'TERMINATED' ? 'text-red-800 border-red-300' :
+                                'text-gray-700 border-gray-300'
+                              }>
+                                {user.employment_status || 'ACTIVE'}
+                              </Badge>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 uppercase font-semibold">Role</p>
+                            <p className="font-medium text-gray-700">{user.role?.display_name || 'USER'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 uppercase font-semibold">Position</p>
+                            <p className="font-medium text-gray-700">{user.position || 'Not specified'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 uppercase font-semibold">Department</p>
+                            <p className="font-medium text-gray-700">{user.department?.department_name || 'N/A'}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
