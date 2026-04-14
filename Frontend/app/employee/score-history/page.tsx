@@ -532,8 +532,8 @@ export default function ScoreHistoryPage() {
       <div className="px-4 py-8">
         <div className="max-w-7xl mx-auto">
           <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">Your Learning Journey</h1>
-            <p className="text-slate-600">Review your style & scores</p>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">Sprint Performance Reports</h1>
+            <p className="text-slate-600">Comprehensive analysis of your scores and performance metrics</p>
           </div>
           <main className="max-w-6xl mx-auto px-6 lg:px-8">
 

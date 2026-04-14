@@ -480,13 +480,13 @@ export default function EmployeeWelcome() {
 
                            <div className="flex gap-2 w-full sm:w-auto flex-shrink-0">
                              {m.hasBaseline ? (
-                               <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-3 py-2 rounded text-xs border border-slate-200 font-bold text-slate-700 bg-white hover:bg-slate-50 flex-1 sm:flex-none h-10">
+                               <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-3 py-2 rounded-lg text-xs border border-slate-200 font-bold text-slate-700 bg-white hover:bg-slate-50 flex-1 sm:flex-none h-10">
                                  Baseline
                                </button>
                              ) : null}
 
-                             <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-3 sm:px-4 py-2 rounded text-xs bg-blue-600 text-white font-bold hover:bg-blue-700 flex-1 sm:flex-none h-10">
-                               Start
+                             <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-6 sm:px-8 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm bg-blue-600 text-white font-bold hover:bg-blue-700 flex-1 sm:flex-none h-11 sm:h-12 transition-all duration-200">
+                               Start Your Sprint
                              </button>
                            </div>
                          </div>

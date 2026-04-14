@@ -128,10 +128,9 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
   if (loading && modules.length === 0) {
     return (
       <div
-        className="hidden xl:fixed xl:top-0 xl:h-screen xl:w-64 xl:bg-white xl:border-r xl:shadow-sm xl:z-30 xl:overflow-y-auto xl:transition-all xl:duration-300 xl:ease-in-out"
+        className="hidden lg:block lg:fixed lg:top-0 lg:left-64 lg:h-screen lg:w-64 lg:bg-white lg:border-r lg:shadow-sm lg:z-20 lg:overflow-y-auto lg:transition-all lg:duration-300 lg:ease-in-out"
         style={{ 
-          paddingTop: "4rem",
-          left: "var(--sidebar-width, 5rem)"
+          paddingTop: "4rem"
         }}
       >
         <div className="p-4 md:p-6">
@@ -146,15 +145,26 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
   }
 
   if (modules.length === 0) {
-    return null;
+    return (
+      <div
+        className="hidden lg:block lg:fixed lg:top-0 lg:left-64 lg:h-screen lg:w-64 lg:bg-white lg:border-r lg:shadow-sm lg:z-20 lg:overflow-y-auto lg:transition-all lg:duration-300 lg:ease-in-out"
+        style={{ 
+          paddingTop: "4rem"
+        }}
+      >
+        <div className="p-4 md:p-6">
+          <h2 className="text-lg md:text-xl font-bold mb-4 md:mb-6 text-gray-900">Modules</h2>
+          <p className="text-sm text-gray-500">No modules available</p>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div
-      className="hidden xl:fixed xl:top-0 xl:h-screen xl:w-64 xl:bg-white xl:border-r xl:shadow-sm xl:z-30 xl:overflow-y-auto xl:transition-all xl:duration-300 xl:ease-in-out"
+      className="hidden lg:block lg:fixed lg:top-0 lg:left-64 lg:h-screen lg:w-64 lg:bg-white lg:border-r lg:shadow-sm lg:z-20 lg:overflow-y-auto lg:transition-all lg:duration-300 lg:ease-in-out"
       style={{ 
-        paddingTop: "4rem",
-        left: "var(--sidebar-width, 5rem)"
+        paddingTop: "4rem"
       }}
     >
       <div className="p-4 md:p-6">
