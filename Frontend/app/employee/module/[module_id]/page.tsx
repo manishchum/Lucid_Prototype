@@ -161,11 +161,16 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
     try {
       const response = await fetchWithAuth(`${API_BASE}/api/module-chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(employeeData?.user_id ? { 'X-User-ID': employeeData.user_id } : {}),
+        },
         body: JSON.stringify({
           processed_module_id: module.processed_module_id,
           user_message: userMessage,
           chat_history: userChatHistory,
+          user_id: employeeData?.user_id,
+          company_id: employeeData?.company_id,
         }),
       });
 
@@ -1558,8 +1563,8 @@ function ContentTransformer({
                             <div className="mb-2 flex justify-end">
                               <button
                                 onClick={() => flashcardExportRef.current?.()}
-                                className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center"
-                                title="Download flashcards image"
+                                                className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center"
+                                                title="Download flashcards PDF"
                               >
                                 <Download size={16} />
                               </button>
