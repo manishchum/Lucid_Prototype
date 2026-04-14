@@ -15,6 +15,10 @@ const LayoutWithNavigation = ({ children }: LayoutWithNavigationProps) => {
   // Pages where we don't show the navigation
   const excludedPaths = [
     '/',
+    '/onboarding',
+    '/career-progression',
+    '/mobile-learning',
+    '/communication',
     '/login',
     '/signup',
     '/auth/login',
