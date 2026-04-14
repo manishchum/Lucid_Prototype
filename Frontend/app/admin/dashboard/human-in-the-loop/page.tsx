@@ -427,89 +427,148 @@ export default function HumanInTheLoopPage() {
             </div>
           </div>
 
-          {/* Content Table */}
+          {/* Responsive Content Layout */}
           <Card className="bg-white border-slate-100 shadow-sm overflow-hidden">
             {loading ? (
               <div className="flex items-center justify-center p-12">
                 <div className="w-10 h-10 border-4 border-[#3B66F5]/20 border-t-[#3B66F5] rounded-full animate-spin"></div>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-100">
-                    <tr>
-                      <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Module</th>
-                      <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Uploaded By</th>
-                      <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Reviewer</th>
-                      <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Processing Status</th>
-                      <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Review Stage</th>
-                      <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Created</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredModules.length === 0 ? (
+              <>
+                {/* Desktop Table View */}
+                <div className="overflow-x-auto hidden md:block">
+                  <table className="w-full">
+                    <thead className="bg-slate-50 border-b border-slate-100">
                       <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center">
-                          <AlertCircle className="mx-auto mb-3 text-slate-300" size={48} />
-                          <p className="text-slate-500 font-medium mb-1">No modules found</p>
-                          <p className="text-sm text-slate-400">Modules you uploaded or are assigned to review will appear here</p>
-                        </td>
+                        <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Module</th>
+                        <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Uploaded By</th>
+                        <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Reviewer</th>
+                        <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Processing Status</th>
+                        <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Review Stage</th>
+                        <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Created</th>
                       </tr>
-                    ) : (
-                      filteredModules.map((module) => (
-                        <tr
-                          key={module.module_id}
-                          className="hover:bg-slate-50 transition-colors cursor-pointer"
-                          onClick={() => router.push(`/admin/dashboard/human-in-the-loop/edit/${module.module_id}`)}
-                        >
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center shrink-0">
-                                <FileText size={20} className="text-slate-500" />
-                              </div>
-                              <div>
-                                <p className="font-semibold text-[#1E293B]">{module.title}</p>
-                                <p className="text-sm text-slate-500">{module.description || 'No description'}</p>
-                              </div>
-                            </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredModules.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="px-6 py-12 text-center">
+                            <AlertCircle className="mx-auto mb-3 text-slate-300" size={48} />
+                            <p className="text-slate-500 font-medium mb-1">No modules found</p>
+                            <p className="text-sm text-slate-400">Modules you uploaded or are assigned to review will appear here</p>
                           </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
-                                <Upload size={14} className="text-purple-600" />
+                        </tr>
+                      ) : (
+                        filteredModules.map((module) => (
+                          <tr
+                            key={module.module_id}
+                            className="hover:bg-slate-50 transition-colors cursor-pointer"
+                            onClick={() => router.push(`/admin/dashboard/human-in-the-loop/edit/${module.module_id}`)}
+                          >
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center shrink-0">
+                                  <FileText size={20} className="text-slate-500" />
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-[#1E293B]">{module.title}</p>
+                                  <p className="text-sm text-slate-500">{module.description || 'No description'}</p>
+                                </div>
                               </div>
-                              <span className="text-sm font-medium text-slate-700">{module.uploader_name}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                                <UserCheck size={14} className="text-blue-600" />
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
+                                  <Upload size={14} className="text-purple-600" />
+                                </div>
+                                <span className="text-sm font-medium text-slate-700">{module.uploader_name}</span>
                               </div>
-                              <span className="text-sm font-medium text-slate-700">{module.reviewer_name}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getProcessingStatusColor(module.processing_status)}`}>
-                              {module.processing_status || 'Unknown'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                                  <UserCheck size={14} className="text-blue-600" />
+                                </div>
+                                <span className="text-sm font-medium text-slate-700">{module.reviewer_name}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getProcessingStatusColor(module.processing_status)}`}>
+                                {module.processing_status || 'Unknown'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getReviewStageColor(module.review_stage)}`}>
+                                {getReviewStageLabel(module.review_stage)}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="text-sm text-slate-700">
+                                {new Date(module.created_at).toLocaleDateString()}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Card View */}
+                <div className="grid grid-cols-1 gap-4 p-4 md:hidden">
+                  {filteredModules.length === 0 ? (
+                     <div className="px-6 py-12 text-center">
+                        <AlertCircle className="mx-auto mb-3 text-slate-300" size={48} />
+                        <p className="text-slate-500 font-medium mb-1">No modules found</p>
+                        <p className="text-sm text-slate-400">Modules you uploaded or are assigned to review will appear here</p>
+                      </div>
+                  ) : (
+                    filteredModules.map((module) => (
+                      <div
+                        key={module.module_id}
+                        className="bg-white rounded-lg border border-slate-200 p-4 space-y-4"
+                        onClick={() => router.push(`/admin/dashboard/human-in-the-loop/edit/${module.module_id}`)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center shrink-0">
+                            <FileText size={20} className="text-slate-500" />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-[#1E293B]">{module.title}</p>
+                            <p className="text-sm text-slate-500">{module.description || 'No description'}</p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <p className="text-xs text-slate-400 font-semibold uppercase mb-1">Review Stage</p>
                             <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getReviewStageColor(module.review_stage)}`}>
                               {getReviewStageLabel(module.review_stage)}
                             </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="text-sm text-slate-700">
-                              {new Date(module.created_at).toLocaleDateString()}
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-400 font-semibold uppercase mb-1">Processing</p>
+                            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getProcessingStatusColor(module.processing_status)}`}>
+                              {module.processing_status || 'Unknown'}
                             </span>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-400 font-semibold uppercase mb-1">Uploader</p>
+                            <p className="font-medium text-slate-700">{module.uploader_name}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-400 font-semibold uppercase mb-1">Reviewer</p>
+                            <p className="font-medium text-slate-700">{module.reviewer_name}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="text-xs text-slate-400 pt-2 border-t border-slate-100">
+                          Created: {new Date(module.created_at).toLocaleDateString()}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
             )}
           </Card>
         </div>

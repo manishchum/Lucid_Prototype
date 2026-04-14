@@ -15,7 +15,9 @@ export default function EmployeeModuleLayout({ children }: { children: ReactNode
       {employeeData?.user_id && currentModuleId && (
         <ModuleSideNav userId={employeeData.user_id} currentModuleId={currentModuleId} />
       )}
-      <div style={{ marginLeft: "16rem" }}>{children}</div>
+      <div className="w-full lg:pl-64 transition-all duration-300 ease-in-out">
+        {children}
+      </div>
     </div>
   );
 }

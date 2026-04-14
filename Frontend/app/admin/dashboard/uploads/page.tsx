@@ -923,7 +923,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
         
         if (jobsRes.ok) {
           const jobsPayload = await jobsRes.json().catch(() => null);
-          const jobs = jobsPayload?.jobs ?? jobsPayload?.data ?? jobsPayload ?? [];
+          const jobs = jobsPayload?.jobs ?? jobsPayload?.data ?? jobsPayload.data.data ?? jobsPayload ?? [];
           
           // Create a map of module_id -> job for fast lookup
           (jobs || []).forEach((job: any) => {
@@ -1344,7 +1344,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
               <Card key={module.module_id}>
               <CardContent className="p-4">
 
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
 
               <div className="flex-1">
 
@@ -1369,7 +1369,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
               )}
 
               <div className="flex items-center gap-4 text-xs text-gray-500">
-              <span>Type: {formatContentType(module.content_type)}</span>
+              <span>{formatContentType(module.content_type)}</span>
               <span>Created: {new Date(module.created_at).toLocaleDateString()}</span>
               </div>
 
@@ -1521,7 +1521,7 @@ export default function UploadsPage() {
       }
 
       const rolesPayload = await roleRes.json();
-      const assignments = rolesPayload.assignments || rolesPayload.data || rolesPayload || [];
+      const assignments = rolesPayload.assignments || rolesPayload.data || rolesPayload.data.data ||rolesPayload || [];
 
       if (!assignments || assignments.length === 0) {
         console.error("No active role for user.");

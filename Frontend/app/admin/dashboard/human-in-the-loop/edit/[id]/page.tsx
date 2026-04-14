@@ -4,11 +4,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
-import { ArrowLeft, Eye, GitCompare, Edit3, Sparkles, ShieldAlert, Lock, RotateCcw, XCircle, AlertTriangle, CheckCircle, FileText, Upload, UserCheck, Clock, History } from 'lucide-react';
+import { ArrowLeft, Eye, GitCompare, Edit3, Sparkles, ShieldAlert, Lock, RotateCcw, XCircle, AlertTriangle, CheckCircle, FileText, Upload, UserCheck, Clock, History, Image as ImageIcon, Video, Music2, Link2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import EmployeeNavigation from '@/components/employee-navigation';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
+import { MediaAwareHtml, buildMediaEmbedMarkup, type ModuleMediaType } from '@/lib/module-media-embeds';
 
 interface TrainingModule {
   module_id: string;
@@ -40,6 +41,12 @@ interface ContentHistory {
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+const DEFAULT_MAX_VIDEO_UPLOAD_MB = 50;
+const MAX_VIDEO_UPLOAD_MB = Number(process.env.NEXT_PUBLIC_MODULE_MEDIA_MAX_UPLOAD_MB || DEFAULT_MAX_VIDEO_UPLOAD_MB);
+const DEFAULT_MAX_IMAGE_UPLOAD_MB = 20;
+const DEFAULT_MAX_AUDIO_UPLOAD_MB = 25;
+const MAX_IMAGE_UPLOAD_MB = Number(process.env.NEXT_PUBLIC_MODULE_MEDIA_MAX_IMAGE_UPLOAD_MB || DEFAULT_MAX_IMAGE_UPLOAD_MB);
+const MAX_AUDIO_UPLOAD_MB = Number(process.env.NEXT_PUBLIC_MODULE_MEDIA_MAX_AUDIO_UPLOAD_MB || DEFAULT_MAX_AUDIO_UPLOAD_MB);
 
 const fetchUserByEmail = async (email: string | null) => {
   if(!email) return null;
@@ -54,6 +61,12 @@ const fetchUserByEmail = async (email: string | null) => {
     console.error("Error fetching user by email:", e);
     return null;
   }
+};
+
+const formatFileSize = (bytes: number) => {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} bytes`;
 };
 
 export default function EditModulePage() {
@@ -79,8 +92,17 @@ export default function EditModulePage() {
   const [pendingHistoryMap, setPendingHistoryMap] = useState<Record<string, ContentHistory>>({});
   const [hasPendingReview, setHasPendingReview] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [activeMediaMenu, setActiveMediaMenu] = useState<ModuleMediaType | null>(null);
 
   const contentEditableRef = useRef<HTMLDivElement>(null);
+  const videoUploadInputRef = useRef<HTMLInputElement>(null);
+  const imageUploadInputRef = useRef<HTMLInputElement>(null);
+  const audioUploadInputRef = useRef<HTMLInputElement>(null);
+  const savedSelectionRef = useRef<Range | null>(null);
+  const uploadInsertMarkerIdRef = useRef<string | null>(null);
 
   // Check authentication on mount
   useEffect(() => {
@@ -89,7 +111,7 @@ export default function EditModulePage() {
 
   // const {user,loading:authLoading,logout} = await useAuth();
   useEffect(() => {
-    if (currentUserId && isAuthorized) {
+    if (currentUserId && isAuthorized && moduleId) {
       fetchModuleAndSubModules();
     }
   }, [moduleId, currentUserId, isAuthorized]);
@@ -101,15 +123,30 @@ export default function EditModulePage() {
       if (pending && (userRole === 'reviewer' || userRole === 'both')) {
         setEditedContent(pending.content);
       } else {
-        setEditedContent(selectedSubModule.content);
+        setEditedContent(selectedSubModule.content || '');
       }
+      setIsEditing(false);
+      setHasUnsavedChanges(false);
     }
   }, [selectedSubModule, pendingHistoryMap, userRole]);
+
+  useEffect(() => {
+    if (activeView !== 'edit') return;
+    const editor = contentEditableRef.current;
+    if (!editor) return;
+    if (document.activeElement === editor) return;
+   
+    // Sync editor content with state whenever editedContent changes
+    if (editor.innerHTML !== editedContent) {
+      editor.innerHTML = editedContent || '';
+    }
+  }, [activeView, editedContent, selectedSubModule?.processed_module_id, userRole, hasPendingReview, loading]);
+
   useEffect(() => {
       if (!authLoading) {
         if (!user) router.push("/login");
         else checkAuth();
-        
+       
       }
     }, [user, authLoading, router]);
   const checkAuth = async () => {
@@ -120,7 +157,7 @@ export default function EditModulePage() {
       // const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       console.log(user);
       if(!user?.email)return
-      
+     
 
       // Verify user exists and get their details
       const { data: userData, error: userError } = await supabase
@@ -257,7 +294,8 @@ export default function EditModulePage() {
         if (subModulesData && subModulesData.length > 0) {
           setSubModules(subModulesData);
           setSelectedSubModule(subModulesData[0]);
-          setEditedContent(subModulesData[0].content);
+          setEditedContent(subModulesData[0].content || '');
+          setActiveView('edit');
         }
 
         // Fetch pending/in_review history for all sub-modules of this module
@@ -290,6 +328,8 @@ export default function EditModulePage() {
         throw new Error(error.detail || 'Failed to fetch pending history');
       }
 
+
+      console.log("Inside the pending history")
       const data = await response.json();
       const historyData = data.data.history || [];
 
@@ -314,9 +354,170 @@ export default function EditModulePage() {
   };
 
   const handleContentEditableChange = () => {
+    const latestContent = contentEditableRef.current?.innerHTML ?? '';
+    if (latestContent !== editedContent) {
+      setEditedContent(latestContent);
+    }
     if (!hasUnsavedChanges) {
       setHasUnsavedChanges(true);
     }
+  };
+
+  const saveCurrentSelection = () => {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      savedSelectionRef.current = selection.getRangeAt(0).cloneRange();
+    }
+  };
+
+  const handleToolbarMouseDown = (event: React.MouseEvent<HTMLButtonElement>) => {
+    // Keep editor focus/selection intact while clicking toolbar actions.
+    event.preventDefault();
+    saveCurrentSelection();
+  };
+
+  const syncEditorDomToState = () => {
+    if (!contentEditableRef.current) return;
+    const nextContent = contentEditableRef.current.innerHTML;
+    const activeProcessedModuleId = selectedSubModule?.processed_module_id;
+
+    setEditedContent(nextContent);
+    setSelectedSubModule((previous) => previous ? { ...previous, content: nextContent } : previous);
+    if (activeProcessedModuleId) {
+      setSubModules((previous) => previous.map((subModule) => (
+        subModule.processed_module_id === activeProcessedModuleId
+          ? { ...subModule, content: nextContent }
+          : subModule
+      )));
+    }
+    handleContentEditableChange();
+  };
+
+  const createTransientId = () =>
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  const placeUploadInsertMarker = () => {
+    if (!contentEditableRef.current) return null;
+    const editor = contentEditableRef.current;
+    const markerId = createTransientId();
+    const marker = document.createElement('span');
+    marker.setAttribute('data-upload-marker-id', markerId);
+    marker.style.display = 'inline-block';
+    marker.style.width = '0';
+    marker.style.overflow = 'hidden';
+    marker.textContent = '\u200b';
+
+    // Try to get a valid range inside the editor
+    let insertionRange: Range | null = null;
+
+    // First, try the saved selection
+    if (savedSelectionRef.current && editor.contains(savedSelectionRef.current.commonAncestorContainer)) {
+      insertionRange = savedSelectionRef.current.cloneRange();
+    } else {
+      // If no valid saved selection, try the current selection
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const currentRange = selection.getRangeAt(0);
+        if (editor.contains(currentRange.commonAncestorContainer)) {
+          insertionRange = currentRange.cloneRange();
+        }
+      }
+    }
+
+    // If we have a valid range, insert the marker at that position
+    if (insertionRange) {
+      insertionRange.deleteContents();
+      insertionRange.insertNode(marker);
+
+      const selection = window.getSelection();
+      const afterRange = document.createRange();
+      afterRange.setStartAfter(marker);
+      afterRange.collapse(true);
+      selection?.removeAllRanges();
+      selection?.addRange(afterRange);
+      savedSelectionRef.current = afterRange.cloneRange();
+    } else {
+      // Fallback: if no valid cursor position, place marker at the end
+      editor.appendChild(marker);
+    }
+
+    uploadInsertMarkerIdRef.current = markerId;
+    return markerId;
+  };
+
+  const clearUploadInsertMarker = () => {
+    const markerId = uploadInsertMarkerIdRef.current;
+    const editor = contentEditableRef.current;
+    if (markerId && editor) {
+      const marker = editor.querySelector(`span[data-upload-marker-id="${markerId}"]`);
+      marker?.remove();
+    }
+    uploadInsertMarkerIdRef.current = null;
+  };
+
+  const insertMarkupAtUploadMarker = (markup: string) => {
+    const markerId = uploadInsertMarkerIdRef.current;
+    const editor = contentEditableRef.current;
+    if (!markerId || !editor || !markup) return false;
+
+    const marker = editor.querySelector(`span[data-upload-marker-id="${markerId}"]`) as HTMLElement | null;
+    uploadInsertMarkerIdRef.current = null;
+    if (!marker) return false;
+
+    const range = document.createRange();
+    range.setStartBefore(marker);
+    range.setEndBefore(marker);
+    const fragment = range.createContextualFragment(markup);
+    const lastNode = fragment.lastChild;
+    marker.replaceWith(fragment);
+
+    if (lastNode) {
+      const selection = window.getSelection();
+      const afterRange = document.createRange();
+      afterRange.setStartAfter(lastNode);
+      afterRange.collapse(true);
+      selection?.removeAllRanges();
+      selection?.addRange(afterRange);
+      savedSelectionRef.current = afterRange.cloneRange();
+    }
+
+    syncEditorDomToState();
+    return true;
+  };
+
+  const insertMarkupAtCursor = (markup: string) => {
+    if (!contentEditableRef.current || !markup) return;
+    const editor = contentEditableRef.current;
+    editor.focus();
+
+    const hasSavedRangeInsideEditor =
+      !!savedSelectionRef.current &&
+      editor.contains(savedSelectionRef.current.commonAncestorContainer);
+
+    if (hasSavedRangeInsideEditor) {
+      const range = savedSelectionRef.current!.cloneRange();
+      range.deleteContents();
+      const fragment = range.createContextualFragment(markup);
+      const lastNode = fragment.lastChild;
+      range.insertNode(fragment);
+
+      if (lastNode) {
+        const selection = window.getSelection();
+        const afterRange = document.createRange();
+        afterRange.setStartAfter(lastNode);
+        afterRange.collapse(true);
+        selection?.removeAllRanges();
+        selection?.addRange(afterRange);
+        savedSelectionRef.current = afterRange.cloneRange();
+      }
+    } else {
+      editor.insertAdjacentHTML('beforeend', markup);
+    }
+
+    syncEditorDomToState();
+    saveCurrentSelection();
   };
 
   const handleSubModuleClick = (subModule: ProcessedModule) => {
@@ -328,6 +529,267 @@ export default function EditModulePage() {
     setSelectedSubModule(subModule);
     setHasUnsavedChanges(false);
     setActiveView('edit');
+  };
+
+  const insertMediaEmbedAtCursor = (type: ModuleMediaType) => {
+    if (!contentEditableRef.current) return;
+
+    const mediaUrl = window.prompt(`Enter a public ${type} URL (https://...):`);
+    if (!mediaUrl) return;
+
+    if (!/^https?:\/\//i.test(mediaUrl.trim())) {
+      alert('Please enter a valid http/https URL.');
+      return;
+    }
+
+    const title = window.prompt('Optional title for this media:', `${type.toUpperCase()} embed`) || '';
+    const description = window.prompt('Optional short description:') || '';
+
+    const embedMarkup = buildMediaEmbedMarkup({
+      type,
+      src: mediaUrl.trim(),
+      title,
+      description,
+    });
+
+    if (!embedMarkup) {
+      alert('Could not create media embed from the provided URL.');
+      return;
+    }
+
+    insertMarkupAtCursor(embedMarkup);
+  };
+
+  const getMediaTypeLabel = (type: ModuleMediaType) => {
+    if (type === 'image') return 'image';
+    if (type === 'audio') return 'audio';
+    return 'video';
+  };
+
+  const setMediaUploadingState = (type: ModuleMediaType, isUploading: boolean) => {
+    if (type === 'image') {
+      setIsUploadingImage(isUploading);
+      return;
+    }
+    if (type === 'audio') {
+      setIsUploadingAudio(isUploading);
+      return;
+    }
+    setIsUploadingVideo(isUploading);
+  };
+
+  const updateInsertedMediaMetadata = (mediaId: string, title: string, description: string) => {
+    if (!contentEditableRef.current) return;
+
+    const editor = contentEditableRef.current;
+    const targetFigure = editor.querySelector(`figure.module-media-embed[data-media-id="${mediaId}"]`) as HTMLElement | null;
+    if (!targetFigure) return;
+
+    targetFigure.setAttribute('data-media-title', title);
+    targetFigure.setAttribute('data-media-description', description);
+
+    const titleEl = targetFigure.querySelector('.module-media-title');
+    if (titleEl) titleEl.textContent = title;
+
+    const captionEl = targetFigure.querySelector('.module-media-caption');
+    if (captionEl) captionEl.textContent = title;
+
+    let descriptionEl = targetFigure.querySelector('.module-media-description') as HTMLElement | null;
+    if (description) {
+      if (!descriptionEl) {
+        const placeholder = targetFigure.querySelector('.module-media-placeholder');
+        if (placeholder) {
+          descriptionEl = document.createElement('span');
+          descriptionEl.className = 'module-media-description';
+          descriptionEl.style.display = 'block';
+          descriptionEl.style.color = '#475569';
+          descriptionEl.style.fontSize = '12px';
+          descriptionEl.style.marginTop = '4px';
+          placeholder.appendChild(descriptionEl);
+        }
+      }
+      if (descriptionEl) descriptionEl.textContent = description;
+    } else if (descriptionEl) {
+      descriptionEl.remove();
+    }
+
+    syncEditorDomToState();
+  };
+
+  const handleMediaUpload = async (mediaType: ModuleMediaType, event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    const mediaLabel = getMediaTypeLabel(mediaType);
+
+    const extensionMatchers: Record<ModuleMediaType, RegExp> = {
+      video: /\.(mp4|mov|webm|m4v|avi)$/i,
+      image: /\.(png|jpe?g|gif|webp|bmp|svg)$/i,
+      audio: /\.(mp3|wav|m4a|aac|ogg|flac)$/i,
+    };
+
+    const mimePrefix: Record<ModuleMediaType, string> = {
+      video: 'video/',
+      image: 'image/',
+      audio: 'audio/',
+    };
+
+    const maxUploadMbByType: Record<ModuleMediaType, number> = {
+      video: MAX_VIDEO_UPLOAD_MB,
+      image: MAX_IMAGE_UPLOAD_MB,
+      audio: MAX_AUDIO_UPLOAD_MB,
+    };
+
+    if (!file) {
+      clearUploadInsertMarker();
+      return;
+    }
+
+    if (!file.type.startsWith(mimePrefix[mediaType]) && !extensionMatchers[mediaType].test(file.name)) {
+      clearUploadInsertMarker();
+      alert(`Please choose a valid ${mediaLabel} file.`);
+      return;
+    }
+
+    const maxUploadMb = maxUploadMbByType[mediaType];
+    if (Number.isFinite(maxUploadMb) && file.size > maxUploadMb * 1024 * 1024) {
+      clearUploadInsertMarker();
+      alert(
+        `Selected file is ${formatFileSize(file.size)}. Max allowed upload size is ${maxUploadMb} MB.`
+      );
+      return;
+    }
+
+    setMediaUploadingState(mediaType, true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('moduleId', moduleId);
+      formData.append('mediaType', mediaType);
+
+      const response = await fetch('/api/module-media/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        const message = error.error || error.detail || `${mediaLabel} upload failed`;
+        if (response.status === 413 || error.code === 'FILE_TOO_LARGE') {
+          throw new Error(`${message} Please upload a smaller/compressed ${mediaLabel} file.`);
+        }
+        throw new Error(message);
+      }
+
+      const payload = await response.json();
+      const mediaUrl = payload?.url as string | undefined;
+
+      if (!mediaUrl) {
+        throw new Error(`${mediaLabel} upload succeeded, but no public URL was returned.`);
+      }
+
+      const mediaId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const defaultTitle = file.name.replace(/\.[^.]+$/, '') || `${mediaLabel} embed`;
+
+      const embedMarkup = buildMediaEmbedMarkup({
+        type: mediaType,
+        src: mediaUrl,
+        title: defaultTitle,
+        description: '',
+        embedId: mediaId,
+      });
+
+      if (!embedMarkup) {
+        throw new Error(`Could not build the ${mediaLabel} embed markup.`);
+      }
+
+      const insertedAtMarker = insertMarkupAtUploadMarker(embedMarkup);
+      if (!insertedAtMarker) {
+        insertMarkupAtCursor(embedMarkup);
+      }
+
+      const title = (window.prompt(`Optional title for this ${mediaLabel}:`, defaultTitle) || defaultTitle).trim() || defaultTitle;
+      const description = (window.prompt(`Optional short description for this ${mediaLabel}:`) || '').trim();
+      updateInsertedMediaMetadata(mediaId, title, description);
+    } catch (error) {
+      clearUploadInsertMarker();
+      console.error(`${mediaLabel} upload error:`, error);
+      alert(error instanceof Error ? error.message : `Failed to upload ${mediaLabel}`);
+    } finally {
+      setMediaUploadingState(mediaType, false);
+    }
+  };
+
+  const handleVideoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    handleMediaUpload('video', event);
+  };
+
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    handleMediaUpload('image', event);
+  };
+
+  const handleAudioUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    handleMediaUpload('audio', event);
+  };
+
+  const handleMediaUploadButtonClick = (mediaType: ModuleMediaType) => {
+    // Ensure editor is focused and capture current cursor position
+    const editor = contentEditableRef.current;
+    if (!editor) return;
+   
+    editor.focus();
+   
+    // Capture the current selection/cursor position
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      savedSelectionRef.current = selection.getRangeAt(0).cloneRange();
+    }
+   
+    // Place the marker at the current position
+    placeUploadInsertMarker();
+
+    if (mediaType === 'image') {
+      imageUploadInputRef.current?.click();
+      return;
+    }
+    if (mediaType === 'audio') {
+      audioUploadInputRef.current?.click();
+      return;
+    }
+
+    // Open file picker
+    videoUploadInputRef.current?.click();
+  };
+
+  const handleVideoUploadButtonClick = () => {
+    handleMediaUploadButtonClick('video');
+  };
+
+  const handleImageUploadButtonClick = () => {
+    handleMediaUploadButtonClick('image');
+  };
+
+  const handleAudioUploadButtonClick = () => {
+    handleMediaUploadButtonClick('audio');
+  };
+
+  const handleMediaSourceClick = (mediaType: ModuleMediaType, source: 'local' | 'link') => {
+    if (source === 'local') {
+      handleMediaUploadButtonClick(mediaType);
+      setActiveMediaMenu(null);
+      return;
+    }
+
+    const editor = contentEditableRef.current;
+    if (editor) {
+      editor.focus();
+      saveCurrentSelection();
+    }
+
+    insertMediaEmbedAtCursor(mediaType);
+    setActiveMediaMenu(null);
   };
 
   // ADMIN: Save edits locally (no DB write yet, just prepare for request approval)
@@ -397,10 +859,10 @@ export default function EditModulePage() {
         .single();
       if (updatedModule) setModule(updatedModule);
 
-      
+     
       // Update local state with the saved content
-      const updatedSubModules = subModules.map(sm => 
-        sm.processed_module_id === selectedSubModule.processed_module_id 
+      const updatedSubModules = subModules.map(sm =>
+        sm.processed_module_id === selectedSubModule.processed_module_id
           ? { ...sm, content: newContent }
           : sm)
 
@@ -411,7 +873,7 @@ export default function EditModulePage() {
     } finally {
       setSubmitting(false);
     }  };
-      
+     
   // REVIEWER: Save reviewer edits to history (overwrite the in_review entry)
   const handleReviewerSave = async () => {
     if (!selectedSubModule || !contentEditableRef.current || !currentUserId) return;
@@ -455,6 +917,7 @@ export default function EditModulePage() {
           })
         });
 
+        console.log(response)
         if (!response.ok) {
           const error = await response.json();
           throw new Error(error.detail || 'Failed to create history entry');
@@ -496,7 +959,10 @@ export default function EditModulePage() {
       }
 
       const data = await response.json();
-      const pendingEntries = data.history || [];
+     
+     
+      console.log(data)
+      const pendingEntries = data.history || data.data.history || [];
 
       if (!pendingEntries || pendingEntries.length === 0) {
         alert('No pending changes to approve.');
@@ -698,7 +1164,8 @@ export default function EditModulePage() {
 
   const ContentRenderer = ({ htmlContent }: { htmlContent: string }) => {
     return (
-      <div
+      <MediaAwareHtml
+        html={htmlContent}
         className="prose prose-sm max-w-none
           prose-headings:font-bold prose-headings:text-[#1E293B]
           prose-h1:text-3xl prose-h1:mb-6 prose-h1:mt-8
@@ -716,44 +1183,7 @@ export default function EditModulePage() {
           prose-th:border prose-th:border-slate-300 prose-th:px-4 prose-th:py-3 prose-th:text-left prose-th:font-semibold prose-th:text-slate-900
           prose-td:border prose-td:border-slate-200 prose-td:px-4 prose-td:py-3 prose-td:text-slate-700
           prose-img:rounded-lg prose-img:shadow-md prose-img:my-6"
-        dangerouslySetInnerHTML={{ __html: htmlContent }}
       />
-    );
-  };
-
-  const EditableContent = ({ htmlContent }: { htmlContent: string }) => {
-    useEffect(() => {
-      if (contentEditableRef.current) {
-        contentEditableRef.current.innerHTML = htmlContent;
-      }
-    }, [selectedSubModule?.processed_module_id, userRole, hasPendingReview]);
-
-    return (
-      <div
-        ref={contentEditableRef}
-        contentEditable={true}
-        onInput={handleContentEditableChange}
-        onBlur={handleContentEditableChange}
-        suppressContentEditableWarning={true}
-        className="prose prose-sm max-w-none min-h-[500px] p-6 border-2 border-blue-200 rounded-lg focus:outline-none focus:border-blue-400 bg-white
-          prose-headings:font-bold prose-headings:text-[#1E293B]
-          prose-h1:text-3xl prose-h1:mb-6 prose-h1:mt-8
-          prose-h2:text-2xl prose-h2:mb-4 prose-h2:mt-6 prose-h2:pb-2 prose-h2:border-b prose-h2:border-slate-200
-          prose-h3:text-xl prose-h3:mb-3 prose-h3:mt-4
-          prose-h4:text-lg prose-h4:mb-2 prose-h4:mt-3
-          prose-p:text-slate-700 prose-p:leading-relaxed prose-p:mb-4
-          prose-strong:text-slate-900 prose-strong:font-semibold
-          prose-ul:list-disc prose-ul:ml-6 prose-ul:mb-4
-          prose-ol:list-decimal prose-ol:ml-6 prose-ol:mb-4
-          prose-li:text-slate-700 prose-li:mb-2
-          prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:bg-blue-50 prose-blockquote:py-2 prose-blockquote:my-4
-          prose-table:w-full prose-table:border-collapse prose-table:my-6
-          prose-thead:bg-slate-100
-          prose-th:border prose-th:border-slate-300 prose-th:px-4 prose-th:py-3 prose-th:text-left prose-th:font-semibold prose-th:text-slate-900
-          prose-td:border prose-td:border-slate-200 prose-td:px-4 prose-td:py-3 prose-td:text-slate-700
-          prose-img:rounded-lg prose-img:shadow-md prose-img:my-6"
-      >
-      </div>
     );
   };
 
@@ -1024,11 +1454,58 @@ export default function EditModulePage() {
                             You can make edits to the content. Click "Save Edits" to update, then "Final Approval" to push live.
                           </p>
                         )}
+
+                        <input
+                          ref={imageUploadInputRef}
+                          type="file"
+                          accept="image/*,.png,.jpg,.jpeg,.gif,.webp,.bmp,.svg"
+                          className="hidden"
+                          onChange={handleImageUpload}
+                        />
+                        <input
+                          ref={videoUploadInputRef}
+                          type="file"
+                          accept="video/*,.mp4,.mov,.webm,.m4v,.avi"
+                          className="hidden"
+                          onChange={handleVideoUpload}
+                        />
+                        <input
+                          ref={audioUploadInputRef}
+                          type="file"
+                          accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
+                          className="hidden"
+                          onChange={handleAudioUpload}
+                        />
                       </div>
-                      <EditableContent htmlContent={editedContent} />
+                      <div
+                        ref={contentEditableRef}
+                        contentEditable={true}
+                        onMouseUp={saveCurrentSelection}
+                        onKeyUp={saveCurrentSelection}
+                        onInput={handleContentEditableChange}
+                        onBlur={handleContentEditableChange}
+                        suppressContentEditableWarning={true}
+                        className="prose prose-sm max-w-none min-h-[500px] p-6 border-2 border-blue-200 rounded-lg focus:outline-none focus:border-blue-400 bg-white
+                          prose-headings:font-bold prose-headings:text-[#1E293B]
+                          prose-h1:text-3xl prose-h1:mb-6 prose-h1:mt-8
+                          prose-h2:text-2xl prose-h2:mb-4 prose-h2:mt-6 prose-h2:pb-2 prose-h2:border-b prose-h2:border-slate-200
+                          prose-h3:text-xl prose-h3:mb-3 prose-h3:mt-4
+                          prose-h4:text-lg prose-h4:mb-2 prose-h4:mt-3
+                          prose-p:text-slate-700 prose-p:leading-relaxed prose-p:mb-4
+                          prose-strong:text-slate-900 prose-strong:font-semibold
+                          prose-ul:list-disc prose-ul:ml-6 prose-ul:mb-4
+                          prose-ol:list-decimal prose-ol:ml-6 prose-ol:mb-4
+                          prose-li:text-slate-700 prose-li:mb-2
+                          prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:bg-blue-50 prose-blockquote:py-2 prose-blockquote:my-4
+                          prose-table:w-full prose-table:border-collapse prose-table:my-6
+                          prose-thead:bg-slate-100
+                          prose-th:border prose-th:border-slate-300 prose-th:px-4 prose-th:py-3 prose-th:text-left prose-th:font-semibold prose-th:text-slate-900
+                          prose-td:border prose-td:border-slate-200 prose-td:px-4 prose-td:py-3 prose-td:text-slate-700
+                          prose-img:rounded-lg prose-img:shadow-md prose-img:my-6"
+                      />
                       <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                         <p className="text-xs text-blue-800">
-                          <strong>💡 Editing Tips:</strong> Click anywhere to start editing. Use Ctrl+B for bold, Ctrl+I for italic. Your HTML structure will be preserved.
+                          <strong>💡 Editing Tips:</strong> Click anywhere to start editing. Use Ctrl+B for bold and Ctrl+I for italic. Use the embed buttons to insert image, video, and audio blocks between text sections. Uploaded image, video, and audio files are saved to storage and inserted as public bucket links.
                         </p>
                       </div>
                     </div>
@@ -1134,6 +1611,129 @@ export default function EditModulePage() {
           </Card>
         </div>
       </div>
+
+      {activeView === 'edit' && selectedSubModule && (
+        <aside className="fixed bottom-28 right-4 z-40 lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2">
+          <Card className="w-[240px] border-slate-200 bg-white/95 backdrop-blur shadow-xl">
+            <div className="p-3 border-b border-slate-200">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Media Tools</p>
+              <p className="text-sm font-semibold text-slate-800 mt-1">Insert Module Media</p>
+            </div>
+            <div className="p-3 space-y-2">
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onMouseDown={handleToolbarMouseDown}
+                  onClick={() => setActiveMediaMenu(activeMediaMenu === 'video' ? null : 'video')}
+                  className="w-full flex items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Video size={14} />
+                    Video
+                  </span>
+                  <span className="text-xs text-slate-500">Choose</span>
+                </button>
+                {activeMediaMenu === 'video' && (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onMouseDown={handleToolbarMouseDown}
+                      onClick={() => handleMediaSourceClick('video', 'local')}
+                      disabled={isUploadingVideo}
+                      className="rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {isUploadingVideo ? 'Uploading...' : 'Local'}
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={handleToolbarMouseDown}
+                      onClick={() => handleMediaSourceClick('video', 'link')}
+                      className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Link2 size={12} />
+                      Link
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onMouseDown={handleToolbarMouseDown}
+                  onClick={() => setActiveMediaMenu(activeMediaMenu === 'audio' ? null : 'audio')}
+                  className="w-full flex items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Music2 size={14} />
+                    Audio
+                  </span>
+                  <span className="text-xs text-slate-500">Choose</span>
+                </button>
+                {activeMediaMenu === 'audio' && (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onMouseDown={handleToolbarMouseDown}
+                      onClick={() => handleMediaSourceClick('audio', 'local')}
+                      disabled={isUploadingAudio}
+                      className="rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {isUploadingAudio ? 'Uploading...' : 'Local'}
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={handleToolbarMouseDown}
+                      onClick={() => handleMediaSourceClick('audio', 'link')}
+                      className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Link2 size={12} />
+                      Link
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onMouseDown={handleToolbarMouseDown}
+                  onClick={() => setActiveMediaMenu(activeMediaMenu === 'image' ? null : 'image')}
+                  className="w-full flex items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <ImageIcon size={14} />
+                    Image
+                  </span>
+                  <span className="text-xs text-slate-500">Choose</span>
+                </button>
+                {activeMediaMenu === 'image' && (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onMouseDown={handleToolbarMouseDown}
+                      onClick={() => handleMediaSourceClick('image', 'local')}
+                      disabled={isUploadingImage}
+                      className="rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {isUploadingImage ? 'Uploading...' : 'Local'}
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={handleToolbarMouseDown}
+                      onClick={() => handleMediaSourceClick('image', 'link')}
+                      className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Link2 size={12} />
+                      Link
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Card>
+        </aside>
+      )}
 
       {/* Footer Actions */}
       <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-8 py-4 z-50">

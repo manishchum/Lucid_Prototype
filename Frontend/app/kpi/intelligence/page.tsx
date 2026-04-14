@@ -235,7 +235,7 @@ export default function KPIIntelligencePage() {
                 <div className="flex items-center gap-3">
                   <label
                     htmlFor="file-upload"
-                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-8 border-2 border-dashed rounded-lg transition-colors cursor-pointer ${
+                    className={`flex-1 flex flex-col sm:flex-row items-center justify-center gap-2 px-4 py-8 border-2 border-dashed rounded-lg transition-colors cursor-pointer ${
                       uploadedFile
                         ? 'border-green-300 bg-green-50'
                         : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
@@ -266,10 +266,10 @@ export default function KPIIntelligencePage() {
                     ) : (
                       <>
                         <Upload className="w-5 h-5 text-gray-400" />
-                        <span className="text-sm text-gray-600">
+                        <span className="text-sm text-gray-600 text-center">
                           Click to upload or drag and drop
                         </span>
-                        <span className="text-xs text-gray-500">PDF or Word document</span>
+                        <span className="text-xs text-gray-500 hidden sm:inline">PDF or Word document</span>
                       </>
                     )}
                   </label>
@@ -313,11 +313,11 @@ export default function KPIIntelligencePage() {
                 </div>
               )}
 
-              <div className="flex gap-3 pt-2">
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
                 <Button 
                   onClick={handleParseJD} 
                   disabled={isLoading || isParsingFile || !roleName.trim() || !jobDescription.trim()}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  className="bg-blue-600 hover:bg-blue-700 w-full sm:w-auto"
                 >
                   {isLoading ? (
                     <>
@@ -335,6 +335,7 @@ export default function KPIIntelligencePage() {
                   variant="outline" 
                   onClick={handleReset}
                   disabled={isLoading || isParsingFile}
+                  className="w-full sm:w-auto"
                 >
                   Reset
                 </Button>
@@ -380,7 +381,7 @@ export default function KPIIntelligencePage() {
                           <h3 className="font-semibold text-lg text-gray-900">Lead Indicators</h3>
                           <span className="text-xs text-gray-500 ml-2">(Predictive Metrics)</span>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                           {parsedData.leadIndicators.map((indicator, index) => (
                             <Card 
                               key={index}
@@ -418,7 +419,7 @@ export default function KPIIntelligencePage() {
                           <h3 className="font-semibold text-lg text-gray-900">Lag Indicators</h3>
                           <span className="text-xs text-gray-500 ml-2">(Outcome Metrics)</span>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                           {parsedData.lagIndicators.map((indicator, index) => (
                             <Card 
                               key={index}
@@ -488,13 +489,13 @@ export default function KPIIntelligencePage() {
               {/* Action Buttons */}
               <Card>
                 <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="text-center sm:text-left">
                       <h3 className="font-semibold text-gray-900 mb-1">Save KPI Configuration</h3>
                       <p className="text-sm text-gray-600">Save these indicators and strategies for {roleName}</p>
                     </div>
-                    <div className="flex gap-3">
-                      <Button variant="outline" onClick={handleExportPDF}>
+                    <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                      <Button variant="outline" onClick={handleExportPDF} className="w-full sm:w-auto">
                         <Download className="w-4 h-4 mr-2" />
                         Export as PDF
                       </Button>
