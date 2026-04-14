@@ -486,7 +486,7 @@ export default function EmployeeWelcome() {
                              ) : null}
 
                              <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-3 sm:px-4 py-2 rounded text-xs bg-blue-600 text-white font-bold hover:bg-blue-700 flex-1 sm:flex-none h-10">
-                               Start
+                               Start Your Sprint
                              </button>
                            </div>
                          </div>
