@@ -38,7 +38,6 @@ function uniqueNonEmpty(values) {
 
 const API_BASE_URLS = uniqueNonEmpty([
   process.env.AUDIO_WORKER_API_BASE_URL,
-  process.env.INTERNAL_API_BASE_URL,
   process.env.NEXT_PUBLIC_BACKEND_URL,
   process.env.BACKEND_URL,
 ]);

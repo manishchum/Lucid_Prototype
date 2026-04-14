@@ -10,8 +10,8 @@ import { useTenant } from "@/contexts/tenant-context";
 import CompanySelector from "@/components/company-selector";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
-import { 
-  Users, BookOpen, Clock, User, ChevronDown, 
+import {
+  Users, BookOpen, Clock, User, ChevronDown,
   Trophy, Target, TrendingUp, Zap, LayoutGrid,
   ShieldCheck, ArrowRight, CheckCircle2, LogOut
 } from "lucide-react";
@@ -64,7 +64,7 @@ export default function EmployeeWelcome() {
   const [showAllModules, setShowAllModules] = useState<boolean>(false);
   const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(false);
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
-  
+ 
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
 
@@ -231,7 +231,7 @@ export default function EmployeeWelcome() {
 
        <main className="min-h-screen pt-4 md:pt-8 pb-8 md:pb-12 px-4 sm:px-6 lg:px-8">
           <div className="max-w-6xl mx-auto w-full">
-          
+         
            {/* Dashboard Header */}
            <div className="mb-6 md:mb-10 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
              <div className="flex items-center gap-3 sm:gap-4 min-w-0">
@@ -377,10 +377,10 @@ export default function EmployeeWelcome() {
                          <h4 className="text-base md:text-lg font-black text-slate-900 mb-1">Discover Your Learning Style</h4>
                          <p className="text-xs md:text-sm text-slate-500 font-medium">Take our 5-minute survey to unlock your personalized path.</p>
                        </div>
-                      
+                     
                        <div className="relative mt-2 sm:mt-0">
                          {/* Profile Dropdown - Commented Out */}
-                         {/* 
+                         {/*
                          <button
                            onClick={() => setShowProfileDropdown(!showProfileDropdown)}
                            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
