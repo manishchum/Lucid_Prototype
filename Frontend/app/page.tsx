@@ -11,9 +11,7 @@ import {
   Puzzle, 
   Map, 
   TrendingUp, 
-  UserCheck, 
-  ShieldCheck, 
-  Fingerprint 
+  UserCheck
 } from "lucide-react";
 
 export default function LandingPage() {
@@ -67,10 +65,10 @@ export default function LandingPage() {
         </div>
         
         <div className="hidden md:flex items-center gap-4">
-          <Link href="/login" className="text-xs md:text-sm font-bold text-slate-600 hover:text-blue-600 px-3 py-2">Log In</Link>
-          <Link href="/signup">
-            <button className="px-4 md:px-5 py-2 md:py-2.5 bg-[#2563EB] text-white rounded-full font-bold text-xs md:text-sm hover:bg-blue-700 transition-all shadow-md shadow-blue-100">
-              Sign Up
+          {/* <Link href="/login" className="text-sm font-bold text-slate-600 hover:text-blue-600 px-3 py-2">Log In</Link> */}
+          <Link href="/login">
+            <button className="px-5 py-2.5 bg-[#2563EB] text-white rounded-full font-bold text-sm hover:bg-blue-700 transition-all shadow-md shadow-blue-100">
+              Log In
             </button>
           </Link>
         </div>
@@ -101,7 +99,7 @@ export default function LandingPage() {
 
           {/* Centered CTA with equal spacing above and below */}
           <div className="flex justify-center my-4 md:my-8">
-            <Link href="/signup" className="inline-flex items-center justify-center px-6 sm:px-8 md:px-10 py-2.5 sm:py-3 md:py-4 bg-gradient-to-r from-[#2563EB] via-[#6366F1] to-[#9333EA] text-white rounded-full text-sm md:text-lg lg:text-xl font-black shadow-xl hover:scale-105 transition-all">
+            <Link href="/login" className="inline-flex items-center justify-center px-6 sm:px-8 md:px-10 py-2.5 sm:py-3 md:py-4 bg-gradient-to-r from-[#2563EB] via-[#6366F1] to-[#9333EA] text-white rounded-full text-sm md:text-lg lg:text-xl font-black shadow-xl hover:scale-105 transition-all">
               Explore Lucid <ArrowRight size={16} className="sm:w-5 sm:h-5 md:w-5 md:h-5 ml-1 md:ml-2" />
             </Link>
           </div>
@@ -164,6 +162,9 @@ export default function LandingPage() {
            </div> */}
         </div>
         <div className="flex items-center gap-4">
+          <Link href="/privacy-policy" className="text-xs font-semibold text-slate-500 hover:text-[#2563EB] transition-colors">
+            Privacy Policy
+          </Link>
           {/* <p className="text-[9px] text-slate-300 font-black uppercase tracking-widest">Powered By</p>
           <div className="px-4 py-2 bg-slate-50 rounded-full border border-slate-100 font-black text-[10px] text-[#0F172A]">Google Gemini</div> */}
         </div>

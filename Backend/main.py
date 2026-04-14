@@ -30,7 +30,8 @@ from module_chat.route import router as module_chat
 from assistant.route import router as assistant_router
 from assistant.chat.route import router as assistant_chat_router
 from change_password.route import router as change_password_router
-from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment
+from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications
+from routes.analytics_export import router as analytics_export_router
 
 # Import user routes
 # from routes.users import router as users_router
@@ -133,6 +134,8 @@ app.include_router(processed_modules.router)  # processed modules router
 app.include_router(dispatch.router)  # dispatch router
 app.include_router(module_progress.router)  # module progress router
 app.include_router(employee_assessment.router)  # employee assessment router
+app.include_router(analytics_export_router)  # analytics export router
+app.include_router(notifications.router)  # notifications router
 
 
 if __name__ == "__main__":

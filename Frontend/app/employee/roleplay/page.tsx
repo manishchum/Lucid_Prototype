@@ -340,6 +340,32 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         return;
       }
 
+      if (userId) {
+        try {
+          const notificationResponse = await fetchWithAuth(`${API_URL}/api/notifications/assignment`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-ID': userId,
+            },
+            body: JSON.stringify({
+              assignment_type: 'roleplay',
+              assignment_title: assigningScenario.title,
+              company_id: companyId,
+              target_type: assignmentType,
+              target_ids: selectedTargets,
+              frontend_url: typeof window !== 'undefined' ? window.location.origin : undefined,
+            }),
+          });
+
+          if (!notificationResponse.ok) {
+            console.warn('Roleplay assignment notification failed:', await notificationResponse.text());
+          }
+        } catch (notificationError) {
+          console.warn('Failed to send roleplay assignment notification:', notificationError);
+        }
+      }
+
       // Close modal and reset
       setShowAssignModal(false);
       setAssigningScenario(null);
