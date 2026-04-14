@@ -661,27 +661,47 @@ export default function EditModulePage() {
 
     setMediaUploadingState(mediaType, true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('moduleId', moduleId);
-      formData.append('mediaType', mediaType);
-
-      const response = await fetch('/api/module-media/upload', {
+      const signedUploadResponse = await fetch('/api/module-media/upload', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'createSignedUploadUrl',
+          moduleId,
+          mediaType,
+          fileName: file.name,
+        }),
       });
 
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
+      if (!signedUploadResponse.ok) {
+        const error = await signedUploadResponse.json().catch(() => ({}));
         const message = error.error || error.detail || `${mediaLabel} upload failed`;
-        if (response.status === 413 || error.code === 'FILE_TOO_LARGE') {
+        if (signedUploadResponse.status === 413 || error.code === 'FILE_TOO_LARGE') {
           throw new Error(`${message} Please upload a smaller/compressed ${mediaLabel} file.`);
         }
         throw new Error(message);
       }
 
-      const payload = await response.json();
-      const mediaUrl = payload?.url as string | undefined;
+      const signedPayload = await signedUploadResponse.json();
+      const bucket = signedPayload?.bucket as string | undefined;
+      const storagePath = signedPayload?.path as string | undefined;
+      const uploadToken = signedPayload?.token as string | undefined;
+
+      if (!bucket || !storagePath || !uploadToken) {
+        throw new Error(`${mediaLabel} upload failed: missing signed upload details.`);
+      }
+
+      const { error: directUploadError } = await supabase.storage
+        .from(bucket)
+        .uploadToSignedUrl(storagePath, uploadToken, file);
+
+      if (directUploadError) {
+        throw new Error(directUploadError.message || `${mediaLabel} upload failed`);
+      }
+
+      const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(storagePath);
+      const mediaUrl = publicData?.publicUrl;
 
       if (!mediaUrl) {
         throw new Error(`${mediaLabel} upload succeeded, but no public URL was returned.`);
