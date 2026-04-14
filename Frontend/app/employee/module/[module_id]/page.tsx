@@ -16,6 +16,7 @@ import VoiceInput from '@/components/VoiceInput';
 import VoiceOutput from '@/components/VoiceOutput';
 import { callGemini } from "@/lib/gemini-helper";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
+import { MediaAwareHtml } from '@/lib/module-media-embeds';
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -160,11 +161,16 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
     try {
       const response = await fetchWithAuth(`${API_BASE}/api/module-chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(employeeData?.user_id ? { 'X-User-ID': employeeData.user_id } : {}),
+        },
         body: JSON.stringify({
           processed_module_id: module.processed_module_id,
           user_message: userMessage,
           chat_history: userChatHistory,
+          user_id: employeeData?.user_id,
+          company_id: employeeData?.company_id,
         }),
       });
 
@@ -577,9 +583,9 @@ function ContentCards({ content }: { content: string }) {
                 </h2>
               </div>
             )}
-            <div
+            <MediaAwareHtml
+              html={formatContent(section.content)}
               className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: formatContent(section.content) }}
             />
           </div>
         );
@@ -1557,8 +1563,8 @@ function ContentTransformer({
                             <div className="mb-2 flex justify-end">
                               <button
                                 onClick={() => flashcardExportRef.current?.()}
-                                className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center"
-                                title="Download flashcards image"
+                                                className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center"
+                                                title="Download flashcards PDF"
                               >
                                 <Download size={16} />
                               </button>
