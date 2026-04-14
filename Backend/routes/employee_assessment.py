@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
-from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 
 from utils.db.employee_assessment_db import (
     get_employee_assessment_by_id,
@@ -135,6 +135,7 @@ async def get_assessment_stats(
 async def get_company_assessments(
     company_id: str,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id),
     target_user_id: Optional[str] = Query(None, alias="user_id", description="Filter by user ID"),
     assessment_id: Optional[str] = Query(None, description="Filter by assessment ID"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of results")
@@ -142,14 +143,14 @@ async def get_company_assessments(
     """
     Get all employee assessments for a company.
     Permission: Manager+ in the company.
-    
+
     Query Parameters:
         - user_id: Optional filter by user ID
         - assessment_id: Optional filter by assessment ID
         - limit: Maximum number of results (default: 100, max: 500)
     """
     result = await get_employee_assessments_by_company(
-        auth_ctx.user_id, company_id, target_user_id, assessment_id, limit
+        auth_ctx.user_id, effective_company_id, target_user_id, assessment_id, limit
     )
     
     # Unwrap service layer response

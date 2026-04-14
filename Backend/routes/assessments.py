@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, Any, Dict
-from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 
 from utils.db.assessments_db import (
     create_assessment,
@@ -85,13 +85,14 @@ async def get_assessment_endpoint(
 async def get_company_assessments_endpoint(
     company_id: str,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id),
     type: Optional[str] = Query(None, description="Filter by assessment type (baseline/module)")
 ):
     """
     Get all assessments for a company, optionally filtered by type.
     Permission: Manager+ in the company.
     """
-    result = await get_assessments_by_company(auth_ctx.user_id, company_id, type)
+    result = await get_assessments_by_company(auth_ctx.user_id, effective_company_id, type)
     
     # Unwrap service layer response
     assessments = result.get("data") or []

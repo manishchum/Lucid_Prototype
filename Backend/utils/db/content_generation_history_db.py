@@ -4,17 +4,18 @@ Handles CRUD operations with permission checks.
 """
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from ..supabase_client import supabase
+from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
 
 async def check_module_access(requesting_user_id: str, original_module_id: str) -> bool:
+    supabase = get_service_supabase_client()
     """Check if user has access to the original training module"""
     try:
         # Get the training module's company
         module_resp = supabase.table('training_modules').select('company_id').eq(
             'module_id', original_module_id
-        ).single().execute()
+        ).maybe_single().execute()
         
         if not module_resp.data:
             return False
@@ -159,7 +160,7 @@ async def list_all_content_generation_history(
             # Get user's company_id
             user_resp = supabase.table('users').select('company_id').eq(
                 'user_id', requesting_user_id
-            ).single().execute()
+            ).maybe_single().execute()
             
             if not user_resp.data or not user_resp.data.get('company_id'):
                 return {"data": None, "error": "User company not found"}

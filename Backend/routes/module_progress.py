@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel
 from typing import Optional
-from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 
 from utils.db.module_progress_db import (
     get_progress_by_id,
@@ -43,8 +43,9 @@ class UpdateProgressRequest(BaseModel):
 @router.get("/{progress_id}")
 async def get_progress_record(
     progress_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Get a single module progress record by ID.
     Permission: Self OR manager+ in same company.
@@ -87,8 +88,9 @@ async def get_user_progress(
 @router.get("/module/{processed_module_id}")
 async def get_module_progress(
     processed_module_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Get all progress records for a specific processed module.
     Permission: Manager+ in the company that owns the module.
@@ -108,8 +110,9 @@ async def get_module_progress(
 async def get_user_module_progress(
     target_user_id: str,
     processed_module_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Get progress record for a specific user and processed module.
     Permission: Self OR manager+ in same company.
@@ -125,17 +128,17 @@ async def get_user_module_progress(
 @router.get("/company/{company_id}")
 async def get_company_progress(
     company_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
-    x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id),
     target_user_id: Optional[str] = Query(None),
     completed_only: bool = Query(False)
 ):
+    user_id = auth_ctx.user_id
     """
     Get all module progress records for a company.
     Optionally filter by user.
     Permission: Manager+ in the company.
     """
-    effective_company_id = x_company_id or company_id
     result = await get_progress_by_company(user_id, effective_company_id, target_user_id, completed_only)
     
     if result["error"]:
@@ -150,14 +153,14 @@ async def get_company_progress(
 @router.get("/company/{company_id}/stats")
 async def get_company_completion_stats(
     company_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
-    x_company_id: Optional[str] = Header(None, alias="X-Company-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
+    user_id = auth_ctx.user_id
     """
     Get completion statistics for a company.
     Permission: Manager+ in the company.
     """
-    effective_company_id = x_company_id or company_id
     result = await get_completion_stats(user_id, effective_company_id)
     
     if result["error"]:
@@ -166,11 +169,12 @@ async def get_company_completion_stats(
     return {"stats": result["data"]}
 
 
-@router.post("/")
+@router.post("")
 async def create_or_update_progress_record(
     request: CreateOrUpdateProgressRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Create or update a module progress record (upsert).
     
@@ -209,8 +213,9 @@ async def create_or_update_progress_record(
 async def update_progress_record(
     progress_id: str,
     request: UpdateProgressRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Update an existing module progress record.
     Permission: Self (for own progress) OR manager+ in same company.
@@ -235,8 +240,9 @@ async def update_progress_record(
 @router.delete("/{progress_id}")
 async def delete_progress_record(
     progress_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Delete a module progress record.
     Permission: Manager+ in same company (for data cleanup).

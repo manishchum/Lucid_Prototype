@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from utils.auth import RequestAuth, get_request_auth_required
+from fastapi import APIRouter, HTTPException, Header, Query, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
 import google.generativeai as genai
@@ -391,8 +392,9 @@ def build_email_body(
 @router.get("/sprints/{company_id}")
 async def list_sprints(
     company_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     result = await get_sprints_by_company(company_id)
     if result["error"]:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -402,8 +404,9 @@ async def list_sprints(
 @router.get("/sub-modules/{module_id}")
 async def list_sub_modules(
     module_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     result = await get_sub_modules_by_sprint(module_id)
     if result["error"]:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -413,8 +416,9 @@ async def list_sub_modules(
 @router.get("/assigned-users/{module_id}")
 async def list_assigned_users(
     module_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     result = await get_assigned_users_for_sprint(module_id)
     if result["error"]:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -424,8 +428,9 @@ async def list_assigned_users(
 @router.get("/sprint-image/{module_id}")
 async def get_sprint_image_url(
     module_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """Return the first available image URL for a sprint from vectordb_images."""
     result = await get_sprint_image(module_id)
     if result["error"]:
@@ -436,8 +441,9 @@ async def get_sprint_image_url(
 @router.post("/generate-email")
 async def generate_email(
     request: GenerateEmailRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """Use Gemini to draft a nudge / encouragement email."""
     sub_modules_text = "\n".join(f"  - {t}" for t in request.sub_module_titles)
     event_date = (
@@ -752,8 +758,9 @@ Engagement question: {request.engagement_question or "none"}
 @router.post("/generate-whatsapp")
 async def generate_whatsapp(
     request: GenerateWhatsAppRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """Use Gemini to draft a nudge / encouragement WhatsApp message."""
     sub_modules_text = "\n".join(f"  - {t}" for t in request.sub_module_titles)
     event_date = (
@@ -810,8 +817,9 @@ Engagement question: {request.engagement_question or "none"}
 @router.post("/send-email")
 async def send_email(
     request: SendEmailRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """Send the drafted email to all users assigned to the sprint.
     
     ⭐ IMPORTANT: Now integrated with GDPR/CAN-SPAM unsubscribe system.
@@ -938,8 +946,9 @@ def send_smtp_job(recipient_emails: List[str], subject: str, body: str) -> None:
 @router.post("/schedule-email")
 async def schedule_email(
     request: ScheduleEmailRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """
     Schedule the drafted email to be delivered at a future date/time (UTC).
     
@@ -1027,8 +1036,9 @@ async def schedule_email(
 @router.post("/notify-email")
 async def notify_email(
     request: NotifyEmailRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """
     Build and send (or schedule) an email whose content blocks are
     determined by the admin's `selected_content` list.
@@ -1384,8 +1394,9 @@ class ScheduleMultiModuleRequest(BaseModel):
 @router.post("/schedule-multi-module")
 async def schedule_multi_module(
     request: ScheduleMultiModuleRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """
     Schedule emails with paired module-content-scheduling mappings.
    
@@ -1668,8 +1679,9 @@ async def schedule_multi_module(
 @router.post("/notify-whatsapp")
 async def notify_whatsapp(
     request: NotifyWhatsAppRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """
     Schedule WhatsApp messages for content distribution.
    

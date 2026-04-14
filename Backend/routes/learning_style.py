@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Header
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
+from fastapi import APIRouter, HTTPException, Header, Depends
 from pydantic import BaseModel
 from typing import Optional
 
@@ -37,8 +38,9 @@ class UpsertLearningStyleRequest(BaseModel):
 @router.get("/user/{target_user_id}")
 async def get_user_learning_style(
     target_user_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Get learning style for a specific user.
     Permission: Self OR manager+ in same company.
@@ -55,13 +57,15 @@ async def get_user_learning_style(
 @router.get("/company/{company_id}")
 async def list_company_learning_styles(
     company_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
+    user_id = auth_ctx.user_id
     """
     Get all learning styles for users in a company.
     Permission: Manager+ in the same company.
     """
-    result = await get_learning_styles_by_company(user_id, company_id)
+    result = await get_learning_styles_by_company(user_id, effective_company_id)
     
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
@@ -75,8 +79,9 @@ async def list_company_learning_styles(
 @router.post("/")
 async def create_learning_style_record(
     request: CreateLearningStyleRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Create a new learning style record.
     Permission: Self (creating own record) OR company_admin+ in same company.
@@ -101,8 +106,9 @@ async def create_learning_style_record(
 async def update_user_learning_style(
     target_user_id: str,
     request: UpdateLearningStyleRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Update an existing learning style record.
     Permission: Self OR company_admin+ in same company.
@@ -130,8 +136,9 @@ async def update_user_learning_style(
 @router.post("/upsert")
 async def upsert_learning_style_record(
     request: UpsertLearningStyleRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Create or update a learning style record (upsert).
     Permission: Self OR company_admin+ in same company.
@@ -154,8 +161,9 @@ async def upsert_learning_style_record(
 @router.delete("/user/{target_user_id}")
 async def delete_user_learning_style(
     target_user_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Delete a learning style record.
     Permission: Company_admin+ in same company.

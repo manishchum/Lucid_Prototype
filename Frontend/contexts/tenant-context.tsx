@@ -4,6 +4,7 @@ import type React from "react"
 import { createContext, useContext, useEffect, useMemo, useState } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { sharedDataClient } from "@/lib/data-client"
+import { fetchWithAuth } from "@/lib/fetch-with-auth"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL
 
@@ -81,11 +82,10 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
       setLoadingCompanies(true)
       try {
-        const res = await fetch(`${API_BASE}/api/companies`, {
-          headers: { "X-User-ID": userId },
-        })
+        const res = await fetchWithAuth(`${API_BASE}/api/companies`)
         const payload = res.ok ? await res.json() : null
-        const companies = (payload?.companies || []).filter((c: Company) => c?.company_id)
+        const companiesList = payload?.data?.companies || payload?.companies || []
+        const companies = companiesList.filter((c: Company) => c?.company_id)
         const resolvedCompanies: Company[] = companies.length > 0 ? companies : [fallbackCompany]
 
         if (ignore) return

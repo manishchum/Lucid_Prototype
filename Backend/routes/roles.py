@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from typing import Optional, List
-from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 
 from utils.db.roles_db import (
     get_all_roles,
@@ -64,13 +64,14 @@ async def list_all_roles(
 async def list_company_role_assignments(
     company_id: str,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id),
     include_inactive: bool = Query(False)
 ):
     """
     Get all role assignments for a company.
     Permission: Manager+ in the company.
     """
-    result = await get_all_role_assignments(auth_ctx.user_id, company_id, include_inactive)
+    result = await get_all_role_assignments(auth_ctx.user_id, effective_company_id, include_inactive)
     
     # result is {"data": [...], "error": ...} from service layer
     # Handle both None and missing key

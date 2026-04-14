@@ -1,12 +1,13 @@
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from ..supabase_client import supabase
+from ..auth_bridge import get_service_supabase_client
 from ..auth_bridge import create_user_scoped_supabase_client_from_claims
 from .permissions import check_user_permission, check_company_access
 
 # ==================== MODULE PROGRESS OPERATIONS ====================
 
 async def get_progress_by_id(requesting_user_id: str, progress_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Get single module progress record by ID.
     Permission: Self OR manager+ in same company.
@@ -14,7 +15,7 @@ async def get_progress_by_id(requesting_user_id: str, progress_id: str) -> Dict[
     try:
         resp = supabase.table('module_progress').select(
             '*, users!inner(company_id, name, email), processed_modules(title, original_module_id)'
-        ).eq('module_progress_id', progress_id).single().execute()
+        ).eq('module_progress_id', progress_id).maybe_single().execute()
         
         if not resp.data:
             return {"data": None, "error": "Progress record not found"}
@@ -52,7 +53,7 @@ async def get_progress_by_user(requesting_user_id: str, target_user_id: str,
             query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_claims)
 
         # Get target user's company to check permissions
-        user_resp = query_client.table('users').select('company_id').eq('user_id', target_user_id).single().execute()
+        user_resp = query_client.table('users').select('company_id').eq('user_id', target_user_id).maybe_single().execute()
         
         if not user_resp.data:
             return {"data": None, "error": "User not found"}
@@ -82,6 +83,7 @@ async def get_progress_by_user(requesting_user_id: str, target_user_id: str,
 
 
 async def get_progress_by_processed_module(requesting_user_id: str, processed_module_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Get all progress records for a specific processed module.
     Permission: Manager+ in the company that owns the module.
@@ -90,7 +92,7 @@ async def get_progress_by_processed_module(requesting_user_id: str, processed_mo
         # Get module's company
         module_resp = supabase.table('processed_modules').select(
             'training_modules!inner(company_id)'
-        ).eq('processed_module_id', processed_module_id).single().execute()
+        ).eq('processed_module_id', processed_module_id).maybe_single().execute()
         
         if not module_resp.data:
             return {"data": None, "error": "Processed module not found"}
@@ -121,7 +123,7 @@ async def get_progress_by_user_and_module(requesting_user_id: str, user_id: str,
     """
     try:
         # Get user's company
-        user_resp = supabase.table('users').select('company_id').eq('user_id', user_id).single().execute()
+        user_resp = supabase.table('users').select('company_id').eq('user_id', user_id).maybe_single().execute()
         
         if not user_resp.data:
             return {"data": None, "error": "User not found"}
@@ -177,6 +179,7 @@ async def get_progress_by_company(requesting_user_id: str, company_id: str,
 
 
 async def create_or_update_progress(requesting_user_id: str, progress_data: Dict[str, Any]) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Create or update a module progress record (upsert functionality).
     Permission: Self (for own progress) OR manager+ in same company.
@@ -191,7 +194,7 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
             return {"data": None, "error": "user_id and processed_module_id are required"}
         
         # Get user's company
-        user_resp = supabase.table('users').select('company_id').eq('user_id', user_id).single().execute()
+        user_resp = supabase.table('users').select('company_id').eq('user_id', user_id).maybe_single().execute()
         
         if not user_resp.data:
             return {"data": None, "error": "User not found"}
@@ -253,7 +256,7 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
                         # Fetch from processed_modules
                         pm_resp = supabase.table('processed_modules').select(
                             'original_module_id'
-                        ).eq('processed_module_id', processed_module_id).single().execute()
+                        ).eq('processed_module_id', processed_module_id).maybe_single().execute()
                         
                         if pm_resp.data:
                             module_id = pm_resp.data.get('original_module_id')
@@ -261,7 +264,7 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
                     if module_id:
                         threshold_resp = supabase.table('training_modules').select(
                             'threshold_value'
-                        ).eq('module_id', module_id).single().execute()
+                        ).eq('module_id', module_id).maybe_single().execute()
                         
                         if threshold_resp.data and threshold_resp.data.get('threshold_value'):
                             score_percentage = (quiz_score / max_score) * 100
@@ -318,7 +321,7 @@ async def update_progress(requesting_user_id: str, progress_id: str,
         # Get existing progress to check ownership
         existing = supabase.table('module_progress').select(
             '*, users!inner(company_id)'
-        ).eq('module_progress_id', progress_id).single().execute()
+        ).eq('module_progress_id', progress_id).maybe_single().execute()
         
         if not existing.data:
             return {"data": None, "error": "Progress record not found"}
@@ -354,6 +357,7 @@ async def update_progress(requesting_user_id: str, progress_id: str,
 
 
 async def delete_progress(requesting_user_id: str, progress_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Delete a module progress record.
     Permission: Manager+ in same company (hard delete for data cleanup).
@@ -362,7 +366,7 @@ async def delete_progress(requesting_user_id: str, progress_id: str) -> Dict[str
         # Get existing progress to check permissions
         existing = supabase.table('module_progress').select(
             '*, users!inner(company_id)'
-        ).eq('module_progress_id', progress_id).single().execute()
+        ).eq('module_progress_id', progress_id).maybe_single().execute()
         
         if not existing.data:
             return {"data": None, "error": "Progress record not found"}
@@ -386,6 +390,7 @@ async def delete_progress(requesting_user_id: str, progress_id: str) -> Dict[str
 
 
 async def get_completion_stats(requesting_user_id: str, company_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Get completion statistics for a company.
     Permission: Manager+ in the company.

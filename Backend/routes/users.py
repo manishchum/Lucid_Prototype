@@ -22,6 +22,7 @@ from utils.auth import (
     RequestAuth,
     get_request_auth_optional,
     get_request_auth_required,
+    get_effective_company_id,
 )
 from utils.firebase_provisioning import ensure_firebase_user
 from utils.supabase_client import supabase
@@ -144,10 +145,11 @@ async def list_users_by_filter(
 async def list_users(
     company_id: str,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id),
     status: Optional[str] = Query(None),
     department_id: Optional[str] = Query(None)
 ):
-    result = await get_users_by_company(auth_ctx.user_id, company_id, auth_ctx.claims)
+    result = await get_users_by_company(auth_ctx.user_id, effective_company_id, auth_ctx.claims)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     users = result["data"] or []

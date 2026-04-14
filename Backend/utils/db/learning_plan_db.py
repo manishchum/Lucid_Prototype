@@ -49,7 +49,7 @@ async def get_learning_plan_by_id(
         # Fetch the learning plan
         resp = db.table('learning_plan').select(
             '*, users(user_id, name, email, company_id), training_modules(module_id, title, company_id)'
-        ).eq('learning_plan_id', learning_plan_id).single().execute()
+        ).eq('learning_plan_id', learning_plan_id).maybe_single().execute()
         
         if not resp.data:
             return {"data": None, "error": "Learning plan not found"}
@@ -199,7 +199,7 @@ async def create_learning_plan(
         # Verify module exists and belongs to same company
         module_resp = supabase.table('training_modules').select('company_id').eq(
             'module_id', module_id
-        ).single().execute()
+        ).maybe_single().execute()
         
         if not module_resp.data:
             return {"data": None, "error": "Training module not found"}
@@ -238,7 +238,7 @@ async def update_learning_plan(
         # Fetch the learning plan to check ownership
         plan_resp = supabase.table('learning_plan').select('user_id').eq(
             'learning_plan_id', learning_plan_id
-        ).single().execute()
+        ).maybe_single().execute()
         
         if not plan_resp.data:
             return {"data": None, "error": "Learning plan not found"}
@@ -300,7 +300,7 @@ async def delete_learning_plan(
         # Fetch the learning plan to check company
         plan_resp = supabase.table('learning_plan').select('user_id').eq(
             'learning_plan_id', learning_plan_id
-        ).single().execute()
+        ).maybe_single().execute()
         
         if not plan_resp.data:
             return {"data": None, "error": "Learning plan not found"}

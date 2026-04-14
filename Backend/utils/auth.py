@@ -20,6 +20,7 @@ class RequestAuth:
 	email: Optional[str]
 	source: str
 	claims: Optional[Dict[str, Any]] = None
+	company_id: Optional[str] = None
 
 
 def _extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
@@ -160,6 +161,7 @@ def get_request_auth_optional(
 					email=str(email) if email else None,
 					source="firebase",
 					claims=claims,
+					company_id=str(company_id) if company_id else None,
 				)
 		except HTTPException as exc:
 			if exc.detail == "Authenticated Firebase user is not linked to an app user":
@@ -224,6 +226,7 @@ def get_request_auth_jwt_required(
 		email=str(email) if email else None,
 		source="firebase",
 		claims=claims,
+		company_id=str(company_id) if company_id else None,
 	)
 
 
@@ -239,3 +242,57 @@ def get_request_auth_required_from_request(request: Request) -> RequestAuth:
 	if not auth_ctx.user_id:
 		raise HTTPException(status_code=401, detail="Missing authentication context")
 	return auth_ctx
+
+from fastapi import Depends
+
+async def get_effective_company_id(
+	request: Request,
+	x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
+	auth_ctx: RequestAuth = Depends(get_request_auth_required)
+) -> str:
+	"""
+	Resolve the effective company ID for multi-tenant requests.
+	Validates X-Company-ID or path company_id override against developer/admin roles.
+	If no override is provided or allowed, falls back to the user's home company.
+	"""
+	if not auth_ctx.user_id:
+		raise HTTPException(status_code=401, detail="Unauthorized")
+
+	requested_company_id = request.path_params.get("company_id") or x_company_id
+	home_company_id = auth_ctx.company_id
+
+	# Attempting to query fallback if missing from auth_ctx
+	if not home_company_id:
+		try:
+			from utils.auth_bridge import get_service_supabase_client
+			supabase = get_service_supabase_client()
+			resp = supabase.table("users").select("company_id").eq("user_id", auth_ctx.user_id).single().execute()
+			if resp.data and resp.data.get("company_id"):
+				home_company_id = str(resp.data["company_id"])
+		except Exception:
+			pass
+
+	if not requested_company_id:
+		if not home_company_id:
+			raise HTTPException(status_code=400, detail="User has no associated company and no override provided")
+		return home_company_id
+
+	if home_company_id and str(requested_company_id) == str(home_company_id):
+		return home_company_id
+
+	from utils.db.permissions import check_user_permission
+	try:
+		is_developer = await check_user_permission(auth_ctx.user_id, "developer")
+		is_admin = await check_user_permission(auth_ctx.user_id, "super_admin")
+	except Exception:
+		is_developer = False
+		is_admin = False
+
+	if is_developer or is_admin:
+		return str(requested_company_id)
+
+	# Forged or unauthorized override => constrain to actual company
+	if home_company_id:
+		return home_company_id
+
+	raise HTTPException(status_code=403, detail="Not authorized to query this company")

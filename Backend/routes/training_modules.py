@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel
 from typing import Optional
-from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 
 from utils.db.training_modules_db import (
     get_training_modules_by_company,
@@ -59,7 +59,7 @@ class UpdateReviewStageRequest(BaseModel):
 async def list_training_modules(
     company_id: str,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
-    x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
+    effective_company_id: str = Depends(get_effective_company_id),
     processing_status: Optional[str] = Query(None),
     review_stage: Optional[str] = Query(None)
 ):
@@ -68,7 +68,6 @@ async def list_training_modules(
     Permission: Any user in the company can view modules.
     Optional filters: processing_status, review_stage
     """
-    effective_company_id = x_company_id or company_id
     result = await get_training_modules_by_company(
         auth_ctx.user_id,
         effective_company_id,
@@ -90,8 +89,9 @@ async def list_training_modules(
 async def list_modules_by_uploader(
     uploader_id: str,
     company_id: str = Query(...),
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     List all training modules uploaded by a specific user.
     Permission: Any user in the company can view.
@@ -128,8 +128,9 @@ async def get_module(
 @router.post("/")
 async def create_module(
     request: CreateTrainingModuleRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Create a new training module.
     Permission: Manager+ in the same company.
@@ -153,8 +154,9 @@ async def create_module(
 async def update_module(
     module_id: str,
     request: UpdateTrainingModuleRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Update an existing training module.
     Permission: Manager+ in same company OR the uploader themselves.
@@ -176,8 +178,9 @@ async def update_module(
 async def update_processing_status(
     module_id: str,
     request: UpdateProcessingStatusRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Update the processing status and AI-generated fields of a training module.
     Permission: Manager+ in the same company.
@@ -206,8 +209,9 @@ async def update_processing_status(
 async def update_review_stage(
     module_id: str,
     request: UpdateReviewStageRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Update the review stage of a training module.
     Permission: Manager+ in the same company.
@@ -232,8 +236,9 @@ async def update_review_stage(
 @router.delete("/{module_id}")
 async def delete_module(
     module_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Delete a training module.
     Permission: Company admin+ only.

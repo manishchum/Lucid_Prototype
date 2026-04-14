@@ -9,7 +9,6 @@ import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import CompanySelector from "@/components/company-selector";
-import { supabase } from "@/lib/supabase";
 
 interface EmployeeNavigationProps {
   showBack?: boolean;

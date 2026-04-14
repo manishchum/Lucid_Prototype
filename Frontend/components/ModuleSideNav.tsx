@@ -40,7 +40,7 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
       }
 
       // Determine the original_module_id (sprint-level module_id)
-      let originalModuleId = sprintModuleId || resolvedOriginalModuleId;
+      let originalModuleId = sprintModuleId;
 
       // If sprintModuleId is not provided, get it from the current processed module
       if (!originalModuleId && currentModuleId) {
@@ -127,7 +127,7 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
   if (loading && modules.length === 0) {
     return (
       <div
-        className="hidden xl:fixed xl:top-0 xl:h-screen xl:w-64 xl:bg-white xl:border-r xl:shadow-sm xl:z-30 xl:overflow-y-auto xl:transition-all xl:duration-300 xl:ease-in-out"
+        className="hidden xl:block xl:fixed xl:top-0 xl:h-screen xl:w-64 xl:bg-white xl:border-r xl:shadow-sm xl:z-30 xl:overflow-y-auto xl:transition-all xl:duration-300 xl:ease-in-out"
         style={{ 
           paddingTop: "4rem",
           left: "var(--sidebar-width, 5rem)"
@@ -150,7 +150,7 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
 
   return (
     <div
-      className="hidden xl:fixed xl:top-0 xl:h-screen xl:w-64 xl:bg-white xl:border-r xl:shadow-sm xl:z-30 xl:overflow-y-auto xl:transition-all xl:duration-300 xl:ease-in-out"
+      className="hidden xl:block xl:fixed xl:top-0 xl:h-screen xl:w-64 xl:bg-white xl:border-r xl:shadow-sm xl:z-30 xl:overflow-y-auto xl:transition-all xl:duration-300 xl:ease-in-out"
       style={{ 
         paddingTop: "4rem",
         left: "var(--sidebar-width, 5rem)"

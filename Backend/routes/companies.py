@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Header, Query
+from utils.auth import RequestAuth, get_request_auth_required
+from fastapi import APIRouter, Header, Query, Depends
 from pydantic import BaseModel
 from typing import Optional
 
@@ -32,8 +33,9 @@ class UpdateCompanyRequest(BaseModel):
 
 @router.get("/")
 async def list_companies(
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     List all companies.
     Permission: Super admin only.
@@ -54,8 +56,9 @@ async def list_companies(
 async def search_companies_route(
     q: str = Query(..., min_length=2, description="Search term (minimum 2 characters)"),
     limit: int = Query(10, ge=1, le=50, description="Maximum number of results"),
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Search companies by name (case-insensitive partial match).
     Permission: Public access (for signup), requires minimum 2 characters for privacy.
@@ -75,8 +78,9 @@ async def search_companies_route(
 @router.get("/{company_id}")
 async def get_company(
     company_id: str,
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Get company by ID.
     Permission: Any authenticated user.
@@ -96,8 +100,9 @@ async def get_company(
 @router.get("/by-name/{company_name}")
 async def get_company_by_name_route(
     company_name: str,
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Get company by name (case-insensitive).
     Permission: Public access (for signup validation).
@@ -117,8 +122,9 @@ async def get_company_by_name_route(
 @router.get("/by-domain/{domain}")
 async def get_company_by_domain_route(
     domain: str,
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Get company by domain.
     Permission: Public access (for signup/email validation).
@@ -138,8 +144,9 @@ async def get_company_by_domain_route(
 @router.post("/")
 async def create_company_route(
     request: CreateCompanyRequest,
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Create a new company.
     Permission: Super admin OR public signup (no auth required).
@@ -161,8 +168,9 @@ async def create_company_route(
 async def update_company_route(
     company_id: str,
     request: UpdateCompanyRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Update company details.
     Permission: Admin+ of the company.
@@ -183,8 +191,9 @@ async def update_company_route(
 @router.delete("/{company_id}")
 async def delete_company_route(
     company_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Delete a company.
     Permission: Super admin only.

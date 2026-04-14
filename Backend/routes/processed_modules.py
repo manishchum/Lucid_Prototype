@@ -111,8 +111,9 @@ async def get_processed_module_by_id_route(
 @router.post("/batch")
 async def get_multiple_processed_modules_route(
     request: GetMultipleRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Get multiple processed modules by their IDs.
     Returns only modules the user has access to.
@@ -130,8 +131,9 @@ async def get_multiple_processed_modules_route(
 @router.post("/")
 async def create_processed_module_route(
     request: CreateProcessedModuleRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Create a new processed module.
     Requires access to the original training module.
@@ -154,8 +156,9 @@ async def create_processed_module_route(
 async def update_processed_module_route(
     processed_module_id: str,
     request: UpdateProcessedModuleRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Update basic fields of a processed module.
     """
@@ -179,8 +182,9 @@ async def update_processed_module_route(
 async def update_audio_route(
     processed_module_id: str,
     request: UpdateAudioRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Update audio-related fields for a processed module.
     Supports both English and Hinglish audio.
@@ -206,8 +210,9 @@ async def update_audio_route(
 async def update_video_route(
     processed_module_id: str,
     request: UpdateVideoRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Update video-related fields for a processed module.
     """
@@ -232,8 +237,9 @@ async def update_video_route(
 async def update_content_generation_route(
     processed_module_id: str,
     request: UpdateContentGenerationRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Update content generation fields (mindmap, flashcard, infographic).
     """
@@ -263,8 +269,9 @@ async def update_content_generation_route(
 async def update_podcast_route(
     processed_module_id: str,
     request: UpdatePodcastRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Update podcast-related fields for a processed module.
     Supports both English and Hinglish podcasts.
@@ -291,8 +298,9 @@ async def update_podcast_route(
 @router.delete("/{processed_module_id}")
 async def delete_processed_module_route(
     processed_module_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Delete a processed module.
     Requires Manager+ role.
