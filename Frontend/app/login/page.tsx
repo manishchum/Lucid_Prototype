@@ -202,26 +202,26 @@ function LoginContent() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-800 mb-6 transition-colors">
+        <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-800 mb-4 md:mb-6 transition-colors text-xs md:text-sm">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Home
         </Link>
 
         <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
-          <CardHeader className="text-center pb-8">
-            <div className="flex items-center justify-center space-x-2 mb-6">
+          <CardHeader className="text-center pb-6 md:pb-8">
+            <div className="flex items-center justify-center space-x-2 mb-4 md:mb-6">
               <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
                 <Brain className="w-6 h-6 text-white" />
               </div>
-              <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              <span className="text-xl md:text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                 Lucid
               </span>
             </div>
             
-            <CardTitle className="text-2xl font-bold text-gray-800 mb-2">
+            <CardTitle className="text-xl md:text-2xl font-bold text-gray-800 mb-2">
               Welcome Back
             </CardTitle>
-            <p className="text-gray-600">
+            <p className="text-xs md:text-sm text-gray-600">
               Sign in to continue to your Lucid dashboard
             </p>
           </CardHeader>
@@ -229,7 +229,7 @@ function LoginContent() {
           <CardContent className="space-y-6">
             <form onSubmit={handleEmailPasswordLogin} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-medium text-gray-700">
+                <Label htmlFor="email" className="text-xs md:text-sm font-medium text-gray-700">
                   Email Address
                 </Label>
                 <Input
@@ -238,13 +238,13 @@ function LoginContent() {
                   placeholder="your.email@company.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500"
+                  className="h-10 md:h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 text-sm"
                   required
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium text-gray-700">
+                <Label htmlFor="password" className="text-xs md:text-sm font-medium text-gray-700">
                   Password
                 </Label>
                 <div className="relative">
@@ -254,7 +254,7 @@ function LoginContent() {
                     placeholder="Enter your password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 pr-10"
+                    className="h-10 md:h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 pr-10 text-sm"
                     required
                   />
                   <button
@@ -270,7 +270,7 @@ function LoginContent() {
                     type="button"
                     onClick={handleForgotPassword}
                     disabled={loading || resetLoading}
-                    className="text-sm text-blue-600 hover:text-blue-700 disabled:opacity-60"
+                    className="text-xs md:text-sm text-blue-600 hover:text-blue-700 disabled:opacity-60"
                   >
                     {resetLoading ? "Sending reset email..." : "Forgot password?"}
                   </button>
@@ -279,19 +279,19 @@ function LoginContent() {
 
               {error && (
                 <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
+                  <AlertDescription className="text-xs md:text-sm">{error}</AlertDescription>
                 </Alert>
               )}
 
               {resetMessage && (
                 <Alert>
-                  <AlertDescription>{resetMessage}</AlertDescription>
+                  <AlertDescription className="text-xs md:text-sm">{resetMessage}</AlertDescription>
                 </Alert>
               )}
 
               <Button
                 type="submit"
-                className="w-full h-11 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium transition-all duration-200"
+                className="w-full h-10 md:h-11 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium transition-all duration-200 text-sm"
                 disabled={loading}
               >
                 {loading ? "Signing in..." : "Sign In"}
@@ -312,7 +312,7 @@ function LoginContent() {
               variant="outline"
               onClick={handleGoogleSignIn}
               disabled={loading}
-              className="w-full h-11 bg-transparent hover:bg-gray-50 border-gray-200"
+              className="w-full h-10 md:h-11 bg-transparent hover:bg-gray-50 border-gray-200 text-xs md:text-sm"
             >
               <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24">
                 <path
@@ -335,13 +335,7 @@ function LoginContent() {
               Continue with Google
             </Button>
 
-            <div className="text-center text-sm text-gray-600">
-              {/* <p>
-                Don't have an account?{" "}
-                <Link href="/signup" className="text-blue-600 hover:text-blue-700 font-medium">
-                  Sign up
-                </Link>
-              </p> */}
+            <div className="text-center text-xs md:text-sm text-gray-600">
               <p className="mt-2">Contact us via mail at manish.chum@workfloww.ai</p>
             </div>
           </CardContent>

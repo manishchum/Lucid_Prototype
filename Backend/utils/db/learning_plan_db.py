@@ -6,6 +6,7 @@ Handles CRUD operations with permission checks.
 from typing import Dict, Any, List, Optional
 from utils.supabase_client import supabase
 from .permissions import check_user_permission
+from utils.assignment_notifications import send_assignment_notification_email
 
 
 async def get_user_company_id(user_id: str) -> Optional[str]:
@@ -215,8 +216,38 @@ async def create_learning_plan(
         
         if not resp.data:
             return {"data": None, "error": "Failed to create learning plan"}
+
+        created_plan = resp.data[0] if isinstance(resp.data, list) else resp.data
+
+        try:
+            user_resp = supabase.table('users').select('user_id, email, name').eq(
+                'user_id', user_id
+            ).single().execute()
+            module_title_resp = supabase.table('training_modules').select('title').eq(
+                'module_id', module_id
+            ).single().execute()
+            company_resp = supabase.table('companies').select('name').eq(
+                'company_id', user_company_id
+            ).single().execute()
+
+            user_row = user_resp.data if user_resp.data else None
+            module_row = module_title_resp.data if module_title_resp.data else None
+            company_row = company_resp.data if company_resp.data else None
+
+            if user_row and module_row and company_row:
+                notification_result = await send_assignment_notification_email(
+                    recipient_email=user_row.get('email', ''),
+                    recipient_name=user_row.get('name', 'Employee'),
+                    recipient_user_id=user_row.get('user_id', user_id),
+                    assignment_title=module_row.get('title', 'New Sprint'),
+                    company_name=company_row.get('name', 'Your company'),
+                    assignment_kind='sprint',
+                )
+                created_plan['notification'] = notification_result
+        except Exception as notification_error:
+            created_plan['notification_error'] = str(notification_error)
         
-        return {"data": resp.data[0] if isinstance(resp.data, list) else resp.data, "error": None}
+        return {"data": created_plan, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 

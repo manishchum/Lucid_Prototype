@@ -16,6 +16,7 @@ import VoiceInput from '@/components/VoiceInput';
 import VoiceOutput from '@/components/VoiceOutput';
 import { callGemini } from "@/lib/gemini-helper";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
+import { MediaAwareHtml } from '@/lib/module-media-embeds';
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -241,20 +242,20 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <div className="px-4 py-8">
+      <div className="px-3 py-4 sm:px-4 sm:py-6 lg:py-8">
         <div className="max-w-7xl mx-auto">
-          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-4">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">
+          <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 lg:p-8 border border-slate-200 mb-4">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2 break-words">
               {module.title}
               {module.sprint_name && (
-                <span className="text-lg text-slate-600 font-normal"> [{module.sprint_name}]</span>
+                <span className="text-base sm:text-lg text-slate-600 font-normal"> [{module.sprint_name}]</span>
               )}
             </h1>
             <p className="text-slate-600">Professional learning content tailored for you</p>
           </div>
           <div className="w-full mx-auto">
             <main className="w-full">
-              <div className="bg-white rounded-lg shadow-sm border p-12 w-full min-h-screen">
+              <div className="bg-white rounded-lg shadow-sm border p-4 sm:p-6 lg:p-10 w-full min-h-screen">
                 <div className="mb-8">
                   <Button
                     variant="outline"
@@ -310,7 +311,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                 <ContentCards content={module.content || ''} />
 
                 <div className="rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden mt-10">
-                  <div className="p-6 h-96 overflow-y-auto bg-gray-50">
+                  <div className="p-4 sm:p-6 h-[22rem] sm:h-96 overflow-y-auto bg-gray-50">
                     {userChatHistory.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-full text-center">
                         <div className="text-6xl mb-4">💬</div>
@@ -354,7 +355,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                               )}
                               <div
                                 className={clsx(
-                                  'rounded-lg px-4 py-3 max-w-3xl',
+                                  'rounded-lg px-4 py-3 max-w-[85%] sm:max-w-3xl',
                                   msg.role === 'user'
                                     ? 'bg-blue-600 text-white rounded-br-none'
                                     : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
@@ -387,8 +388,8 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                     )}
                   </div>
 
-                  <div className="border-t border-slate-200 bg-white p-6">
-                    <form onSubmit={handleSendChat} className="flex gap-3">
+                  <div className="border-t border-slate-200 bg-white p-3 sm:p-4 lg:p-6">
+                    <form onSubmit={handleSendChat} className="flex flex-col sm:flex-row gap-3">
                       {/* <button
                         type="button"
                         className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-600 disabled:opacity-50"
@@ -409,12 +410,12 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                         value={chatInput}
                         onChange={(e) => setChatInput(e.target.value)}
                         placeholder="Ask for coaching, upload work, or chat..."
-                        className="flex-1 outline-none text-slate-700 placeholder-slate-400 bg-gray-50 rounded-lg px-4 py-3 border border-gray-200 focus:border-blue-500 focus:bg-white transition-all"
+                        className="w-full sm:flex-1 outline-none text-slate-700 placeholder-slate-400 bg-gray-50 rounded-lg px-4 py-3 border border-gray-200 focus:border-blue-500 focus:bg-white transition-all"
                         disabled={chatLoading}
                       />
                       <button
                         type="submit"
-                        className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full sm:w-auto px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={chatLoading || !chatInput.trim() || !module?.processed_module_id}
                       >
                         {chatLoading ? 'Sending...' : 'Send'}
@@ -546,13 +547,13 @@ function ContentCards({ content }: { content: string }) {
 
   return (
     <div className="space-y-6 mb-8">
-      <div className="flex flex-wrap gap-6 mb-4 border-b border-gray-200 pb-2">
+      <div className="flex flex-nowrap sm:flex-wrap gap-2 sm:gap-4 mb-4 border-b border-gray-200 pb-2 overflow-x-auto">
         {tabGroups.map((group) => (
           <button
             key={group.key}
             onClick={() => setActiveTab(group.key)}
             className={clsx(
-              'px-3 pb-2 text-sm font-semibold transition-all border-b-2 rounded-t-md',
+              'shrink-0 px-3 pb-2 text-xs sm:text-sm font-semibold transition-all border-b-2 rounded-t-md whitespace-nowrap',
               activeTab === group.key
                 ? 'text-blue-700 border-blue-600 bg-blue-50'
                 : 'text-gray-500 border-transparent hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50'
@@ -569,7 +570,7 @@ function ContentCards({ content }: { content: string }) {
           <div
             key={index}
             className={clsx(
-              "rounded-2xl border-2 shadow-md p-8 transition-all hover:shadow-xl hover:scale-[1.005]",
+              "rounded-2xl border-2 shadow-md p-4 sm:p-6 lg:p-8 transition-all hover:shadow-xl hover:scale-[1.005]",
               style.bg,
               style.border
             )}
@@ -582,9 +583,9 @@ function ContentCards({ content }: { content: string }) {
                 </h2>
               </div>
             )}
-            <div
+            <MediaAwareHtml
+              html={formatContent(section.content)}
               className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: formatContent(section.content) }}
             />
           </div>
         );
@@ -1142,8 +1143,8 @@ function ContentTransformer({
 
   return (
     <div className="mb-10 w-full">
-      <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-lg mb-6">
-        <div className="flex items-start gap-4 mb-8">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 lg:p-8 shadow-lg mb-6">
+        <div className="flex flex-col sm:flex-row items-start gap-4 mb-8">
           <div className="h-14 w-14 rounded-xl bg-white border-2 border-slate-300 text-slate-800 flex items-center justify-center text-2xl shadow-lg">
             ✨
           </div>
@@ -1153,7 +1154,7 @@ function ContentTransformer({
           </div>
         </div>
 
-  <div className="grid grid-cols-5 gap-4 mb-6">
+  <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4 mb-6">
           <div
             onClick={() => {
               if (selectedOption === 'audio') {
@@ -1164,7 +1165,7 @@ function ContentTransformer({
               }
             }}
             className={clsx(
-              'rounded-xl p-5 cursor-pointer transition-all border-2',
+              'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
               selectedOption === 'audio'
                 ? 'bg-slate-50 border-blue-500 shadow-lg'
                 : 'bg-white border-slate-300 hover:border-slate-400'
@@ -1178,7 +1179,7 @@ function ContentTransformer({
           <div
             onClick={() => setSelectedOption('video')}
             className={clsx(
-              'rounded-xl p-5 cursor-pointer transition-all border-2',
+              'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
               selectedOption === 'video'
                 ? 'bg-slate-50 border-red-500 shadow-lg'
                 : 'bg-white border-slate-300 hover:border-slate-400'
@@ -1231,7 +1232,7 @@ function ContentTransformer({
               }
             }}
             className={clsx(
-              'rounded-xl p-5 cursor-pointer transition-all border-2',
+              'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
               selectedOption === 'mindmap'
                 ? 'bg-slate-50 border-yellow-500 shadow-lg'
                 : 'bg-white border-slate-300 hover:border-slate-400'
@@ -1291,7 +1292,7 @@ function ContentTransformer({
               }
             }}
             className={clsx(
-              'rounded-xl p-5 cursor-pointer transition-all border-2',
+              'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
               selectedOption === 'flashcard'
                 ? 'bg-slate-50 border-green-500 shadow-lg'
                 : 'bg-white border-slate-300 hover:border-slate-400'
@@ -1355,7 +1356,7 @@ function ContentTransformer({
               }
             }}
             className={clsx(
-              'rounded-xl p-5 cursor-pointer transition-all border-2',
+              'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
               selectedOption === 'infographic'
                 ? 'bg-slate-50 border-purple-500 shadow-lg'
                 : 'bg-white border-slate-300 hover:border-slate-400'
@@ -1429,7 +1430,7 @@ function ContentTransformer({
                   </button>
 
                   {transcriptOpen && (
-                    <div className="mt-3 h-96 overflow-y-auto space-y-3 flex flex-col px-3">
+                    <div className="mt-3 h-72 sm:h-96 overflow-y-auto space-y-3 flex flex-col px-3">
                       {transcriptStarted && activeSegmentIndex >= 0 && podcastTimeline.length > 0 ? (
                         (() => {
                           const segments = [];
@@ -1549,7 +1550,7 @@ function ContentTransformer({
                   {selectedOption === 'flashcard' && (
                     <div>
                       {flashcardLoading && (
-                        <div className="rounded-xl border border-slate-200 bg-white p-12 text-left flex flex-col items-center">
+                        <div className="rounded-xl border border-slate-200 bg-white p-8 sm:p-12 text-left flex flex-col items-center">
                           <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
                           <div>Loading flashcards...</div>
                         </div>
@@ -1614,7 +1615,7 @@ function ContentTransformer({
                   )}
 
                   {!mindmapLoading && !mindmapData && (
-                    <div className="rounded-xl border border-slate-200 bg-white p-12 text-left text-sm text-gray-500">Mindmap is not available for this module yet.</div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-8 sm:p-12 text-left text-sm text-gray-500">Mindmap is not available for this module yet.</div>
                   )}
 
                   {/* Debug preview removed */}
@@ -1624,7 +1625,7 @@ function ContentTransformer({
               {selectedOption === 'infographic' && (
                 <div>
                   {infographicLoading && (
-                    <div className="rounded-xl border border-slate-200 bg-white p-12 text-left flex flex-col items-center">
+                    <div className="rounded-xl border border-slate-200 bg-white p-8 sm:p-12 text-left flex flex-col items-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
                       <div>Loading visual guide...</div>
                     </div>
@@ -1790,7 +1791,7 @@ function ContentTransformer({
                           ))}
                           {/* Sub-sections */}
                           {section.subSections && (
-                            <div className="grid grid-cols-3 gap-4 mt-6 ml-12">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-6 ml-0 md:ml-12">
                               {section.subSections.map((sub: any, subIdx: number) => (
                                 <div
                                   key={subIdx}
@@ -1822,7 +1823,7 @@ function ContentTransformer({
                       {infographicData.criticalFlags && (
                         <div className="mt-8 pt-8">
                           <h4 className="text-xl font-bold text-red-600 mb-6">{infographicData.criticalFlags.title}</h4>
-                          <div className="grid grid-cols-3 gap-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                             {infographicData.criticalFlags.flags && infographicData.criticalFlags.flags.map((flag: any, fIdx: number) => (
                               <div key={fIdx} className="bg-red-50 border-2 border-red-300 rounded-xl p-5">
                                 <div className="text-3xl mb-2">
@@ -1843,7 +1844,7 @@ function ContentTransformer({
                   )}
 
                   {!infographicLoading && !infographicData && (
-                    <div className="rounded-xl border border-slate-200 bg-white p-12 text-left text-sm text-gray-500">Visual guide is not available for this module yet.</div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-8 sm:p-12 text-left text-sm text-gray-500">Visual guide is not available for this module yet.</div>
                   )}
                 </div>
               )}
@@ -1872,7 +1873,7 @@ function ContentTransformer({
                             )}
                             <div
                               className={clsx(
-                                'rounded-lg px-4 py-3 max-w-3xl',
+                                'rounded-lg px-4 py-3 max-w-[85%] sm:max-w-3xl',
                                 msg.role === 'user'
                                   ? 'bg-blue-600 text-white rounded-br-none'
                                   : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
@@ -1908,7 +1909,7 @@ function ContentTransformer({
 
               {selectedOption === 'roleplay' && (
                 <div>
-                  <div className="mb-4 grid grid-cols-2 gap-4">
+                  <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Persona</label>
                       <input
@@ -1950,7 +1951,7 @@ function ContentTransformer({
                     )}
                   </div>
 
-                  <form onSubmit={handleSendRoleplay} className="flex gap-3">
+                  <form onSubmit={handleSendRoleplay} className="flex flex-col sm:flex-row gap-3">
                     <input
                       value={roleplayInput}
                       onChange={(e) => setRoleplayInput(e.target.value)}
@@ -1960,7 +1961,7 @@ function ContentTransformer({
                     />
                     <button
                       type="submit"
-                      className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full sm:w-auto px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                       disabled={roleplayLoading || !roleplayInput.trim()}
                     >
                       {roleplayLoading ? 'Sending...' : 'Send'}

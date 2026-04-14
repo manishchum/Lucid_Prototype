@@ -57,9 +57,8 @@ const LayoutWithNavigation = ({ children }: LayoutWithNavigationProps) => {
     <>
       <EmployeeNavigation />
       <div 
-        className="transition-all duration-300 ease-in-out"
+        className="transition-all duration-300 ease-in-out md:ml-[var(--sidebar-width)]"
         style={{ 
-          marginLeft: sidebarWidth,
           minHeight: '100vh'
         }}
       >
