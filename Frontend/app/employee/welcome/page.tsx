@@ -10,8 +10,8 @@ import { useTenant } from "@/contexts/tenant-context";
 import CompanySelector from "@/components/company-selector";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
-import { 
-  Users, BookOpen, Clock, User, ChevronDown, 
+import {
+  Users, BookOpen, Clock, User, ChevronDown,
   Trophy, Target, TrendingUp, Zap, LayoutGrid,
   ShieldCheck, ArrowRight, CheckCircle2, LogOut
 } from "lucide-react";
@@ -64,7 +64,7 @@ export default function EmployeeWelcome() {
   const [showAllModules, setShowAllModules] = useState<boolean>(false);
   const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(false);
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
-  
+ 
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
 
@@ -231,7 +231,7 @@ export default function EmployeeWelcome() {
 
        <main className="min-h-screen pt-4 md:pt-8 pb-8 md:pb-12 px-4 sm:px-6 lg:px-8">
           <div className="max-w-6xl mx-auto w-full">
-          
+         
            {/* Dashboard Header */}
            <div className="mb-6 md:mb-10 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
              <div className="flex items-center gap-3 sm:gap-4 min-w-0">
@@ -377,10 +377,10 @@ export default function EmployeeWelcome() {
                          <h4 className="text-base md:text-lg font-black text-slate-900 mb-1">Discover Your Learning Style</h4>
                          <p className="text-xs md:text-sm text-slate-500 font-medium">Take our 5-minute survey to unlock your personalized path.</p>
                        </div>
-                      
+                     
                        <div className="relative mt-2 sm:mt-0">
                          {/* Profile Dropdown - Commented Out */}
-                         {/* 
+                         {/*
                          <button
                            onClick={() => setShowProfileDropdown(!showProfileDropdown)}
                            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
@@ -480,13 +480,13 @@ export default function EmployeeWelcome() {
 
                            <div className="flex gap-2 w-full sm:w-auto flex-shrink-0">
                              {m.hasBaseline ? (
-                               <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-3 py-2 rounded text-xs border border-slate-200 font-bold text-slate-700 bg-white hover:bg-slate-50 flex-1 sm:flex-none h-10">
+                               <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-3 py-2 rounded-lg text-xs border border-slate-200 font-bold text-slate-700 bg-white hover:bg-slate-50 flex-1 sm:flex-none h-10">
                                  Baseline
                                </button>
                              ) : null}
 
-                             <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-3 sm:px-4 py-2 rounded text-xs bg-blue-600 text-white font-bold hover:bg-blue-700 flex-1 sm:flex-none h-10">
-                               Start
+                             <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-6 sm:px-8 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm bg-blue-600 text-white font-bold hover:bg-blue-700 flex-1 sm:flex-none h-11 sm:h-12 transition-all duration-200">
+                               Start Your Sprint
                              </button>
                            </div>
                          </div>

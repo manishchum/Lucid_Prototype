@@ -15,7 +15,9 @@ export default function EmployeeModuleLayout({ children }: { children: ReactNode
       {employeeData?.user_id && currentModuleId && (
         <ModuleSideNav userId={employeeData.user_id} currentModuleId={currentModuleId} />
       )}
-      <div className="ml-0 xl:ml-64 transition-all duration-300 ease-in-out">{children}</div>
+      <div className="w-full lg:pl-64 transition-all duration-300 ease-in-out">
+        {children}
+      </div>
     </div>
   );
 }
