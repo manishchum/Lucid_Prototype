@@ -110,12 +110,14 @@ export default function EmployeeWelcome() {
           fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => r.ok ? r.json() : {}),
         ]);
 
+
+        console.log("Fetched dashboard data:", { plansRes, modulesRes, progressRes, usersRes, companyRes, learningStyleRes });
         return {
           plans: plansRes?.plans || [],
           modules: modulesRes?.modules || [],
           progress: progressRes?.progress || [],
           users: usersRes?.users || [],
-          company: companyRes?.company || companyRes || null,
+          company: companyRes?.company ||companyRes?.data|| companyRes || null,
           learningStyle: learningStyleRes?.data?.learning_style || null,
         };
       },
@@ -125,7 +127,7 @@ export default function EmployeeWelcome() {
         swrMs: 30 * 1000,
       }
     );
-
+    console.log(result)
     return result.data;
   };
 
