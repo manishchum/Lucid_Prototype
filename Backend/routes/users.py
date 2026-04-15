@@ -4,6 +4,7 @@ from typing import Optional, List
 
 from utils.db.users_db import (
     get_user_by_email,
+    get_user_by_phone,
     get_users_by_company,
     get_user_by_id,
     create_user,
@@ -296,7 +297,7 @@ async def get_user_by_phone_route(
     auth_ctx: RequestAuth = Depends(get_request_auth_optional),
 ):
     requesting_user_id = auth_ctx.user_id
-    result = await get_user_by_phone_route(requesting_user_id, phone)
+    result = await get_user_by_phone(requesting_user_id, phone)
     
     # result is {"data": user, "error": ...} from the service layer
     user_data = result.get("data")

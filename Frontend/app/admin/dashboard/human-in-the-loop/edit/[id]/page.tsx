@@ -534,7 +534,7 @@ export default function EditModulePage() {
   const insertMediaEmbedAtCursor = (type: ModuleMediaType) => {
     if (!contentEditableRef.current) return;
 
-    const mediaUrl = window.prompt(`Enter a public ${type} URL (https://...):`);
+    const mediaUrl = window.prompt(`Enter a public ${type} URL (YouTube, Google Drive, or direct https://...):`);
     if (!mediaUrl) return;
 
     if (!/^https?:\/\//i.test(mediaUrl.trim())) {
