@@ -2033,10 +2033,11 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
         throw new Error(payload?.detail || 'Failed to create company');
       }
 
+      console.log(payload)
       const createdCompany = Array.isArray(payload?.company)
         ? payload.company[0]
-        : payload?.company || payload;
-
+        : payload?.company || payload.data?.company || payload?.data[0];
+      console.log(createdCompany);
       if (!createdCompany?.company_id) {
         throw new Error('Company created but missing company_id');
       }
