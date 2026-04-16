@@ -1552,8 +1552,8 @@ export default function EditModulePage() {
         <div className="col-span-9 flex flex-col">
           <Card className="flex-1 bg-white border-slate-200 overflow-hidden flex flex-col">
             {/* Tabs */}
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-              <div className="flex gap-2">
+            {/* <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3"> */}
+              {/* <div className="flex gap-2">
                 <button
                   onClick={() => { setActiveView('edit'); setIsEditing(true); }}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -1586,26 +1586,10 @@ export default function EditModulePage() {
                   <Eye size={16} />
                   Live Preview
                 </button>
-              </div>
+              </div> */}
 
-              <div className="flex items-center gap-2">
-                {hasUnsavedChanges && (
-                  <span className="text-xs text-orange-600 font-medium">● Unsaved changes</span>
-                )}
-                {/* Admin save + request approval buttons */}
-                {isUploader && hasUnsavedChanges && (
-                  <Button size="sm" variant="outline" onClick={handleSaveChanges} className="border-slate-300">
-                    Save Draft
-                  </Button>
-                )}
-                {/* Reviewer save edits button */}
-                {isReviewer && hasUnsavedChanges && activeView === 'edit' && (
-                  <Button size="sm" onClick={handleReviewerSave} disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
-                    {submitting ? 'Saving...' : 'Save Edits'}
-                  </Button>
-                )}
-              </div>
-            </div>
+              
+            {/* </div> */}
 
             {/* Content Area */}
             <div className="flex-1 overflow-y-auto p-6">
@@ -1621,7 +1605,9 @@ export default function EditModulePage() {
                   {/* ========== EDIT TAB ========== */}
                   {activeView === 'edit' && (
                     <div>
-                      <div className="mb-4 pb-3 border-b border-slate-200">
+                      <div className="mb-4 pb-3 border-b border-slate-200 flex flex-between">
+                        <div>
+
                         <label className="text-sm font-semibold text-slate-700 block mb-1">
                           Editing: {selectedSubModule.title}
                         </label>
@@ -1635,6 +1621,7 @@ export default function EditModulePage() {
                             You can make edits to the content. Click "Save Edits" to update, then "Final Approval" to push live.
                           </p>
                         )}
+                        </div>
 
                         <input
                           ref={imageUploadInputRef}
@@ -1657,6 +1644,23 @@ export default function EditModulePage() {
                           className="hidden"
                           onChange={handleAudioUpload}
                         />
+                        <div className="flex items-center gap-2">
+                {hasUnsavedChanges && (
+                  <span className="text-xs text-orange-600 font-medium">● Unsaved changes</span>
+                )}
+                {/* Admin save + request approval buttons */}
+                {isUploader && hasUnsavedChanges && (
+                  <Button size="sm" variant="outline" onClick={handleSaveChanges} className="border-slate-300">
+                    Save Draft
+                  </Button>
+                )}
+                {/* Reviewer save edits button */}
+                {isReviewer && hasUnsavedChanges && activeView === 'edit' && (
+                  <Button size="sm" onClick={handleReviewerSave} disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
+                    {submitting ? 'Saving...' : 'Save Edits'}
+                  </Button>
+                )}
+              </div>
                       </div>
                       <div
                         ref={contentEditableRef}
@@ -1955,7 +1959,8 @@ export default function EditModulePage() {
       )}
 
       {/* Footer Actions */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-8 py-4 z-50">
+      {/* <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-8 py-4 z-50"> */}
+      <footer className="fixed bottom-0 left-0 right-0 lg:left-[var(--sidebar-width,0px)] bg-white border-t border-slate-200 px-4 sm:px-8 py-4 z-50">
         <div className="flex items-center justify-end">
           <div className="flex items-center gap-3">
             {/* ADMIN: Request Approval button */}
