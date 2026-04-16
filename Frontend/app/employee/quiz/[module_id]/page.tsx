@@ -85,7 +85,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     // Ensure assessmentId is set before submission
     if (!assessmentId) {
       // console.log("Inside thse !assessmentId block")
-      setFeedback("Error: Could not identify assessment. Please refresh and try again.");
+      setError("Error: Could not identify assessment. Please refresh and try again.");
       return;
     }
     setSubmitted(true);
@@ -265,13 +265,20 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           userId = emp?.user_id || null;
           companyId = emp?.company_id || null;
           if (emp?.user_id) {
-            const {data: styleData} = await supabase
-              .from('employee_learning_style')
-              .select('learning_style')
-              .eq('user_id', emp.user_id)
-              .maybeSingle();
-            if (styleData?.learning_style) {
-              learningStyle = styleData.learning_style;
+            try {
+              const styleRes = await fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${emp.user_id}`, {
+                headers: { 'X-User-ID': emp.user_id }
+              });
+              if (styleRes.ok) {
+                const styleJson = await styleRes.json();
+                const styleData = styleJson?.data || styleJson;
+                if (styleData?.learning_style) {
+                  learningStyle = styleData.learning_style;
+                }
+                console.log("Style Data:- ", styleData);
+              }
+            } catch (styleErr) {
+              console.error('[quiz] error fetching learning style', styleErr);
             }
           }
         } catch (e) {
@@ -380,7 +387,9 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         if (result.quiz) {
           setQuiz(result.quiz);
           setAnswers(new Array(result.quiz.length).fill(-1));
-          
+                    if (result.assessmentId) {
+             setAssessmentId(result.assessmentId);
+          }
           // Fetch the newly created assessment from backend
           try {
             const assessmentRes = await fetchWithAuth(

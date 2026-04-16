@@ -43,6 +43,7 @@ async def get_progress_by_id(requesting_user_id: str, progress_id: str) -> Dict[
 async def get_progress_by_user(requesting_user_id: str, target_user_id: str, 
                                completed_only: bool = False,
                                auth_claims: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Get all module progress records for a specific user.
     Permission: Self OR manager+ in same company.
@@ -52,16 +53,15 @@ async def get_progress_by_user(requesting_user_id: str, target_user_id: str,
         if auth_claims:
             query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_claims)
 
-        # Get target user's company to check permissions
-        user_resp = query_client.table('users').select('company_id').eq('user_id', target_user_id).maybe_single().execute()
-        
-        if not user_resp.data:
-            return {"data": None, "error": "User not found"}
-        
-        target_company = user_resp.data.get('company_id')
         is_self = requesting_user_id == target_user_id
-        
+
         if not is_self:
+            # We must use service client for authorization lookups to bypass RLS walls
+            user_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).maybe_single().execute()
+            if not user_resp.data:
+                return {"data": None, "error": "User not found"}
+            
+            target_company = user_resp.data.get('company_id')
             has_permission = await check_user_permission(requesting_user_id, 'manager')
             has_access = await check_company_access(requesting_user_id, target_company)
             
@@ -115,29 +115,29 @@ async def get_progress_by_processed_module(requesting_user_id: str, processed_mo
         return {"data": None, "error": str(e)}
 
 
-async def get_progress_by_user_and_module(requesting_user_id: str, user_id: str, 
+async def get_progress_by_user_and_module(requesting_user_id: str, user_id: str,
                                           processed_module_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Get progress record for a specific user and processed module.
     Permission: Self OR manager+ in same company.
     """
     try:
-        # Get user's company
-        user_resp = supabase.table('users').select('company_id').eq('user_id', user_id).maybe_single().execute()
-        
-        if not user_resp.data:
-            return {"data": None, "error": "User not found"}
-        
-        user_company = user_resp.data.get('company_id')
         is_self = requesting_user_id == user_id
-        
+
         if not is_self:
+            # Get user's company
+            user_resp = supabase.table('users').select('company_id').eq('user_id', user_id).maybe_single().execute()
+            if not user_resp.data:
+                return {"data": None, "error": "User not found"}
+            
+            user_company = user_resp.data.get('company_id')
             has_permission = await check_user_permission(requesting_user_id, 'manager')
             has_access = await check_company_access(requesting_user_id, user_company)
-            
+
             if not has_permission or not has_access:
                 return {"data": None, "error": "Permission denied: Insufficient privileges"}
-        
+
         resp = supabase.table('module_progress').select(
             '*, processed_modules(title, original_module_id)'
         ).eq('user_id', user_id).eq('processed_module_id', processed_module_id).maybe_single().execute()
@@ -150,6 +150,7 @@ async def get_progress_by_user_and_module(requesting_user_id: str, user_id: str,
 async def get_progress_by_company(requesting_user_id: str, company_id: str,
                                   user_id: Optional[str] = None,
                                   completed_only: bool = False) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Get all module progress records for a company (optionally filtered by user).
     Permission: Manager+ in the company.
@@ -311,8 +312,9 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
         return {"data": None, "error": str(e)}
 
 
-async def update_progress(requesting_user_id: str, progress_id: str, 
+async def update_progress(requesting_user_id: str, progress_id: str,
                          update_data: Dict[str, Any]) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Update an existing module progress record.
     Permission: Self (for own progress) OR manager+ in same company.

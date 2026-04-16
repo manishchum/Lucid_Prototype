@@ -90,7 +90,7 @@ async def POST(request: Request):
                 pm_res = supabase.table("processed_modules") \
                     .select("module_id") \
                     .eq("processed_module_id", processed_module_id) \
-                    .single() \
+                    .maybe_single() \
                     .execute()
 
                 processedModule = pm_res.data
@@ -162,9 +162,7 @@ async def POST(request: Request):
         else:
             print("Inside the else")
             create_res = supabase.table("module_progress") \
-                .update(progressData) \
-                .select() \
-                .single() \
+                .insert(progressData) \
                 .execute()
 
             data = create_res.data

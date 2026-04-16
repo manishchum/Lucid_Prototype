@@ -26,6 +26,7 @@ from utils.auth import (
 )
 from utils.firebase_provisioning import ensure_firebase_user
 from utils.supabase_client import supabase
+from utils.auth_bridge import get_service_supabase_client
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -52,10 +53,11 @@ def _ensure_firebase_and_persist_uid(created_payload, request_password: Optional
 
     plain_password = request_password or DEFAULT_PASSWORD
     firebase_uid = ensure_firebase_user(email, name, plain_password)
+    service_client = get_service_supabase_client()
 
     try:
         update_res = (
-            supabase
+            service_client
             .table("users")
             .update({"firebase_uid": firebase_uid})
             .eq("user_id", user_id)

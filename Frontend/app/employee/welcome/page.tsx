@@ -101,11 +101,10 @@ export default function EmployeeWelcome() {
           'X-Company-ID': effectiveCompanyId,
         };
 
-        const [plansRes, modulesRes, progressRes, usersRes, companyRes, learningStyleRes]: any[] = await Promise.all([
+        const [plansRes, modulesRes, progressRes, companyRes, learningStyleRes]: any[] = await Promise.all([
           fetchWithAuth(`${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(`${API_BASE}/api/training-modules/company/${employeeData.company_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(`${API_BASE}/api/module-progress/user/${employeeData.user_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchWithAuth(`${API_BASE}/api/users/company/${employeeData.company_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
         ]);
@@ -114,7 +113,7 @@ export default function EmployeeWelcome() {
           plans: plansRes?.plans || [],
           modules: modulesRes?.modules || [],
           progress: progressRes?.progress || [],
-          users: usersRes?.users || [],
+          users: [], // Intentionally empty to avoid 403 Permission Denied for employees
           company: companyRes?.company || companyRes || null,
           learningStyle: learningStyleRes?.data?.learning_style || null,
         };

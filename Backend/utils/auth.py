@@ -171,14 +171,13 @@ def get_request_auth_optional(
 			cause = exc.__cause__
 			cause_msg = str(cause) if cause else exc.detail
 			if exc.status_code == 401:
-				print(f"[auth optional] Bearer verification failed, falling back: {exc.detail}; cause={cause_msg}")
+				print(f"[auth optional] Bearer verification failed: {exc.detail}; cause={cause_msg}")
+				raise
 			else:
 				print(f"[auth optional] Firebase verification infrastructure issue, falling back: {exc.detail}; cause={cause_msg}")
-			# Optional mode stays backward-compatible:
-			# if bearer verification fails, fall through to legacy header.
-
-	if x_user_id:
-		return RequestAuth(user_id=x_user_id, email=None, source="legacy-x-user-id", claims=None)
+			# Optional mode stays backward-compatible only for infrastructure issues or missing tokens:
+		if x_user_id:
+			return RequestAuth(user_id=x_user_id, email=None, source="legacy-x-user-id", claims=None)
 
 	return RequestAuth(user_id=None, email=None, source="anonymous", claims=None)
 

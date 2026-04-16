@@ -153,21 +153,15 @@ export default function EditModulePage() {
     try {
       setAuthChecking(true);
 
-      // // Check if user session exists
-      // const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       console.log(user);
       if(!user?.email)return
      
 
       // Verify user exists and get their details
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('user_id, email')
-        .eq('email', user?.email)
-        .single();
+      const userData = await fetchUserByEmail(user.email);
 
-      if (userError || !userData) {
-        console.error('User not found in database:', userError);
+      if (!userData) {
+        console.error('User not found in database');
         router.push('/login');
         return;
       }
@@ -175,18 +169,17 @@ export default function EditModulePage() {
       setCurrentUserId(userData.user_id);
 
       // Fetch the module to check authorization
-      const { data: moduleData, error: moduleError } = await supabase
-        .from('training_modules')
-        .select('module_id, uploaded_by, reviewer_id, title')
-        .eq('module_id', moduleId)
-        .single();
+      const response = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}`);
 
-      if (moduleError) {
-        console.error('Module not found:', moduleError);
+      if (!response.ok) {
+        console.error('Module not found or no permission to access');
         alert('Module not found or you do not have permission to access it.');
         router.push('/admin/dashboard/human-in-the-loop');
         return;
       }
+      
+      const parsedModule = await response.json();
+      const moduleData = parsedModule.module || parsedModule.data;
 
       // Check if user is either the uploader or reviewer
       const isUploader = moduleData.uploaded_by === userData.user_id;
@@ -232,29 +225,18 @@ export default function EditModulePage() {
     try {
       setLoading(true);
 
-      // Verify session is still valid before fetching
-        // const { data: { session } } = await supabase.auth.getSession();
-        // if (!session) {
-        //   console.error('Session expired during fetch');
-        //   router.push('/login');
-        //   return;
-        // }
-
-      const { data: moduleData, error: moduleError } = await supabase
-        .from('training_modules')
-        .select('*')
-        .eq('module_id', moduleId)
-        .single();
-
-      if (moduleError) {
-        // Check if error is due to expired session
-        if (moduleError.message.includes('JWT') || moduleError.message.includes('session') || moduleError.message.includes('expired')) {
-          console.error('Session expired:', moduleError);
+      const resModule = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}`);
+      if (!resModule.ok) {
+        if (resModule.status === 401 || resModule.status === 403) {
+          console.error('Session expired or unauthorized');
           router.push('/login');
           return;
         }
-        throw moduleError;
+        throw new Error('Module fetch failed');
       }
+
+      const parsedModule = await resModule.json();
+      const moduleData = parsedModule.module || parsedModule.data;
 
       if (moduleData) {
         // Double-check authorization (in case of race conditions)
@@ -276,25 +258,25 @@ export default function EditModulePage() {
         else if (isUploader) role = 'uploader';
         setUserRole(role);
 
-        const { data: subModulesData, error: subModulesError } = await supabase
-          .from('processed_modules')
-          .select('*')
-          .eq('original_module_id', moduleId)
-          .order('order_index', { ascending: true });
-
-        if (subModulesError) {
-          if (subModulesError.message.includes('JWT') || subModulesError.message.includes('session') || subModulesError.message.includes('expired')) {
-            console.error('Session expired:', subModulesError);
+        const resSub = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${moduleId}`);
+        if (!resSub.ok) {
+          if (resSub.status === 401 || resSub.status === 403) {
             router.push('/login');
             return;
           }
-          throw subModulesError;
+          throw new Error('Submodules fetch failed');
         }
 
-        if (subModulesData && subModulesData.length > 0) {
-          setSubModules(subModulesData);
-          setSelectedSubModule(subModulesData[0]);
-          setEditedContent(subModulesData[0].content || '');
+        const subModulesDataRaw = await resSub.json();
+        const subModulesData = subModulesDataRaw.data || [];
+
+        // Sorting by order_index just to be safe
+        const subModulesSorted = [...subModulesData].sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
+
+        if (subModulesSorted && subModulesSorted.length > 0) {
+          setSubModules(subModulesSorted);
+          setSelectedSubModule(subModulesSorted[0]);
+          setEditedContent(subModulesSorted[0].content || '');
           setActiveView('edit');
         }
 
@@ -827,12 +809,6 @@ export default function EditModulePage() {
 
     const newContent = contentEditableRef.current.innerHTML;
 
-    // Check if content actually changed from live
-    if (newContent === selectedSubModule.content) {
-      alert('No changes detected from the live content.');
-      return;
-    }
-
     if (!confirm('Submit your changes for reviewer approval?')) return;
 
     setSubmitting(true);
@@ -858,12 +834,12 @@ export default function EditModulePage() {
       }
 
       // Update the training module review_stage to in_review
-      const { error: updateError } = await supabase
-        .from('training_modules')
-        .update({ review_stage: 'in_review' })
-        .eq('module_id', moduleId);
-
-      if (updateError) throw updateError;
+      const updateResponse = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ review_stage: 'in_review' })
+      });
+      if (!updateResponse.ok) throw new Error('Failed to update training module status');
 
       setHasUnsavedChanges(false);
 
@@ -872,14 +848,12 @@ export default function EditModulePage() {
       // Refresh data
       await fetchPendingHistory();
       // Refresh module to get updated review_stage
-      const { data: updatedModule } = await supabase
-        .from('training_modules')
-        .select('*')
-        .eq('module_id', moduleId)
-        .single();
-      if (updatedModule) setModule(updatedModule);
+      const resModule = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}`);
+      if (resModule.ok) {
+        const parsed = await resModule.json();
+        setModule(parsed.module || parsed.data);
+      }
 
-     
       // Update local state with the saved content
       const updatedSubModules = subModules.map(sm =>
         sm.processed_module_id === selectedSubModule.processed_module_id
@@ -1000,13 +974,15 @@ export default function EditModulePage() {
 
       // Push each approved content to processed_modules
       for (const [processedModuleId, historyEntry] of Object.entries(latestPerModule)) {
-        const { error: updateError } = await supabase
-          .from('processed_modules')
-          .update({ content: historyEntry.content })
-          .eq('processed_module_id', processedModuleId);
+        const response = await fetchWithAuth(`${API_BASE}/api/processed-modules/${processedModuleId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: historyEntry.content })
+        });
 
-        if (updateError) {
-          console.error(`Failed to update processed_module ${processedModuleId}:`, updateError);
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          console.error(`Failed to update processed_module ${processedModuleId}:`, errData);
           continue;
         }
       }
@@ -1031,12 +1007,13 @@ export default function EditModulePage() {
       }
 
       // Update training module review_stage to approved
-      const { error: moduleUpdateError } = await supabase
-        .from('training_modules')
-        .update({ review_stage: 'approved' })
-        .eq('module_id', moduleId);
+      const updateResponse = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ review_stage: 'approved' })
+      });
 
-      if (moduleUpdateError) throw moduleUpdateError;
+      if (!updateResponse.ok) throw new Error('Failed to update training module status');
 
       alert('All changes approved and pushed to live!');
       router.push('/admin/dashboard/human-in-the-loop');
@@ -1093,12 +1070,13 @@ export default function EditModulePage() {
       }
 
       // Update training module review_stage to rejected
-      const { error: moduleUpdateError } = await supabase
-        .from('training_modules')
-        .update({ review_stage: 'rejected' })
-        .eq('module_id', moduleId);
+      const updateResponse = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ review_stage: 'rejected' })
+      });
 
-      if (moduleUpdateError) throw moduleUpdateError;
+      if (!updateResponse.ok) throw new Error('Failed to update training module status');
 
       alert('Changes rejected.');
       router.push('/admin/dashboard/human-in-the-loop');
@@ -1116,11 +1094,12 @@ export default function EditModulePage() {
 
   const handleRequestChanges = async () => {
     try {
-      const { error } = await supabase
-        .from('training_modules')
-        .update({ review_stage: 'in_review' })
-        .eq('module_id', moduleId);
-      if (error) throw error;
+      const updateResponse = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ review_stage: 'in_review' })
+      });
+      if (!updateResponse.ok) throw new Error('Failed to update module status');
       alert('Module moved to In Review status');
     } catch (error) {
       console.error('Error updating module:', error);

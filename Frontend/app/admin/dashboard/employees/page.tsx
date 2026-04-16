@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
 import { sharedDataClient } from '@/lib/data-client';
 
@@ -252,31 +251,31 @@ export default function EmployeesPage() {
 
   const loadDepartments = async (companyId: string) => {
     try {
-      // Note: Assuming departments are linked to company via users
-      const { data, error } = await supabase
-        .from('sub_department')
-        .select('*')
-        .order('department_name')
-        .order('sub_department_name');
-
-      if (error) throw error;
-      setDepartments(data || []);
+      const res = await fetchWithAuth(`${API_URL}/api/sub-departments/`);
+      if (res.ok) {
+        const payload = await res.json();
+        setDepartments(payload.data || []);
+      } else {
+        console.warn('Failed to load departments: bad response');
+        setDepartments([]);
+      }
     } catch (error: any) {
-      console.error('Failed to load departments:', error.message);
+      console.error('Failed to load departments:', error.message || error);
     }
   };
 
   const loadRoles = async () => {
     try {
-      const { data, error } = await supabase
-        .from('roles')
-        .select('*')
-        .eq('is_active', true);
-
-      if (error) throw error;
-      setRoles(data || []);
+      const res = await fetchWithAuth(`${API_URL}/api/roles`);
+      if (res.ok) {
+        const payload = await res.json();
+        setRoles(payload.data || []);
+      } else {
+        console.warn('Failed to load roles: bad response');
+        setRoles([]);
+      }
     } catch (error: any) {
-      console.error('Failed to load roles:', error.message);
+      console.error('Failed to load roles:', error.message || error);
     }
   };
 
@@ -1341,27 +1340,19 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
 
   const loadDropdownData = async () => {
     try {
-      // Load subdepartments
-      const { data: subDeptData, error: subDeptError } = await supabase
-        .from('sub_department')
-        .select('*')
-        .order('department_name')
-        .order('sub_department_name');
+      const dRes = await fetchWithAuth(`${API_URL || ''}/api/sub-departments/`);
+      if (dRes.ok) {
+        const dPayload = await dRes.json();
+        setDepartments(dPayload.data || []);
+      }
 
-      if (subDeptError) throw subDeptError;
-      setDepartments(subDeptData || []);
-
-      // Load roles
-      const { data: rolesData, error: rolesError } = await supabase
-        .from('roles')
-        .select('*')
-        .order('name');
-        
-      if (rolesError) throw rolesError;
-      setRoles(rolesData || []);
-
-    } catch (error) {
-      console.error('Failed to load dropdown data:', error);
+      const rRes = await fetchWithAuth(`${API_URL || ''}/api/roles`);
+      if (rRes.ok) {
+        const rPayload = await rRes.json();
+        setRoles(rPayload.data || []);
+      }
+    } catch (error){
+      console.error('Error loading dropdown data:', error);
     }
   };
 
@@ -1503,8 +1494,25 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       const results = { added: 0, skipped: 0, errors: [] as string[] };
 
       // Load existing roles and departments for mapping
-      const { data: rolesData } = await supabase.from('roles').select('role_id, name');
-      const { data: departmentsData } = await supabase.from('sub_department').select('department_id, department_name, sub_department_name');
+      let rolesData = [];
+      let departmentsData = [];
+      try {
+        const [rRes, dRes] = await Promise.all([
+          fetchWithAuth(`${API_URL || ''}/api/roles/`),
+          fetchWithAuth(`${API_URL || ''}/api/sub-departments/`)
+        ]);
+        if (rRes.ok) {
+          const rPayload = await rRes.json();
+          rolesData = rPayload.data || [];
+        }
+        if (dRes.ok) {
+          const dPayload = await dRes.json();
+          departmentsData = dPayload.data || [];
+        }
+      } catch (err) {
+        console.warn('Error fetching roles/departments for upload:', err);
+      }
+      
       let companiesData: any[] = [];
       try{
         const compRes = await fetchWithAuth(`${API_URL}/api/companies`, {
@@ -1602,23 +1610,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
             const { user: userData } = await createRes.json();
             
             
-            // If learning style is disabled, create entry in employee_learning_style table
-            if (!temp) {
-              const { error: learningStyleError } = await supabase
-                .from('employee_learning_style')
-                .insert({
-                  user_id: userData.user_id,
-                  learning_style: 'default',
-                  answers: {},
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString()
-                });
-
-              if (learningStyleError) {
-                console.error('Failed to set default learning style:', learningStyleError);
-                // Don't fail the entire operation if learning style insert fails
-              }
-            }
+            // Learning-style records are initialized via backend routes to avoid browser-side RLS failures.
 
             results.added++;
           } catch (createError: any) {
@@ -2124,23 +2116,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
         return;
       }
       
-      // If learning style is disabled, create entry in employee_learning_style table
-      if (!learningStyleEnabled) {
-        const { error: learningStyleError } = await supabase
-          .from('employee_learning_style')
-          .insert({
-            user_id: userData.user_id,
-            learning_style: 'default',
-            answers: {},
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          });
-
-        if (learningStyleError) {
-          console.error('Failed to set default learning style:', learningStyleError);
-          // Don't fail the entire operation if learning style insert fails
-        }
-      }
+      // Learning-style records are initialized via backend routes to avoid browser-side RLS failures.
 
       // If roles are selected, create multiple role assignments
       if (formData.selected_roles.length > 0) {
@@ -3300,24 +3276,17 @@ function UpdateEmployeeModal({
 
   const loadDropdownData = async () => {
     try {
-      // Load subdepartments
-      const { data: subDeptData, error: subDeptError } = await supabase
-        .from('sub_department')
-        .select('*')
-        .order('department_name')
-        .order('sub_department_name');
+      const subDeptRes = await fetchWithAuth(`${API_URL || ''}/api/sub-departments/`);
+      if (subDeptRes.ok) {
+        const subDeptPayload = await subDeptRes.json();
+        setSubDepartments(subDeptPayload.data || []);
+      }
 
-      if (subDeptError) throw subDeptError;
-      setSubDepartments(subDeptData || []);
-
-      // Load roles
-      const { data: rolesData, error: rolesError } = await supabase
-        .from('roles')
-        .select('*')
-        .order('name');
-        
-      if (rolesError) throw rolesError;
-      setRoles(rolesData || []);
+      const rolesRes = await fetchWithAuth(`${API_URL || ''}/api/roles/`);
+      if (rolesRes.ok) {
+        const rolesPayload = await rolesRes.json();
+        setRoles(rolesPayload.data || []);
+      }
 
       try{
         const compRes = await fetchWithAuth(`${API_URL}/api/companies`, {

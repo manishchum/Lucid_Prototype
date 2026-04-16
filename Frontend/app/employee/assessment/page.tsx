@@ -111,12 +111,19 @@ const AssessmentContent = () => {
         
         // Fetch user's learning style
         let learningStyle: string | null = null;
-        const { data: learningStyleData } = await supabase
-          .from('employee_learning_style')
-          .select('learning_style')
-          .eq('user_id', employeeId)
-          .maybeSingle();
-        learningStyle = learningStyleData?.learning_style || 'default';
+        try {
+          const styleRes = await fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${employeeId}`, {
+            headers: { 'X-User-ID': employeeId }
+          });
+          if (styleRes.ok) {
+            const styleJson = await styleRes.json();
+            const learningStyleData = styleJson?.data || styleJson;
+            learningStyle = learningStyleData?.learning_style || 'default';
+          }
+        } catch (styleErr) {
+          console.error('[assessment] error fetching learning style:', styleErr);
+          learningStyle = 'default';
+        }
         // If a moduleId query param is present, request a per-module quiz.
         const urlModuleId = searchParams.get('moduleId');
         console.log("URL Module ID:", urlModuleId);

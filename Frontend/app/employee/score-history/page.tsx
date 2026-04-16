@@ -477,13 +477,18 @@ export default function ScoreHistoryPage() {
         path: "/learning-style",
       }),
       async () => {
-        const { data } = await supabase
-          .from("employee_learning_style")
-          .select("*")
-          .eq("user_id", employee.user_id)
-          .single();
-
-        return data ?? null;
+        try {
+          const res = await fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${employee.user_id}`, {
+            headers: { "X-User-ID": employee.user_id }
+          });
+          if (res.ok) {
+            const result = await res.json();
+            return result?.data || result || null;
+          }
+        } catch (e) {
+          console.error("Error fetching learning style", e);
+        }
+        return null;
       },
       {
         ttlMs: 10 * 60 * 1000,

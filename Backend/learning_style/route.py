@@ -4,10 +4,12 @@ import ast
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
+from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth_bridge import create_user_scoped_supabase_client_from_claims
 
 import google.generativeai as genai
 
@@ -46,9 +48,13 @@ def _get_supabase_error_code(err: Any) -> Optional[str]:
 
 
 @router.post("/learning-style")
-async def POST(req: Request):
+async def POST(req: Request, auth_ctx: RequestAuth = Depends(get_request_auth_required)):
     stage = "start"
     try:
+        query_client = supabase
+        if auth_ctx.claims:
+            query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_ctx.claims)
+
         stage = "read_body"
         body = await req.json()
         user_id = body.get("user_id")
@@ -70,7 +76,7 @@ async def POST(req: Request):
         fetchError: Any = None
         try:
             fetch_resp = (
-                supabase
+                query_client
                 .table("employee_learning_style")
                 .select("user_id, learning_style, gpt_analysis, answers")
                 .eq("user_id", user_id)
@@ -130,7 +136,7 @@ async def POST(req: Request):
             stage = "existing_has_analysis_update_answers"
             # Update only the answers to keep record of latest submission
             update_resp = (
-                supabase
+                query_client
                 .table("employee_learning_style")
                 .update({"answers": answers, "updated_at": now})
                 .eq("user_id", user_id)
@@ -155,7 +161,7 @@ async def POST(req: Request):
             stage = "existing_no_analysis_update_answers"
             # If a row exists but no learning style determined yet, update answers and continue with analysis
             update_resp = (
-                supabase
+                query_client
                 .table("employee_learning_style")
                 .update({"answers": answers, "updated_at": now})
                 .eq("user_id", user_id)
@@ -168,7 +174,7 @@ async def POST(req: Request):
             stage = "insert_new_row"
             # Insert new entry
             insert_resp = (
-                supabase
+                query_client
                 .table("employee_learning_style")
                 .insert({"user_id": user_id, "answers": answers, "created_at": now, "updated_at": now})
                 .execute()
@@ -199,7 +205,7 @@ async def POST(req: Request):
 
             # Save fallback learning style immediately so row isn't left null
             fallback_update_resp = (
-                supabase
+                query_client
                 .table("employee_learning_style")
                 .update({"learning_style": fallbackStyle, "updated_at": _to_iso_now()})
                 .eq("user_id", user_id)
@@ -389,8 +395,8 @@ Survey Responses:
             # If we have something besides updated_at to save, update the row
             if len(updatePayload.keys()) > 1:
                 save_resp = (
-                    supabase
-                    .table("employee_learning_style")
+                    query_client
+                .table("employee_learning_style")
                     .update(updatePayload)
                     .eq("user_id", user_id)
                     .execute()
@@ -420,8 +426,12 @@ Survey Responses:
 
 
 @router.get("/learning-style")
-async def GET(req: Request):
+async def GET(req: Request, auth_ctx: RequestAuth = Depends(get_request_auth_required)):
     try:
+        query_client = supabase
+        if auth_ctx.claims:
+            query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_ctx.claims)
+
         user_id = req.query_params.get("user_id")
 
         if not user_id:
@@ -435,7 +445,7 @@ async def GET(req: Request):
         error: Any = None
         try:
             fetch_resp = (
-                supabase
+                query_client
                 .table("employee_learning_style")
                 .select("learning_style, gpt_analysis")
                 .eq("user_id", user_id)

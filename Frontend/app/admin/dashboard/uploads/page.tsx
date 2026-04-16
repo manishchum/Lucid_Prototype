@@ -228,7 +228,7 @@ function ContentUpload({
   };
 
   const handleUpload = async () => {
-    if (files.length === 0  || !title || !retrievedReviewerId){
+    if (files.length === 0  || !title){
       alert("Retriever ID Required");
       return;
     } 
@@ -236,139 +236,70 @@ function ContentUpload({
     setUploading(true);
     const uploadFiles = [...files];
     try {
-      const formData = new FormData();
-      files.forEach((file) => {
-        formData.append('file', file);
-      });
-      formData.append('title', title);
-      formData.append('description', description);
-
-      const response = await fetchWithAuth('/api/content-library/upload', {
+      
+      // We no longer rely on the frontend `/api/content-library/upload`. We just post directly
+      // to the backend to create a skeleton training module, then ai trigger will upload the files!
+      
+      const createRes = await fetchWithAuth(`${API_URL}/api/training-modules/`, {
         method: 'POST',
         headers: {
-          'x-company-id': companyId,
-          'x-admin-id': adminId
+          'Content-Type': 'application/json',
+          'X-User-ID': adminId
         },
-        body: formData,
+        body: JSON.stringify({
+          company_id: companyId,
+          title: title,
+          description: description,
+          content_url: "", // Content will be populated by AI processing
+          content_type: files[0]?.type || "application/pdf",
+          processing_status: 'pending',
+          threshold_value: thresholdValue,
+          reviewer_id: retrievedReviewerId,
+          additional_readings: additionalLinks.length > 0 ? additionalLinks : null,
+          source_files: files.map((f: File) => f.name) // Initial filenames, will be updated by AI Upload
+        })
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Creation failed');
-      }
-
-      const result = await response.json();
-      console.log('Creation successful:', result);
-
-      const uploadedFileRaw = result.inserted?.[0]?.module;
-
-      if (!uploadedFileRaw) {
-        throw new Error("Creation succeeded but no file URL returned from API");
-      }
-
-      const uploadedFile = uploadedFileRaw.replace("/object/sign","/object/public");
-      
-      // Extract individual file info from the API response
-      const individualFileUrls = (result.inserted || []).map((item: any) => {
-        const moduleUrl = item.module || '';
-        // Extract storage path from the URL (just the path after the bucket name)
-        let storagePath = '';
-        try {
-          const url = new URL(moduleUrl);
-          const pathname = decodeURIComponent(url.pathname);
-          
-          // Pattern 1: /object/public/content library/uploads/...
-          // Pattern 2: /object/sign/content library/uploads/...
-          // We want just "uploads/..." part
-          const pathMatch = pathname.match(/\/object\/(?:public|sign)\/content library\/(.+)$/) ||
-                           pathname.match(/content library\/(.+)$/);
-          
-          if (pathMatch && pathMatch[1]) {
-            storagePath = pathMatch[1];
-            console.log('[Upload] Extracted storage path:', storagePath, 'from URL:', moduleUrl);
+      if (!createRes.ok) {
+        const errorText = await createRes.text().catch(() => '');
+        console.error('Failed to create training module entry:', errorText);
+        alert('Failed to create training module: ' + errorText);
+      } else {
+        const createPayload = await createRes.json().catch(() => ({}));
+        console.log('[Upload] Backend response:', createPayload);
+        
+        let moduleData = null;
+        if (createPayload.module) {
+          if (Array.isArray(createPayload.module)) {
+            moduleData = createPayload.module[0];
           } else {
-            console.warn('[Upload] Could not extract storage path from URL:', moduleUrl);
+            moduleData = createPayload.module;
           }
-        } catch (e) {
-          console.warn('[Upload] Failed to parse URL:', moduleUrl, e);
         }
         
-        return {
-          name: item.title || 'Unknown',
-          url: moduleUrl.replace("/object/sign", "/object/public") || '',
-          path: storagePath
-        };
-      });
-      
-      console.log('[Upload] Individual file URLs extracted:', individualFileUrls);
-      
-      if (uploadedFile) {
-        // Create training module via backend API
-        const createRes = await fetchWithAuth(`${API_URL}/api/training-modules/`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-ID': adminId
-          },
-          body: JSON.stringify({
-            company_id: companyId,
-            title: title,
-            description: description,
-            content_url: uploadedFile,
-            content_type: files[0]?.type || "application/pdf",
-            processing_status: 'pending',
-            threshold_value: thresholdValue,
-            reviewer_id: retrievedReviewerId,
-            additional_readings: additionalLinks.length > 0 ? additionalLinks : null,
-            source_files: individualFileUrls.map((f: { path: string }) => f.path)
-          })
-        });
-
-        if (!createRes.ok) {
-          const errorText = await createRes.text().catch(() => '');
-          console.error('Failed to create training module entry:', errorText);
-          alert('Failed to create training module: ' + errorText);
+        console.log('[Upload] Extracted moduleData:', moduleData);
+        
+        if (moduleData && moduleData.module_id) {
+          console.log('[Upload] Created module with ID:', moduleData.module_id);
+          
+          // Store source file names and URLs in localStorage (frontend-only solution)
+          const sourceFilesMap = JSON.parse(localStorage.getItem('moduleSourceFiles') || '{}');
+          sourceFilesMap[moduleData.module_id] = files.map(f => ({ name: f.name, url: '' }));
+          localStorage.setItem('moduleSourceFiles', JSON.stringify(sourceFilesMap));
+          console.log('[Upload] Stored source files in localStorage:', sourceFilesMap[moduleData.module_id]);
+          
+          // Refresh UI immediately to show the new module card
+          onUploadComplete();
+          
+          // Trigger AI background processing
+          await triggerAIProcessing(moduleData.module_id, uploadFiles, "");
+          console.log("Triggering AI with:");
+          console.log("moduleId:", moduleData.module_id);
+          console.log("files count:", uploadFiles.length);
+          console.log("file names:", uploadFiles.map(f => f.name));
         } else {
-          const createPayload = await createRes.json().catch(() => ({}));
-          console.log('[Upload] Backend response:', createPayload);
-          
-          // Backend returns {message: "...", module: [{...}]}
-          // The module is an array from Supabase insert
-          let moduleData = null;
-          if (createPayload.module) {
-            if (Array.isArray(createPayload.module)) {
-              moduleData = createPayload.module[0];
-            } else {
-              moduleData = createPayload.module;
-            }
-          }
-          
-          console.log('[Upload] Extracted moduleData:', moduleData);
-          
-          if (moduleData && moduleData.module_id) {
-            console.log('[Upload] Created module with ID:', moduleData.module_id);
-            
-            // Store source file names and URLs in localStorage (frontend-only solution)
-            const sourceFilesMap = JSON.parse(localStorage.getItem('moduleSourceFiles') || '{}');
-            sourceFilesMap[moduleData.module_id] = individualFileUrls.length > 0 
-              ? individualFileUrls 
-              : files.map(f => ({ name: f.name, url: '' }));
-            localStorage.setItem('moduleSourceFiles', JSON.stringify(sourceFilesMap));
-            console.log('[Upload] Stored source files in localStorage:', sourceFilesMap[moduleData.module_id]);
-            
-            // Refresh UI immediately to show the new module card
-            onUploadComplete();
-            
-            // Trigger AI background processing
-            await triggerAIProcessing( moduleData.module_id, uploadFiles, uploadedFile);
-            console.log("Triggering AI with:");
-            console.log("moduleId:", moduleData.module_id);
-            console.log("files count:", uploadFiles.length);
-            console.log("file names:", uploadFiles.map(f => f.name));
-          } else {
-            console.error('[Upload] No module_id in response. Full payload:', createPayload);
-            alert('Module created but ID not found in response');
-          }
+          console.error('[Upload] No module_id in response. Full payload:', createPayload);
+          alert('Module created but ID not found in response');
         }
       }
 

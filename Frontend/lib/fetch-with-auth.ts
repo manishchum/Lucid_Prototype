@@ -60,6 +60,7 @@ export async function getFirebaseIdToken(): Promise<string> {
 
 /**
  * Fetch wrapper that injects Firebase JWT into Authorization header.
+ * Handles 401 Unauthorized by attempting a token refresh and retrying once.
  */
 export async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
   const token = await getFirebaseIdToken();
@@ -71,8 +72,36 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     console.warn("[fetch-with-auth] Missing Firebase token for request that includes X-User-ID", { url });
   }
 
-  return fetch(url, {
+  let response = await fetch(url, {
     ...options,
     headers,
   });
+
+  // If the backend says the token is invalid (401), force a refresh once
+  if (response.status === 401 && auth.currentUser) {
+    console.warn("[fetch-with-auth] Received 401, forcing token refresh and retrying", { url });
+    try {
+      const refreshedToken = await auth.currentUser.getIdToken(true);
+      if (refreshedToken && refreshedToken !== token) {
+        const retryHeaders = toHeaders(options.headers);
+        retryHeaders.set("Authorization", `Bearer ${refreshedToken}`);
+        response = await fetch(url, {
+          ...options,
+          headers: retryHeaders,
+        });
+        
+        // If still 401 after retry, dispatch global logout
+        if (response.status === 401) {
+          window.dispatchEvent(new Event("lucid:auth:force-logout"));
+        }
+      } else {
+        window.dispatchEvent(new Event("lucid:auth:force-logout"));
+      }
+    } catch (refreshErr) {
+      console.error("[fetch-with-auth] Retry token refresh failed", refreshErr);
+      window.dispatchEvent(new Event("lucid:auth:force-logout"));
+    }
+  }
+
+  return response;
 }

@@ -91,21 +91,22 @@ export default function AccountPage() {
     if (!authLoading) {
       if (!user) {
         router.push("/login");
-      } else if (employeeData) {
-        setEmployee(employeeData);
+      } else {
+        if (employeeData) {
+          setEmployee(employeeData);
 
-        setFormData({
-          name: employeeData.name || "",
-          position: employeeData.position || "",
-          phone: employeeData.phone || "",
-        });
+          setFormData({
+            name: employeeData.name || "",
+            position: employeeData.position || "",
+            phone: employeeData.phone || "",
+          });
 
-        if (employeeData.company_id) {
-          fetchCompany(employeeData.company_id);
-        } else {
-          setCompany(null);
+          if (employeeData.company_id) {
+            fetchCompany(employeeData.company_id);
+          } else {
+            setCompany(null);
+          }
         }
-
         setLoading(false);
       }
     }
@@ -145,49 +146,6 @@ export default function AccountPage() {
     } catch (error) {
       console.error("Update error:", error);
       alert("Failed to save changes. Please try again.");
-              <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                <Card className="w-full">
-                  <CardHeader>
-                    <CardTitle>Account Information</CardTitle>
-                    <CardDescription>
-                      Additional account details and settings
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
-                        <div>
-                          <h3 className="font-medium">Account Status</h3>
-                          <p className="text-sm text-gray-600">Your account is active and in good standing</p>
-                        </div>
-                        <div className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
-                          Active
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                        <div>
-                          <h3 className="font-medium flex items-center gap-2">
-                            <Lock className="w-4 h-4" />
-                            Password
-                          </h3>
-                          <p className="text-sm text-gray-600">Change your account password</p>
-                        </div>
-                        <Button onClick={openPasswordModal} variant="outline">
-                          Change Password
-                        </Button>
-                      </div>
-                      
-                      <div className="p-4 bg-yellow-50 rounded-lg">
-                        <h3 className="font-medium text-yellow-800">Need Help?</h3>
-                        <p className="text-sm text-yellow-700 mt-1">
-                          Contact your administrator if you need to update your email address or company information.
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
     } finally {
       setSaving(false);
     }

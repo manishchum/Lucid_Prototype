@@ -39,6 +39,7 @@ from roleplay.assessment.route import router as roleplay_assessment_router
 from roleplay.assessment.conversation.route import router as roleplay_conversation_router
 from roleplay.realtime_ws.route import router as roleplay_realtime_router
 from ingestion.embedder import router as embed_router
+from routes import sub_departments
 
 # Create FastAPI app
 app = FastAPI(
@@ -122,6 +123,7 @@ app.include_router(change_password_router, prefix="/api", tags=["change-password
 # Router Includes are here
 # app.include_router(users_router, prefix="/api/users", tags=["users Router"])
 app.include_router(users.router)  # add this line (place with other app.include_router calls)
+app.include_router(sub_departments.router, prefix="/api/sub-departments", tags=["sub-departments"])
 app.include_router(roles.router)  # roles router
 app.include_router(assessments.router)  # assessments router
 app.include_router(companies.router)  # companies router

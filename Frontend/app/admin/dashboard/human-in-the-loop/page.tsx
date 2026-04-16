@@ -92,7 +92,7 @@ const fetchUserByEmail = async (email: string | null) => {
 };
 
 export default function HumanInTheLoopPage() {
-  const { user, loading:authLoading } = useAuth();
+  const { user, loading:authLoading, employeeData } = useAuth();
   const router = useRouter();
   const [modules, setModules] = useState<TrainingModule[]>([]);
   const [filteredModules, setFilteredModules] = useState<TrainingModule[]>([]);
@@ -119,10 +119,10 @@ export default function HumanInTheLoopPage() {
   }, [user]);
 
   useEffect(() => {
-    if (currentUserId) {
+    if (currentUserId && employeeData?.company_id) {
       fetchModules();
     }
-  }, [currentUserId]);
+  }, [currentUserId, employeeData?.company_id]);
 
   useEffect(() => {
     filterModules();
@@ -157,36 +157,29 @@ export default function HumanInTheLoopPage() {
     try {
       setLoading(true);
       if (!currentUserId) return;
+      const companyId = employeeData?.company_id;
+      if (!companyId) return;
 
-      // Fetch modules where the user is uploader - with reviewer name
-      const { data: uploadedModules, error: uploadError } = await supabase
-        .from('training_modules')
-        .select(`
-          *,
-          reviewer:users!training_modules_reviewer_id_fkey(name),
-          uploader:users!training_modules_uploaded_by_fkey(name)
-        `)
-        .eq('uploaded_by', currentUserId);
+      // Fetch ALL modules for the user's company via backend properly scoped by JWT
+      const response = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${companyId}`);
+      if (!response.ok) throw new Error('Failed to fetch modules');
+      
+      const parsed = await response.json();
+      if (parsed.error) throw new Error(parsed.error);
+      
+      const allCompanyModules = parsed.modules || [];
 
-      if (uploadError) throw uploadError;
-
-      // Fetch modules where the user is reviewer — only show if review_stage is 'in_review'
-      const { data: reviewModules, error: reviewError } = await supabase
-        .from('training_modules')
-        .select(`
-          *,
-          reviewer:users!training_modules_reviewer_id_fkey(name),
-          uploader:users!training_modules_uploaded_by_fkey(name)
-        `)
-        .eq('reviewer_id', currentUserId)
-        .eq('review_stage', 'in_review')
-        .neq('uploaded_by', currentUserId); // exclude if already shown as uploader
-
-      if (reviewError) throw reviewError;
+      // Filter locally based on currentUserId
+      const uploadedModules = allCompanyModules.filter((m: any) => m.uploaded_by === currentUserId);
+      const reviewModules = allCompanyModules.filter((m: any) => 
+        m.reviewer_id === currentUserId && 
+        m.review_stage === 'in_review' && 
+        m.uploaded_by !== currentUserId
+      );
 
       // Build sets for quick lookup
-      const uploadedIds = new Set((uploadedModules || []).map(m => m.module_id));
-      const reviewIds = new Set((reviewModules || []).map(m => m.module_id));
+      const uploadedIds = new Set((uploadedModules || []).map((m: any) => m.module_id));
+      const reviewIds = new Set((reviewModules || []).map((m: any) => m.module_id));
 
       // Merge both lists, deduplicate by module_id, and tag with user_role
       const allModules = [...(uploadedModules || []), ...(reviewModules || [])];
