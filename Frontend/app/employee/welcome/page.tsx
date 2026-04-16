@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
 import { useTenant } from "@/contexts/tenant-context";
 import CompanySelector from "@/components/company-selector";
+import { LeaderboardModal } from "@/components/leaderboard-modal";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import {
@@ -63,6 +64,7 @@ export default function EmployeeWelcome() {
   const [isNavOverlay, setIsNavOverlay] = useState<boolean>(false);
   const [showAllModules, setShowAllModules] = useState<boolean>(false);
   const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(false);
+  const [showLeaderboard, setShowLeaderboard] = useState<boolean>(false);
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
  
   const toastShownRef = useRef(false);
@@ -100,14 +102,15 @@ export default function EmployeeWelcome() {
           'X-User-ID': employeeData.user_id,
           'X-Company-ID': effectiveCompanyId,
         };
-
-        const [plansRes, modulesRes, progressRes, usersRes, companyRes, learningStyleRes] = await Promise.all([
+ 
+        const [plansRes, modulesRes, progressRes, usersRes, companyRes, learningStyleRes, userRankRes] = await Promise.all([
           fetchWithAuth(`${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
           fetchWithAuth(`${API_BASE}/api/training-modules/company/${employeeData.company_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
           fetchWithAuth(`${API_BASE}/api/module-progress/user/${employeeData.user_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
           fetchWithAuth(`${API_BASE}/api/users/company/${employeeData.company_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
           fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`, { headers }).then((r) => r.ok ? r.json() : {}),
           fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => r.ok ? r.json() : {}),
+          fetchWithAuth(`${API_BASE}/api/analytics/leaderboard/${employeeData.company_id}/user-rank`, { headers }).then((r) => r.ok ? r.json() : {}),
         ]);
 
         return {
@@ -117,6 +120,7 @@ export default function EmployeeWelcome() {
           users: usersRes?.users || [],
           company: companyRes?.company || companyRes || null,
           learningStyle: learningStyleRes?.data?.learning_style || null,
+          userRank: userRankRes?.data || null,
         };
       },
       {
@@ -179,12 +183,27 @@ export default function EmployeeWelcome() {
       const baselineNeeded = plans.some((plan: any) => plan.baseline_assessment === 1 || plan.baseline_assessment === true);
       setBaselineRequired(baselineNeeded);
 
-      const totalUsers = Array.isArray(data?.users) ? data.users.length : 0;
-      const completedCount = progress.filter((p: any) => p.completed_at).length;
-      const progressValue = mappedAssigned.length > 0 ? Math.round((completedCount / mappedAssigned.length) * 100) : 0;
+      const completedCount = data?.userRank?.modules_completed ?? 0;
+      const totalAssigned = mappedAssigned.length;
+      const progressValue = totalAssigned > 0 ? (completedCount / totalAssigned) * 100 : 0;
       setProgressPercentage(progressValue);
-      setCompanyStats({ totalEmployees: totalUsers, completedEmployees: 5, userRank: 1, topPercentile: 10 });
-      generateNudgeMessage(progressValue, 1, totalUsers, 10, 5);
+      
+      const totalUsers = Array.isArray(data?.users) ? data.users.length : 0;
+
+      setCompanyStats({
+        totalEmployees: totalUsers,
+        completedEmployees: completedCount,
+        userRank: data?.userRank?.rank ?? null,
+        topPercentile: data?.userRank?.top_percentile ?? null,
+      });
+
+      generateNudgeMessage(
+        progressValue,
+        data?.userRank?.rank ?? null,
+        totalUsers,
+        data?.userRank?.top_percentile ?? 10,
+        completedCount
+      );
     } catch (e) {
       console.error("[Welcome] loadDashboard failed:", e);
     } finally {
@@ -203,7 +222,7 @@ export default function EmployeeWelcome() {
   }, [user, authLoading, activeCompanyId, isDeveloperMode]);
 
    const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
-     if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint and earned the SME tag!");
+     if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint!");
      else setNudgeMessage(`💪 One step in! Complete your sprints and stand among the top 5%.`);
    };
 
@@ -229,7 +248,16 @@ export default function EmployeeWelcome() {
          </div>
        )}
 
-       <main className="min-h-screen pt-4 md:pt-8 pb-8 md:pb-12 px-4 sm:px-6 lg:px-8">
+       <main className="min-h-screen pt-4 md:pt-8 pb-8 md:pb-12 px-4 sm:px-6 lg:px-8 relative">
+          <Button
+            onClick={() => setShowLeaderboard(true)}
+            variant="outline"
+            className="absolute top-4 right-4 rounded-lg border-slate-200 hover:bg-amber-50 hover:border-amber-200 transition-colors"
+            title="View leaderboard"
+            size="icon"
+          >
+            <Trophy className="w-4 h-4 text-amber-500" />
+          </Button>
           <div className="max-w-6xl mx-auto w-full">
          
            {/* Dashboard Header */}
@@ -247,8 +275,10 @@ export default function EmployeeWelcome() {
                  </p>
                </div>
              </div>
-             <div className="w-full md:w-[320px]">
-               <CompanySelector showLabel />
+             <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-stretch sm:items-center">
+               <div className="w-full sm:w-[320px]">
+                 <CompanySelector showLabel />
+               </div>
              </div>
            </div>
 
@@ -280,7 +310,7 @@ export default function EmployeeWelcome() {
                             variant="secondary"
                             className="bg-slate-100 text-slate-600 border-none font-bold text-[10px] sm:text-xs"
                           >
-                            63 COMPLETED
+                            {companyStats.completedEmployees} COMPLETED
                           </Badge>
                         </div>
                       </div>
@@ -297,12 +327,12 @@ export default function EmployeeWelcome() {
                             progressPercentage >= 100 ? "text-green-600" : "text-blue-600"
                           }`}
                         >
-                          27.6%
+                          {progressPercentage.toFixed(1)}%
                         </span>
                       </div>
 
                       <div className="mt-2 text-[10px] sm:text-xs font-black uppercase tracking-[0.05em] text-slate-400 text-center">
-                        96 of 348
+                        {companyStats.completedEmployees} of {assignedModules.length}
                       </div>
                     </div>
                   </div>
@@ -550,6 +580,15 @@ export default function EmployeeWelcome() {
            </div>
          </div>
        </main>
+
+       {/* Leaderboard Modal */}
+       {employee && (
+         <LeaderboardModal
+           open={showLeaderboard}
+           onOpenChange={setShowLeaderboard}
+           employee={employee}
+         />
+       )}
      </div>
    );
 }

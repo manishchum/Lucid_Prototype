@@ -1,8 +1,13 @@
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth import RequestAuth, get_request_auth_required, get_request_auth_optional
 from utils.db.permissions import check_company_access, check_user_permission
+from utils.db.leaderboard_db import (
+    get_company_leaderboard,
+    get_user_rank,
+    get_leaderboard_with_user_highlight
+)
 from utils.supabase_client import supabase
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics-export"])
@@ -374,3 +379,137 @@ async def export_company_user_analytics(
         "data": {"columns": columns, "rows": rows, "count": len(rows)},
         "error": None,
     }
+
+
+# ==================== LEADERBOARD ENDPOINTS ====================
+
+@router.get("/leaderboard/{company_id}")
+async def get_leaderboard(
+    company_id: str,
+    limit: int = Query(10, ge=1, le=100),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    """
+    Get leaderboard for a company showing top performers.
+    Permission: Any user in the company can view.
+    
+    Query Parameters:
+    - limit: Number of top performers to return (1-100, default 10)
+    
+    Returns:
+    - List of top performers with rank, name, total_points, modules_completed, avatar_url
+    """
+    print(f"[leaderboard] Request received; company_id={company_id}; auth_source={auth_ctx.source}; user_id={auth_ctx.user_id}; email={auth_ctx.email}")
+    
+    if not auth_ctx.user_id:
+        print(f"[leaderboard] ERROR: Missing user_id; auth_source={auth_ctx.source}; auth_ctx={vars(auth_ctx)}")
+        raise HTTPException(status_code=401, detail="Missing authentication context")
+    
+    # Check if user belongs to the company
+    has_access = await check_company_access(auth_ctx.user_id, company_id)
+    if not has_access:
+        print(f"[leaderboard] ERROR: User {auth_ctx.user_id} does not have access to company {company_id}; auth_source={auth_ctx.source}")
+        raise HTTPException(status_code=403, detail="Permission denied: Not in this company")
+    
+    try:
+        result = await get_company_leaderboard(company_id, limit=limit)
+        
+        if result.get("error"):
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return {
+            "success": True,
+            "data": result.get("data", []),
+            "error": None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch leaderboard: {str(e)}")
+
+
+@router.get("/leaderboard/{company_id}/user-rank")
+async def get_user_leaderboard_rank(
+    company_id: str,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    """
+    Get requesting user's rank and statistics in the leaderboard.
+    Permission: User can view only their own rank, or managers can view any user in their company.
+    
+    Returns:
+    - rank: User's position in leaderboard (1 = top)
+    - total_points: User's total points
+    - modules_completed: Number of completed modules
+    - percentile: User's percentile (0-100, 100 = top)
+    - total_users: Total users in company
+    - users_ahead: Number of users with more points
+    """
+    if not auth_ctx.user_id:
+        raise HTTPException(status_code=401, detail="Missing authentication context")
+    
+    # Check if user belongs to the company
+    has_access = await check_company_access(auth_ctx.user_id, company_id)
+    if not has_access:
+        raise HTTPException(status_code=403, detail="Permission denied: Not in this company")
+    
+    try:
+        result = await get_user_rank(auth_ctx.user_id, company_id)
+        
+        if result.get("error"):
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return {
+            "success": True,
+            "data": result.get("data"),
+            "error": None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch user rank: {str(e)}")
+
+
+@router.get("/leaderboard/{company_id}/highlight")
+async def get_leaderboard_with_highlight(
+    company_id: str,
+    top_limit: int = Query(10, ge=1, le=100),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    """
+    Get top performers plus requesting user's position if outside top N.
+    Useful for UI display - shows top performers and where the user ranks.
+    Permission: Any user in the company can view.
+    
+    Query Parameters:
+    - top_limit: Number of top performers to show (1-100, default 10)
+    
+    Returns:
+    - top_performers: List of top N users
+    - user_rank_info: User's rank info (if not in top N)
+    - total_users: Total users in company
+    - user_in_top: Whether user is in top N
+    """
+    if not auth_ctx.user_id:
+        raise HTTPException(status_code=401, detail="Missing authentication context")
+    
+    # Check if user belongs to the company
+    has_access = await check_company_access(auth_ctx.user_id, company_id)
+    if not has_access:
+        raise HTTPException(status_code=403, detail="Permission denied: Not in this company")
+    
+    try:
+        result = await get_leaderboard_with_user_highlight(auth_ctx.user_id, company_id, top_limit=top_limit)
+        
+        if result.get("error"):
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return {
+            "success": True,
+            "data": result.get("data"),
+            "error": None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch leaderboard: {str(e)}")
