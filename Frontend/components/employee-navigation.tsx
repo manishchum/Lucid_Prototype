@@ -196,13 +196,13 @@ const EmployeeNavigation = ({
             {isCollapsed && <NavTooltip label="Home" />}
           </div>
 
-          {/* Training Plan (Dropdown) */}
+          {/* Training Plan (Dropdown)
           <div className="relative group">
             <button 
               onClick={() => isCollapsed ? handleNavigate('/employee/welcome') : setCoursesOpen(!coursesOpen)} 
               className={`w-full flex items-center justify-between px-4 py-2.5 rounded-[12px] transition-all duration-200 text-[#1E293B] hover:bg-slate-50`}
             >
-              <div className="flex items-center gap-3.5">
+              {/* <div className="flex items-center gap-3.5">
                 <BookOpen size={20} className="shrink-0" />
                 {!isCollapsed && <span className="text-[15px] font-bold">Performance Sprint</span>}
               </div>
@@ -226,9 +226,9 @@ const EmployeeNavigation = ({
                     <span className="truncate">{item.label}</span>
                   </button>
                 ))}
-              </div>
-            )}
-          </div>
+              </div> */}
+            
+          {/* </div> */}
 
           {/* Reports */}
           <div className="relative group">

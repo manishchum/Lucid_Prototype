@@ -77,7 +77,7 @@ function TrainingPlanContent() {
     try {
       const result = await fetchTrainingPlan(employeeData, moduleId);
       const data = result.data;
-
+      console.log("Fetched training plan data:", data);
       if (data?.error === "BASELINE_REQUIRED") {
         setBaselineRequired(true);
         setBaselineMessage(data.message || "Please complete the baseline assessment first.");
@@ -348,6 +348,20 @@ function TrainingPlanContent() {
 
   const moduleRequiresBaseline = (_mod: any): boolean => false;
 
+  const getNormalizedProcessedModuleId = (mod: any): string | null => {
+    const candidate =
+      mod?.resolved_processed_module_id ??
+      mod?.processed_module_id ??
+      (mod?.id && String(mod.id).startsWith("pm_") ? mod.id : null);
+
+    if (!candidate) return null;
+    const normalized = String(candidate).trim();
+    if (!normalized || normalized === "undefined" || normalized === "null") {
+      return null;
+    }
+    return normalized;
+  };
+
   const resolveModuleId = async (mod: any): Promise<string | null> => {
     const directResolved =
       mod?.processed_module_id ??
@@ -409,6 +423,128 @@ function TrainingPlanContent() {
     }
   };
 
+  // Defensive: Support both plan.modules and plan.learning_plan.modules
+  let parsedPlan = plan;
+  console.log("Raw plan data:", parsedPlan);
+  // Unwrap common shapes: { modules }, { learning_plan: { modules } }, { plan: { modules } }
+  let modules =
+    parsedPlan?.modules ||
+    parsedPlan?.learning_plan?.modules ||
+    parsedPlan?.plan?.modules;
+  let overallRecommendations =
+    parsedPlan?.overall_recommendations ||
+    parsedPlan?.learning_plan?.overall_recommendations ||
+    parsedPlan?.plan?.overall_recommendations;
+
+  // Always try to parse plan.raw if present
+  if (parsedPlan?.raw) {
+    try {
+      const parsedRaw =
+        typeof parsedPlan.raw === "string"
+          ? JSON.parse(parsedPlan.raw)
+          : parsedPlan.raw;
+      modules =
+        parsedRaw?.modules ||
+        parsedRaw?.learning_plan?.modules ||
+        parsedRaw?.plan?.modules;
+      overallRecommendations =
+        parsedRaw?.overall_recommendations ||
+        parsedRaw?.learning_plan?.overall_recommendations ||
+        parsedRaw?.plan?.overall_recommendations;
+      if (modules && Array.isArray(modules)) {
+        parsedPlan = parsedRaw;
+      }
+    } catch {}
+  }
+
+  const moduleCandidates = Array.isArray(modules) ? (modules as any[]) : [];
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveMissingProcessedModuleIds = async () => {
+      if (!moduleCandidates.length || !employeeData?.user_id) return;
+
+      const missing = moduleCandidates
+        .map((mod: any, idx: number) => {
+          const normalizedTitle = mod?.title || mod?.name || `Module ${idx + 1}`;
+          const fallback = `${idx}-${normalizedTitle || "module"}`;
+          const tabValue = String(mod?.id ?? mod?.original_module_id ?? fallback);
+
+          return {
+            mod,
+            tabValue,
+            resolvedProcessedModuleId: getNormalizedProcessedModuleId(mod),
+          };
+        })
+        .filter((item) => !item.resolvedProcessedModuleId);
+
+      if (!missing.length) return;
+
+      const resolutions = await Promise.all(
+        missing.map(async (item) => {
+          const resolved = await resolveModuleId(item.mod);
+          return {
+            tabValue: item.tabValue,
+            resolved: resolved ? String(resolved) : null,
+          };
+        })
+      );
+
+      if (cancelled) return;
+
+      const resolvedMap = new Map<string, string>();
+      resolutions.forEach((item) => {
+        if (item?.tabValue && item?.resolved) {
+          resolvedMap.set(item.tabValue, item.resolved);
+        }
+      });
+
+      if (!resolvedMap.size) return;
+
+      setPlan((prev: any) => {
+        if (!prev) return prev;
+
+        const patchModules = (list: any[] | undefined) => {
+          if (!Array.isArray(list)) return list;
+          return list.map((mod: any, idx: number) => {
+            const fallback = `${idx}-${(mod?.title || mod?.name || "module")}`;
+            const tabValue = String(mod?.id ?? mod?.original_module_id ?? fallback);
+            const resolved = resolvedMap.get(tabValue);
+            if (!resolved) return mod;
+            return {
+              ...mod,
+              resolved_processed_module_id: resolved,
+            };
+          });
+        };
+
+        return {
+          ...prev,
+          modules: patchModules(prev.modules),
+          learning_plan: prev.learning_plan
+            ? {
+                ...prev.learning_plan,
+                modules: patchModules(prev.learning_plan.modules),
+              }
+            : prev.learning_plan,
+          plan: prev.plan
+            ? {
+                ...prev.plan,
+                modules: patchModules(prev.plan.modules),
+              }
+            : prev.plan,
+        };
+      });
+    };
+
+    resolveMissingProcessedModuleIds();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [moduleCandidates, moduleId, employeeData?.user_id]);
+
   if (showLoadingProgress) {
     return <LoadingProgress label="Fetching your Sprint" progress={loadingProgress} />;
   }
@@ -461,39 +597,6 @@ function TrainingPlanContent() {
     );
   }
 
-  // Defensive: Support both plan.modules and plan.learning_plan.modules
-  let parsedPlan = plan;
-  // Unwrap common shapes: { modules }, { learning_plan: { modules } }, { plan: { modules } }
-  let modules =
-    parsedPlan?.modules ||
-    parsedPlan?.learning_plan?.modules ||
-    parsedPlan?.plan?.modules;
-  let overallRecommendations =
-    parsedPlan?.overall_recommendations ||
-    parsedPlan?.learning_plan?.overall_recommendations ||
-    parsedPlan?.plan?.overall_recommendations;
-
-  // Always try to parse plan.raw if present
-  if (parsedPlan?.raw) {
-    try {
-      const parsedRaw =
-        typeof parsedPlan.raw === "string"
-          ? JSON.parse(parsedPlan.raw)
-          : parsedPlan.raw;
-      modules =
-        parsedRaw?.modules ||
-        parsedRaw?.learning_plan?.modules ||
-        parsedRaw?.plan?.modules;
-      overallRecommendations =
-        parsedRaw?.overall_recommendations ||
-        parsedRaw?.learning_plan?.overall_recommendations ||
-        parsedRaw?.plan?.overall_recommendations;
-      if (modules && Array.isArray(modules)) {
-        parsedPlan = parsedRaw;
-      }
-    } catch {}
-  }
-
   if (!plan || !modules || !Array.isArray(modules)) {
     // Only show raw JSON if plan is missing or modules cannot be parsed as an array
     return (
@@ -537,6 +640,7 @@ function TrainingPlanContent() {
   const normalizedModules = (modules as any[]).map((mod: any, idx: number) => {
     // console.log('This is the normalizedModules',mod)
     // Normalize: use 'name' as 'title' if title is missing
+    console.log(mod)
     const normalizedMod = {
       ...mod,
       title: mod.title || mod.name || `Module ${idx + 1}`,
@@ -548,29 +652,28 @@ function TrainingPlanContent() {
       normalizedMod?.id ?? normalizedMod?.original_module_id ?? fallback
     );
 
+    const resolvedProcessedModuleId = getNormalizedProcessedModuleId(normalizedMod);
+
     // Check completion using processed_module_id to match employee/welcome logic
     let isCompleted = false;
-    const processedModuleId = String(
-      normalizedMod?.processed_module_id ??
-        normalizedMod?.id ??
-        normalizedMod?.original_module_id
-    );
-    if (
-      processedModuleId &&
-      processedModuleId !== "undefined" &&
-      processedModuleId !== "null"
-    ) {
-      isCompleted = completedModules.includes(processedModuleId);
+    console.log(normalizedMod, resolvedProcessedModuleId, completedModules);
+    if (resolvedProcessedModuleId) {
+      isCompleted = completedModules.includes(resolvedProcessedModuleId);
     }
     // console.log("Is Completed")
     // console.log(isCompleted);
-    return { ...normalizedMod, _tabValue: tabValue, _isCompleted: isCompleted };
+    return {
+      ...normalizedMod,
+      resolved_processed_module_id: resolvedProcessedModuleId,
+      _tabValue: tabValue,
+      _isCompleted: isCompleted,
+    };
   });
 
   // Calculate accurate completion count - only count modules that are actually in the plan
-  const planModuleIds = normalizedModules.map(mod => String(
-    mod?.processed_module_id ?? mod?.id ?? mod?.original_module_id
-  )).filter(id => id && id !== "undefined" && id !== "null");
+  const planModuleIds = normalizedModules
+    .map((mod) => getNormalizedProcessedModuleId(mod))
+    .filter((id): id is string => Boolean(id));
   
   const actualCompletedCount = planModuleIds.filter(moduleId => 
     completedModules.includes(moduleId)
@@ -769,9 +872,10 @@ function TrainingPlanContent() {
                       variant="outline"
                       className="shrink-0"
                       onClick={async () => {
-                        const moduleIdentifier = mod.processed_module_id || mod._tabValue;
+                        const stableModuleId = getNormalizedProcessedModuleId(mod) || mod._tabValue;
+                        const moduleIdentifier = stableModuleId;
                         setContentLoadingModuleId(moduleIdentifier);
-                        const navId = await resolveModuleId(mod);
+                        const navId = stableModuleId || (await resolveModuleId(mod));
                         if (navId) {
                           router.push(`/employee/module/${navId}`);
                         } else {
@@ -782,12 +886,12 @@ function TrainingPlanContent() {
                       disabled={
                         mod._isCompleted ||
                         moduleRequiresBaseline(mod) ||
-                        attemptedQuizModules.includes(String(mod.processed_module_id || mod._tabValue)) ||
-                        contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ||
-                        quizLoadingModuleId === (mod.processed_module_id || mod._tabValue)
+                        attemptedQuizModules.includes(String(getNormalizedProcessedModuleId(mod) || mod._tabValue)) ||
+                        contentLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue) ||
+                        quizLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue)
                       }
                     >
-                      {contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ? (
+                      {contentLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue) ? (
                         <span className="flex items-center gap-2">
                           <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-500 border-t-transparent"></div>
                           Loading...
@@ -803,9 +907,10 @@ function TrainingPlanContent() {
                           : "bg-blue-600 hover:bg-blue-700"
                       }`}
                       onClick={async () => {
-                        const moduleIdentifier = mod.processed_module_id || mod._tabValue;
+                        const stableModuleId = getNormalizedProcessedModuleId(mod) || mod._tabValue;
+                        const moduleIdentifier = stableModuleId;
                         setQuizLoadingModuleId(moduleIdentifier);
-                        const navId = await resolveModuleId(mod);
+                        const navId = stableModuleId || (await resolveModuleId(mod));
                         if (navId) {
                           router.push(`/employee/quiz/${navId}`);
                         } else {
@@ -816,16 +921,16 @@ function TrainingPlanContent() {
                       disabled={
                         mod._isCompleted ||
                         moduleRequiresBaseline(mod) ||
-                        contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ||
-                        quizLoadingModuleId === (mod.processed_module_id || mod._tabValue)
+                        contentLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue) ||
+                        quizLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue)
                       }
                     >
-                      {quizLoadingModuleId === (mod.processed_module_id || mod._tabValue) ? (
+                      {quizLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue) ? (
                         <span className="flex items-center gap-2">
                           <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
                           Loading...
                         </span>
-                      ) : attemptedQuizModules.includes(String(mod.processed_module_id || mod._tabValue)) ? (
+                      ) : attemptedQuizModules.includes(String(getNormalizedProcessedModuleId(mod) || mod._tabValue)) ? (
                         "Quiz Attempted"
                       ) : (
                         "Module Quiz"
