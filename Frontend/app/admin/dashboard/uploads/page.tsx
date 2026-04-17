@@ -19,7 +19,6 @@ import {
   DialogTitle
 } from "@/components/ui/dialog";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
-import Link from "next/link";
 
 interface Admin {
   user_id: string
@@ -1000,17 +999,17 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const getStatusBadge = (status: string) => {
     switch (status?.toLowerCase()) {
       case 'completed':
-        return "bg-green-100 text-green-800";
+        return <Badge className="bg-green-100 text-green-800">Ready</Badge>;
       case 'pending':
-        return "bg-orange-100 text-orange-800";
+        return <Badge className="bg-orange-100 text-orange-800">Pending</Badge>;
       case 'transcribing':
       case 'summarizing':
       case 'processing':
-        return "bg-blue-100 text-blue-800 animate-pulse";
+        return <Badge className="bg-blue-100 text-blue-800 animate-pulse">Processing</Badge>;
       case 'failed':
-        return "bg-red-100 text-red-800";
+        return <Badge className="bg-red-100 text-red-800">Failed</Badge>;
       default:
-        return "bg-gray-100 text-gray-800";
+        return <Badge variant="secondary">{status}</Badge>;
     }
   };
 
@@ -1334,34 +1333,49 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
       {/* Training Modules List */}
       <div>
-        <h3 className="text-lg font-semibold mb-4">Sprint Content Library</h3>
+        <h3 className="text-lg font-semibold mb-4">Sprints({trainingModules.length})</h3>
 
-        <div className="space-y-4">
-          {trainingModules.map((module) => (
-            <Card key={module.module_id} className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        {trainingModules.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <Upload className="w-12 h-12 mx-auto mb-4 opacity-50" />
+            <p>No Sprints found</p>
+            <p className="text-sm">Create your first Sprint to get started</p>
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {trainingModules.map((module) => (
+              <Card key={module.module_id}>
+              <CardContent className="p-4">
+
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
+
               <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
-                  <Link href={`/employee/training-plan?module_id=${module.module_id}`} className="font-semibold text-lg hover:underline">
-                    {module.title}
-                  </Link>
-                  <Badge className={getStatusBadge(getModuleStatus(module))}>
-                    {getModuleStatus(module) === "completed" ? "Ready" : "Processing"}
-                  </Badge>
-                  {module.review_stage && (
-                    <Badge className={getReviewStageColor(module.review_stage)}>
-                      {getReviewStageLabel(module.review_stage)}
-                    </Badge>
-                  )}
-                </div>
-                {module.description && (
-                <p className="text-sm text-gray-600 mb-2">
-                {module.description}
-                </p>
-                )}
-                <div className="flex items-center gap-4 text-xs text-gray-500">
-                <span>{formatContentType(module.content_type)}</span>
-                <span>Created: {new Date(module.created_at).toLocaleDateString()}</span>
-                </div>
+
+              <div className="flex items-center gap-3 mb-2">
+
+              <h4 className="font-medium text-gray-900">
+              {module.title}
+              </h4>
+
+              {getStatusBadge(module.processing_status)}
+
+              <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border ${getReviewStageColor(module.review_stage)}`}>
+              {getReviewStageLabel(module.review_stage)}
+              </span>
+
+              </div>
+
+              {module.description && (
+              <p className="text-sm text-gray-600 mb-2">
+              {module.description}
+              </p>
+              )}
+
+              <div className="flex items-center gap-4 text-xs text-gray-500">
+              <span>{formatContentType(module.content_type)}</span>
+              <span>Created: {new Date(module.created_at).toLocaleDateString()}</span>
+              </div>
+
               </div>
 
               <div className="flex gap-2">
@@ -1446,9 +1460,16 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                 )}
               </div>
 
-            </Card>
-          ))}
-        </div>
+              </div>
+
+              </CardContent>
+              </Card>
+                
+
+              
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -26,9 +26,10 @@ async def get_user_total_points(user_id: str, company_id: str) -> int:
             'learning_plan_id, module_id, overall_status'
         ).eq('user_id', user_id).execute()
         
-        print(f"[get_user_total_points] user_id={user_id}; all_plans_count={len(all_plans_resp.data or [])}")
+        # print(f"[get_user_total_points] user_id={user_id}; all_plans_count={len(all_plans_resp.data or [])}")
         if all_plans_resp.data:
-            print(f"[get_user_total_points] all_plans_resp.data={all_plans_resp.data}")
+            # print(f"[get_user_total_points] all_plans_resp.data={all_plans_resp.data}")
+            pass
         
         # Filter for completed plans in Python (overall_status = True)
         completed_plans = [p for p in (all_plans_resp.data or []) if p.get('overall_status') is True]

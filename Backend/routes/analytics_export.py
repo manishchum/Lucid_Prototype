@@ -399,7 +399,7 @@ async def get_leaderboard(
     Returns:
     - List of top performers with rank, name, total_points, modules_completed, avatar_url
     """
-    print(f"[leaderboard] Request received; company_id={company_id}; auth_source={auth_ctx.source}; user_id={auth_ctx.user_id}; email={auth_ctx.email}")
+    # print(f"[leaderboard] Request received; company_id={company_id}; auth_source={auth_ctx.source}; user_id={auth_ctx.user_id}; email={auth_ctx.email}")
     
     if not auth_ctx.user_id:
         print(f"[leaderboard] ERROR: Missing user_id; auth_source={auth_ctx.source}; auth_ctx={vars(auth_ctx)}")
