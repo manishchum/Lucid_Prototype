@@ -4,12 +4,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
-import { ArrowLeft, Eye, GitCompare, Edit3, Sparkles, ShieldAlert, Lock, RotateCcw, XCircle, AlertTriangle, CheckCircle, FileText, Upload, UserCheck, Clock, History, Image as ImageIcon, Video, Music2, Link2 } from 'lucide-react';
+import { ArrowLeft, Eye, GitCompare, Edit3, Sparkles, ShieldAlert, Lock, XCircle, AlertTriangle, CheckCircle, FileText, Upload, UserCheck, Clock, History, Image as ImageIcon, Video, Music2, Link2, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import EmployeeNavigation from '@/components/employee-navigation';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
 import { MediaAwareHtml, buildMediaEmbedMarkup, type ModuleMediaType } from '@/lib/module-media-embeds';
+import jsPDF from 'jspdf';
 
 interface TrainingModule {
   module_id: string;
@@ -95,7 +96,9 @@ export default function EditModulePage() {
   const [isUploadingVideo, setIsUploadingVideo] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [activeMediaMenu, setActiveMediaMenu] = useState<ModuleMediaType | null>(null);
+  const [isMediaPanelCollapsed, setIsMediaPanelCollapsed] = useState(true);
 
   const contentEditableRef = useRef<HTMLDivElement>(null);
   const videoUploadInputRef = useRef<HTMLInputElement>(null);
@@ -191,6 +194,19 @@ export default function EditModulePage() {
       // Check if user is either the uploader or reviewer
       const isUploader = moduleData.uploaded_by === userData.user_id;
       const isReviewer = moduleData.reviewer_id === userData.user_id;
+
+      if (isUploader && !moduleData.reviewer_id) {
+        const { error: assignReviewerError } = await supabase
+          .from('training_modules')
+          .update({ reviewer_id: userData.user_id })
+          .eq('module_id', moduleId);
+
+        if (assignReviewerError) {
+          console.error('Failed to auto-assign uploader as reviewer:', assignReviewerError);
+        } else {
+          moduleData.reviewer_id = userData.user_id;
+        }
+      }
 
       console.log(userData)
       console.log(moduleData)
@@ -812,6 +828,155 @@ export default function EditModulePage() {
     setActiveMediaMenu(null);
   };
 
+  const parseModuleContentForExport = (html: string) => {
+    const parser = new DOMParser();
+    const parsedDocument = parser.parseFromString(html || '', 'text/html');
+    return parsedDocument.body.innerHTML;
+  };
+
+  const handleExportAsPdf = async () => {
+    if (!module || subModules.length === 0) {
+      alert('No module content available to export.');
+      return;
+    }
+    if (isExportingPdf) return;
+
+    const currentlyEditingId = selectedSubModule?.processed_module_id;
+    const currentlyEditedHtml = contentEditableRef.current?.innerHTML ?? editedContent;
+
+    const exportSubModules = subModules.map((subModule) => {
+      if (activeView === 'edit' && currentlyEditingId && subModule.processed_module_id === currentlyEditingId) {
+        return {
+          ...subModule,
+          content: currentlyEditedHtml || subModule.content,
+        };
+      }
+      return subModule;
+    });
+
+    const exportRoot = document.createElement('div');
+    exportRoot.style.position = 'fixed';
+    exportRoot.style.left = '0';
+    exportRoot.style.top = '0';
+    exportRoot.style.width = '1024px';
+    exportRoot.style.background = '#ffffff';
+    exportRoot.style.padding = '32px';
+    exportRoot.style.opacity = '0.01';
+    exportRoot.style.pointerEvents = 'none';
+    exportRoot.style.overflow = 'hidden';
+    exportRoot.style.maxHeight = 'none';
+
+    exportRoot.innerHTML = `
+      <style>
+        .pdf-root { color: #0f172a; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+        .pdf-header { margin-bottom: 24px; border-bottom: 1px solid #cbd5e1; padding-bottom: 12px; }
+        .pdf-header h1 { margin: 0; font-size: 30px; line-height: 1.2; color: #1e293b; font-weight: 800; }
+        .pdf-header p { margin: 8px 0 0 0; color: #64748b; font-size: 12px; }
+        .pdf-module { margin-bottom: 30px; page-break-inside: avoid; }
+        .pdf-module-index { display: inline-block; background: #e2e8f0; color: #334155; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px; margin-bottom: 10px; }
+        .pdf-module h2 { margin: 0 0 12px 0; font-size: 24px; line-height: 1.25; color: #1e293b; font-weight: 700; }
+        .pdf-content h1 { margin: 24px 0 16px 0; font-size: 30px; line-height: 1.2; color: #1e293b; }
+        .pdf-content h2 { margin: 20px 0 12px 0; font-size: 24px; line-height: 1.25; color: #1e293b; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
+        .pdf-content h3 { margin: 16px 0 10px 0; font-size: 20px; line-height: 1.3; color: #1e293b; }
+        .pdf-content h4 { margin: 14px 0 8px 0; font-size: 18px; line-height: 1.3; color: #1e293b; }
+        .pdf-content p { margin: 0 0 14px 0; color: #334155; line-height: 1.7; }
+        .pdf-content ul, .pdf-content ol { margin: 0 0 16px 22px; color: #334155; }
+        .pdf-content li { margin-bottom: 6px; }
+        .pdf-content strong { color: #0f172a; font-weight: 700; }
+        .pdf-content blockquote { margin: 14px 0; border-left: 4px solid #3b82f6; padding: 8px 0 8px 14px; background: #eff6ff; font-style: italic; }
+        .pdf-content table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        .pdf-content th { border: 1px solid #cbd5e1; background: #f1f5f9; color: #0f172a; font-weight: 700; text-align: left; padding: 10px 12px; }
+        .pdf-content td { border: 1px solid #e2e8f0; color: #334155; padding: 10px 12px; }
+        .pdf-content img { max-width: 100%; border-radius: 8px; margin: 18px 0; }
+        .callout { padding: 1rem; margin: 1.5rem 0; border-radius: 0.5rem; border-left: 4px solid; }
+        .callout.tip { background-color: #f0f9ff; border-color: #3b82f6; }
+        .callout.warning { background-color: #fef3c7; border-color: #f59e0b; }
+        .callout.definition { background-color: #f3f4f6; border-color: #6b7280; }
+        .callout h4 { margin-top: 0; margin-bottom: 0.5rem; font-weight: 600; }
+        .key-takeaway { background-color: #ecfdf5; border-left: 4px solid #10b981; padding: 1rem; margin: 1.5rem 0; border-radius: 0.375rem; }
+        .key-takeaway strong { color: #047857; }
+        .learning-objectives { background-color: #f9fafb; padding: 1.5rem; border-radius: 0.5rem; margin-bottom: 2rem; }
+        .learning-objectives h2 { color: #1e293b; margin-top: 0; }
+        .learning-objectives ol { margin-bottom: 0; }
+        .module-section { margin-bottom: 3rem; }
+        .activity { background-color: #fef3c7; padding: 1.5rem; border-radius: 0.5rem; border-left: 4px solid #f59e0b; margin: 2rem 0; }
+        .activity h3 { color: #92400e; margin-top: 0; }
+        .module-summary { background-color: #dbeafe; padding: 1.5rem; border-radius: 0.5rem; margin-top: 3rem; }
+        .module-summary h2 { color: #1e40af; margin-top: 0; }
+        table caption { caption-side: top; font-weight: 600; margin-bottom: 0.5rem; color: #1e293b; }
+        .diff-added { background-color: #dcfce7; }
+        .diff-removed { background-color: #fee2e2; text-decoration: line-through; }
+      </style>
+      <div class="pdf-root">
+        <div class="pdf-header">
+          <h1>${module.title || 'Training Module'}</h1>
+          <p>Exported on ${new Date().toLocaleString()}</p>
+        </div>
+        ${exportSubModules
+          .map((subModule, index) => {
+            const parsedHtml = parseModuleContentForExport(subModule.content || '');
+            return `
+              <section class="pdf-module">
+                <div class="pdf-module-index">Sub-Module ${index + 1}${subModule.section_type ? ` • ${subModule.section_type}` : ''}</div>
+                <h2>${subModule.title}</h2>
+                <div class="pdf-content">
+                  ${parsedHtml || '<p>No content available</p>'}
+                </div>
+              </section>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+
+    document.body.appendChild(exportRoot);
+
+    try {
+      setIsExportingPdf(true);
+
+      // Let browser layout/styles/fonts settle before html2canvas snapshots the node.
+      if (document.fonts?.ready) {
+        await document.fonts.ready;
+      }
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+
+      await new Promise<void>((resolve) => {
+        (pdf as any).html(exportRoot, {
+          margin: [24, 20, 24, 20],
+          autoPaging: 'text',
+          html2canvas: {
+            scale: 0.55,
+            useCORS: true,
+            backgroundColor: '#ffffff',
+            scrollX: 0,
+            scrollY: 0,
+          },
+          callback: () => resolve(),
+          x: 0,
+          y: 0,
+          width: 480,
+          windowWidth: exportRoot.scrollWidth,
+        });
+      });
+
+      const safeTitle = (module.title || 'training-module')
+        .trim()
+        .replace(/[^a-zA-Z0-9-_ ]/g, '')
+        .replace(/\s+/g, '-');
+      pdf.save(`${safeTitle || 'training-module'}-export.pdf`);
+    } catch (error) {
+      console.error('Error exporting module PDF:', error);
+      alert('Failed to export PDF. Please try again.');
+    } finally {
+      setIsExportingPdf(false);
+      exportRoot.remove();
+    }
+  };
+
   // ADMIN: Save edits locally (no DB write yet, just prepare for request approval)
   const handleSaveChanges = () => {
     if (!selectedSubModule || !contentEditableRef.current) return;
@@ -1110,10 +1275,6 @@ export default function EditModulePage() {
     }
   };
 
-  const handleRegenerate = () => {
-    alert('Regenerating content...');
-  };
-
   const handleRequestChanges = async () => {
     try {
       const { error } = await supabase
@@ -1391,8 +1552,8 @@ export default function EditModulePage() {
         <div className="col-span-9 flex flex-col">
           <Card className="flex-1 bg-white border-slate-200 overflow-hidden flex flex-col">
             {/* Tabs */}
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-              <div className="flex gap-2">
+            {/* <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3"> */}
+              {/* <div className="flex gap-2">
                 <button
                   onClick={() => { setActiveView('edit'); setIsEditing(true); }}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -1425,26 +1586,10 @@ export default function EditModulePage() {
                   <Eye size={16} />
                   Live Preview
                 </button>
-              </div>
+              </div> */}
 
-              <div className="flex items-center gap-2">
-                {hasUnsavedChanges && (
-                  <span className="text-xs text-orange-600 font-medium">● Unsaved changes</span>
-                )}
-                {/* Admin save + request approval buttons */}
-                {isUploader && hasUnsavedChanges && (
-                  <Button size="sm" variant="outline" onClick={handleSaveChanges} className="border-slate-300">
-                    Save Draft
-                  </Button>
-                )}
-                {/* Reviewer save edits button */}
-                {isReviewer && hasUnsavedChanges && activeView === 'edit' && (
-                  <Button size="sm" onClick={handleReviewerSave} disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
-                    {submitting ? 'Saving...' : 'Save Edits'}
-                  </Button>
-                )}
-              </div>
-            </div>
+              
+            {/* </div> */}
 
             {/* Content Area */}
             <div className="flex-1 overflow-y-auto p-6">
@@ -1460,7 +1605,9 @@ export default function EditModulePage() {
                   {/* ========== EDIT TAB ========== */}
                   {activeView === 'edit' && (
                     <div>
-                      <div className="mb-4 pb-3 border-b border-slate-200">
+                      <div className="mb-4 pb-3 border-b border-slate-200 flex flex-between">
+                        <div>
+
                         <label className="text-sm font-semibold text-slate-700 block mb-1">
                           Editing: {selectedSubModule.title}
                         </label>
@@ -1474,6 +1621,7 @@ export default function EditModulePage() {
                             You can make edits to the content. Click "Save Edits" to update, then "Final Approval" to push live.
                           </p>
                         )}
+                        </div>
 
                         <input
                           ref={imageUploadInputRef}
@@ -1496,6 +1644,23 @@ export default function EditModulePage() {
                           className="hidden"
                           onChange={handleAudioUpload}
                         />
+                        <div className="flex items-center gap-2">
+                {hasUnsavedChanges && (
+                  <span className="text-xs text-orange-600 font-medium">● Unsaved changes</span>
+                )}
+                {/* Admin save + request approval buttons */}
+                {isUploader && hasUnsavedChanges && (
+                  <Button size="sm" variant="outline" onClick={handleSaveChanges} className="border-slate-300">
+                    Save Draft
+                  </Button>
+                )}
+                {/* Reviewer save edits button */}
+                {isReviewer && hasUnsavedChanges && activeView === 'edit' && (
+                  <Button size="sm" onClick={handleReviewerSave} disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
+                    {submitting ? 'Saving...' : 'Save Edits'}
+                  </Button>
+                )}
+              </div>
                       </div>
                       <div
                         ref={contentEditableRef}
@@ -1633,140 +1798,170 @@ export default function EditModulePage() {
       </div>
 
       {activeView === 'edit' && selectedSubModule && (
-        <aside className="fixed bottom-28 right-4 z-40 lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2">
-          <Card className="w-[240px] border-slate-200 bg-white/95 backdrop-blur shadow-xl">
-            <div className="p-3 border-b border-slate-200">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Media Tools</p>
-              <p className="text-sm font-semibold text-slate-800 mt-1">Insert Module Media</p>
+        <aside
+          onMouseEnter={() => setIsMediaPanelCollapsed(false)}
+          onMouseLeave={() => setIsMediaPanelCollapsed(true)}
+          className={`fixed bottom-28 right-4 z-40 lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 transition-all duration-200 ${isMediaPanelCollapsed ? 'w-14' : 'w-[240px]'}`}
+        >
+          <Card className="overflow-hidden border-slate-200 bg-white/95 backdrop-blur shadow-xl">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 p-3">
+              {!isMediaPanelCollapsed ? (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Media Tools</p>
+                  <p className="text-sm font-semibold text-slate-800 mt-1">Insert Module Media</p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2 py-1 text-slate-600">
+                  <Video size={14} />
+                  <Music2 size={14} />
+                  <ImageIcon size={14} />
+                </div>
+              )}
+              <button
+                type="button"
+                onMouseDown={handleToolbarMouseDown}
+                onClick={() => setIsMediaPanelCollapsed((value) => !value)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                aria-label={isMediaPanelCollapsed ? 'Expand media tools' : 'Collapse media tools'}
+              >
+                {isMediaPanelCollapsed ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+              </button>
             </div>
-            <div className="p-3 space-y-2">
-              <div className="space-y-1.5">
-                <button
-                  type="button"
-                  onMouseDown={handleToolbarMouseDown}
-                  onClick={() => setActiveMediaMenu(activeMediaMenu === 'video' ? null : 'video')}
-                  className="w-full flex items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <Video size={14} />
-                    Video
-                  </span>
-                  <span className="text-xs text-slate-500">Choose</span>
-                </button>
-                {activeMediaMenu === 'video' && (
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <button
-                      type="button"
-                      onMouseDown={handleToolbarMouseDown}
-                      onClick={() => handleMediaSourceClick('video', 'local')}
-                      disabled={isUploadingVideo}
-                      className="rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                    >
-                      {isUploadingVideo ? 'Uploading...' : 'Local'}
-                    </button>
-                    <button
-                      type="button"
-                      onMouseDown={handleToolbarMouseDown}
-                      onClick={() => handleMediaSourceClick('video', 'link')}
-                      className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      <Link2 size={12} />
-                      Link
-                    </button>
-                  </div>
-                )}
-              </div>
 
-              <div className="space-y-1.5">
-                <button
-                  type="button"
-                  onMouseDown={handleToolbarMouseDown}
-                  onClick={() => setActiveMediaMenu(activeMediaMenu === 'audio' ? null : 'audio')}
-                  className="w-full flex items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <Music2 size={14} />
-                    Audio
-                  </span>
-                  <span className="text-xs text-slate-500">Choose</span>
-                </button>
-                {activeMediaMenu === 'audio' && (
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <button
-                      type="button"
-                      onMouseDown={handleToolbarMouseDown}
-                      onClick={() => handleMediaSourceClick('audio', 'local')}
-                      disabled={isUploadingAudio}
-                      className="rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                    >
-                      {isUploadingAudio ? 'Uploading...' : 'Local'}
-                    </button>
-                    <button
-                      type="button"
-                      onMouseDown={handleToolbarMouseDown}
-                      onClick={() => handleMediaSourceClick('audio', 'link')}
-                      className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      <Link2 size={12} />
-                      Link
-                    </button>
-                  </div>
-                )}
-              </div>
+            {!isMediaPanelCollapsed && (
+              <div className="p-3 space-y-2">
+                <div className="space-y-1.5">
+                  <button
+                    type="button"
+                    onMouseDown={handleToolbarMouseDown}
+                    onClick={() => setActiveMediaMenu(activeMediaMenu === 'video' ? null : 'video')}
+                    className="w-full flex items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Video size={14} />
+                      Video
+                    </span>
+                    <span className="text-xs text-slate-500">Choose</span>
+                  </button>
+                  {activeMediaMenu === 'video' && (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onMouseDown={handleToolbarMouseDown}
+                        onClick={() => handleMediaSourceClick('video', 'local')}
+                        disabled={isUploadingVideo}
+                        className="rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        {isUploadingVideo ? 'Uploading...' : 'Local'}
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={handleToolbarMouseDown}
+                        onClick={() => handleMediaSourceClick('video', 'link')}
+                        className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        <Link2 size={12} />
+                        Link
+                      </button>
+                    </div>
+                  )}
+                </div>
 
-              <div className="space-y-1.5">
-                <button
-                  type="button"
-                  onMouseDown={handleToolbarMouseDown}
-                  onClick={() => setActiveMediaMenu(activeMediaMenu === 'image' ? null : 'image')}
-                  className="w-full flex items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <ImageIcon size={14} />
-                    Image
-                  </span>
-                  <span className="text-xs text-slate-500">Choose</span>
-                </button>
-                {activeMediaMenu === 'image' && (
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <button
-                      type="button"
-                      onMouseDown={handleToolbarMouseDown}
-                      onClick={() => handleMediaSourceClick('image', 'local')}
-                      disabled={isUploadingImage}
-                      className="rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                    >
-                      {isUploadingImage ? 'Uploading...' : 'Local'}
-                    </button>
-                    <button
-                      type="button"
-                      onMouseDown={handleToolbarMouseDown}
-                      onClick={() => handleMediaSourceClick('image', 'link')}
-                      className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      <Link2 size={12} />
-                      Link
-                    </button>
-                  </div>
-                )}
+                <div className="space-y-1.5">
+                  <button
+                    type="button"
+                    onMouseDown={handleToolbarMouseDown}
+                    onClick={() => setActiveMediaMenu(activeMediaMenu === 'audio' ? null : 'audio')}
+                    className="w-full flex items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Music2 size={14} />
+                      Audio
+                    </span>
+                    <span className="text-xs text-slate-500">Choose</span>
+                  </button>
+                  {activeMediaMenu === 'audio' && (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onMouseDown={handleToolbarMouseDown}
+                        onClick={() => handleMediaSourceClick('audio', 'local')}
+                        disabled={isUploadingAudio}
+                        className="rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        {isUploadingAudio ? 'Uploading...' : 'Local'}
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={handleToolbarMouseDown}
+                        onClick={() => handleMediaSourceClick('audio', 'link')}
+                        className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        <Link2 size={12} />
+                        Link
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <button
+                    type="button"
+                    onMouseDown={handleToolbarMouseDown}
+                    onClick={() => setActiveMediaMenu(activeMediaMenu === 'image' ? null : 'image')}
+                    className="w-full flex items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <ImageIcon size={14} />
+                      Image
+                    </span>
+                    <span className="text-xs text-slate-500">Choose</span>
+                  </button>
+                  {activeMediaMenu === 'image' && (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onMouseDown={handleToolbarMouseDown}
+                        onClick={() => handleMediaSourceClick('image', 'local')}
+                        disabled={isUploadingImage}
+                        className="rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        {isUploadingImage ? 'Uploading...' : 'Local'}
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={handleToolbarMouseDown}
+                        onClick={() => handleMediaSourceClick('image', 'link')}
+                        className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        <Link2 size={12} />
+                        Link
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-2 mt-1 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={handleExportAsPdf}
+                    disabled={isExportingPdf}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+                  >
+                    <Download size={14} />
+                    {isExportingPdf ? 'Exporting PDF...' : 'Export as PDF'}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </Card>
         </aside>
       )}
 
       {/* Footer Actions */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-8 py-4 z-50">
-        <div className="flex items-center justify-between">
-          <Button
-            variant="outline"
-            onClick={handleRegenerate}
-            className="text-slate-600 border-slate-300"
-          >
-            <RotateCcw size={16} className="mr-2" />
-            Regenerate
-          </Button>
-
+      {/* <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-8 py-4 z-50"> */}
+      <footer className="fixed bottom-0 left-0 right-0 lg:left-[var(--sidebar-width,0px)] bg-white border-t border-slate-200 px-4 sm:px-8 py-4 z-50">
+        <div className="flex items-center justify-end">
           <div className="flex items-center gap-3">
             {/* ADMIN: Request Approval button */}
             {isUploader && (

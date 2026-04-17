@@ -15,6 +15,7 @@ const LayoutWithNavigation = ({ children }: LayoutWithNavigationProps) => {
   // Pages where we don't show the navigation
   const excludedPaths = [
     '/',
+    '/privacy-policy',
     '/login',
     '/signup',
     '/auth/login',

@@ -1,15 +1,27 @@
 from ingestion.parser import parse_pdf
 from ingestion.supabase_store import (
     insert_chunks_to_supabase,
-    insert_image_to_supabase
+    insert_image_to_supabase,
+    fetch_module_details
 )
 from ingestion.embedder import embed_chunks
 from ingestion.chunker import chunk_text
-from ingestion.config import CHUNK_SIZE, CHUNK_OVERLAP
+from ingestion.company_config import get_company_rag_config
 import os
 
 
 def ingest_pdf_for_rag(pdf_path: str, doc_id: str):
+    # Fetch module details to get company_id
+    module_details = fetch_module_details(doc_id)
+    company_id = module_details.get("company_id")
+    
+    # Get company-specific RAG configuration
+    rag_config = get_company_rag_config(company_id)
+    chunk_size = rag_config.get('rag_chunk_size', 250)
+    chunk_overlap = rag_config.get('rag_chunk_overlap', 40)
+    
+    print(f"[RAG CONFIG] Using chunk_size={chunk_size}, chunk_overlap={chunk_overlap} for company {company_id}")
+    
     text_blocks, images = parse_pdf(pdf_path)
 
     # Split each page into smaller chunks that stay under embedder token limit
@@ -17,8 +29,8 @@ def ingest_pdf_for_rag(pdf_path: str, doc_id: str):
     for block in text_blocks:
         sub_chunks = chunk_text(
             block["content"],
-            size=CHUNK_SIZE,
-            overlap=CHUNK_OVERLAP
+            size=chunk_size,
+            overlap=chunk_overlap
         )
 
         for sc in sub_chunks:
