@@ -113,12 +113,14 @@ export default function EmployeeWelcome() {
           fetchWithAuth(`${API_BASE}/api/analytics/leaderboard/${employeeData.company_id}/user-rank`, { headers }).then((r) => r.ok ? r.json() : {}),
         ]);
 
+
+        console.log("Fetched dashboard data:", { plansRes, modulesRes, progressRes, usersRes, companyRes, learningStyleRes });
         return {
           plans: plansRes?.plans || [],
           modules: modulesRes?.modules || [],
           progress: progressRes?.progress || [],
           users: usersRes?.users || [],
-          company: companyRes?.company || companyRes || null,
+          company: companyRes?.company ||companyRes?.data|| companyRes || null,
           learningStyle: learningStyleRes?.data?.learning_style || null,
           userRank: userRankRes?.data || null,
         };
@@ -129,7 +131,7 @@ export default function EmployeeWelcome() {
         swrMs: 30 * 1000,
       }
     );
-
+    console.log(result)
     return result.data;
   };
 

@@ -85,7 +85,8 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
           headers: { "X-User-ID": userId },
         })
         const payload = res.ok ? await res.json() : null
-        const companies = (payload?.companies || []).filter((c: Company) => c?.company_id)
+        console.log(payload)
+        const companies = (payload?.companies ||payload?.data.companies|| []).filter((c: Company) => c?.company_id)
         const resolvedCompanies: Company[] = companies.length > 0 ? companies : [fallbackCompany]
 
         if (ignore) return
