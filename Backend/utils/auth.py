@@ -94,11 +94,11 @@ def _verify_firebase_token(token: str) -> Dict[str, Any]:
 
 def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> str:
 	if not email:
-		print(f"[auth] _resolve_internal_user_id: No email provided, using fallback_user_id={fallback_user_id}")
+		
 		return fallback_user_id
 
 	try:
-		print(f"[auth] Attempting to resolve user by email: {email}")
+		# print(f"[auth] Attempting to resolve user by email: {email}")
 		res = (
 			supabase
 			.table("users")
@@ -108,20 +108,25 @@ def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> st
 			.execute()
 		)
 		data = getattr(res, "data", None)
-		print(f"[auth] Email lookup result: {data}")
+		# print(f"[auth] Email lookup result: {data}")
 		if isinstance(data, dict) and data.get("user_id"):
 			resolved_id = str(data.get("user_id"))
-			print(f"[auth] Successfully resolved email {email} to user_id={resolved_id}")
+			# print(f"[auth] Successfully resolved email {email} to user_id={resolved_id}")
 			return resolved_id
 		else:
-			print(f"[auth] Email {email} not found in users table")
+			# print(f"[auth] Email {email} not found in users table")
+			pass
+
 	except Exception as exc:
-		print(f"[auth] Failed to resolve internal user_id by email: {exc}")
+		# print(f"[auth] Failed to resolve internal user_id by email: {exc}")
+		pass
 
 	# Always return fallback_user_id even if email lookup failed
 	# This preserves Firebase-verified identity
 	if fallback_user_id:
-		print(f"[auth] Using fallback_user_id from Firebase token: {fallback_user_id}")
+		# print(f"[auth] Using fallback_user_id from Firebase token: {fallback_user_id}")
+		return fallback_user_id
+
 	return fallback_user_id
 
 
