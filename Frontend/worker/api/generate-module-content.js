@@ -19,7 +19,42 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY  });
 const WORKER_BUILD_TAG = 'gemini-upload-fix-v3-2026-04-08';
 console.log(`[WORKER] Loaded generate-module-content (${WORKER_BUILD_TAG})`);
 
-// Configs 
+// Default RAG configuration (fallback)
+const DEFAULT_RAG_CONFIG = {
+  rag_temperature: 0.1,
+  rag_max_output_tokens: 3400,
+  rag_top_p: 1.0
+};
+
+// Helper function to fetch company RAG configuration
+async function getCompanyRagConfig(companyId) {
+  try {
+    const { data, error } = await supabase
+      .from('companies')
+      .select('rag_temperature, rag_top_p, rag_max_output_tokens')
+      .eq('company_id', companyId)
+      .single();
+    
+    if (error || !data) {
+      console.log(`[CONFIG] No company config found for ${companyId}, using defaults`);
+      return DEFAULT_RAG_CONFIG;
+    }
+    console.log(`[CONFIG] Fetched company config for ${companyId}:`, data);
+    console.log(`Fetched temperature: `, data.rag_temperature);
+    
+    
+    return {
+      rag_temperature: data.rag_temperature ?? DEFAULT_RAG_CONFIG.rag_temperature,
+      rag_top_p: data.rag_top_p ?? DEFAULT_RAG_CONFIG.rag_top_p,
+      rag_max_output_tokens: data.rag_max_output_tokens ?? DEFAULT_RAG_CONFIG.rag_max_output_tokens
+    };
+  } catch (err) {
+    console.error(`[CONFIG] Error fetching company config: ${err.message}`);
+    return DEFAULT_RAG_CONFIG;
+  }
+}
+
+// Configs (now will be overridden per company)
 const TEMPERATURE = 0.1;
 const TOP_P = 1.0;
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -64,7 +99,8 @@ async function generateModuleContent({ moduleId = null } = {}) {
         ai_topics,
         ai_objectives,
         gpt_summary,
-        match_chunks
+        match_chunks,
+        company_id
       )
     `)
     .or('content.is.null,content.eq.\'\',content.eq.""');
@@ -94,6 +130,17 @@ async function generateModuleContent({ moduleId = null } = {}) {
     console.log(`[MODULE] ID: ${mod.processed_module_id}`);
     console.log(`[MODULE] Learning Style: ${mod.learning_style}`);
     console.log(`[MODULE] ======================================\n`);
+    
+    // Fetch company-specific RAG configuration
+    let ragConfig = DEFAULT_RAG_CONFIG;
+    const companyId = mod.training_modules?.[0]?.company_id;
+    if (companyId) {
+      console.log(`[CONFIG] Fetching RAG config for company: ${companyId}`);
+      ragConfig = await getCompanyRagConfig(companyId);
+      console.log(`[CONFIG] Using temperature=${ragConfig.rag_temperature}, topP=${ragConfig.rag_top_p}, maxOutputTokens=${ragConfig.rag_max_output_tokens}`);
+    } else {
+      console.log(`[CONFIG] No company_id found, using default RAG config`);
+    }
     
     try {
       let topics = [];
@@ -214,7 +261,7 @@ ${objectivesText}
           throw err;
         }
       }
-      
+   
       console.log(`[RAG] Generating embedding for module: ${mod.title}`);
       // const queryEmbedding = await generateEmbedding(semanticQuery);
       const queryEmbedding = await generateEmbeddingWithRetry(semanticQuery);
@@ -1007,9 +1054,9 @@ Module is fully self-contained
             model: 'gemini-3-pro-preview',
             contents: geminiContents,
             generationConfig: {
-              maxOutputTokens: 3400,
-              temperature: TEMPERATURE,
-              topP: TOP_P
+              maxOutputTokens: ragConfig.rag_max_output_tokens,
+              temperature: ragConfig.rag_temperature,
+              topP: ragConfig.rag_top_p
             }
           })
         );
@@ -1032,9 +1079,9 @@ Module is fully self-contained
               model: 'gemini-3-pro-preview',
               contents: geminiContents,
               generationConfig: {
-                maxOutputTokens: 3400,
-                temperature: TEMPERATURE,
-                topP: TOP_P
+                maxOutputTokens: ragConfig.rag_max_output_tokens,
+                temperature: ragConfig.rag_temperature,
+                topP: ragConfig.rag_top_p
               }
             })
           );

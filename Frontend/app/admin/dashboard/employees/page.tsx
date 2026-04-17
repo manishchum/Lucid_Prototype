@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { 
   Users, 
   UserPlus, 
@@ -2543,6 +2544,8 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
   const [dueDate, setDueDate] = useState('');
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicateAssignments, setDuplicateAssignments] = useState<any[]>([]);
+  const [moduleSearchTerm, setModuleSearchTerm] = useState('');
+  const [moduleSortOrder, setModuleSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Load available modules
   useEffect(() => {
@@ -2550,65 +2553,73 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       loadModules();
     }
   }, [isOpen, companyId]);
-
   const loadModules = async () => {
     setLoadingModules(true);
     setError('');
-    
+
     try {
       let completedModuleIds: string[] = [];
+
       try {
-        const jobsRes = await fetchWithAuth(`${API_URL}/api/content-jobs/?status=completed&limit=1000`, {
-          headers: { 'X-User-ID': adminId }
-        });
+        const jobsRes = await fetchWithAuth(
+          `${API_URL}/api/content-jobs/?status=completed&limit=1000`,
+          {
+            headers: { 'X-User-ID': adminId }
+          }
+        );
+
         if (!jobsRes.ok) {
-          const errorText = await jobsRes.text().catch(() => '');
-          // console.error('[bulk-assign] Failed to fetch content jobs:', jobsRes.status, errorText);
-          // console.error('[bulk-assign] Using adminId:', adminId);
           completedModuleIds = [];
         } else {
           const jobsPayload = await jobsRes.json().catch(() => null);
           const completeJobs = jobsPayload?.jobs ?? jobsPayload?.data ?? [];
-          completedModuleIds = (completeJobs || []).map((job: any) => job.module_id).filter(Boolean);
-          // console.log(`[bulk-assign] Found ${completedModuleIds.length} completed modules`);
+          completedModuleIds = (completeJobs || [])
+            .map((job: any) => job.module_id)
+            .filter(Boolean);
         }
       } catch (e) {
         console.warn("Error fetching content jobs:", e);
         completedModuleIds = [];
       }
-      
+
       if (completedModuleIds.length === 0) {
         setModules([]);
         setModuleBaselineSettings({});
         return;
       }
-      
-      try{
-        const tmRes = await fetchWithAuth(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
+
+      const tmRes = await fetchWithAuth(
+        `${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`,
+        {
           headers: { 'X-User-ID': adminId }
-        });
-        if(!tmRes.ok) {
-          console.warn('[Bulk-assign] Failed to fetch training modules:', tmRes.status);
-          setModules([]);
-          setModuleBaselineSettings({});
-          return;
+        }
+      );
+
+      if (!tmRes.ok) {
+        console.warn('[Bulk-assign] Failed to fetch training modules:', tmRes.status);
+        setModules([]);
+        setModuleBaselineSettings({});
+        return;
       }
+
       const payload = await tmRes.json().catch(() => ({}));
       const allModules = payload.modules || [];
-      const filtered = allModules.filter((m:any) => completedModuleIds.includes(m.module_id));
-      filtered.sort((a:any, b:any)=>(a.title).localeCompare(b.title));
+
+      const filtered = allModules.filter((m: any) =>
+        completedModuleIds.includes(m.module_id)
+      );
+
+      filtered.sort((a: any, b: any) =>
+        (a.title || '').localeCompare(b.title || '')
+      );
+
       setModules(filtered || []);
-    }catch(e){
-      console.error('[bulk-assign] Error loading modules:', e);
-      setModules([]);
-      setModuleBaselineSettings({});
-    }
-      
-      // Initialize baseline settings for all modules (default to false)
-    const initialSettings: {[moduleId: string]: boolean} = {};
-    (modules || []).forEach(module => {
-      initialSettings[module.module_id] = false;
-    });
+
+      const initialSettings: { [moduleId: string]: boolean } = {};
+      filtered.forEach((module: any) => {
+        initialSettings[module.module_id] = false;
+      });
+
       setModuleBaselineSettings(initialSettings);
     } catch (error: any) {
       setError('Failed to load modules: ' + error.message);
@@ -2616,6 +2627,73 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       setLoadingModules(false);
     }
   };
+
+  // const loadModules = async () => {
+  //   setLoadingModules(true);
+  //   setError('');
+    
+  //   try {
+  //     let completedModuleIds: string[] = [];
+  //     try {
+  //       const jobsRes = await fetchWithAuth(`${API_URL}/api/content-jobs/?status=completed&limit=1000`, {
+  //         headers: { 'X-User-ID': adminId }
+  //       });
+  //       if (!jobsRes.ok) {
+  //         const errorText = await jobsRes.text().catch(() => '');
+  //         // console.error('[bulk-assign] Failed to fetch content jobs:', jobsRes.status, errorText);
+  //         // console.error('[bulk-assign] Using adminId:', adminId);
+  //         completedModuleIds = [];
+  //       } else {
+  //         const jobsPayload = await jobsRes.json().catch(() => null);
+  //         const completeJobs = jobsPayload?.jobs ?? jobsPayload?.data ?? [];
+  //         completedModuleIds = (completeJobs || []).map((job: any) => job.module_id).filter(Boolean);
+  //         // console.log(`[bulk-assign] Found ${completedModuleIds.length} completed modules`);
+  //       }
+  //     } catch (e) {
+  //       console.warn("Error fetching content jobs:", e);
+  //       completedModuleIds = [];
+  //     }
+      
+  //     if (completedModuleIds.length === 0) {
+  //       setModules([]);
+  //       setModuleBaselineSettings({});
+  //       return;
+  //     }
+      
+  //     try{
+  //       const tmRes = await fetchWithAuth(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
+  //         headers: { 'X-User-ID': adminId }
+  //       });
+  //       if(!tmRes.ok) {
+  //         console.warn('[Bulk-assign] Failed to fetch training modules:', tmRes.status);
+  //         setModules([]);
+  //         setModuleBaselineSettings({});
+  //         return;
+  //     }
+  //     const payload = await tmRes.json().catch(() => ({}));
+  //     const allModules = payload.modules || [];
+  //     const filtered = allModules.filter((m: any) =>
+  //       completedModuleIds.includes(m.module_id)
+  //     );
+
+  //     filtered.sort((a: any, b: any) =>
+  //       (a.title || '').localeCompare(b.title || '')
+  //     );
+
+  //     setModules(filtered || []);
+
+  //     const initialSettings: { [moduleId: string]: boolean } = {};
+  //     filtered.forEach((module: any) => {
+  //       initialSettings[module.module_id] = false;
+  //     });
+
+  //     setModuleBaselineSettings(initialSettings);
+  //     } catch (error: any) {
+  //       setError('Failed to load modules: ' + error.message);
+  //     } finally {
+  //       setLoadingModules(false);
+  //     }
+  //   };
 
   const handleModuleToggle = (moduleId: string) => {
     setSelectedModules(prev =>
@@ -2633,7 +2711,11 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
   };
 
   const selectAllModules = () => {
-    setSelectedModules(modules.map(module => module.module_id));
+    setSelectedModules((prev) => {
+      const visibleIds = filteredAndSortedModules.map((module) => module.module_id);
+      const merged = Array.from(new Set([...prev, ...visibleIds]));
+      return merged;
+    });
   };
 
   const clearAllModules = () => {
@@ -2793,12 +2875,33 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
     }
   };
 
+  const filteredAndSortedModules = [...modules]
+  .filter((module) =>
+    module.title?.toLowerCase().includes(moduleSearchTerm.toLowerCase())
+  )
+  .sort((a, b) => {
+    const titleA = a.title?.toLowerCase() || '';
+    const titleB = b.title?.toLowerCase() || '';
+
+    return moduleSortOrder === 'asc'
+      ? titleA.localeCompare(titleB)
+      : titleB.localeCompare(titleA);
+  });
+
   // Get selected user details for display
   const selectedUserDetails = users.filter((user: any) => 
     selectedUsers.includes(user.user_id)
   );
 
   if (!isOpen) return null;
+
+  const visibleModuleIds = filteredAndSortedModules.map(
+    (module) => module.module_id
+  );
+
+  const allVisibleSelected =
+    visibleModuleIds.length > 0 &&
+    visibleModuleIds.every((id) => selectedModules.includes(id));
   
   return (
     <>
@@ -2848,27 +2951,56 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
 
             {/* Module Selection */}
             <div className="mb-6">
-              <div className="flex items-center justify-between mb-3">
-                <Label>Select Training Modules</Label>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={selectAllModules}
-                    disabled={selectedModules.length === modules.length || loadingModules}
-                  >
-                    Select All
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={clearAllModules}
-                    disabled={selectedModules.length === 0}
-                  >
-                    Clear All
-                  </Button>
+              <div className="flex flex-col gap-3 mb-3">
+                <div className="flex items-center justify-between">
+                  <Label>Select Training Modules</Label>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative w-[220px]">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                      <Input
+                        placeholder="Search sprints..."
+                        value={moduleSearchTerm}
+                        onChange={(e) => setModuleSearchTerm(e.target.value)}
+                        className="pl-9 h-9"
+                      />
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setModuleSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+                      }
+                    >
+                      {moduleSortOrder === 'asc' ? 'A to Z' : 'Z to A'}
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={selectAllModules}
+                      disabled={
+                        allVisibleSelected ||
+                        loadingModules ||
+                        filteredAndSortedModules.length === 0
+                      }
+                    >
+                      Select All
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={clearAllModules}
+                      disabled={selectedModules.length === 0}
+                    >
+                      Clear All
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -2905,10 +3037,15 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                   <p>No training modules available</p>
                   <p className="text-sm">Upload training content first to create modules</p>
                 </div>
+              ) : filteredAndSortedModules.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 border border-gray-200 rounded-lg">
+                  <p>No matching sprints found</p>
+                  <p className="text-sm">Try a different search term</p>
+                </div>
               ) : (
                 <div className="border border-gray-300 rounded-md max-h-64 overflow-y-auto">
                   <div className="p-3 space-y-3">
-                    {modules.map(module => (
+                    {filteredAndSortedModules.map(module => (
                       <div
                         key={module.module_id}
                         className="submodule-card submodule-card--compact grid grid-cols-[1fr_auto_1fr] items-center gap-4"

@@ -750,11 +750,11 @@ async def POST(request: Request):
         elif len(baselinePercentAssessments) > 0:
             # Baseline is ON and assessments exist - use prompt1 (personalized)
             prompt = prompt1
-            print("[Training Plan API] Using prompt1 (baseline ON - personalized)")
+            # print("[Training Plan API] Using prompt1 (baseline ON - personalized)")
         else:
             # Baseline is ON but no assessments - use prompt2 (all modules)
             prompt = prompt2
-            print("[Training Plan API] Using prompt2 (baseline ON but no assessments)")
+            # print("[Training Plan API] Using prompt2 (baseline ON but no assessments)")
 
         # Call Gemini
         planJsonRaw = ""
@@ -767,8 +767,8 @@ async def POST(request: Request):
             return JSONResponse(content={"error": "Gemini call failed", "details": str(err)}, status_code=500)
 
         # Clean response
-        print('[Training Plan API] Raw Gemini response:', planJsonRaw)
-        print("Modules that have been sent", modules)
+        # print('[Training Plan API] Raw Gemini response:', planJsonRaw)
+        # print("Modules that have been sent", modules)
         cleanedContent = planJsonRaw.strip()
         if cleanedContent.lower().startswith("```json"):
             cleanedContent = cleanedContent.replace("```json", "", 1).strip()
@@ -799,7 +799,7 @@ async def POST(request: Request):
             return out
 
         def tryParse(raw: str):
-            print(raw)
+            # print(raw)
             try:
                 parsed = json.loads(raw)
                 if isinstance(parsed, dict) and ("plan" in parsed or "reasoning" in parsed):
