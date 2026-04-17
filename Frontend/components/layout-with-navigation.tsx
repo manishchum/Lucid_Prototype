@@ -11,6 +11,7 @@ interface LayoutWithNavigationProps {
 const LayoutWithNavigation = ({ children }: LayoutWithNavigationProps) => {
   const pathname = usePathname();
   const [sidebarWidth, setSidebarWidth] = useState('17.5rem');
+  const isModuleContentPage = (pathname || '').startsWith('/employee/module/');
 
   // Pages where we don't show the navigation
   const excludedPaths = [
@@ -59,7 +60,7 @@ const LayoutWithNavigation = ({ children }: LayoutWithNavigationProps) => {
 
   return (
     <>
-      <EmployeeNavigation />
+      <EmployeeNavigation forceCollapsed={isModuleContentPage} />
       <div 
         className="transition-all duration-300 ease-in-out md:ml-[var(--sidebar-width)]"
         style={{ 

@@ -31,7 +31,8 @@ function TrainingPlanContent() {
   const [baselineNavLoading, setBaselineNavLoading] = useState(false);
   const [contentLoadingModuleId, setContentLoadingModuleId] = useState<string | null>(null);
   const [quizLoadingModuleId, setQuizLoadingModuleId] = useState<string | null>(null);
-  const [completedModules] = useState<string[]>([]);
+  const [completedModules, setCompletedModules] = useState<string[]>([]);
+  const [attemptedQuizModules, setAttemptedQuizModules] = useState<string[]>([]);
   const [additionalReadings, setAdditionalReadings] = useState<any[] | null>(null);
   const [moduleTitle, setModuleTitle] = useState<string>("");
 
@@ -105,6 +106,74 @@ function TrainingPlanContent() {
     }
   };
 
+  const fetchModuleProgress = async (employee: any) => {
+    if (!employee?.user_id) return;
+
+    try {
+      const progressResult = await sharedDataClient.query(
+        createCacheKey({
+          namespace: "module-progress",
+          tenantId: employee.company_id,
+          userId: employee.user_id,
+          path: `/api/module-progress/user/${employee.user_id}`,
+        }),
+        async () => {
+          const res = await fetchWithAuth(`${API_BASE}/api/module-progress/user/${employee.user_id}`, {
+            headers: { "X-User-ID": employee.user_id },
+          });
+
+          if (!res.ok) {
+            return { progress: [] };
+          }
+
+          return res.json();
+        },
+        {
+          ttlMs: 5 * 1000,
+          swr: true,
+          swrMs: 30 * 1000,
+        },
+      );
+
+      const progressEntries =
+        progressResult?.data?.progress ||
+        progressResult?.data?.data ||
+        [];
+
+      const attemptedIds = new Set<string>();
+      const completedIds = new Set<string>();
+
+      (Array.isArray(progressEntries) ? progressEntries : []).forEach((entry: any) => {
+        const processedId = String(entry?.processed_module_id || entry?.module_id || "").trim();
+        if (!processedId) return;
+
+        const hasAttempt =
+          entry?.quiz_score !== null &&
+          entry?.quiz_score !== undefined;
+
+        if (hasAttempt) {
+          attemptedIds.add(processedId);
+        }
+
+        const isCompleted = Boolean(
+          entry?.completed_at ||
+          String(entry?.status || "").toUpperCase() === "COMPLETED" ||
+          entry?.pass_status,
+        );
+
+        if (isCompleted) {
+          completedIds.add(processedId);
+        }
+      });
+
+      setAttemptedQuizModules(Array.from(attemptedIds));
+      setCompletedModules(Array.from(completedIds));
+    } catch {
+      setAttemptedQuizModules([]);
+      setCompletedModules([]);
+    }
+  };
+
   useEffect(() => {
     if (!authLoading && !user) {
       router.push("/login");
@@ -113,6 +182,7 @@ function TrainingPlanContent() {
 
     if (!authLoading && employeeData && moduleId) {
       loadPlan();
+      fetchModuleProgress(employeeData);
       
       // Fetch module title
       const fetchModuleTitle = async () => {
@@ -712,6 +782,7 @@ function TrainingPlanContent() {
                       disabled={
                         mod._isCompleted ||
                         moduleRequiresBaseline(mod) ||
+                        attemptedQuizModules.includes(String(mod.processed_module_id || mod._tabValue)) ||
                         contentLoadingModuleId === (mod.processed_module_id || mod._tabValue) ||
                         quizLoadingModuleId === (mod.processed_module_id || mod._tabValue)
                       }
@@ -754,6 +825,8 @@ function TrainingPlanContent() {
                           <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
                           Loading...
                         </span>
+                      ) : attemptedQuizModules.includes(String(mod.processed_module_id || mod._tabValue)) ? (
+                        "Quiz Attempted"
                       ) : (
                         "Module Quiz"
                       )}

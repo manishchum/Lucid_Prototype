@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
 import { useAuth } from "@/contexts/auth-context";
 import { useTenant } from "@/contexts/tenant-context";
 import CompanySelector from "@/components/company-selector";
@@ -13,10 +15,14 @@ import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import {
   Users, BookOpen, Clock, User, ChevronDown,
   Trophy, Target, TrendingUp, Zap, LayoutGrid,
-  ShieldCheck, ArrowRight, CheckCircle2, LogOut
+  ShieldCheck, ArrowRight, CheckCircle2, LogOut, Award,
+  Download, Linkedin, X
 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+const DEFAULT_QUIZ_THRESHOLD = 80;
+
+type SprintStatus = "not_started" | "in_progress" | "completed";
 
 // --- Types ---
 interface Employee {
@@ -35,6 +41,33 @@ interface ModuleAssessmentStatus {
   baselineMaxScore?: number
 }
 
+interface SprintModule {
+  id: string;
+  name: string;
+  completed: boolean;
+  quizScore: number | null;
+  passStatus?: boolean;
+  completedAt: string | null;
+}
+
+interface SprintItem {
+  id: string;
+  title: string;
+  moduleName: string | null;
+  hasBaseline: boolean;
+  status: SprintStatus;
+  certificateEarned: boolean;
+  completedDate: string | null;
+  modules: SprintModule[];
+  quizThreshold: number;
+  sprintTopic: string;
+}
+
+interface AssessmentEvidence {
+  scorePercent: number | null;
+  completedAt: string | null;
+}
+
 export default function EmployeeWelcome() {
   const { user, loading: authLoading, logout } = useAuth();
   const { activeCompanyId, isDeveloperMode } = useTenant();
@@ -45,7 +78,7 @@ export default function EmployeeWelcome() {
   const [loading, setLoading] = useState(true);
   const [scoreHistory, setScoreHistory] = useState<any[]>([]);
   const [moduleProgress, setModuleProgress] = useState<any[]>([]);
-  const [assignedModules, setAssignedModules] = useState<any[]>([]);
+  const [assignedModules, setAssignedModules] = useState<SprintItem[]>([]);
   const [learningStyle, setLearningStyle] = useState<string | null>(null);
   const [baselineScore, setBaselineScore] = useState<number | null>(null);
   const [baselineMaxScore, setBaselineMaxScore] = useState<number | null>(null);
@@ -63,10 +96,358 @@ export default function EmployeeWelcome() {
   const [isNavOverlay, setIsNavOverlay] = useState<boolean>(false);
   const [showAllModules, setShowAllModules] = useState<boolean>(false);
   const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(false);
+  const [selectedCertificateSprint, setSelectedCertificateSprint] = useState<SprintItem | null>(null);
+  const [linkedinExpanded, setLinkedinExpanded] = useState<boolean>(false);
+  const [linkedinProfileUrl, setLinkedinProfileUrl] = useState<string>("");
+  const [linkedinError, setLinkedinError] = useState<string>("");
+  const [isExportingCertificate, setIsExportingCertificate] = useState<boolean>(false);
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
  
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
+  const certificateRef = useRef<HTMLDivElement | null>(null);
+
+  const sanitizeFileNameChunk = (value: string) =>
+    value
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "")
+      .slice(0, 60) || "certificate";
+
+  const toIso = (value: unknown) => {
+    if (!value || typeof value !== "string") return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  };
+
+  const toNumberOrNull = (value: unknown): number | null => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+
+  const normalizeStatus = (value: unknown) => String(value || "").trim().toUpperCase();
+
+  const normalizeProcessedModuleIds = (value: unknown): string[] => {
+    if (Array.isArray(value)) {
+      return value.map((id) => String(id)).filter(Boolean);
+    }
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return [];
+
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.map((id) => String(id)).filter(Boolean);
+        }
+      } catch {
+        return [trimmed];
+      }
+    }
+
+    return [];
+  };
+
+  const computePercentScore = (entry: any): number | null => {
+    const score = toNumberOrNull(entry?.quiz_score ?? entry?.quizScore ?? entry?.score);
+    if (score === null) return null;
+
+    const maxScore = toNumberOrNull(entry?.max_score ?? entry?.maxScore);
+    if (maxScore && maxScore > 0) {
+      return Number(((score / maxScore) * 100).toFixed(2));
+    }
+
+    if (score > 0 && score <= 1) {
+      return Number((score * 100).toFixed(2));
+    }
+
+    return score;
+  };
+
+  const formatCertificateDate = (isoDate: string | null) => {
+    if (!isoDate) return "--";
+    const date = new Date(isoDate);
+    if (Number.isNaN(date.getTime())) return "--";
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  };
+
+  const buildSprintsFromPlans = (
+    plans: any[],
+    modules: any[],
+    progress: any[],
+    assessmentEvidenceByModuleId?: Record<string, AssessmentEvidence[]>,
+  ): SprintItem[] => {
+    const assignedPlans = plans.filter((p: any) => {
+      const status = normalizeStatus(p?.status);
+      return status === "ASSIGNED" || status === "IN_PROGRESS" || status === "COMPLETED";
+    });
+    const moduleTitleById: Record<string, string> = {};
+    for (const m of modules) {
+      if (m?.module_id) {
+        moduleTitleById[String(m.module_id)] = m.title || `Module ${m.module_id}`;
+      }
+    }
+
+    const moduleProgressByModuleId = new Map<string, any[]>();
+    for (const progressEntry of progress) {
+      const processedModules = Array.isArray(progressEntry?.processed_modules)
+        ? progressEntry.processed_modules
+        : progressEntry?.processed_modules
+          ? [progressEntry.processed_modules]
+          : [];
+
+      const nestedOriginalIds = processedModules
+        .map((pm: any) => pm?.original_module_id)
+        .filter(Boolean);
+
+      const possibleKeys = [
+        progressEntry?.module_id,
+        progressEntry?.original_module_id,
+        progressEntry?.processed_module_id,
+        progressEntry?.processed_modules?.original_module_id,
+        ...nestedOriginalIds,
+      ]
+        .filter(Boolean)
+        .map((key) => String(key));
+
+      if (possibleKeys.length === 0) continue;
+
+      for (const key of possibleKeys) {
+        const existing = moduleProgressByModuleId.get(key) || [];
+        existing.push(progressEntry);
+        moduleProgressByModuleId.set(key, existing);
+      }
+    }
+
+    return assignedPlans.map((p: any) => {
+      const sprintId = String(p.module_id ?? p.id ?? "");
+  const threshold = toNumberOrNull(p.quiz_threshold ?? p.quizThreshold) ?? DEFAULT_QUIZ_THRESHOLD;
+      const processedModuleIds = normalizeProcessedModuleIds(p?.processed_module_ids);
+
+      const relatedProgressFromSprintId = moduleProgressByModuleId.get(sprintId) || [];
+  const relatedProgressFromProcessedIds = processedModuleIds.flatMap((pmId: string) => moduleProgressByModuleId.get(pmId) || []);
+      const relatedProgress = Array.from(new Map(
+        [...relatedProgressFromSprintId, ...relatedProgressFromProcessedIds].map((entry: any) => {
+          const key = String(entry?.module_progress_id ?? `${entry?.processed_module_id || ""}-${entry?.user_id || ""}-${entry?.started_at || ""}`);
+          return [key, entry];
+        })
+      ).values());
+      const modulesInPlan = Array.isArray(p.modules) ? p.modules : [];
+
+      let sprintModules: SprintModule[] = [];
+
+      if (modulesInPlan.length > 0) {
+        sprintModules = modulesInPlan.map((mod: any, index: number) => {
+          const modProgress = relatedProgress.find(
+            (pr) => String(pr?.module_id ?? pr?.processed_module_id ?? "") === String(mod?.id ?? mod?.module_id ?? index),
+          );
+          const modProgressStatus = normalizeStatus(modProgress?.status);
+          const completed = Boolean(
+            mod?.completed ||
+            modProgress?.completed_at ||
+            modProgressStatus === "COMPLETED" ||
+            modProgress?.pass_status,
+          );
+          const quizScore = toNumberOrNull(mod?.quizScore) ?? computePercentScore(modProgress);
+          return {
+            id: String(mod?.id ?? mod?.module_id ?? `${sprintId}-${index + 1}`),
+            name: String(mod?.name ?? mod?.title ?? `Module ${index + 1}`),
+            completed,
+            quizScore,
+            passStatus: Boolean(modProgress?.pass_status),
+            completedAt: toIso(mod?.completedAt ?? modProgress?.completed_at),
+          };
+        });
+      } else if (processedModuleIds.length > 0) {
+        sprintModules = processedModuleIds.map((pmId: string, index: number) => {
+          const pr = relatedProgress.find(
+            (p_entry) => String(p_entry?.processed_module_id ?? p_entry?.module_id ?? "") === pmId
+          );
+          const completed = Boolean(pr?.completed_at || normalizeStatus(pr?.status) === "COMPLETED" || pr?.pass_status);
+          return {
+            id: pmId,
+            name: String(pr?.processed_modules?.title ?? pr?.module_title ?? `Module ${index + 1}`),
+            completed,
+            quizScore: computePercentScore(pr),
+            passStatus: Boolean(pr?.pass_status),
+            completedAt: toIso(pr?.completed_at),
+          };
+        });
+      } else if (relatedProgress.length > 0) {
+        sprintModules = relatedProgress.map((pr: any, index: number) => ({
+          id: String(pr?.module_id ?? pr?.processed_module_id ?? `${sprintId}-${index + 1}`),
+          name: String(pr?.processed_modules?.title ?? pr?.module_title ?? `Module ${index + 1}`),
+          completed: Boolean(pr?.completed_at || normalizeStatus(pr?.status) === "COMPLETED" || pr?.pass_status),
+          quizScore: computePercentScore(pr),
+          passStatus: Boolean(pr?.pass_status),
+          completedAt: toIso(pr?.completed_at),
+        }));
+      } else {
+        const fallbackAssessments = assessmentEvidenceByModuleId?.[sprintId] || [];
+
+        sprintModules = [{
+          id: sprintId || "unknown",
+          name: moduleTitleById[sprintId] || p.module_name || p.module_title || p.title || `Module ${sprintId || ""}`,
+          completed:
+            normalizeStatus(p?.status) === "COMPLETED" ||
+            Boolean(p?.completed_at) ||
+            fallbackAssessments.some((ev) => ev.scorePercent !== null),
+          quizScore:
+            fallbackAssessments.length > 0
+              ? Math.max(...fallbackAssessments.map((ev) => ev.scorePercent ?? -1))
+              : computePercentScore(p),
+          passStatus: Boolean(p?.pass_status),
+          completedAt:
+            fallbackAssessments
+              .map((ev) => ev.completedAt)
+              .filter((value): value is string => Boolean(value))
+              .sort()
+              .at(-1) || toIso(p.completed_at),
+        }];
+      }
+
+      const expectedModuleCount = modulesInPlan.length > 0
+        ? modulesInPlan.length
+        : processedModuleIds.length;
+
+      const allModulesCompleted =
+        sprintModules.length > 0 &&
+        (expectedModuleCount === 0 || sprintModules.length >= expectedModuleCount) &&
+        sprintModules.every((mod) => mod.completed);
+
+      const allQuizScoresEligible =
+        sprintModules.length > 0 &&
+        (expectedModuleCount === 0 || sprintModules.length >= expectedModuleCount) &&
+        sprintModules.every(
+        (mod) => mod.passStatus || (mod.quizScore !== null && mod.quizScore >= threshold)
+      );
+
+      const isOverallStatusTrue = Boolean(p.overall_status === true || p.overall_status === 1 || p.overall_status === "true");
+
+      // Strict rule: certificate only when every sprint module is completed and passed.
+      const certificateEarned = expectedModuleCount > 0
+        ? (allModulesCompleted && allQuizScoresEligible)
+        : isOverallStatusTrue;
+
+      const completedDate = certificateEarned
+        ? [...sprintModules]
+            .map((mod) => mod.completedAt)
+            .filter((value): value is string => Boolean(value))
+            .sort()
+            .at(-1) || toIso(p.completed_at) || new Date().toISOString()
+        : null;
+
+      const hasAnyProgress = sprintModules.some((mod) => mod.completed || mod.quizScore !== null);
+      const planStatus = normalizeStatus(p?.status);
+      const status: SprintStatus = allModulesCompleted
+        ? "completed"
+        : (hasAnyProgress || planStatus === "IN_PROGRESS")
+          ? "in_progress"
+          : "not_started";
+
+      return {
+        id: sprintId,
+        title: moduleTitleById[sprintId] || p.module_name || p.module_title || p.title || `Module ${sprintId}`,
+        moduleName: p.module_name || p.module_title || p.title || null,
+        hasBaseline: p.baseline_assessment === 1 || p.baseline_assessment === true,
+        status,
+        certificateEarned,
+        completedDate,
+        modules: sprintModules,
+        quizThreshold: threshold,
+        sprintTopic: p.topic || p.module_topic || p.module_name || p.title || "professional development",
+      };
+    });
+  };
+
+  const openCertificateModal = (sprint: SprintItem) => {
+    setSelectedCertificateSprint(sprint);
+    setLinkedinExpanded(false);
+    setLinkedinProfileUrl("");
+    setLinkedinError("");
+  };
+
+  const closeCertificateModal = () => {
+    setSelectedCertificateSprint(null);
+    setLinkedinExpanded(false);
+    setLinkedinProfileUrl("");
+    setLinkedinError("");
+  };
+
+  const downloadCertificatePdf = async () => {
+    if (!selectedCertificateSprint || !certificateRef.current || isExportingCertificate) return;
+
+    try {
+      setIsExportingCertificate(true);
+      const canvas = await html2canvas(certificateRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+      });
+
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("landscape", "pt", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      const ratio = Math.min((pageWidth - 40) / imgWidth, (pageHeight - 40) / imgHeight);
+      const renderWidth = imgWidth * ratio;
+      const renderHeight = imgHeight * ratio;
+      const x = (pageWidth - renderWidth) / 2;
+      const y = (pageHeight - renderHeight) / 2;
+
+      pdf.addImage(imgData, "PNG", x, y, renderWidth, renderHeight);
+
+      const sprintSlug = sanitizeFileNameChunk(selectedCertificateSprint.title || "sprint");
+      const userSlug = sanitizeFileNameChunk(employee?.name || employee?.email || user?.email || "user");
+      pdf.save(`lucid-certificate-${sprintSlug}-${userSlug}.pdf`);
+    } catch (error) {
+      console.error("[Certificate] Failed to download PDF:", error);
+    } finally {
+      setIsExportingCertificate(false);
+    }
+  };
+
+  const shareOnLinkedIn = () => {
+    if (!selectedCertificateSprint) return;
+    setLinkedinError("");
+
+    const profileUrl = linkedinProfileUrl.trim();
+    if (!profileUrl) {
+      setLinkedinError("Please paste your LinkedIn profile URL.");
+      return;
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(profileUrl);
+    } catch {
+      setLinkedinError("Please enter a valid URL (including https://).");
+      return;
+    }
+
+    if (!parsed.hostname.toLowerCase().includes("linkedin.com")) {
+      setLinkedinError("Please provide a valid LinkedIn profile URL.");
+      return;
+    }
+
+    const message = `🎉 Excited to share that I've successfully completed the '${selectedCertificateSprint.title}' sprint on Lucid!\n\nThis sprint deepened my understanding of ${selectedCertificateSprint.sprintTopic} and helped me grow professionally through hands-on learning and collaboration.\n\nA huge thank you to the entire team and the Lucid platform for making this learning journey possible. Looking forward to the next sprint! 🚀\n\n#Lucid #LearningAndDevelopment #SprintComplete #ProfessionalGrowth`;
+
+    const shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(profileUrl)}&summary=${encodeURIComponent(message)}`;
+    window.open(shareUrl, "_blank", "noopener,noreferrer");
+  };
 
   const fetchUserByEmail = async (email: string) => {
     try {
@@ -101,14 +482,108 @@ export default function EmployeeWelcome() {
           'X-Company-ID': effectiveCompanyId,
         };
 
-        const [plansRes, modulesRes, progressRes, usersRes, companyRes, learningStyleRes] = await Promise.all([
-          fetchWithAuth(`${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
-          fetchWithAuth(`${API_BASE}/api/training-modules/company/${employeeData.company_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
-          fetchWithAuth(`${API_BASE}/api/module-progress/user/${employeeData.user_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
-          fetchWithAuth(`${API_BASE}/api/users/company/${employeeData.company_id}`, { headers }).then((r) => r.ok ? r.json() : {}),
-          fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`, { headers }).then((r) => r.ok ? r.json() : {}),
-          fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => r.ok ? r.json() : {}),
+        const [plansRes, modulesRes, progressRes, usersRes, companyRes, learningStyleRes, employeeAssessmentsRes] = await Promise.all([
+          fetchWithAuth(`${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`, { headers }).then((r) => r.ok ? r.json() : ({} as any)),
+          fetchWithAuth(`${API_BASE}/api/training-modules/company/${employeeData.company_id}`, { headers }).then((r) => r.ok ? r.json() : ({} as any)),
+          fetchWithAuth(`${API_BASE}/api/module-progress/user/${employeeData.user_id}`, { headers }).then((r) => r.ok ? r.json() : ({} as any)),
+          fetchWithAuth(`${API_BASE}/api/users/company/${employeeData.company_id}`, { headers }).then((r) => r.ok ? r.json() : ({} as any)),
+          fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`, { headers }).then((r) => r.ok ? r.json() : ({} as any)),
+          fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => r.ok ? r.json() : ({} as any)),
+          fetchWithAuth(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => r.ok ? r.json() : ({} as any)),
         ]);
+
+        const employeeAssessments =
+          employeeAssessmentsRes?.data?.assessments || employeeAssessmentsRes?.assessments || [];
+
+        const assessmentIds = Array.from(
+          new Set(
+            (Array.isArray(employeeAssessments) ? employeeAssessments : [])
+              .map((ea: any) => ea?.assessment_id)
+              .filter(Boolean)
+              .map((id: any) => String(id)),
+          ),
+        );
+
+        const assessmentDetailsPayload = await Promise.all(
+          assessmentIds.map((id) =>
+            fetchWithAuth(`${API_BASE}/api/assessments/${encodeURIComponent(id)}`, { headers })
+              .then((r) => (r.ok ? r.json() : null))
+              .catch(() => null),
+          ),
+        );
+
+        const assessmentDetailById = new Map<string, any>();
+        (Array.isArray(assessmentDetailsPayload) ? assessmentDetailsPayload : []).forEach((payload: any) => {
+          const detail = payload?.data?.assessment || payload?.data || payload?.assessment || payload;
+          if (detail?.assessment_id) {
+            assessmentDetailById.set(String(detail.assessment_id), detail);
+          }
+        });
+
+        const processedModuleIds = Array.from(
+          new Set(
+            Array.from(assessmentDetailById.values())
+              .map((d: any) => d?.processed_module_id)
+              .filter(Boolean)
+              .map((id: any) => String(id)),
+          ),
+        );
+
+        let processedModulesById = new Map<string, any>();
+        if (processedModuleIds.length > 0) {
+          const processedModulesPayload = await fetchWithAuth(`${API_BASE}/api/processed-modules/batch`, {
+            method: "POST",
+            headers: {
+              ...headers,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ processed_module_ids: processedModuleIds }),
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null);
+
+          const processedModules =
+            processedModulesPayload?.data?.modules ||
+            processedModulesPayload?.data ||
+            processedModulesPayload?.modules ||
+            [];
+
+          processedModulesById = new Map(
+            (Array.isArray(processedModules) ? processedModules : [])
+              .filter((pm: any) => pm?.processed_module_id)
+              .map((pm: any) => [String(pm.processed_module_id), pm]),
+          );
+        }
+
+        const assessmentEvidenceByModuleId: Record<string, AssessmentEvidence[]> = {};
+        (Array.isArray(employeeAssessments) ? employeeAssessments : []).forEach((ea: any) => {
+          const detail = assessmentDetailById.get(String(ea?.assessment_id || ""));
+          if (!detail || detail?.type !== "module") return;
+
+          const processedModule = processedModulesById.get(String(detail?.processed_module_id || ""));
+          const originalModuleId = String(
+            detail?.original_module_id ||
+            processedModule?.original_module_id ||
+            "",
+          );
+          if (!originalModuleId) return;
+
+          const score = typeof ea?.score === "number" ? ea.score : null;
+          const maxScore = typeof ea?.max_score === "number" ? ea.max_score : null;
+          const scorePercent =
+            score !== null
+              ? maxScore && maxScore > 0
+                ? Number(((score / maxScore) * 100).toFixed(2))
+                : score
+              : null;
+
+          const bucket = assessmentEvidenceByModuleId[originalModuleId] || [];
+          bucket.push({
+            scorePercent,
+            completedAt: toIso(ea?.completed_at),
+          });
+          assessmentEvidenceByModuleId[originalModuleId] = bucket;
+        });
 
         return {
           plans: plansRes?.plans || [],
@@ -117,6 +592,7 @@ export default function EmployeeWelcome() {
           users: usersRes?.users || [],
           company: companyRes?.company || companyRes || null,
           learningStyle: learningStyleRes?.data?.learning_style || null,
+          assessmentEvidenceByModuleId,
         };
       },
       {
@@ -155,21 +631,9 @@ export default function EmployeeWelcome() {
       const plans = data?.plans || [];
       const modules = data?.modules || [];
       const progress = Array.isArray(data?.progress) ? data.progress : [];
+  const assessmentEvidenceByModuleId = data?.assessmentEvidenceByModuleId || {};
 
-      const assignedPlans = plans.filter((p: any) => p.status === "ASSIGNED" || p.status === "IN_PROGRESS");
-      const moduleTitleById: Record<string, string> = {};
-      for (const m of modules) {
-        if (m?.module_id) {
-          moduleTitleById[m.module_id] = m.title || `Module ${m.module_id}`;
-        }
-      }
-
-      const mappedAssigned = assignedPlans.map((p: any) => ({
-        id: p.module_id,
-        title: moduleTitleById[p.module_id] || p.module_name || p.module_title || p.title || `Module ${p.module_id}`,
-        moduleName: p.module_name || p.module_title || p.title || null,
-        hasBaseline: p.baseline_assessment === 1 || p.baseline_assessment === true,
-      }));
+  const mappedAssigned = buildSprintsFromPlans(plans, modules, progress, assessmentEvidenceByModuleId);
 
       setAssignedModules(mappedAssigned);
       setModuleProgress(progress);
@@ -180,7 +644,7 @@ export default function EmployeeWelcome() {
       setBaselineRequired(baselineNeeded);
 
       const totalUsers = Array.isArray(data?.users) ? data.users.length : 0;
-      const completedCount = progress.filter((p: any) => p.completed_at).length;
+    const completedCount = mappedAssigned.filter((p) => p.status === "completed").length;
       const progressValue = mappedAssigned.length > 0 ? Math.round((completedCount / mappedAssigned.length) * 100) : 0;
       setProgressPercentage(progressValue);
       setCompanyStats({ totalEmployees: totalUsers, completedEmployees: 5, userRank: 1, topPercentile: 10 });
@@ -469,24 +933,62 @@ export default function EmployeeWelcome() {
                  ) : (
                    <div>
                      <div className={`divide-y divide-slate-50 ${showAllModules ? 'max-h-[500px] overflow-y-auto' : ''}`}>
-                       {(showAllModules ? assignedModules : assignedModules.slice(0, 3)).map((m) => (
+                       {(showAllModules ? assignedModules : assignedModules.slice(0, 3)).map((m, idx) => (
                          <div key={m.id} className="flex flex-col items-start gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4 md:p-6 bg-white">
                            <div className="flex-1 min-w-0 w-full sm:w-auto">
                              <p className="text-sm sm:text-base font-extrabold text-slate-900 break-words">{m.title || `Module ${m.id}`}</p>
                              {m.moduleName && (
                                <div className="text-xs text-slate-500 break-words mt-0.5">{m.moduleName}</div>
                              )}
+                             {/* <div className="mt-2 flex flex-wrap items-center gap-2">
+                               {m.certificateEarned ? (
+                                 <Badge className="bg-green-50 text-green-700 border border-green-200 font-bold">Completed</Badge>
+                               ) : m.status === "in_progress" ? (
+                                 <Badge variant="secondary" className="bg-blue-50 text-blue-700 border border-blue-100 font-bold">In Progress</Badge>
+                               ) : (
+                                 <Badge variant="secondary" className="bg-slate-100 text-slate-600 border border-slate-200 font-bold">Not Started</Badge>
+                               )}
+                               <Badge variant="secondary" className="bg-slate-100 text-slate-600 border border-slate-200 font-semibold">
+                                 Quiz threshold: {m.quizThreshold}%
+                               </Badge>
+                             </div> */}
+                             {/* TEMP DEBUG BADGE - REMOVE WHEN FIXED */}
+                             {/* <div className="mt-2">
+                               <span className="inline-block bg-yellow-100 text-yellow-800 text-xs rounded px-2 py-1 font-mono font-bold mr-2">DEBUG</span>
+                               <span className="text-xs text-slate-700 font-mono">Score(s): [
+                                 {m.modules.map((mod, i) => `${mod.quizScore ?? "-"}`).join(", ")}
+                               ] | Threshold: {m.quizThreshold}% | Cert: {m.certificateEarned ? "Y" : "N"}</span>
+                             </div> */}
                            </div>
 
                            <div className="flex gap-2 w-full sm:w-auto flex-shrink-0">
-                             {m.hasBaseline ? (
+                             {m.hasBaseline && !m.certificateEarned ? (
                                <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-3 py-2 rounded-lg text-xs border border-slate-200 font-bold text-slate-700 bg-white hover:bg-slate-50 flex-1 sm:flex-none h-10">
                                  Baseline
                                </button>
                              ) : null}
 
-                             <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-6 sm:px-8 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm bg-blue-600 text-white font-bold hover:bg-blue-700 flex-1 sm:flex-none h-11 sm:h-12 transition-all duration-200">
-                               Start Your Sprint
+                             {m.certificateEarned && (
+                               <button
+                                 onClick={() => openCertificateModal(m)}
+                                 className="px-4 sm:px-5 py-1.5 sm:py-2 rounded-xl text-xs border border-blue-600 text-blue-700 font-bold hover:bg-blue-50 flex-1 sm:flex-none h-9 sm:h-10 transition-all duration-200 inline-flex items-center justify-center gap-1.5"
+                               >
+                                 <Award size={16} />
+                                 View Certificate
+                               </button>
+                             )}
+
+                             <button
+                               onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)}
+                               className={
+                                 m.certificateEarned
+                                   ? "px-4 sm:px-5 py-1.5 sm:py-2 rounded-xl text-xs bg-slate-100 text-slate-700 font-bold hover:bg-slate-200 flex-1 sm:flex-none h-9 sm:h-10 transition-all duration-200"
+                                   : m.status === "in_progress"
+                                   ? "px-4 sm:px-5 py-1.5 sm:py-2 rounded-xl text-xs border border-blue-600 text-blue-700 font-bold hover:bg-blue-50 flex-1 sm:flex-none h-9 sm:h-10 transition-all duration-200"
+                                   : "px-4 sm:px-5 py-1.5 sm:py-2 rounded-xl text-xs bg-blue-600 text-white font-bold hover:bg-blue-700 flex-1 sm:flex-none h-9 sm:h-10 transition-all duration-200"
+                               }
+                             >
+                               {m.certificateEarned ? "Review Sprint" : m.status === "in_progress" ? "Continue Sprint" : "Start Your Sprint"}
                              </button>
                            </div>
                          </div>
@@ -550,9 +1052,161 @@ export default function EmployeeWelcome() {
            </div>
          </div>
        </main>
+
+        {selectedCertificateSprint && (
+          <div className="fixed inset-0 z-[120] bg-slate-900/65 backdrop-blur-sm p-3 sm:p-6 overflow-y-auto">
+            <div className="max-w-5xl mx-auto bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+              <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-slate-100">
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-slate-900">Sprint Completion Certificate</h3>
+                  <p className="text-xs sm:text-sm text-slate-500 font-medium">Preview, download, or share your accomplishment.</p>
+                </div>
+                <button
+                  onClick={closeCertificateModal}
+                  className="w-9 h-9 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 inline-flex items-center justify-center"
+                  aria-label="Close certificate preview"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-4 sm:p-6">
+                <CertificateTemplate
+                  ref={certificateRef}
+                  recipientName={employee?.name || user?.displayName || "Lucid Learner"}
+                  sprintName={selectedCertificateSprint.title}
+                  completionDate={formatCertificateDate(selectedCertificateSprint.completedDate)}
+                />
+
+                <div className="mt-5 flex flex-col gap-3">
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <Button
+                      variant="outline"
+                      className="border-blue-600 text-blue-700 hover:bg-blue-50 font-bold"
+                      onClick={downloadCertificatePdf}
+                      disabled={isExportingCertificate}
+                    >
+                      <Download size={16} className="mr-2" />
+                      {isExportingCertificate ? "Preparing PDF..." : "Download PDF"}
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      className="border-[#0A66C2] text-[#0A66C2] hover:bg-[#EEF5FD] font-bold"
+                      onClick={() => {
+                        setLinkedinExpanded((prev) => !prev);
+                        setLinkedinError("");
+                      }}
+                    >
+                      <Linkedin size={16} className="mr-2" />
+                      Share on LinkedIn
+                    </Button>
+                  </div>
+
+                  {linkedinExpanded && (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                      <label className="block text-xs sm:text-sm font-semibold text-slate-700">Paste your LinkedIn Profile URL</label>
+                      <input
+                        type="url"
+                        value={linkedinProfileUrl}
+                        onChange={(e) => setLinkedinProfileUrl(e.target.value)}
+                        placeholder="https://www.linkedin.com/in/yourprofile"
+                        className="w-full h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      />
+                      {linkedinError ? <p className="text-xs text-red-600 font-medium">{linkedinError}</p> : null}
+                      <Button onClick={shareOnLinkedIn} className="bg-[#0A66C2] hover:bg-[#0058B1] text-white font-semibold">
+                        Post to LinkedIn
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
      </div>
    );
 }
+
+  const CertificateTemplate = React.forwardRef<HTMLDivElement, {
+    recipientName: string;
+    sprintName: string;
+    completionDate: string;
+  }>(({ recipientName, sprintName, completionDate }, ref) => {
+    return (
+      <div
+        ref={ref}
+        className="relative bg-gradient-to-br from-white via-sky-50/40 to-blue-50/70 rounded-xl p-4 sm:p-8 border-4 border-sky-100"
+      >
+        <div className="absolute inset-4 border-2 border-blue-100 rounded-lg pointer-events-none" />
+
+        <div className="absolute inset-0 pointer-events-none opacity-40 rounded-xl overflow-hidden">
+          <div className="absolute -top-10 -left-16 w-64 h-64 border border-blue-100 rounded-full" />
+          <div className="absolute top-20 -right-16 w-56 h-56 border border-sky-100 rounded-full" />
+          <div className="absolute bottom-6 left-1/3 w-40 h-40 border border-indigo-100 rounded-full" />
+        </div>
+
+        <div className="relative z-10">
+          <div className="relative">
+            <div className="text-center">
+              
+              <h2 className="text-2xl sm:text-4xl font-black text-slate-900 mt-2 tracking-wide">CERTIFICATE OF SPRINT COMPLETION</h2>
+            </div>
+
+            <div className="absolute top-0 right-0 flex items-center gap-0 shrink-0">
+              <svg
+                viewBox="0 0 64 64"
+                className="w-8 h-8"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <defs>
+                  <linearGradient id="lucidPurple" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor="#5B2DE1" />
+                    <stop offset="100%" stopColor="#6F45EE" />
+                  </linearGradient>
+                </defs>
+                <rect x="24" y="8" width="24" height="24" fill="url(#lucidPurple)" />
+                <rect x="8" y="24" width="24" height="24" fill="url(#lucidPurple)" />
+                <rect x="24" y="24" width="8" height="8" fill="#FFFFFF" />
+                <rect x="34" y="48" width="12" height="12" fill="#8FAAE6" />
+              </svg>
+              <span className="text-lg sm:text-xl font-black text-black leading-none">Lucid</span>
+            </div>
+          </div>
+
+          <div className="mt-8 sm:mt-10 text-center px-2">
+            <p className="text-sm sm:text-base text-slate-600 font-medium">This Certificate is Proudly Awarded to</p>
+            <h3 className="mt-3 text-2xl sm:text-4xl font-black text-blue-700 tracking-wide">{recipientName}</h3>
+
+            <p className="mt-6 text-sm sm:text-base text-slate-700 leading-relaxed max-w-3xl mx-auto">
+              In Recognition of Successfully Completing the
+            </p>
+
+            <p className="mt-2 text-lg sm:text-2xl font-bold text-slate-900">“{sprintName}”</p>
+
+            <p className="mt-5 text-sm sm:text-base text-slate-700 leading-relaxed max-w-3xl mx-auto">
+              Demonstrating Readiness, Focus and Commitment to Doing The Job Better Every Day.
+            </p>
+          </div>
+
+          <div className="mt-8 sm:mt-10 flex items-end justify-between gap-6 border-t border-blue-100 pt-5">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500 font-bold">Date</p>
+              <p className="text-base sm:text-lg font-black text-slate-900 mt-1">{completionDate}</p>
+            </div>
+
+            <div className="text-right">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500 font-bold">Awarded by</p>
+              <p className="text-base sm:text-lg font-black text-blue-700 mt-1">Lucid</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  });
+
+  CertificateTemplate.displayName = "CertificateTemplate";
 
 function LearningStyleBlurb({ styleCode }: { styleCode: string }) {
   const meta: Record<string, { label: string; blurb: string }> = {
