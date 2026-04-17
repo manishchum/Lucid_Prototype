@@ -94,9 +94,11 @@ def _verify_firebase_token(token: str) -> Dict[str, Any]:
 
 def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> str:
 	if not email:
+		
 		return fallback_user_id
 
 	try:
+		# print(f"[auth] Attempting to resolve user by email: {email}")
 		res = (
 			supabase
 			.table("users")
@@ -106,10 +108,24 @@ def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> st
 			.execute()
 		)
 		data = getattr(res, "data", None)
+		# print(f"[auth] Email lookup result: {data}")
 		if isinstance(data, dict) and data.get("user_id"):
-			return str(data.get("user_id"))
+			resolved_id = str(data.get("user_id"))
+			# print(f"[auth] Successfully resolved email {email} to user_id={resolved_id}")
+			return resolved_id
+		else:
+			# print(f"[auth] Email {email} not found in users table")
+			pass
+
 	except Exception as exc:
-		print(f"[auth] Failed to resolve internal user_id by email: {exc}")
+		# print(f"[auth] Failed to resolve internal user_id by email: {exc}")
+		pass
+
+	# Always return fallback_user_id even if email lookup failed
+	# This preserves Firebase-verified identity
+	if fallback_user_id:
+		# print(f"[auth] Using fallback_user_id from Firebase token: {fallback_user_id}")
+		return fallback_user_id
 
 	return fallback_user_id
 
@@ -125,27 +141,37 @@ def get_request_auth_optional(
 			claims = _verify_firebase_token(token)
 			token_user_id = claims.get("uid") or claims.get("user_id") or claims.get("sub")
 			email = claims.get("email")
-			user_id = _resolve_internal_user_id(str(email) if email else None, str(token_user_id) if token_user_id else "")
+			
+			# Ensure we have some identifier from the verified token
+			if not token_user_id:
+				print(f"[auth optional] Firebase token verified but missing uid/user_id/sub claims; email={email}; claims_keys={list(claims.keys())}")
+				# Fall through to X-User-ID header
+			else:
+				user_id = _resolve_internal_user_id(str(email) if email else None, str(token_user_id))
 
-			if user_id:
-				print(f"[auth optional] Bearer verified successfully; uid={token_user_id}; resolved_user_id={user_id}")
-				return RequestAuth(
-					user_id=str(user_id),
-					email=str(email) if email else None,
-					source="firebase",
-					claims=claims,
-				)
+				if user_id:
+					print(f"[auth optional] Bearer verified successfully; uid={token_user_id}; resolved_user_id={user_id}")
+					return RequestAuth(
+						user_id=str(user_id),
+						email=str(email) if email else None,
+						source="firebase",
+						claims=claims,
+					)
 		except HTTPException as exc:
 			cause = exc.__cause__
 			cause_msg = str(cause) if cause else exc.detail
 			if exc.status_code == 401:
-				print(f"[auth optional] Bearer verification failed, falling back: {exc.detail}; cause={cause_msg}")
+				print(f"[auth optional] Bearer verification failed (401), falling back to X-User-ID: {exc.detail}; cause={cause_msg}")
 			else:
-				print(f"[auth optional] Firebase verification infrastructure issue, falling back: {exc.detail}; cause={cause_msg}")
+				print(f"[auth optional] Firebase verification infrastructure issue, falling back to X-User-ID: {exc.detail}; cause={cause_msg}")
 			# Optional mode stays backward-compatible:
 			# if bearer verification fails, fall through to legacy header.
+		except Exception as exc:
+			# Catch any other exceptions (e.g., Firebase SDK not available, network errors)
+			print(f"[auth optional] Firebase verification exception, falling back to X-User-ID: {str(exc)}")
 
 	if x_user_id:
+		print(f"[auth optional] Using X-User-ID fallback; x_user_id={x_user_id}")
 		return RequestAuth(user_id=x_user_id, email=None, source="legacy-x-user-id", claims=None)
 
 	return RequestAuth(user_id=None, email=None, source="anonymous", claims=None)

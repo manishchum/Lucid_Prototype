@@ -23,6 +23,7 @@ class CreateTrainingModuleRequest(BaseModel):
     content_type: Optional[str] = None
     content_url: Optional[str] = None
     threshold_value: Optional[int] = 70
+    points: Optional[int] = 100
     additional_readings: Optional[dict] = None
 
 
@@ -37,6 +38,7 @@ class UpdateTrainingModuleRequest(BaseModel):
     ai_topics: Optional[str] = None
     ai_objectives: Optional[str] = None
     threshold_value: Optional[int] = None
+    points: Optional[int] = None
     additional_readings: Optional[dict] = None
 
 

@@ -22,6 +22,11 @@ function sanitizeFileName(fileName: string) {
   return fileName.replace(/[^a-zA-Z0-9._-]+/g, '_');
 }
 
+function buildStoragePath(moduleId: string, mediaType: ModuleMediaType, originalName: string) {
+  const mediaFolder = mediaType === 'image' ? 'images' : mediaType;
+  return path.posix.join(moduleId, mediaFolder, `${randomUUID()}_${originalName}`);
+}
+
 function inferMediaType(file: File, requested: string): ModuleMediaType | null {
   if (requested === 'video' || requested === 'image' || requested === 'audio') {
     return requested;
@@ -56,6 +61,54 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Storage service is not configured' }, { status: 500 });
     }
 
+    const contentType = req.headers.get('content-type') || '';
+
+    // Lightweight signed-upload handshake so large file bytes bypass Vercel and go directly to Supabase.
+    if (contentType.includes('application/json')) {
+      const body = await req.json().catch(() => null);
+      const action = String(body?.action || '').trim();
+
+      if (action !== 'createSignedUploadUrl') {
+        return NextResponse.json({ error: 'Unsupported action' }, { status: 400 });
+      }
+
+      const moduleId = String(body?.moduleId || '').trim();
+      const requestedMediaType = String(body?.mediaType || '').trim().toLowerCase();
+      const rawFileName = String(body?.fileName || '').trim();
+
+      if (!moduleId) {
+        return NextResponse.json({ error: 'moduleId is required' }, { status: 400 });
+      }
+
+      if (requestedMediaType !== 'video' && requestedMediaType !== 'image' && requestedMediaType !== 'audio') {
+        return NextResponse.json({ error: 'mediaType must be video, image, or audio' }, { status: 400 });
+      }
+
+      const mediaType = requestedMediaType as ModuleMediaType;
+      const bucket = BUCKET_BY_MEDIA_TYPE[mediaType];
+      const defaultFileName = mediaType === 'video' ? 'video.mp4' : mediaType === 'image' ? 'image.png' : 'audio.mp3';
+      const originalName = sanitizeFileName(rawFileName || defaultFileName);
+      const filePath = buildStoragePath(moduleId, mediaType, originalName);
+
+      const { data: signedData, error: signedError } = await supabaseService.storage
+        .from(bucket)
+        .createSignedUploadUrl(filePath);
+
+      if (signedError || !signedData?.token || !signedData?.path) {
+        return NextResponse.json(
+          { error: signedError?.message || `Failed to create signed upload URL for ${mediaType}` },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        mediaType,
+        bucket,
+        path: signedData.path,
+        token: signedData.token,
+      });
+    }
+
     const form = await req.formData();
     const file = form.get('file');
     const moduleId = String(form.get('moduleId') || '').trim();
@@ -82,8 +135,7 @@ export async function POST(req: Request) {
 
     const defaultFileName = mediaType === 'video' ? 'video.mp4' : mediaType === 'image' ? 'image.png' : 'audio.mp3';
     const originalName = sanitizeFileName(file.name || defaultFileName);
-    const mediaFolder = mediaType === 'image' ? 'images' : mediaType;
-    const filePath = path.posix.join(moduleId, mediaFolder, `${randomUUID()}_${originalName}`);
+    const filePath = buildStoragePath(moduleId, mediaType, originalName);
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 

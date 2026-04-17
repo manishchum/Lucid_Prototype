@@ -415,6 +415,9 @@ function ContentUpload({
           <p className="text-xs text-gray-500 mt-1">
             Maximum file size 4MB. PDF, PPTx and DOCX only.
           </p>
+          <p className="text-xs text-gray-500 mt-1">
+            For a more robust and insightful Sprint, we recommend using detailed, text-rich documents (ideally 8+ pages)
+          </p>
 
           <input
             id="file-upload"

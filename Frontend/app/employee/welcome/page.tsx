@@ -10,6 +10,7 @@ import { jsPDF } from "jspdf";
 import { useAuth } from "@/contexts/auth-context";
 import { useTenant } from "@/contexts/tenant-context";
 import CompanySelector from "@/components/company-selector";
+import { LeaderboardModal } from "@/components/leaderboard-modal";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import {
@@ -101,6 +102,7 @@ export default function EmployeeWelcome() {
   const [linkedinProfileUrl, setLinkedinProfileUrl] = useState<string>("");
   const [linkedinError, setLinkedinError] = useState<string>("");
   const [isExportingCertificate, setIsExportingCertificate] = useState<boolean>(false);
+  const [showLeaderboard, setShowLeaderboard] = useState<boolean>(false);
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
 
   const toastShownRef = useRef(false);
@@ -695,6 +697,7 @@ export default function EmployeeWelcome() {
           companyRes,
           learningStyleRes,
           employeeAssessmentsRes,
+          userRankRes,
         ] = await Promise.all([
           fetchWithAuth(
             `${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`,
@@ -724,6 +727,8 @@ export default function EmployeeWelcome() {
             `${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeData.user_id)}`,
             { headers },
           ).then((r) => (r.ok ? r.json() : ({} as any))),
+          fetchWithAuth(`${API_BASE}/api/analytics/leaderboard/${employeeData.company_id}/user-rank`, { headers }).then((r) => r.ok ? r.json() : {}),
+
         ]);
 
         const employeeAssessments =
@@ -851,9 +856,10 @@ export default function EmployeeWelcome() {
           modules: modulesRes?.modules || [],
           progress: progressRes?.progress || [],
           users: usersRes?.users || [],
-          company: companyRes?.company || companyRes || null,
+          company: companyRes?.company ||companyRes?.data|| companyRes || null,
           learningStyle: learningStyleRes?.data?.learning_style || null,
           assessmentEvidenceByModuleId,
+          userRank: userRankRes?.data || null,
         };
       },
       {
@@ -862,7 +868,7 @@ export default function EmployeeWelcome() {
         swrMs: 30 * 1000,
       },
     );
-
+    console.log(result)
     return result.data;
   };
 
@@ -930,6 +936,24 @@ export default function EmployeeWelcome() {
         topPercentile: 10,
       });
       generateNudgeMessage(progressValue, 1, totalUsers, 10, 5);
+      const totalAssigned = mappedAssigned.length;
+      setProgressPercentage(progressValue);
+      
+
+      setCompanyStats({
+        totalEmployees: totalUsers,
+        completedEmployees: completedCount,
+        userRank: data?.userRank?.rank ?? null,
+        topPercentile: data?.userRank?.top_percentile ?? null,
+      });
+
+      generateNudgeMessage(
+        progressValue,
+        data?.userRank?.rank ?? null,
+        totalUsers,
+        data?.userRank?.top_percentile ?? 10,
+        completedCount
+      );
     } catch (e) {
       console.error("[Welcome] loadDashboard failed:", e);
     } finally {
@@ -946,22 +970,10 @@ export default function EmployeeWelcome() {
     }
   }, [user, authLoading, activeCompanyId, isDeveloperMode]);
 
-  const generateNudgeMessage = (
-    progress: number,
-    rank: number | null,
-    total: number,
-    percentile: number,
-    completed: number,
-  ) => {
-    if (progress === 100)
-      setNudgeMessage(
-        "🎉 Congratulations! You've completed your Performance Sprint and earned the SME tag!",
-      );
-    else
-      setNudgeMessage(
-        `💪 One step in! Complete your sprints and stand among the top 5%.`,
-      );
-  };
+   const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
+     if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint!");
+     else setNudgeMessage(`💪 One step in! Complete your sprints and stand among the top 5%.`);
+   };
 
   if (showLoadingProgress) {
     return (
@@ -974,32 +986,39 @@ export default function EmployeeWelcome() {
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
-  return (
-    <div className="min-h-screen">
-      {/* Login Success Toast */}
-      {showLoginToast && (
-        <div className="fixed top-6 right-6 z-[100] animate-in slide-in-from-right fade-in duration-500">
-          <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center text-white shadow-lg">
-              <CheckCircle2 size={24} />
-            </div>
-            <div>
-              <div className="text-lg font-extrabold text-slate-900">
-                Successfully logged in!
-              </div>
-              <div className="text-sm text-slate-500 font-medium">
-                Your learning dashboard is ready.
-              </div>
-            </div>
-            <button
-              onClick={() => setShowLoginToast(false)}
-              className="ml-auto text-slate-300 hover:text-slate-500"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
+       <main className="min-h-screen pt-4 md:pt-8 pb-8 md:pb-12 px-4 sm:px-6 lg:px-8 relative">
+          <Button
+            onClick={() => setShowLeaderboard(true)}
+            variant="outline"
+            className="absolute top-4 right-4 rounded-lg border-slate-200 hover:bg-amber-50 hover:border-amber-200 transition-colors"
+            title="View leaderboard"
+            size="icon"
+          >
+            <Trophy className="w-4 h-4 text-amber-500" />
+          </Button>
+          <div className="max-w-6xl mx-auto w-full">
+         
+           {/* Dashboard Header */}
+           <div className="mb-6 md:mb-10 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+             <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+               <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100 shrink-0">
+                 <Users className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
+               </div>
+               <div className="min-w-0 flex-1">
+                 <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight break-words">
+                   {employee?.name ? `Welcome, ${employee.name.split(" ")[0]}` : "Learner Dashboard"}
+                 </h1>
+                 <p className="text-xs sm:text-sm text-slate-500 font-medium break-all sm:break-normal">
+                   {employee?.email || "Personalized learning hub"}
+                 </p>
+               </div>
+             </div>
+             <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-stretch sm:items-center">
+               <div className="w-full sm:w-[320px]">
+                 <CompanySelector showLabel />
+               </div>
+             </div>
+           </div>
 
       <main className="min-h-screen pt-4 md:pt-8 pb-8 md:pb-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-6xl mx-auto w-full">
@@ -1051,7 +1070,7 @@ export default function EmployeeWelcome() {
                             variant="secondary"
                             className="bg-slate-100 text-slate-600 border-none font-bold text-[10px] sm:text-xs"
                           >
-                            63 COMPLETED
+                            {companyStats.completedEmployees} COMPLETED
                           </Badge>
                         </div>
                       </div>
@@ -1071,11 +1090,11 @@ export default function EmployeeWelcome() {
                               : "text-blue-600"
                           }`}
                         >
-                          27.6%
+                          {progressPercentage.toFixed(1)}%
                         </span>
                       </div>
                       <div className="mt-2 text-[10px] sm:text-xs font-black uppercase tracking-[0.05em] text-slate-400 text-center">
-                        96 of 348
+                        {companyStats.completedEmployees} of {assignedModules.length}
                       </div>
                     </div>
                   </div>
@@ -1320,7 +1339,47 @@ export default function EmployeeWelcome() {
         </div>
       )}
     </div>
-  );
+  
+             {/* Progress History */}
+             {/* <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+               <CardHeader className="px-8 py-6">
+                 <CardTitle className="text-lg font-black text-slate-900">Recent Activity</CardTitle>
+               </CardHeader>
+               <CardContent className="px-8 pb-8">
+                 <div className="space-y-4">
+                   {moduleProgress.length === 0 ? (
+                     <p className="text-slate-400 font-medium text-center py-4">No activity yet.</p>
+                   ) : (
+                     moduleProgress.map((mod) => (
+                       <div key={mod.processed_module_id} className="flex items-center gap-4 p-4 rounded-xl bg-slate-50/50 border border-slate-100/50">
+                         <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${mod.completed_at ? 'bg-green-100 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+                           {mod.completed_at ? <CheckCircle2 size={20} /> : <Clock size={20} />}
+                         </div>
+                         <div className="flex-1 overflow-hidden">
+                           <p className="font-bold text-slate-900 truncate">{mod.processed_modules?.title || `Module ${mod.processed_module_id}`}</p>
+                           <p className="text-xs text-slate-500 font-medium">{mod.completed_at ? 'Finished' : 'In Progress'}</p>
+                         </div>
+                         {mod.quiz_score !== null && (
+                           <Badge className="bg-white border-slate-200 text-slate-600 font-bold">Score: {mod.quiz_score}%</Badge>
+                         )}
+                       </div>
+                     ))
+                   )}
+                 </div>
+               </CardContent>
+             </Card> */}
+           
+
+       {/* Leaderboard Modal */}
+       {employee && (
+         <LeaderboardModal
+           open={showLeaderboard}
+           onOpenChange={setShowLeaderboard}
+           employee={employee}
+         />
+       )}
+     </main>
+    
 }
 
 // ─── SprintRow ─────────────────────────────────────────────────────────────────
