@@ -20,6 +20,7 @@ const LayoutWithNavigation = ({ children }: LayoutWithNavigationProps) => {
     '/career-progression',
     '/mobile-learning',
     '/communication',
+    '/privacy-policy',
     '/login',
     '/signup',
     '/auth/login',
