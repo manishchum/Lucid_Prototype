@@ -2002,7 +2002,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
 
 export default function AnalyticsPage() {
   const router = useRouter();
-  const { user,loading:authLoading } = useAuth();
+  const { user,loading:authLoading, isManager } = useAuth();
   const [admin, setAdmin] = useState<Admin|null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -2060,18 +2060,24 @@ export default function AnalyticsPage() {
         return;
       }
 
-      // Check if user has Admin role (level >= 3)
+      // Check if user has Admin or Manager role
       const hasAdminRole = roleData.some((assignment: any) => {
-        const roleName = assignment.role?.name?.toLowerCase();
+        const roleName = assignment.role?.name?.toLowerCase()?.replace(/[-_\s]/g, '');
         const roleLevel = assignment.role?.level;
         return roleLevel >= 3 || 
                roleName === 'admin' || 
-               roleName === 'super_admin' ||
+               roleName === 'superadmin' ||
                roleName === 'ceo';
       });
 
-      if (!hasAdminRole) {
-        console.error("User does not have admin role");
+      const hasManagerRole = roleData.some((assignment: any) => {
+        const roleName = assignment.role?.name?.toLowerCase()?.replace(/[-_\s]/g, '');
+        const roleLevel = assignment.role?.level;
+        return roleLevel === 2 || Boolean(roleName?.includes('manager'));
+      });
+
+      if (!hasAdminRole && !hasManagerRole && !isManager) {
+        console.error("User does not have console access role");
         return;
       }
 

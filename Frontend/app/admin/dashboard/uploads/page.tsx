@@ -228,8 +228,8 @@ function ContentUpload({
   };
 
   const handleUpload = async () => {
-    if (files.length === 0  || !title || !retrievedReviewerId){
-      alert("Retriever ID Required");
+    if (files.length === 0  || !title){
+      alert("Data is not sufficient");
       return;
     } 
 
