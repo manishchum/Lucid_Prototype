@@ -16,6 +16,7 @@ import {
   Trophy, Target, TrendingUp, Zap, LayoutGrid,
   ShieldCheck, ArrowRight, CheckCircle2, LogOut
 } from "lucide-react";
+import { AssignedSprintsSection } from "@/components/assigned-sprints-section";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -62,7 +63,6 @@ export default function EmployeeWelcome() {
   const [progressPercentage, setProgressPercentage] = useState<number>(0);
   const [showLoginToast, setShowLoginToast] = useState<boolean>(false);
   const [isNavOverlay, setIsNavOverlay] = useState<boolean>(false);
-  const [showAllModules, setShowAllModules] = useState<boolean>(false);
   const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(false);
   const [showLeaderboard, setShowLeaderboard] = useState<boolean>(false);
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
@@ -479,77 +479,14 @@ export default function EmployeeWelcome() {
                </Card>
              )}
 
-             {/* Assigned Modules (Locked State preserved) */}
-             <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-               <CardHeader className="bg-slate-50/50 border-b border-slate-50 px-4 md:px-6 py-3 md:py-4">
-                 <CardTitle className="text-sm md:text-base font-black text-slate-900">Assigned Sprints</CardTitle>
-               </CardHeader>
-               <CardContent className="p-0">
-                 {/* Only lock modules if learning style is enabled AND user hasn't completed survey */}
-                 {companyLearningStyleEnabled && !learningStyle ? (
-                   <div className="py-8 sm:py-12 flex flex-col items-center text-center px-4">
-                     <div className="w-12 h-12 sm:w-14 sm:h-14 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-3">
-                       <ShieldCheck size={24} className="sm:w-7 sm:h-7" />
-                     </div>
-                     <h5 className="text-sm sm:text-base font-bold text-slate-900">Modules are currently locked</h5>
-                     <p className="text-xs sm:text-sm text-slate-500 max-w-xs mt-1 font-medium">Complete your learning preference survey to access your baseline and training plan.</p>
-                   </div>
-                 ) : assignedModules.length === 0 ? (
-                   <div className="py-8 sm:py-12 flex flex-col items-center text-center px-4">
-                     <p className="text-slate-500 text-xs sm:text-sm font-medium">No Sprints Assigned</p>
-                   </div>
-                 ) : (
-                   <div>
-                     <div className={`divide-y divide-slate-50 ${showAllModules ? 'max-h-[500px] overflow-y-auto' : ''}`}>
-                       {(showAllModules ? assignedModules : assignedModules.slice(0, 3)).map((m) => (
-                         <div key={m.id} className="flex flex-col items-start gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4 md:p-6 bg-white">
-                           <div className="flex-1 min-w-0 w-full sm:w-auto">
-                             <p className="text-sm sm:text-base font-extrabold text-slate-900 break-words">{m.title || `Module ${m.id}`}</p>
-                             {m.moduleName && (
-                               <div className="text-xs text-slate-500 break-words mt-0.5">{m.moduleName}</div>
-                             )}
-                           </div>
-
-                           <div className="flex gap-2 w-full sm:w-auto flex-shrink-0">
-                             {m.hasBaseline ? (
-                               <button onClick={() => router.push(`/employee/assessment?moduleId=${m.id}`)} className="px-3 py-2 rounded-lg text-xs border border-slate-200 font-bold text-slate-700 bg-white hover:bg-slate-50 flex-1 sm:flex-none h-10">
-                                 Baseline
-                               </button>
-                             ) : null}
-
-                             <button onClick={() => router.push(`/employee/training-plan?module_id=${m.id}`)} className="px-6 sm:px-8 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm bg-blue-600 text-white font-bold hover:bg-blue-700 flex-1 sm:flex-none h-11 sm:h-12 transition-all duration-200">
-                               Start Your Sprint
-                             </button>
-                           </div>
-                         </div>
-                       ))}
-                     </div>
-                     
-                     {/* Show More / Show Less button */}
-                     {assignedModules.length > 3 && (
-                       <div className="p-3 sm:p-4 bg-slate-50/50 flex justify-center sm:justify-end">
-                         <button
-                           onClick={() => setShowAllModules(!showAllModules)}
-                           className="px-4 py-2 rounded-lg bg-blue-500 text-white text-xs sm:text-sm font-semibold hover:bg-blue-600 transition-all flex items-center gap-1.5 h-9 w-full sm:w-auto justify-center"
-                         >
-                           {showAllModules ? (
-                             <>
-                               Show Less
-                               <ChevronDown size={14} className="rotate-180 transition-transform" />
-                             </>
-                           ) : (
-                             <>
-                               Show More
-                               <ChevronDown size={14} className="transition-transform" />
-                             </>
-                           )}
-                         </button>
-                       </div>
-                     )}
-                   </div>
-                 )}
-               </CardContent>
-             </Card>
+             {/* Assigned Modules (Using New Component) */}
+             <AssignedSprintsSection
+               assignedModules={assignedModules}
+               moduleProgress={moduleProgress}
+               userId={employee?.user_id || ""}
+               companyId={activeCompanyId || employee?.company_id || ""}
+               isLocked={companyLearningStyleEnabled && !learningStyle}
+             />
 
              {/* Progress History */}
              {/* <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
