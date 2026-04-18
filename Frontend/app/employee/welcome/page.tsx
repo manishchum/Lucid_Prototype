@@ -325,15 +325,6 @@ export default function EmployeeWelcome() {
 
           const prStatus = normalizeStatus(pr?.status);
 
-          // A module is COMPLETE when any of these are true
-          const completed = Boolean(
-            mod?.completed === true ||
-              mod?.completed === 1 ||
-              Boolean(pr?.completed_at) ||
-              prStatus === "COMPLETED" ||
-              pr?.pass_status === true,
-          );
-
           // Compute score, prefer the progress row over the plan module snapshot
           const fallbackAssessments = assessmentEvidenceByModuleId?.[modId] || [];
           const fbMax =
@@ -346,25 +337,29 @@ export default function EmployeeWelcome() {
             toNumberOrNull(mod?.quizScore) ??
             (fbMax !== null && fbMax > -Infinity ? fbMax : null);
 
-          return {
+          // A module is COMPLETE when:
+          // - It has completed_at set AND
+          // - It has passStatus === true OR quizScore >= threshold
+          const passStatus = Boolean(pr?.pass_status);
+          const completed = Boolean(pr?.completed_at) && (passStatus || (quizScore !== null && quizScore >= threshold));
+
+          const moduleObj = {
             id: modId,
             name: String(mod?.name ?? mod?.title ?? `Module ${index + 1}`),
             completed,
             quizScore,
-            passStatus: Boolean(pr?.pass_status),
+            passStatus,
             completedAt: toIso(pr?.completed_at ?? mod?.completedAt),
           };
+
+          return moduleObj;
         });
       } else if (processedModuleIds.length > 0) {
         // Case 2: No modules array, but we have processed_module_ids
         sprintModules = processedModuleIds.map((pmId: string, index: number) => {
           const pr = findBestProgress(pmId);
-          const completed = Boolean(
-            pr?.completed_at ||
-              normalizeStatus(pr?.status) === "COMPLETED" ||
-              pr?.pass_status === true,
-          );
-
+          
+          // Compute score FIRST
           const fallbackAssessments = assessmentEvidenceByModuleId?.[pmId] || [];
           const fbMax =
             fallbackAssessments.length > 0
@@ -374,7 +369,13 @@ export default function EmployeeWelcome() {
             computePercentScore(pr) ??
             (fbMax !== null && fbMax > -Infinity ? fbMax : null);
 
-          return {
+          // A module is COMPLETE when:
+          // - It has completed_at set AND
+          // - It has passStatus === true OR quizScore >= threshold
+          const passStatus = Boolean(pr?.pass_status);
+          const completed = Boolean(pr?.completed_at) && (passStatus || (quizScore !== null && quizScore >= threshold));
+
+          const moduleObj = {
             id: pmId,
             name: String(
               pr?.processed_modules?.title ??
@@ -383,9 +384,11 @@ export default function EmployeeWelcome() {
             ),
             completed,
             quizScore,
-            passStatus: Boolean(pr?.pass_status),
+            passStatus,
             completedAt: toIso(pr?.completed_at),
           };
+
+          return moduleObj;
         });
       } else {
         // Case 3: No explicit module list — synthesise from progress rows
@@ -407,26 +410,31 @@ export default function EmployeeWelcome() {
         });
 
         if (relatedProgress.length > 0) {
-          sprintModules = relatedProgress.map((pr: any, index: number) => ({
-            id: String(
-              pr?.module_id ??
-                pr?.processed_module_id ??
-                `${sprintId}-${index + 1}`,
-            ),
-            name: String(
-              pr?.processed_modules?.title ??
-                pr?.module_title ??
-                `Module ${index + 1}`,
-            ),
-            completed: Boolean(
-              pr?.completed_at ||
-                normalizeStatus(pr?.status) === "COMPLETED" ||
-                pr?.pass_status === true,
-            ),
-            quizScore: computePercentScore(pr),
-            passStatus: Boolean(pr?.pass_status),
-            completedAt: toIso(pr?.completed_at),
-          }));
+          sprintModules = relatedProgress.map((pr: any, index: number) => {
+            const quizScore = computePercentScore(pr);
+            const passStatus = Boolean(pr?.pass_status);
+            // A module is COMPLETE when:
+            // - It has completed_at set AND
+            // - It has passStatus === true OR quizScore >= threshold
+            const completed = Boolean(pr?.completed_at) && (passStatus || (quizScore !== null && quizScore >= threshold));
+            
+            return {
+              id: String(
+                pr?.module_id ??
+                  pr?.processed_module_id ??
+                  `${sprintId}-${index + 1}`,
+              ),
+              name: String(
+                pr?.processed_modules?.title ??
+                  pr?.module_title ??
+                  `Module ${index + 1}`,
+              ),
+              completed,
+              quizScore,
+              passStatus,
+              completedAt: toIso(pr?.completed_at),
+            };
+          });
         } else {
           // Case 4: Absolute fallback — treat the plan itself as one module
           const fallbackAssessments =
@@ -447,10 +455,11 @@ export default function EmployeeWelcome() {
                 p.module_title ||
                 p.title ||
                 `Module ${sprintId || ""}`,
+              // A module is COMPLETE ONLY when backend says so OR it has completed_at
               completed:
                 isBackendCompleted ||
                 Boolean(p?.completed_at) ||
-                fallbackAssessments.some((ev) => ev.scorePercent !== null),
+                fallbackAssessments.some((ev) => ev.completedAt !== null),
               quizScore:
                 fbMax !== null && fbMax > -Infinity
                   ? fbMax
@@ -467,46 +476,22 @@ export default function EmployeeWelcome() {
         }
       }
 
-      // ── How many modules does this sprint expect? ─────────────────────
-      const expectedModuleCount =
-        modulesInPlan.length > 0
-          ? modulesInPlan.length
-          : processedModuleIds.length > 0
-          ? processedModuleIds.length
-          : sprintModules.length; // use what we built
-
-      // ── Per-module pass check ─────────────────────────────────────────
-      //   A module PASSES when:
-      //     • backend says pass_status === true, OR
-      //     • the recorded score is >= threshold
-      const modulePassesThreshold = (mod: SprintModule): boolean =>
-        mod.passStatus === true ||
-        (mod.quizScore !== null &&
-          mod.quizScore !== undefined &&
-          mod.quizScore >= threshold);
-
       // ── Certificate eligibility ───────────────────────────────────────
-      //   ALL of:
-      //     1. We have at least the expected number of module records
-      //     2. Every module's `completed` flag is true
-      //     3. Every module passes the threshold
-      //   OR the backend itself reports COMPLETED.
-      const hasEnoughModules =
-        expectedModuleCount === 0 ||
-        sprintModules.length >= expectedModuleCount;
+      //   SIMPLE LOGIC: Certificate is ONLY earned when:
+      //     ALL modules have completed === true
+      //   OR the backend explicitly says COMPLETED
+      
+      const hasModules = sprintModules.length > 0;
 
       const allModulesComplete =
-        hasEnoughModules &&
-        sprintModules.length > 0 &&
+        hasModules &&
         sprintModules.every((mod) => mod.completed === true);
 
-      const allModulesPassed =
-        hasEnoughModules &&
-        sprintModules.length > 0 &&
-        sprintModules.every(modulePassesThreshold);
-
+      // Certificate ONLY when:
+      // - ALL modules are complete
+      // - OR backend explicitly marked as COMPLETED
       const certificateEarned =
-        (allModulesComplete && allModulesPassed) || isBackendCompleted;
+        allModulesComplete || isBackendCompleted;
 
       // ── Sprint-level completion date ──────────────────────────────────
       //   Use the latest completedAt among modules; fall back to plan date.
@@ -868,7 +853,6 @@ export default function EmployeeWelcome() {
         swrMs: 30 * 1000,
       },
     );
-    console.log(result)
     return result.data;
   };
 
@@ -975,7 +959,7 @@ export default function EmployeeWelcome() {
      else setNudgeMessage(`💪 One step in! Complete your sprints and stand among the top 5%.`);
    };
 
-  if (showLoadingProgress) {
+    if (showLoadingProgress) {
     return (
       <LoadingProgress
         label="Preparing your dashboard"
@@ -986,41 +970,18 @@ export default function EmployeeWelcome() {
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
-       <main className="min-h-screen pt-4 md:pt-8 pb-8 md:pb-12 px-4 sm:px-6 lg:px-8 relative">
-          <Button
-            onClick={() => setShowLeaderboard(true)}
-            variant="outline"
-            className="absolute top-4 right-4 rounded-lg border-slate-200 hover:bg-amber-50 hover:border-amber-200 transition-colors"
-            title="View leaderboard"
-            size="icon"
-          >
-            <Trophy className="w-4 h-4 text-amber-500" />
-          </Button>
-          <div className="max-w-6xl mx-auto w-full">
-         
-           {/* Dashboard Header */}
-           <div className="mb-6 md:mb-10 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-             <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-               <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100 shrink-0">
-                 <Users className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
-               </div>
-               <div className="min-w-0 flex-1">
-                 <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight break-words">
-                   {employee?.name ? `Welcome, ${employee.name.split(" ")[0]}` : "Learner Dashboard"}
-                 </h1>
-                 <p className="text-xs sm:text-sm text-slate-500 font-medium break-all sm:break-normal">
-                   {employee?.email || "Personalized learning hub"}
-                 </p>
-               </div>
-             </div>
-             <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-stretch sm:items-center">
-               <div className="w-full sm:w-[320px]">
-                 <CompanySelector showLabel />
-               </div>
-             </div>
-           </div>
-
-      <main className="min-h-screen pt-4 md:pt-8 pb-8 md:pb-12 px-4 sm:px-6 lg:px-8">
+  return (
+    <div>
+      <main className="min-h-screen pt-4 md:pt-8 pb-8 md:pb-12 px-4 sm:px-6 lg:px-8 relative">
+        <Button
+          onClick={() => setShowLeaderboard(true)}
+          variant="outline"
+          className="absolute top-4 right-4 rounded-lg border-slate-200 hover:bg-amber-50 hover:border-amber-200 transition-colors"
+          title="View leaderboard"
+          size="icon"
+        >
+          <Trophy className="w-4 h-4 text-amber-500" />
+        </Button>
         <div className="max-w-6xl mx-auto w-full">
           {/* Dashboard Header */}
           <div className="mb-6 md:mb-10 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -1123,8 +1084,7 @@ export default function EmployeeWelcome() {
                           className="text-blue-600 font-bold p-0 h-auto mt-3 text-xs sm:text-sm"
                           onClick={() => router.push("/employee/score-history")}
                         >
-                          Get full report{" "}
-                          <ArrowRight size={14} className="ml-1" />
+                          Get full report <ArrowRight size={14} className="ml-1" />
                         </Button>
                       </div>
                     </div>
@@ -1135,8 +1095,7 @@ export default function EmployeeWelcome() {
                           Discover Your Learning Style
                         </h4>
                         <p className="text-xs md:text-sm text-slate-500 font-medium">
-                          Take our 5-minute survey to unlock your personalized
-                          path.
+                          Take our 5-minute survey to unlock your personalized path.
                         </p>
                       </div>
                       <div className="relative mt-2 sm:mt-0">
@@ -1338,50 +1297,18 @@ export default function EmployeeWelcome() {
           </div>
         </div>
       )}
+
+      {/* Leaderboard Modal */}
+      {employee && (
+        <LeaderboardModal
+          open={showLeaderboard}
+          onOpenChange={setShowLeaderboard}
+          employee={employee}
+        />
+      )}
     </div>
-  
-             {/* Progress History */}
-             {/* <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-               <CardHeader className="px-8 py-6">
-                 <CardTitle className="text-lg font-black text-slate-900">Recent Activity</CardTitle>
-               </CardHeader>
-               <CardContent className="px-8 pb-8">
-                 <div className="space-y-4">
-                   {moduleProgress.length === 0 ? (
-                     <p className="text-slate-400 font-medium text-center py-4">No activity yet.</p>
-                   ) : (
-                     moduleProgress.map((mod) => (
-                       <div key={mod.processed_module_id} className="flex items-center gap-4 p-4 rounded-xl bg-slate-50/50 border border-slate-100/50">
-                         <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${mod.completed_at ? 'bg-green-100 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
-                           {mod.completed_at ? <CheckCircle2 size={20} /> : <Clock size={20} />}
-                         </div>
-                         <div className="flex-1 overflow-hidden">
-                           <p className="font-bold text-slate-900 truncate">{mod.processed_modules?.title || `Module ${mod.processed_module_id}`}</p>
-                           <p className="text-xs text-slate-500 font-medium">{mod.completed_at ? 'Finished' : 'In Progress'}</p>
-                         </div>
-                         {mod.quiz_score !== null && (
-                           <Badge className="bg-white border-slate-200 text-slate-600 font-bold">Score: {mod.quiz_score}%</Badge>
-                         )}
-                       </div>
-                     ))
-                   )}
-                 </div>
-               </CardContent>
-             </Card> */}
-           
-
-       {/* Leaderboard Modal */}
-       {employee && (
-         <LeaderboardModal
-           open={showLeaderboard}
-           onOpenChange={setShowLeaderboard}
-           employee={employee}
-         />
-       )}
-     </main>
-    
+  );
 }
-
 // ─── SprintRow ─────────────────────────────────────────────────────────────────
 // Extracted into its own component to keep button logic clear and testable.
 //
