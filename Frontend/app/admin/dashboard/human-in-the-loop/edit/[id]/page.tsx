@@ -1413,8 +1413,8 @@ export default function EditModulePage() {
     <div className="min-h-screen bg-[#FAFBFC]">
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
-        <div className="px-4 sm:px-8 py-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="px-8 py-4">
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-4">
               <button
                 onClick={() => router.push('/admin/dashboard/human-in-the-loop')}
@@ -1423,16 +1423,16 @@ export default function EditModulePage() {
                 <ArrowLeft size={20} />
               </button>
               <div>
-                <h1 className="text-xl font-bold text-[#1E293B] line-clamp-1">{module?.title || 'Module Review'}</h1>
-                <div className="flex items-center gap-2 sm:gap-4 mt-1 text-sm text-slate-500">
+                <h1 className="text-xl font-bold text-[#1E293B]">{module?.title || 'Module Review'}</h1>
+                <div className="flex items-center gap-4 mt-1 text-sm text-slate-500">
                   <span>Sub-Modules: <span className="font-medium">{subModules.length}</span></span>
-                  <span className="hidden sm:inline">•</span>
-                  <span className="text-xs sm:text-sm">ID: <span className="font-medium">{moduleId.slice(0, 8)}</span></span>
+                  <span>•</span>
+                  <span>ID: <span className="font-medium">{moduleId.slice(0, 8)}</span></span>
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3">
+            <div className="flex items-center gap-3">
               {getRoleBadge()}
               <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold ${getReviewStageColor(module?.review_stage)}`}>
                 {getReviewStageLabel(module?.review_stage)}
@@ -1441,56 +1441,54 @@ export default function EditModulePage() {
           </div>
 
           {/* Role-specific banners */}
-          <div className="mt-4 space-y-3">
-            {isUploader && !hasPendingReview && (
-              <div className="bg-purple-50 border border-purple-200 text-purple-800 px-4 py-3 rounded-lg flex items-start sm:items-center gap-3">
-                <Upload size={18} className="flex-shrink-0 mt-0.5 sm:mt-0" />
-                <span className="font-medium text-sm">You uploaded this module. Edit content and click "Request Approval" to submit changes for review.</span>
-              </div>
-            )}
+          {isUploader && !hasPendingReview && (
+            <div className="bg-purple-50 border border-purple-200 text-purple-800 px-4 py-3 rounded-lg flex items-center gap-3">
+              <Upload size={18} />
+              <span className="font-medium">You uploaded this module. Edit content and click "Request Approval" to submit changes for review.</span>
+            </div>
+          )}
 
-            {isUploader && hasPendingReview && (
-              <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg flex items-start sm:items-center gap-3">
-                <Clock size={18} className="flex-shrink-0 mt-0.5 sm:mt-0" />
-                <span className="font-medium text-sm">Your changes are pending review. The reviewer has been notified. You can view the submitted changes in the "Compare Changes" tab.</span>
-              </div>
-            )}
+          {isUploader && hasPendingReview && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg flex items-center gap-3">
+              <Clock size={18} />
+              <span className="font-medium">Your changes are pending review. The reviewer has been notified. You can view the submitted changes in the "Compare Changes" tab.</span>
+            </div>
+          )}
 
-            {isReviewer && userRole === 'reviewer' && hasPendingReview && (
-              <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg flex items-start sm:items-center gap-3">
-                <AlertTriangle size={18} className="flex-shrink-0 mt-0.5 sm:mt-0" />
-                <span className="font-medium text-sm">⚡ Review requested! The admin has submitted changes for your approval. Review the changes in "Compare Changes" tab, make edits if needed, then approve or reject.</span>
-              </div>
-            )}
+          {isReviewer && userRole === 'reviewer' && hasPendingReview && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg flex items-center gap-3">
+              <AlertTriangle size={18} />
+              <span className="font-medium">⚡ Review requested! The admin has submitted changes for your approval. Review the changes in "Compare Changes" tab, make edits if needed, then approve or reject.</span>
+            </div>
+          )}
 
-            {isReviewer && userRole === 'reviewer' && !hasPendingReview && (
-              <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg flex items-start sm:items-center gap-3">
-                <UserCheck size={18} className="flex-shrink-0 mt-0.5 sm:mt-0" />
-                <span className="font-medium text-sm">You are assigned to review this module. No pending changes to review at this time.</span>
-              </div>
-            )}
+          {isReviewer && userRole === 'reviewer' && !hasPendingReview && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg flex items-center gap-3">
+              <UserCheck size={18} />
+              <span className="font-medium">You are assigned to review this module. No pending changes to review at this time.</span>
+            </div>
+          )}
 
-            {userRole === 'both' && hasPendingReview && (
-              <div className="bg-indigo-50 border border-indigo-200 text-indigo-800 px-4 py-3 rounded-lg flex items-start sm:items-center gap-3">
-                <AlertTriangle size={18} className="flex-shrink-0 mt-0.5 sm:mt-0" />
-                <span className="font-medium text-sm">Changes are pending review. You have full authority to edit and approve.</span>
-              </div>
-            )}
+          {userRole === 'both' && hasPendingReview && (
+            <div className="bg-indigo-50 border border-indigo-200 text-indigo-800 px-4 py-3 rounded-lg flex items-center gap-3">
+              <AlertTriangle size={18} />
+              <span className="font-medium">Changes are pending review. You have full authority to edit and approve.</span>
+            </div>
+          )}
 
-            {userRole === 'both' && !hasPendingReview && (
-              <div className="bg-indigo-50 border border-indigo-200 text-indigo-800 px-4 py-3 rounded-lg flex items-start sm:items-center gap-3">
-                <Sparkles size={18} className="flex-shrink-0 mt-0.5 sm:mt-0" />
-                <span className="font-medium text-sm">You uploaded and are reviewing this module. Edit content and submit or approve directly.</span>
-              </div>
-            )}
-          </div>
+          {userRole === 'both' && !hasPendingReview && (
+            <div className="bg-indigo-50 border border-indigo-200 text-indigo-800 px-4 py-3 rounded-lg flex items-center gap-3">
+              <Sparkles size={18} />
+              <span className="font-medium">You uploaded and are reviewing this module. Edit content and submit or approve directly.</span>
+            </div>
+          )}
         </div>
       </header>
 
       {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 p-4 sm:p-8 pb-28">
+      <div className="grid grid-cols-12 gap-6 p-8 pb-28">
         {/* Left Panel - Sub-Modules List */}
-        <div className="lg:col-span-3 flex flex-col">
+        <div className="col-span-3 flex flex-col">
           <Card className="flex-1 bg-white border-slate-200 overflow-hidden flex flex-col">
             <div className="p-4 border-b border-slate-200">
               <div className="flex items-center gap-2 mb-2">
@@ -1502,7 +1500,7 @@ export default function EditModulePage() {
               <p className="text-xs text-slate-500">Total: {subModules.length} modules</p>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 max-h-64 lg:max-h-none">
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {subModules.length === 0 ? (
                 <div className="text-center py-8 text-slate-400">
                   <FileText size={32} className="mx-auto mb-2 opacity-50" />
@@ -1523,7 +1521,7 @@ export default function EditModulePage() {
                     >
                       <div className="flex items-start justify-between mb-1">
                         <span className="text-xs font-semibold text-blue-600">#{index + 1}</span>
-                        <div className="flex gap-1 flex-wrap justify-end">
+                        <div className="flex gap-1">
                           {hasPending && (
                             <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">
                               Pending
@@ -1551,7 +1549,7 @@ export default function EditModulePage() {
         </div>
 
         {/* Center Panel - Content View/Edit/Diff */}
-        <div className="lg:col-span-9 flex flex-col">
+        <div className="col-span-9 flex flex-col">
           <Card className="flex-1 bg-white border-slate-200 overflow-hidden flex flex-col">
             {/* Tabs */}
             {/* <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3"> */}
@@ -1594,7 +1592,7 @@ export default function EditModulePage() {
             {/* </div> */}
 
             {/* Content Area */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+            <div className="flex-1 overflow-y-auto p-6">
               {!selectedSubModule ? (
                 <div className="flex items-center justify-center h-full text-slate-400">
                   <div className="text-center">
@@ -1607,21 +1605,22 @@ export default function EditModulePage() {
                   {/* ========== EDIT TAB ========== */}
                   {activeView === 'edit' && (
                     <div>
-                      <div className="mb-4 pb-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="mb-4 pb-3 border-b border-slate-200 flex flex-between">
                         <div>
-                          <label className="text-sm font-semibold text-slate-700 block mb-1">
-                            Editing: {selectedSubModule.title}
-                          </label>
-                          {isUploader && (
-                            <p className="text-xs text-slate-500">
-                              Make your changes below. Click "Save Draft" to hold changes, then "Request Approval" to submit for review.
-                            </p>
-                          )}
-                          {isReviewer && (
-                            <p className="text-xs text-slate-500">
-                              You can make edits to the content. Click "Save Edits" to update, then "Final Approval" to push live.
-                            </p>
-                          )}
+
+                        <label className="text-sm font-semibold text-slate-700 block mb-1">
+                          Editing: {selectedSubModule.title}
+                        </label>
+                        {isUploader && (
+                          <p className="text-xs text-slate-500">
+                            Make your changes below. Click "Save Draft" to hold changes, then "Request Approval" to submit for review.
+                          </p>
+                        )}
+                        {isReviewer && (
+                          <p className="text-xs text-slate-500">
+                            You can make edits to the content. Click "Save Edits" to update, then "Final Approval" to push live.
+                          </p>
+                        )}
                         </div>
 
                         <input
@@ -1646,22 +1645,22 @@ export default function EditModulePage() {
                           onChange={handleAudioUpload}
                         />
                         <div className="flex items-center gap-2">
-                          {hasUnsavedChanges && (
-                            <span className="text-xs text-orange-600 font-medium">● Unsaved changes</span>
-                          )}
-                          {/* Admin save + request approval buttons */}
-                          {isUploader && hasUnsavedChanges && (
-                            <Button size="sm" variant="outline" onClick={handleSaveChanges} className="border-slate-300">
-                              Save Draft
-                            </Button>
-                          )}
-                          {/* Reviewer save edits button */}
-                          {isReviewer && hasUnsavedChanges && activeView === 'edit' && (
-                            <Button size="sm" onClick={handleReviewerSave} disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
-                              {submitting ? 'Saving...' : 'Save Edits'}
-                            </Button>
-                          )}
-                        </div>
+                {hasUnsavedChanges && (
+                  <span className="text-xs text-orange-600 font-medium">● Unsaved changes</span>
+                )}
+                {/* Admin save + request approval buttons */}
+                {isUploader && hasUnsavedChanges && (
+                  <Button size="sm" variant="outline" onClick={handleSaveChanges} className="border-slate-300">
+                    Save Draft
+                  </Button>
+                )}
+                {/* Reviewer save edits button */}
+                {isReviewer && hasUnsavedChanges && activeView === 'edit' && (
+                  <Button size="sm" onClick={handleReviewerSave} disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
+                    {submitting ? 'Saving...' : 'Save Edits'}
+                  </Button>
+                )}
+              </div>
                       </div>
                       <div
                         ref={contentEditableRef}
@@ -1671,7 +1670,7 @@ export default function EditModulePage() {
                         onInput={handleContentEditableChange}
                         onBlur={handleContentEditableChange}
                         suppressContentEditableWarning={true}
-                        className="prose prose-sm max-w-none min-h-[500px] p-3 sm:p-6 border-2 border-blue-200 rounded-lg focus:outline-none focus:border-blue-400 bg-white
+                        className="prose prose-sm max-w-none min-h-[500px] p-6 border-2 border-blue-200 rounded-lg focus:outline-none focus:border-blue-400 bg-white
                           prose-headings:font-bold prose-headings:text-[#1E293B]
                           prose-h1:text-3xl prose-h1:mb-6 prose-h1:mt-8
                           prose-h2:text-2xl prose-h2:mb-4 prose-h2:mt-6 prose-h2:pb-2 prose-h2:border-b prose-h2:border-slate-200
@@ -1708,7 +1707,7 @@ export default function EditModulePage() {
                       </div>
 
                       {currentPending ? (
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-2 gap-6">
                           {/* Left: Current Live */}
                           <div>
                             <div className="flex items-center gap-2 mb-3">
@@ -1758,7 +1757,7 @@ export default function EditModulePage() {
                         <div className="flex flex-col items-center justify-center py-16 text-slate-400">
                           <GitCompare size={48} className="mb-4 opacity-50" />
                           <p className="font-medium text-slate-600 mb-1">No pending changes to compare</p>
-                          <p className="text-sm text-center">
+                          <p className="text-sm">
                             {isUploader
                               ? 'Edit the content and click "Request Approval" to create a review request.'
                               : 'No review requests have been submitted for this sub-module yet.'
@@ -1962,14 +1961,14 @@ export default function EditModulePage() {
       {/* Footer Actions */}
       {/* <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-8 py-4 z-50"> */}
       <footer className="fixed bottom-0 left-0 right-0 lg:left-[var(--sidebar-width,0px)] bg-white border-t border-slate-200 px-4 sm:px-8 py-4 z-50">
-        <div className="flex items-center justify-center sm:justify-end">
-          <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+        <div className="flex items-center justify-end">
+          <div className="flex items-center gap-3">
             {/* ADMIN: Request Approval button */}
             {isUploader && (
               <Button
                 onClick={handleRequestApproval}
                 disabled={submitting || hasPendingReview}
-                className="bg-purple-600 hover:bg-purple-700 text-white disabled:bg-purple-300 flex-1 sm:flex-none"
+                className="bg-purple-600 hover:bg-purple-700 text-white disabled:bg-purple-300"
               >
                 <Upload size={16} className="mr-2" />
                 {submitting ? 'Submitting...' : hasPendingReview ? 'Approval Pending' : 'Request Approval'}
@@ -1982,7 +1981,7 @@ export default function EditModulePage() {
                 variant="outline"
                 onClick={handleReject}
                 disabled={submitting}
-                className="text-red-600 border-red-200 hover:bg-red-50 flex-1 sm:flex-none"
+                className="text-red-600 border-red-200 hover:bg-red-50"
               >
                 <XCircle size={16} className="mr-2" />
                 Reject Changes
@@ -1994,7 +1993,7 @@ export default function EditModulePage() {
               <Button
                 onClick={handleFinalApproval}
                 disabled={submitting}
-                className="bg-green-600 hover:bg-green-700 text-white flex-1 sm:flex-none"
+                className="bg-green-600 hover:bg-green-700 text-white"
               >
                 <CheckCircle size={16} className="mr-2" />
                 {submitting ? 'Approving...' : 'Final Approval'}

@@ -21,6 +21,7 @@ interface Sprint {
   totalQuizzes: number;
   hasBaseline: boolean;
   learningPlanId?: string;
+  certificateEarned?: boolean;
 }
 
 interface AssignedSprintsSectionProps {
@@ -78,55 +79,18 @@ export function AssignedSprintsSection({
           const plan = plansByModuleId[module.id];
           const dueDate = plan?.due_date;
 
-          // Fetch processed modules for this sprint to get total quiz count
-          let totalQuizzes = 1;
-          let quizzesAttempted = 0;
-
-          try {
-            const processedModulesRes = await fetchWithAuth(
-              `${API_BASE}/api/processed-modules/original-module/${module.id}`,
-              { headers }
-            );
-            
-            if (processedModulesRes.ok) {
-              const processedModulesData = await processedModulesRes.json();
-              const processedModules = processedModulesData?.data || [];
-              totalQuizzes = processedModules.length || 1;
-
-              // Get processed module IDs for quiz attempt counting
-              const processedModuleIds = processedModules.map(
-                (pm: any) => pm.processed_module_id
-              );
-
-              // Count how many quizzes have been attempted by checking module_progress
-              if (processedModuleIds.length > 0) {
-                const matchedProgressRecords = moduleProgress.filter(
-                  (p) =>
-                    processedModuleIds.includes(p.processed_module_id) &&
-                    p.quiz_score !== null &&
-                    p.quiz_score !== undefined
-                );
-                quizzesAttempted = matchedProgressRecords.length;
-              }
-            }
-          } catch (error) {
-            console.error(`Error fetching processed modules for ${module.id}:`, error);
-            // Fallback: use module progress count
-            const moduleProgressData = moduleProgress.filter(
-              (p) =>
-                p.module_id === module.id ||
-                (p.processed_modules?.original_module_id === module.id)
-            );
-            quizzesAttempted = moduleProgressData.filter(
-              (p) => p.quiz_score !== null && p.quiz_score !== undefined
-            ).length;
-          }
+          const totalQuizzes = module.modules?.length || 1;
+          const quizzesAttempted = moduleProgress.filter(p => {
+            // Find the processed module in the sprint's modules list
+            const processedModule = module.modules.find(m => m.id === p.processed_module_id);
+            return processedModule && p.quiz_score !== null && p.quiz_score !== undefined;
+          }).length;
 
           // Determine status based on quiz attempts
           let status: Sprint["status"] = "Not Started";
           if (quizzesAttempted === 0) {
             status = "Not Started";
-          } else if (quizzesAttempted === totalQuizzes) {
+          } else if (quizzesAttempted >= totalQuizzes) {
             status = "Completed";
           } else {
             status = "In Progress";
@@ -149,6 +113,7 @@ export function AssignedSprintsSection({
             totalQuizzes,
             hasBaseline: module.hasBaseline,
             learningPlanId: plan?.learning_plan_id,
+            certificateEarned: module.certificateEarned,
           };
         })
       );
@@ -167,6 +132,7 @@ export function AssignedSprintsSection({
         quizzesAttempted: 0,
         totalQuizzes: 1,
         hasBaseline: module.hasBaseline,
+        certificateEarned: module.certificateEarned,
       }));
       setSprints(basicSprints);
     } finally {
@@ -410,19 +376,27 @@ export function AssignedSprintsSection({
                         Baseline
                       </button>
                     )}
-                    <button
-                      onClick={() =>
-                        router.push(`/employee/training-plan?module_id=${sprint.id}`)
-                      }
-                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold text-white transition-colors ${
-                        sprint.status === "Completed"
-                          ? "bg-slate-400 hover:bg-slate-500"
-                          : "bg-blue-600 hover:bg-blue-700"
-                      }`}
-                    >
-                      {sprint.status === "Completed" ? "Review" : sprint.status === "In Progress" ? "Resume" : "Start"}
-                      
-                    </button>
+                    <div className="flex-1 flex gap-2">
+                      <button
+                        onClick={() =>
+                          router.push(`/employee/training-plan?module_id=${sprint.id}`)
+                        }
+                        className={`w-1/2 flex-1 px-3 py-2 rounded-lg text-xs font-bold text-white transition-colors ${
+                          sprint.status === "Completed"
+                            ? "bg-slate-400 hover:bg-slate-500"
+                            : "bg-blue-600 hover:bg-blue-700"
+                        }`}
+                      >
+                        {sprint.status === "Completed" ? "Review" : sprint.status === "In Progress" ? "Resume" : "Start"}
+                      </button>
+                      <button
+                        
+                        disabled={sprint.status !== "Completed"}
+                        className="w-1/2 flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-colors border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                      >
+                        Certificate
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -476,7 +450,10 @@ export function AssignedSprintsSection({
                     COMPLETION
                   </th>
                   <th className="px-4 md:px-6 py-3 text-center text-xs font-bold text-slate-700">
-                    ACTION
+                    ACTIONS
+                  </th>
+                  <th className="px-4 md:px-6 py-3 text-center text-xs font-bold text-slate-700">
+                    CERTIFICATE
                   </th>
                 </tr>
               </thead>
@@ -548,6 +525,15 @@ export function AssignedSprintsSection({
                           {sprint.status === "Completed" ? "Review" : sprint.status === "In Progress" ? "Resume" : "Start"}
                         </button>
                       </div>
+                    </td>
+                    <td className="px-4 md:px-6 py-4 text-center">
+                      <button
+                        // onClick={() => alert("Certificate generation not implemented yet.")}
+                        disabled={sprint.status !== "Completed"}
+                        className="px-3 py-1.5 rounded text-xs font-semibold transition-colors border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed whitespace-nowrap"
+                      >
+                        Certificate
+                      </button>
                     </td>
                   </tr>
                 ))}
