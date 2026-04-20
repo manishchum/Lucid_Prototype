@@ -217,14 +217,23 @@ export default function RolePlayRealtime({
 
     setStatus('Session ended. Generating assessment...');
 
-    // Clean up
+    // Clean up - Close WebSocket connection
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.close();
+    }
+    wsRef.current = null;
+
+    // Clean up media stream
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
     }
+    streamRef.current = null;
 
+    // Clean up audio context
     if (audioContextRef.current) {
       audioContextRef.current.close();
     }
+    audioContextRef.current = null;
 
     // Call end session handler
     onEndSession(sessionId || '', []);
