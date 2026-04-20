@@ -436,60 +436,60 @@ export default function RolePlayConversation({
   return (
     <div ref={containerRef} className="fixed inset-0 bg-gray-900 flex flex-col z-50">
       {/* Header */}
-      <div className="bg-gray-800 border-b border-gray-700 px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="bg-gray-800 border-b border-gray-700 px-3 sm:px-6 py-2 sm:py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <div className={`w-2 h-2 rounded-full animate-pulse ${
             isBotSpeaking ? "bg-orange-500" : isRecording ? "bg-red-500" : "bg-green-500"
           }`} />
-          <span className="text-white font-medium">{scenario.title}</span>
+          <span className="text-white font-medium text-xs sm:text-sm truncate">{scenario.title}</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto flex-wrap">
           <button onClick={toggleCamera}
-            className={`p-2 rounded-lg transition-all ${isCameraOn ? "bg-gray-700 hover:bg-gray-600 text-white" : "bg-red-500 hover:bg-red-600 text-white"}`}>
-            {isCameraOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+            className={`p-1.5 sm:p-2 rounded-lg transition-all ${isCameraOn ? "bg-gray-700 hover:bg-gray-600 text-white" : "bg-red-500 hover:bg-red-600 text-white"}`}>
+            {isCameraOn ? <Video className="w-4 sm:w-5 h-4 sm:h-5" /> : <VideoOff className="w-4 sm:w-5 h-4 sm:h-5" />}
           </button>
           <button onClick={toggleMic}
-            className={`p-2 rounded-lg transition-all ${isMicOn ? "bg-gray-700 hover:bg-gray-600 text-white" : "bg-red-500 hover:bg-red-600 text-white"}`}>
-            {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+            className={`p-1.5 sm:p-2 rounded-lg transition-all ${isMicOn ? "bg-gray-700 hover:bg-gray-600 text-white" : "bg-red-500 hover:bg-red-600 text-white"}`}>
+            {isMicOn ? <Mic className="w-4 sm:w-5 h-4 sm:h-5" /> : <MicOff className="w-4 sm:w-5 h-4 sm:h-5" />}
           </button>
-          <Button onClick={handleEndSession} className="bg-red-500 hover:bg-red-600 text-white flex items-center gap-2">
-            <Phone className="w-4 h-4" /> End Meeting
+          <Button onClick={handleEndSession} className="bg-red-500 hover:bg-red-600 text-white flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-4 py-1 sm:py-2 h-auto">
+            <Phone className="w-3 sm:w-4 h-3 sm:h-4 flex-shrink-0" /> <span className="hidden xs:inline">End Meeting</span>
           </Button>
         </div>
       </div>
 
       {/* Main area */}
-      <div className="flex-1 flex">
+      <div className="flex-1 flex flex-col md:flex-row gap-0">
         {/* Bot side */}
-        <div className="w-1/2 bg-gradient-to-br from-purple-600 via-purple-500 to-indigo-600 flex items-center justify-center p-8 relative overflow-hidden">
+        <div className="flex-1 bg-gradient-to-br from-purple-600 via-purple-500 to-indigo-600 flex items-center justify-center p-4 sm:p-6 md:p-8 relative overflow-hidden">
           <div className="relative z-10 text-center">
-            <div className="relative mx-auto w-64 h-64 mb-6">
-              <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-white/10 rounded-full ${isBotSpeaking ? "animate-ping" : "opacity-0"}`} />
-              <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-white/5 rounded-full ${isBotSpeaking ? "animate-pulse" : "opacity-0"}`} />
-              <div className={`relative z-10 w-64 h-64 rounded-full bg-white flex items-center justify-center shadow-2xl transition-all duration-300 ${isBotSpeaking ? "scale-110 ring-8 ring-white/30" : "scale-100"}`}>
-                <span className="text-8xl font-bold text-purple-600">L</span>
+            <div className="relative mx-auto w-24 sm:w-32 md:w-48 lg:w-64 h-24 sm:h-32 md:h-48 lg:h-64 mb-2 sm:mb-3 md:mb-6">
+              <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 sm:w-32 md:w-48 lg:w-64 h-24 sm:h-32 md:h-48 lg:h-64 bg-white/10 rounded-full ${isBotSpeaking ? "animate-ping" : "opacity-0"}`} />
+              <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 sm:w-40 md:w-56 lg:w-80 h-32 sm:h-40 md:h-56 lg:h-80 bg-white/5 rounded-full ${isBotSpeaking ? "animate-pulse" : "opacity-0"}`} />
+              <div className={`relative z-10 w-24 sm:w-32 md:w-48 lg:w-64 h-24 sm:h-32 md:h-48 lg:h-64 rounded-full bg-white flex items-center justify-center shadow-2xl transition-all duration-300 ${isBotSpeaking ? "scale-110 ring-8 ring-white/30" : "scale-100"}`}>
+                <span className="text-3xl sm:text-4xl md:text-6xl lg:text-8xl font-bold text-purple-600">L</span>
               </div>
             </div>
             <div className="text-white">
-              <h2 className="text-4xl font-bold mb-2">{scenario.role}</h2>
-              <div className="flex items-center justify-center gap-3 mb-3">
+              <h2 className="text-base sm:text-lg md:text-2xl lg:text-4xl font-bold mb-1 sm:mb-2">{scenario.role}</h2>
+              <div className="flex items-center justify-center gap-1 sm:gap-2 md:gap-3 mb-1 sm:mb-2 md:mb-3 flex-wrap">
                 {isBotSpeaking ? (
                   <><div className="flex gap-1">
-                    <div className="w-2 h-6 bg-white rounded-full animate-pulse" style={{ animationDelay: "0ms" }} />
-                    <div className="w-2 h-8 bg-white rounded-full animate-pulse" style={{ animationDelay: "150ms" }} />
-                    <div className="w-2 h-6 bg-white rounded-full animate-pulse" style={{ animationDelay: "300ms" }} />
-                  </div><span className="text-xl font-medium">Speaking...</span></>
+                    <div className="w-1 sm:w-1.5 md:w-2 h-3 sm:h-4 md:h-6 bg-white rounded-full animate-pulse" style={{ animationDelay: "0ms" }} />
+                    <div className="w-1 sm:w-1.5 md:w-2 h-4 sm:h-6 md:h-8 bg-white rounded-full animate-pulse" style={{ animationDelay: "150ms" }} />
+                    <div className="w-1 sm:w-1.5 md:w-2 h-3 sm:h-4 md:h-6 bg-white rounded-full animate-pulse" style={{ animationDelay: "300ms" }} />
+                  </div><span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Speaking...</span></>
                 ) : isProcessing ? (
-                  <><Loader2 className="w-5 h-5 animate-spin" /><span className="text-xl font-medium">Processing...</span></>
+                  <><Loader2 className="w-3 sm:w-4 md:w-5 h-3 sm:h-4 md:h-5 animate-spin" /><span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Processing...</span></>
                 ) : isRecording ? (
-                  <><div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" /><span className="text-xl font-medium">Listening...</span></>
+                  <><div className="w-1.5 sm:w-2 md:w-3 h-1.5 sm:h-2 md:h-3 bg-red-500 rounded-full animate-pulse" /><span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Listening...</span></>
                 ) : conversationActive ? (
-                  <span className="text-xl font-medium">Ready</span>
+                  <span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Ready</span>
                 ) : (
-                  <span className="text-xl font-medium">Waiting to start</span>
+                  <span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Waiting to start</span>
                 )}
               </div>
-              <div className="text-purple-100 opacity-90 text-lg">
+              <div className="text-purple-100 opacity-90 text-xs sm:text-xs md:text-sm lg:text-lg">
                 {scenario.difficulty} Difficulty • {scenario.tone || "Neutral"} Tone
               </div>
             </div>
@@ -497,35 +497,35 @@ export default function RolePlayConversation({
         </div>
 
         {/* User video side */}
-        <div className="w-1/2 bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-600 flex items-center justify-center p-8 relative overflow-hidden">
-          <div className="relative z-10 w-full max-w-2xl">
-            <div className="relative rounded-3xl overflow-hidden shadow-2xl border-4 border-white/30 bg-black aspect-video">
+        <div className="flex-1 bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-600 flex items-center justify-center p-4 sm:p-6 md:p-8 relative overflow-hidden">
+          <div className="relative z-10 w-full h-full max-w-full">
+            <div className="relative w-full h-full overflow-hidden shadow-2xl border-2 sm:border-4 border-white/30 bg-black">
               <video ref={videoRef} autoPlay muted playsInline
                 className="w-full h-full object-cover transform scale-x-[-1]"
                 onLoadedMetadata={() => videoRef.current?.play().catch(() => {})} />
               {!videoStream && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
-                  <Camera className="w-16 h-16 mb-4 opacity-50" />
-                  <p className="text-lg">Camera not started</p>
+                  <Camera className="w-8 sm:w-10 md:w-14 lg:w-16 h-8 sm:h-10 md:h-14 lg:h-16 mb-2 sm:mb-3 md:mb-4 opacity-50" />
+                  <p className="text-xs sm:text-sm md:text-base lg:text-lg">Camera not started</p>
                 </div>
               )}
               {!isCameraOn && videoStream && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black text-white">
-                  <CameraOff className="w-16 h-16 mb-4" />
-                  <p className="text-lg">Camera is off</p>
+                  <CameraOff className="w-8 sm:w-10 md:w-14 lg:w-16 h-8 sm:h-10 md:h-14 lg:h-16 mb-2 sm:mb-3 md:mb-4" />
+                  <p className="text-xs sm:text-sm md:text-base lg:text-lg">Camera is off</p>
                 </div>
               )}
             </div>
             {isRecording && (
-              <div className="absolute bottom-8 right-8 bg-red-900/80 backdrop-blur-sm px-6 py-3 rounded-full animate-pulse">
-                <div className="text-white font-medium text-lg flex items-center gap-2">
-                  <div className="w-2 h-2 bg-red-500 rounded-full" /> Recording
+              <div className="absolute bottom-2 sm:bottom-3 md:bottom-6 lg:bottom-8 right-2 sm:right-3 md:right-6 lg:right-8 bg-red-900/80 backdrop-blur-sm px-2 sm:px-3 md:px-6 py-1 sm:py-2 md:py-3 rounded-full animate-pulse">
+                <div className="text-white font-medium text-xs sm:text-xs md:text-base lg:text-lg flex items-center gap-1 sm:gap-1 md:gap-2">
+                  <div className="w-1 sm:w-1.5 md:w-2 h-1 sm:h-1.5 md:h-2 bg-red-500 rounded-full" /> <span className="hidden xs:inline">Recording</span>
                 </div>
               </div>
             )}
             {!isRecording && (
-              <div className="absolute bottom-8 right-8 bg-blue-900/80 backdrop-blur-sm px-6 py-3 rounded-full">
-                <p className="text-white font-medium text-lg">You</p>
+              <div className="absolute bottom-2 sm:bottom-3 md:bottom-6 lg:bottom-8 right-2 sm:right-3 md:right-6 lg:right-8 bg-blue-900/80 backdrop-blur-sm px-2 sm:px-3 md:px-6 py-1 sm:py-2 md:py-3 rounded-full">
+                <p className="text-white font-medium text-xs sm:text-xs md:text-base lg:text-lg">You</p>
               </div>
             )}
           </div>
@@ -534,22 +534,22 @@ export default function RolePlayConversation({
 
       {/* Start overlay */}
       {!conversationActive && (
-        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-40">
-          <div className="bg-white rounded-3xl p-12 shadow-2xl max-w-lg text-center">
-            <div className="bg-gradient-to-br from-purple-100 to-blue-100 rounded-full p-8 mb-6 inline-block">
-              <Mic className="w-16 h-16 text-purple-600" />
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-40 p-4">
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-6 sm:p-8 lg:p-12 shadow-2xl max-w-sm sm:max-w-lg w-full text-center">
+            <div className="bg-gradient-to-br from-purple-100 to-blue-100 rounded-full p-4 sm:p-6 lg:p-8 mb-4 sm:mb-6 inline-block">
+              <Mic className="w-8 sm:w-12 lg:w-16 h-8 sm:h-12 lg:h-16 text-purple-600" />
             </div>
-            <h3 className="text-3xl font-bold text-slate-900 mb-3">Ready to Start?</h3>
-            <p className="text-slate-600 mb-8 text-lg">
+            <h3 className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 mb-2 sm:mb-3">Ready to Start?</h3>
+            <p className="text-slate-600 mb-6 sm:mb-8 text-sm sm:text-base lg:text-lg">
               Click the button to begin your speech-to-speech role-play. The bot will speak first, then listen to you!
             </p>
-            <Button onClick={startConversation} size="lg"
-              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-lg px-8 py-6"
+            <Button onClick={startConversation}
+              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-sm sm:text-base lg:text-lg px-4 sm:px-8 py-2 sm:py-3 lg:py-6 w-full sm:w-auto h-auto"
               disabled={isProcessing}>
               {isProcessing ? (
-                <><Loader2 className="w-6 h-6 mr-3 animate-spin" />Starting...</>
+                <><Loader2 className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-2 sm:mr-3 animate-spin" /><span className="hidden xs:inline">Starting...</span></>
               ) : (
-                <><Mic className="w-6 h-6 mr-3" />Start Conversation</>
+                <><Mic className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-2 sm:mr-3" /><span className="hidden xs:inline">Start Conversation</span></>
               )}
             </Button>
           </div>
@@ -559,12 +559,12 @@ export default function RolePlayConversation({
       {/* Error popup */}
       {limitPopup.open && (
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
-          <div className="bg-white rounded-2xl p-8 shadow-2xl max-w-md w-full text-center">
-            <h3 className="text-2xl font-bold text-slate-900 mb-3">Error</h3>
-            <p className="text-slate-600 mb-6">{limitPopup.message}</p>
-            <div className="flex items-center justify-center gap-3">
-              <Button onClick={() => { setLimitPopup({ open: false, message: "" }); onBack?.(); }} variant="outline" className="px-6">Back</Button>
-              <Button onClick={() => setLimitPopup({ open: false, message: "" })} className="px-6 bg-blue-600 hover:bg-blue-700">Retry</Button>
+          <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-2xl max-w-sm w-full text-center">
+            <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-slate-900 mb-2 sm:mb-3">Error</h3>
+            <p className="text-slate-600 mb-4 sm:mb-6 text-sm sm:text-base">{limitPopup.message}</p>
+            <div className="flex items-center justify-center gap-2 sm:gap-3 flex-col sm:flex-row">
+              <Button onClick={() => { setLimitPopup({ open: false, message: "" }); onBack?.(); }} variant="outline" className="px-4 sm:px-6 w-full sm:w-auto text-sm sm:text-base h-auto py-2 sm:py-2">Back</Button>
+              <Button onClick={() => setLimitPopup({ open: false, message: "" })} className="px-4 sm:px-6 bg-blue-600 hover:bg-blue-700 w-full sm:w-auto text-sm sm:text-base h-auto py-2 sm:py-2">Retry</Button>
             </div>
           </div>
         </div>
