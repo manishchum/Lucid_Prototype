@@ -697,7 +697,7 @@ function TrainingPlanContent() {
             <h1 className="text-3xl font-bold text-gray-800 mb-2">
               Learner's Performance Sprint{moduleTitle ? `- ${moduleTitle}` : ''}
             </h1>
-            <p className="text-slate-600">Your personalized learning roadmap to master new skills</p>
+            <p className="text-slate-600">Your personalized roadmap to master new skills</p>
           </div>
 
           {/* Main content area */}
