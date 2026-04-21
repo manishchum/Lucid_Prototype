@@ -19,6 +19,7 @@ import {
   ShieldCheck, ArrowRight, CheckCircle2, LogOut, Award,
   Download, Linkedin, X
 } from "lucide-react";
+import { AssignedSprintsSection } from "@/components/assigned-sprints-section";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const DEFAULT_QUIZ_THRESHOLD = 80;
@@ -95,7 +96,6 @@ export default function EmployeeWelcome() {
   const [progressPercentage, setProgressPercentage] = useState<number>(0);
   const [showLoginToast, setShowLoginToast] = useState<boolean>(false);
   const [isNavOverlay, setIsNavOverlay] = useState<boolean>(false);
-  const [showAllModules, setShowAllModules] = useState<boolean>(false);
   const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(false);
   const [selectedCertificateSprint, setSelectedCertificateSprint] = useState<SprintItem | null>(null);
   const [linkedinExpanded, setLinkedinExpanded] = useState<boolean>(false);
@@ -103,11 +103,19 @@ export default function EmployeeWelcome() {
   const [linkedinError, setLinkedinError] = useState<string>("");
   const [isExportingCertificate, setIsExportingCertificate] = useState<boolean>(false);
   const [showLeaderboard, setShowLeaderboard] = useState<boolean>(false);
+  const [showAllModules, setShowAllModules] = useState(false);
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
 
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
   const certificateRef = useRef<HTMLDivElement | null>(null);
+
+const handleGenerateCertificate = (sprintId: string) => {
+  const sprint = assignedModules.find((s) => s.id === sprintId);
+  if (sprint && sprint.certificateEarned) {
+    openCertificateModal(sprint);
+  }
+};
 
   // ─── Utility helpers ──────────────────────────────────────────────────────
 
@@ -363,7 +371,9 @@ export default function EmployeeWelcome() {
           const fallbackAssessments = assessmentEvidenceByModuleId?.[pmId] || [];
           const fbMax =
             fallbackAssessments.length > 0
-              ? Math.max(...fallbackAssessments.map((e) => e.scorePercent ?? -Infinity))
+              ? Math.max(
+                  ...fallbackAssessments.map((e) => e.scorePercent ?? -Infinity),
+                )
               : null;
           const quizScore =
             computePercentScore(pr) ??
@@ -1125,178 +1135,49 @@ export default function EmployeeWelcome() {
               </Card>
             )}
 
-            {/* ── Assigned Sprints ──────────────────────────────────────────── */}
-            <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-              <CardHeader className="bg-slate-50/50 border-b border-slate-50 px-4 md:px-6 py-3 md:py-4">
-                <CardTitle className="text-sm md:text-base font-black text-slate-900">
-                  Assigned Sprints
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                {companyLearningStyleEnabled && !learningStyle ? (
-                  <div className="py-8 sm:py-12 flex flex-col items-center text-center px-4">
-                    <div className="w-12 h-12 sm:w-14 sm:h-14 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-3">
-                      <ShieldCheck size={24} className="sm:w-7 sm:h-7" />
-                    </div>
-                    <h5 className="text-sm sm:text-base font-bold text-slate-900">
-                      Modules are currently locked
-                    </h5>
-                    <p className="text-xs sm:text-sm text-slate-500 max-w-xs mt-1 font-medium">
-                      Complete your learning preference survey to access your
-                      baseline and training plan.
-                    </p>
-                  </div>
-                ) : assignedModules.length === 0 ? (
-                  <div className="py-8 sm:py-12 flex flex-col items-center text-center px-4">
-                    <p className="text-slate-500 text-xs sm:text-sm font-medium">
-                      No Sprints Assigned
-                    </p>
-                  </div>
-                ) : (
-                  <div>
-                    <div
-                      className={`divide-y divide-slate-50 ${
-                        showAllModules ? "max-h-[500px] overflow-y-auto" : ""
-                      }`}
-                    >
-                      {(showAllModules
-                        ? assignedModules
-                        : assignedModules.slice(0, 3)
-                      ).map((m) => (
-                        <SprintRow
-                          key={m.id}
-                          sprint={m}
-                          onViewCertificate={openCertificateModal}
-                          onNavigate={(path) => router.push(path)}
-                        />
-                      ))}
-                    </div>
+             {/* Assigned Modules */}
+            <AssignedSprintsSection
+              assignedModules={assignedModules}
+              moduleProgress={moduleProgress}
+              userId={employee?.user_id || ""}
+              companyId={
+                (isDeveloperMode && activeCompanyId ? activeCompanyId : employee?.company_id) || ""
+              }
+              isLocked={companyLearningStyleEnabled && !learningStyle}
+              onGenerateCertificate={handleGenerateCertificate}
+            />
 
-                    {assignedModules.length > 3 && (
-                      <div className="p-3 sm:p-4 bg-slate-50/50 flex justify-center sm:justify-end">
-                        <button
-                          onClick={() => setShowAllModules(!showAllModules)}
-                          className="px-4 py-2 rounded-lg bg-blue-500 text-white text-xs sm:text-sm font-semibold hover:bg-blue-600 transition-all flex items-center gap-1.5 h-9 w-full sm:w-auto justify-center"
-                        >
-                          {showAllModules ? (
-                            <>
-                              Show Less
-                              <ChevronDown
-                                size={14}
-                                className="rotate-180 transition-transform"
-                              />
-                            </>
-                          ) : (
-                            <>
-                              Show More
-                              <ChevronDown
-                                size={14}
-                                className="transition-transform"
-                              />
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </main>
-
-      {/* Certificate Modal */}
-      {selectedCertificateSprint && (
-        <div className="fixed inset-0 z-[120] bg-slate-900/65 backdrop-blur-sm p-3 sm:p-6 overflow-y-auto">
-          <div className="max-w-5xl mx-auto bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-slate-100">
-              <div>
-                <h3 className="text-base sm:text-lg font-black text-slate-900">
-                  Sprint Completion Certificate
-                </h3>
-                <p className="text-xs sm:text-sm text-slate-500 font-medium">
-                  Preview, download, or share your accomplishment.
-                </p>
-              </div>
-              <button
-                onClick={closeCertificateModal}
-                className="w-9 h-9 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 inline-flex items-center justify-center"
-                aria-label="Close certificate preview"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="p-4 sm:p-6">
-              <CertificateTemplate
-                ref={certificateRef}
-                recipientName={
-                  employee?.name || user?.displayName || "Lucid Learner"
-                }
-                sprintName={selectedCertificateSprint.title}
-                completionDate={formatCertificateDate(
-                  selectedCertificateSprint.completedDate,
-                )}
-              />
-
-              <div className="mt-5 flex flex-col gap-3">
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <Button
-                    variant="outline"
-                    className="border-blue-600 text-blue-700 hover:bg-blue-50 font-bold"
-                    onClick={downloadCertificatePdf}
-                    disabled={isExportingCertificate}
-                  >
-                    <Download size={16} className="mr-2" />
-                    {isExportingCertificate
-                      ? "Preparing PDF..."
-                      : "Download PDF"}
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    className="border-[#0A66C2] text-[#0A66C2] hover:bg-[#EEF5FD] font-bold"
-                    onClick={() => {
-                      setLinkedinExpanded((prev) => !prev);
-                      setLinkedinError("");
-                    }}
-                  >
-                    <Linkedin size={16} className="mr-2" />
-                    Share on LinkedIn
-                  </Button>
-                </div>
-
-                {linkedinExpanded && (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-                    <label className="block text-xs sm:text-sm font-semibold text-slate-700">
-                      Paste your LinkedIn Profile URL
-                    </label>
-                    <input
-                      type="url"
-                      value={linkedinProfileUrl}
-                      onChange={(e) => setLinkedinProfileUrl(e.target.value)}
-                      placeholder="https://www.linkedin.com/in/yourprofile"
-                      className="w-full h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                    />
-                    {linkedinError ? (
-                      <p className="text-xs text-red-600 font-medium">
-                        {linkedinError}
-                      </p>
-                    ) : null}
-                    <Button
-                      onClick={shareOnLinkedIn}
-                      className="bg-[#0A66C2] hover:bg-[#0058B1] text-white font-semibold"
-                    >
-                      Post to LinkedIn
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+             {/* Progress History */}
+             {/* <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+               <CardHeader className="px-8 py-6">
+                 <CardTitle className="text-lg font-black text-slate-900">Recent Activity</CardTitle>
+               </CardHeader>
+               <CardContent className="px-8 pb-8">
+                 <div className="space-y-4">
+                   {moduleProgress.length === 0 ? (
+                     <p className="text-slate-400 font-medium text-center py-4">No activity yet.</p>
+                   ) : (
+                     moduleProgress.map((mod) => (
+                       <div key={mod.processed_module_id} className="flex items-center gap-4 p-4 rounded-xl bg-slate-50/50 border border-slate-100/50">
+                         <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${mod.completed_at ? 'bg-green-100 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+                           {mod.completed_at ? <CheckCircle2 size={20} /> : <Clock size={20} />}
+                         </div>
+                         <div className="flex-1 overflow-hidden">
+                           <p className="font-bold text-slate-900 truncate">{mod.processed_modules?.title || `Module ${mod.processed_module_id}`}</p>
+                           <p className="text-xs text-slate-500 font-medium">{mod.completed_at ? 'Finished' : 'In Progress'}</p>
+                         </div>
+                         {mod.quiz_score !== null && (
+                           <Badge className="bg-white border-slate-200 text-slate-600 font-bold">Score: {mod.quiz_score}%</Badge>
+                         )}
+                       </div>
+                     ))
+                   )}
+                 </div>
+               </CardContent>
+             </Card> */}
+           </div>
+         </div>
+       </main>
 
       {/* Leaderboard Modal */}
       {employee && (
@@ -1305,6 +1186,88 @@ export default function EmployeeWelcome() {
           onOpenChange={setShowLeaderboard}
           employee={employee}
         />
+      )}
+
+      {/* Certificate Modal */}
+            {selectedCertificateSprint && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="relative w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 py-4">
+              <div>
+                <h3 className="text-lg sm:text-xl font-black text-slate-900">
+                  Sprint Certificate
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-500 font-medium">
+                  Preview and download your certificate
+                </p>
+              </div>
+
+              <button
+                onClick={closeCertificateModal}
+                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+                aria-label="Close certificate modal"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 space-y-6">
+              <CertificateTemplate
+                ref={certificateRef}
+                recipientName={employee?.name || employee?.email || "Learner"}
+                sprintName={selectedCertificateSprint.title}
+                completionDate={formatCertificateDate(selectedCertificateSprint.completedDate)}
+              />
+
+              <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => setLinkedinExpanded((prev) => !prev)}
+                  className="rounded-xl"
+                >
+                  <Linkedin className="w-4 h-4 mr-2" />
+                  Share on LinkedIn
+                </Button>
+
+                <Button
+                  onClick={downloadCertificatePdf}
+                  disabled={isExportingCertificate}
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  {isExportingCertificate ? "Generating..." : "Download PDF"}
+                </Button>
+              </div>
+
+              {linkedinExpanded && (
+                <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
+                  <label className="block text-sm font-bold text-slate-700 mb-2">
+                    LinkedIn Profile URL
+                  </label>
+                  <input
+                    type="url"
+                    value={linkedinProfileUrl}
+                    onChange={(e) => setLinkedinProfileUrl(e.target.value)}
+                    placeholder="https://www.linkedin.com/in/your-profile"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  {linkedinError && (
+                    <p className="mt-2 text-sm text-red-600 font-medium">{linkedinError}</p>
+                  )}
+
+                  <div className="mt-3 flex justify-end">
+                    <Button
+                      onClick={shareOnLinkedIn}
+                      className="rounded-lg bg-slate-900 hover:bg-black text-white"
+                    >
+                      Post to LinkedIn
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
