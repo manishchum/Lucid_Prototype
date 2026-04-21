@@ -14,7 +14,7 @@ import {
   BarChart3,
   Filter
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';

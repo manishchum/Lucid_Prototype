@@ -30,7 +30,7 @@ from utils.db.email_db import (
     create_scheduled_email,
     update_email_status,
 )
-from utils.supabase_client import supabase
+from utils.supabase_client import supabase, supabase_admin
 from whatsapp.formatter import formatter
 
 router = APIRouter(prefix="/api/dispatch", tags=["dispatch"])
@@ -993,8 +993,9 @@ async def schedule_email(
         raise HTTPException(status_code=404, detail="No valid email addresses found")
 
     # 3. Get company_id from user context
-    user_data = supabase.table("users").select("company_id").eq("user_id", user_id).single().execute()
-    company_id = user_data.data.get("company_id") if user_data.data else None
+    user_data = supabase_admin.table("users").select("company_id").eq("user_id", user_id).maybe_single().execute()
+    user_row = user_data.data if (user_data and getattr(user_data, "data", None)) else None
+    company_id = user_row.get("company_id") if user_row else None
     if not company_id:
         raise HTTPException(status_code=400, detail="Could not determine company_id for user")
 
@@ -1063,13 +1064,14 @@ async def notify_email(
     # 1a. Fetch sprint title from training_modules
     first_module_id = target_module_ids[0]
     print(f"\n[NOTIFY-EMAIL DEBUG] Fetching sprint title for module: {first_module_id}")
-    sprint_result = supabase.table("processed_modules") \
+    sprint_result = supabase_admin.table("processed_modules") \
         .select("title") \
         .eq("processed_module_id", first_module_id) \
-        .single() \
+        .maybe_single() \
         .execute()
 
-    if not sprint_result.data:
+    sprint_row = sprint_result.data if (sprint_result and getattr(sprint_result, "data", None)) else None
+    if not sprint_row:
         raise HTTPException(status_code=404, detail="Module not found")
 
     # 1b. Fetch flashcard_data and audio_url ONLY from the specified modules
@@ -1083,16 +1085,16 @@ async def notify_email(
         if request.module_ids:
             # Fetching specific processed modules
             print(f"[NOTIFY-EMAIL DEBUG] Using module_ids approach (specific module ID)")
-            fc_result = supabase.table("processed_modules") \
+            fc_result = supabase_admin.table("processed_modules") \
                 .select("flashcard_data, audio_url, title") \
                 .eq("processed_module_id", target_id) \
-                .single() \
+                .maybe_single() \
                 .execute()
             print(f"[NOTIFY-EMAIL DEBUG] Query result: {fc_result.data}")
         else:
             # Backward compatibility: fetch all processed modules for original module
             print(f"[NOTIFY-EMAIL DEBUG] Using backward compatibility approach (original module ID)")
-            fc_result = supabase.table("processed_modules") \
+            fc_result = supabase_admin.table("processed_modules") \
                 .select("flashcard_data, audio_url, title") \
                 .eq("original_module_id", target_id) \
                 .execute()
@@ -1130,7 +1132,7 @@ async def notify_email(
     print(f"[NOTIFY-EMAIL DEBUG] Audio URL from DB: {audio_url_from_db or 'NONE'}")
    
     module = {
-        "title": sprint_result.data.get("title", ""),
+        "title": sprint_row.get("title", ""),
         "audio_url": audio_url_from_db,
         "flashcard_data": combined_flashcards,
     }
@@ -1203,15 +1205,17 @@ async def notify_email(
 
         # Get company_id for Supabase storage
         first_module_id = request.module_id or target_module_ids[0]
-        module_data = supabase.table("processed_modules") \
+        module_data = supabase_admin.table("processed_modules") \
             .select("title") \
             .eq("processed_module_id", first_module_id) \
-            .single() \
+            .maybe_single() \
             .execute()
+        module_row = module_data.data if (module_data and getattr(module_data, "data", None)) else None
         
         # Get company_id from user context
-        user_data = supabase.table("users").select("company_id").eq("user_id", user_id).single().execute()
-        company_id = user_data.data.get("company_id") if user_data.data else None
+        user_data = supabase_admin.table("users").select("company_id").eq("user_id", user_id).maybe_single().execute()
+        user_row = user_data.data if (user_data and getattr(user_data, "data", None)) else None
+        company_id = user_row.get("company_id") if user_row else None
         if not company_id:
             raise HTTPException(status_code=400, detail="Could not determine company_id for user")
 
@@ -1225,7 +1229,7 @@ async def notify_email(
             scheduled_date=request.scheduled_date,
             scheduled_time=request.scheduled_time,
             processed_module_id=first_module_id,
-            module_title=module_data.data.get("title") if module_data.data else None,
+            module_title=module_row.get("title") if module_row else None,
             content_types=request.selected_content,
             custom_flashcards=request.customFlashcards,
             custom_audio_url=request.customAudioUrl,
@@ -1513,19 +1517,19 @@ async def schedule_multi_module(
                 )
 
             # ── Fetch processed_module row ──
-            pm_result = supabase.table("processed_modules") \
+            pm_result = supabase_admin.table("processed_modules") \
                 .select("processed_module_id, title, flashcard_data, audio_url, original_module_id") \
                 .eq("processed_module_id", module_id) \
-                .single() \
+                .maybe_single() \
                 .execute()
 
-            if not pm_result.data:
+            pm_row = pm_result.data if (pm_result and getattr(pm_result, "data", None)) else None
+            if not pm_row:
                 raise HTTPException(
                     status_code=404,
                     detail=f"Processed module {module_id} not found in processed_modules",
                 )
 
-            pm_row = pm_result.data
             module_title = pm_row.get("title") or module_id
             original_module_id = pm_row.get("original_module_id")
 
@@ -1602,8 +1606,9 @@ async def schedule_multi_module(
                 continue
 
             # ── Get company_id from user context ──
-            user_data = supabase.table("users").select("company_id").eq("user_id", user_id).single().execute()
-            company_id = user_data.data.get("company_id") if user_data.data else None
+            user_data = supabase_admin.table("users").select("company_id").eq("user_id", user_id).maybe_single().execute()
+            user_row = user_data.data if (user_data and getattr(user_data, "data", None)) else None
+            company_id = user_row.get("company_id") if user_row else None
             if not company_id:
                 raise HTTPException(status_code=400, detail=f"Could not determine company_id for user")
 

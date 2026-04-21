@@ -312,7 +312,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.warn("[auth-context] Handling lucid:auth:force-logout event");
       await logout();
       if (typeof window !== 'undefined') {
-        window.location.href = '/employee/login';
+        window.location.href = '/login';
       }
     };
     
