@@ -181,15 +181,17 @@ Create a deep-dive, conversational instructor-led video script based on the modu
 
 For each scene, provide:
 1. title
-2. spoken_script
-3. slide_bullets (2-3 bullets)
-4. visual_prompt (no text, no human faces)
+2. spoken_script (in English)
+3. hinglish_script (in conversational Hinglish - a mix of Hindi and English written in Latin script)
+4. slide_bullets (2-3 bullets)
+5. visual_prompt (no text, no human faces)
 
 CRITICAL: Return JSON ONLY.
 [
   {{
     "title": "...",
     "spoken_script": "...",
+    "hinglish_script": "...",
     "slide_bullets": ["...", "..."],
     "visual_prompt": "..."
   }}
@@ -316,14 +318,14 @@ async def generateAvatarImage(dir: str) -> str:
 # ------------------------------------------------------------------
 # GOOGLE TTS
 # ------------------------------------------------------------------
-async def generateTTSAudio(script: str, outFile: str) -> float:
+async def generateTTSAudio(script: str, outFile: str, language_code: str = "en-US", voice_name: str = "en-US-Neural2-J") -> float:
     ttsClient = texttospeech.TextToSpeechClient()
 
     response = ttsClient.synthesize_speech(
         input=texttospeech.SynthesisInput(text=script),
         voice=texttospeech.VoiceSelectionParams(
-            language_code="en-US",
-            name="en-US-Neural2-J"
+            language_code=language_code,
+            name=voice_name
         ),
         audio_config=texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
@@ -411,9 +413,11 @@ async def composeScene(
     background: str,
     overlay: str,
     avatar: str,
-    audio: str,
+    audio_en: str,
+    audio_hi: str,
     out: str,
-    fallbacks: Dict[str, str]
+    fallbacks: Dict[str, str],
+    duration: float
 ):
     bgExists = False
     try:
@@ -445,6 +449,8 @@ async def composeScene(
         "[2:v]scale=350:350[av_scaled]" if avatarExists else "[2:v]scale=1:1[av_scaled]",
         "[av_scaled]pad=iw+10:ih+10:5:5:color='#38bdf8'[av]" if avatarExists else "[av_scaled]copy[av]",
         "[combined][av]overlay=W-w-40:H-h-40[outv]",
+        "[3:a]apad[a1]",
+        "[4:a]apad[a2]"
     ]
 
     cmd = [
@@ -452,16 +458,24 @@ async def composeScene(
         "-y",
         "-loop", "1",
         "-i", bgInput,
+        "-loop", "1",
         "-i", overlay,
         "-loop", "1",
         "-i", avInput,
-        "-i", audio,
+        "-i", audio_en,
+        "-i", audio_hi,
         "-filter_complex", ";".join(filter_complex),
         "-map", "[outv]",
-        "-map", "3:a",
+        "-map", "[a1]",
+        "-map", "[a2]",
         "-c:v", "libx264",
+        "-c:a", "aac",
         "-pix_fmt", "yuv420p",
-        "-shortest",
+        "-metadata:s:a:0", "language=eng",
+        "-metadata:s:a:0", "title=English",
+        "-metadata:s:a:1", "language=hin",
+        "-metadata:s:a:1", "title=Hinglish",
+        "-t", str(duration),
         out
     ]
 
@@ -487,7 +501,7 @@ async def composeScene(
 # ------------------------------------------------------------------
 # MAIN VIDEO PIPELINE
 # ------------------------------------------------------------------
-async def generateVideo(processedModuleId: str) -> str:
+async def generateVideo(processedModuleId: str) -> dict:
     print("Processed_Module_id:-", processedModuleId)
 
     module = None
@@ -566,18 +580,28 @@ async def generateVideo(processedModuleId: str) -> str:
     for i in range(len(scenes)):
         scene = scenes[i]
         bg = os.path.join(tmpDir, f"bg-{i}.png")
-        audio = os.path.join(tmpDir, f"audio-{i}.mp3")
+        audio_en = os.path.join(tmpDir, f"audio-en-{i}.mp3")
+        audio_hi = os.path.join(tmpDir, f"audio-hi-{i}.mp3")
         slide = await renderSlide(scene, i, tmpDir)
 
         print(f"[VIDEO] Generating visual and audio for scene {i + 1}/{len(scenes)}")
         await generateImagenImage(scene["visual_prompt"], bg)
-        duration = await generateTTSAudio(scene["spoken_script"], audio)
+        
+        # English audio
+        print(f"[VIDEO] Scene {i + 1} - English Script: {scene.get('spoken_script', '')}")
+        duration_en = await generateTTSAudio(scene["spoken_script"], audio_en, "en-US", "en-US-Neural2-J")
 
+        # Hinglish audio
+        hinglish_script = scene.get("hinglish_script", scene["spoken_script"])
+        print(f"[VIDEO] Scene {i + 1} - Hinglish Script: {hinglish_script}")
+        duration_hi = await generateTTSAudio(hinglish_script, audio_hi, "hi-IN", "hi-IN-Neural2-B")
+
+        max_duration = max(duration_en, duration_hi)
+        
         out = os.path.join(tmpDir, f"scene-{i}.mp4")
-        await composeScene(bg, slide, avatar, audio, out, fallbacks)
-
+        await composeScene(bg, slide, avatar, audio_en, audio_hi, out, fallbacks, max_duration)
         sceneVideos.append(out)
-        timeline += duration
+        timeline += max_duration
 
     listFile = os.path.join(tmpDir, "scenes.txt")
     with open(listFile, "w", encoding="utf-8") as f:
@@ -594,22 +618,25 @@ async def generateVideo(processedModuleId: str) -> str:
         "-f", "concat",
         "-safe", "0",
         "-i", listFile,
+        "-map", "0:v",
+        "-map", "0:a:0",
+        "-map", "0:a:1",
         "-c", "copy",
         finalVideo
     ]
     
-    def run_concat():
-        result = subprocess.run(
-            cmd_concat,
+    def run_concat(cmd):
+        return subprocess.run(
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
-        return result
     
-    result2 = await run_in_threadpool(run_concat)
-    if result2.returncode != 0:
-        raise Exception(result2.stderr.decode("utf-8", errors="ignore")[:2000])
+    result = await run_in_threadpool(run_concat, cmd_concat)
+    if result.returncode != 0:
+        raise Exception(result.stderr.decode("utf-8", errors="ignore")[:2000])
 
+    # Upload Video
     with open(finalVideo, "rb") as f:
         buffer = f.read()
 
@@ -619,57 +646,27 @@ async def generateVideo(processedModuleId: str) -> str:
     print(f"[VIDEO] Bucket check result: {bucket_result}")
     
     uploadPath = f"{actualId}/{str(uuid_lib.uuid4())}_notebooklm_video.mp4"
-    print(f"[VIDEO] Step 2: Upload path: {uploadPath}")
-    print(f"[VIDEO] Step 3: Buffer size: {len(buffer)} bytes ({len(buffer)/1024/1024:.2f} MB)")
 
     try:
-        print(f"[VIDEO] Step 4: Starting upload to bucket '{BUCKET}'...")
-        upload_res = supabase.storage.from_(BUCKET).upload(
+        supabase.storage.from_(BUCKET).upload(
             path=uploadPath,
             file=buffer,
             file_options={"content-type": "video/mp4", "upsert": "true"}
         )
-        
-        print(f"[VIDEO] Step 5: Upload response type: {type(upload_res)}")
-        print(f"[VIDEO] Step 6: Upload response content: {upload_res}")
-        
-        # Check for upload errors
-        if isinstance(upload_res, dict) and upload_res.get("error"):
-            print(f"[VIDEO] Step 7: Upload returned error dict")
-            raise Exception(f"Upload failed: {upload_res['error']}")
-        
-        print(f"[VIDEO] Step 8: Upload completed successfully")
     except Exception as e:
-        print(f"[VIDEO] Step 9: Upload exception caught: {type(e).__name__}: {e}")
-        import traceback
-        print(f"[VIDEO] Traceback: {traceback.format_exc()}")
-        # Continue anyway, try to get public URL
+        print(f"[VIDEO] Upload exception caught: {type(e).__name__}: {e}")
     
-    # Get public URL - supabase-py returns string directly
-    print(f"[VIDEO] Step 10: Requesting public URL for path: {uploadPath}")
     videoUrl = supabase.storage.from_(BUCKET).get_public_url(uploadPath)
     
-    print(f"[VIDEO] Step 11: Raw public URL response type: {type(videoUrl)}")
-    print(f"[VIDEO] Step 12: Raw public URL response value: {repr(videoUrl)}")
-    
-    # If it's a dict, extract the URL
     if isinstance(videoUrl, dict):
-        print(f"[VIDEO] Step 13: videoUrl is dict, extracting URL...")
-        print(f"[VIDEO] Dict keys: {videoUrl.keys()}")
         videoUrl = videoUrl.get("publicURL") or videoUrl.get("publicUrl") or videoUrl.get("signedURL")
-        print(f"[VIDEO] Step 14: Extracted URL: {videoUrl}")
-    
-    print(f"[VIDEO] Step 15: Final videoUrl type: {type(videoUrl)}, is string: {isinstance(videoUrl, str)}")
-    print(f"[VIDEO] Step 16: Final videoUrl value: {videoUrl}")
     
     if not videoUrl or not isinstance(videoUrl, str):
-        print(f"[VIDEO] Step 17: FAILED - videoUrl validation failed")
-        raise Exception(f"Failed to get public video URL. Got type={type(videoUrl)}, value={repr(videoUrl)}")
-    
-    print(f"[VIDEO] Step 18: SUCCESS - Valid video URL obtained")
+        raise Exception(f"Failed to get video URL.")
 
     # Save URL in DB
-    print("[VIDEO] Saving video URL to database:", videoUrl)
+    print("[VIDEO] Saving video URL to database:")
+    print("URL:", videoUrl)
 
     supabase.table("processed_modules").update({
         "video_url": videoUrl,
@@ -682,7 +679,9 @@ async def generateVideo(processedModuleId: str) -> str:
     except Exception:
         pass
 
-    return videoUrl
+    return {
+        "videoUrl": videoUrl
+    }
 
 
 # ------------------------------------------------------------------
@@ -703,9 +702,11 @@ async def POST(req: Request):
 
         print("[GPT-VIDEO] Starting generation for:", moduleId)
 
-        videoUrl = await generateVideo(moduleId)
+        urls = await generateVideo(moduleId)
 
-        return JSONResponse({"videoUrl": videoUrl})
+        return JSONResponse({
+            "videoUrl": urls["videoUrl"]
+        })
     except Exception as e:
         print("[GPT-VIDEO] Video generation failed:", e)
         return JSONResponse({"error": str(e) or "Generation failed"}, status_code=500)

@@ -1522,7 +1522,39 @@ function ContentTransformer({
           <div className="space-y-3 flex flex-col">
             {module.video_url && (
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <video controls className="w-full rounded-lg">
+                <div className="flex justify-end gap-2 mb-2">
+                  <button 
+                    onClick={() => {
+                      const video = document.getElementById('module-video') as any;
+                      if (video && video.audioTracks) {
+                        for (let i = 0; i < video.audioTracks.length; i++) {
+                          video.audioTracks[i].enabled = (i === 0);
+                        }
+                      } else {
+                        alert("Your browser does not support programmatic audio track switching for this MP4.");
+                      }
+                    }}
+                    className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold"
+                  >
+                    English Audio
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const video = document.getElementById('module-video') as any;
+                      if (video && video.audioTracks && video.audioTracks.length > 1) {
+                        for (let i = 0; i < video.audioTracks.length; i++) {
+                          video.audioTracks[i].enabled = (i === 1);
+                        }
+                      } else {
+                        alert("Your browser does not support programmatic audio track switching for this MP4.");
+                      }
+                    }}
+                    className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold"
+                  >
+                    Hinglish Audio
+                  </button>
+                </div>
+                <video id="module-video" controls className="w-full rounded-lg">
                   <source src={module.video_url} type="video/mp4" />
                   Your browser does not support video playback.
                 </video>
