@@ -543,13 +543,13 @@ export default function RolePlayConversation({
             <p className="text-slate-600 mb-6 sm:mb-8 text-sm sm:text-base lg:text-lg">
               Click the button to begin your speech-to-speech role-play. The bot will speak first, then listen to you!
             </p>
-            <Button onClick={startConversation} size="lg"
-              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-xs sm:text-sm md:text-base lg:text-lg px-4 sm:px-6 md:px-8 py-2 sm:py-3 md:py-4 lg:py-6"
+            <Button onClick={startConversation}
+              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-sm sm:text-base lg:text-lg px-4 sm:px-8 py-2 sm:py-3 lg:py-6 w-full sm:w-auto h-auto"
               disabled={isProcessing}>
               {isProcessing ? (
-                <><Loader2 className="w-4 sm:w-5 md:w-6 h-4 sm:h-5 md:h-6 mr-2 sm:mr-3 animate-spin" />Starting...</>
+                <><Loader2 className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-2 sm:mr-3 animate-spin" /><span className="hidden xs:inline">Starting...</span></>
               ) : (
-                <><Mic className="w-4 sm:w-5 md:w-6 h-4 sm:h-5 md:h-6 mr-2 sm:mr-3" />Start Conversation</>
+                <><Mic className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-2 sm:mr-3" /><span className="hidden xs:inline">Start Conversation</span></>
               )}
             </Button>
           </div>
@@ -562,9 +562,9 @@ export default function RolePlayConversation({
           <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-2xl max-w-sm w-full text-center">
             <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-slate-900 mb-2 sm:mb-3">Error</h3>
             <p className="text-slate-600 mb-4 sm:mb-6 text-sm sm:text-base">{limitPopup.message}</p>
-            <div className="flex items-center justify-center gap-2 sm:gap-3">
-              <Button onClick={() => { setLimitPopup({ open: false, message: "" }); onBack?.(); }} variant="outline" className="px-4 sm:px-6">Back</Button>
-              <Button onClick={() => setLimitPopup({ open: false, message: "" })} className="px-4 sm:px-6 bg-blue-600 hover:bg-blue-700">Retry</Button>
+            <div className="flex items-center justify-center gap-2 sm:gap-3 flex-col sm:flex-row">
+              <Button onClick={() => { setLimitPopup({ open: false, message: "" }); onBack?.(); }} variant="outline" className="px-4 sm:px-6 w-full sm:w-auto text-sm sm:text-base h-auto py-2 sm:py-2">Back</Button>
+              <Button onClick={() => setLimitPopup({ open: false, message: "" })} className="px-4 sm:px-6 bg-blue-600 hover:bg-blue-700 w-full sm:w-auto text-sm sm:text-base h-auto py-2 sm:py-2">Retry</Button>
             </div>
           </div>
         </div>

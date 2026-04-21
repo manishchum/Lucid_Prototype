@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
@@ -266,6 +266,18 @@ const EmployeeNavigation = ({
             </button>
             {isCollapsed && <NavTooltip label="Role-Play" />}
           </div>
+
+          {/* Skill Upgrade */}
+          <div className="relative group">
+            <button 
+              onClick={() => handleNavigate('/employee/skill-upgrade')}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/skill-upgrade') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+            >
+              <Award size={20} className="shrink-0" />
+              {!isCollapsed && <span className="text-[15px] font-bold">Skill Upgrade</span>}
+            </button>
+            {isCollapsed && <NavTooltip label="Skill Upgrade" />}
+          </div>
           {/* Console - visible for Admin and Super Admin */}
           {isAdmin && (
             <div className="relative group">
@@ -287,6 +299,7 @@ const EmployeeNavigation = ({
                       { href: "/admin/dashboard/employees", label: "Assign Sprints", icon: Users },
                       { href: "/admin/dashboard/uploads", label: "Sprint Manager", icon: Upload },
                       { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
+                      { href: "/admin/career-journeys", label: "Career Journey", icon: Briefcase },
                   ].map((item) => (
                       <button
                           key={item.label}

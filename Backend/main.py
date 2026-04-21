@@ -33,6 +33,7 @@ from module_progress.route import router as module_progress_router
 from change_password.route import router as change_password_router
 from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications
 from routes.analytics_export import router as analytics_export_router
+from routes.career_journeys import router as career_journeys_router
 
 # Import user routes
 # from routes.users import router as users_router
@@ -119,6 +120,7 @@ app.include_router(module_progress_router, prefix="/api", tags=["module-progress
 app.include_router(assistant_router, prefix="/api", tags=["assistant"])
 app.include_router(assistant_chat_router, prefix="/api", tags=["assistant-chat"])
 app.include_router(change_password_router, prefix="/api", tags=["change-password"])
+app.include_router(career_journeys_router, prefix="/api", tags=["career-journeys"])
 
 
 # Router Includes are here
