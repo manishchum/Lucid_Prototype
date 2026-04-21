@@ -317,6 +317,7 @@ const EmployeeNavigation = ({
                         { href: "/admin/dashboard/employees", label: "Assign Sprints", icon: Users },
                         { href: "/admin/dashboard/uploads", label: "Sprint Manager", icon: Upload },
                         { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
+                        { href: "/admin/career-journeys", label: "Career Journey", icon: Briefcase },
                       ]),
                   ].map((item) => (
                       <button
