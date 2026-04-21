@@ -254,7 +254,7 @@ export default function EmployeeWelcome() {
           <Button
             onClick={() => setShowLeaderboard(true)}
             variant="outline"
-            className="absolute top-4 right-4 rounded-lg border-slate-200 hover:bg-amber-50 hover:border-amber-200 transition-colors"
+            className="absolute top-4 right-20 rounded-lg border-slate-200 hover:bg-amber-50 hover:border-amber-200 transition-colors"
             title="View leaderboard"
             size="icon"
           >

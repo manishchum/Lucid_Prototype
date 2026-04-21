@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
+import { useTenant } from "@/contexts/tenant-context";
 import CompanySelector from "@/components/company-selector";
 import { supabase } from "@/lib/supabase";
 
@@ -28,6 +29,7 @@ const EmployeeNavigation = ({
   const router = useRouter();
   const pathname = usePathname();
   const { user: authUser, logout, userRoles, isAdmin, isSuperAdmin, isDeveloper, isManager, employeeData } = useAuth();
+  const { activeCompany } = useTenant();
   
   // Existing Logic States
   const [isCollapsed, setIsCollapsed] = useState(forceCollapsed);
@@ -39,6 +41,8 @@ const EmployeeNavigation = ({
   const [showReportToast, setShowReportToast] = useState(false);
 
   const displayUser = employeeData || authUser;
+  const companyDisplayName = activeCompany?.name || displayUser?.company_name || 'Company';
+  const companyLogo = activeCompany?.company_logo;
   const canAccessConsole = isAdmin || isSuperAdmin || isDeveloper || isManager;
   const isManagerOnlyConsole = isManager && !isAdmin && !isSuperAdmin && !isDeveloper;
 
@@ -152,13 +156,21 @@ const EmployeeNavigation = ({
         {/* Header */}
         <div className="p-6 pb-4 flex items-center justify-between">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleNavigate('/employee/welcome')}>
-            <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0 shadow-sm">
-              <svg className="w-5 h-5 text-[#3B66F5]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="6" y="4" width="3" height="14" fill="#3B66F5" rx="0.5" />
-                <rect x="6" y="15" width="9" height="3" fill="#3B66F5" rx="0.5" />
-              </svg>
-            </div>
-            {!isCollapsed && <span className="text-[21px] font-bold text-[#1E293B] tracking-tight">Lucid</span>}
+            {companyLogo ? (
+              <img
+                src={companyLogo}
+                alt={`${companyDisplayName} logo`}
+                className="w-10 h-10 rounded-xl object-contain shrink-0 border border-slate-100 bg-white p-1 shadow-sm"
+              />
+            ) : (
+              <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0 shadow-sm">
+                <svg className="w-5 h-5 text-[#3B66F5]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="6" y="4" width="3" height="14" fill="#3B66F5" rx="0.5" />
+                  <rect x="6" y="15" width="9" height="3" fill="#3B66F5" rx="0.5" />
+                </svg>
+              </div>
+            )}
+            {!isCollapsed && <span className="text-[21px] font-bold text-[#1E293B] tracking-tight truncate">{companyDisplayName}</span>}
           </div>
           <button onClick={() => setIsCollapsed(!isCollapsed)} className="hidden lg:block text-slate-400 hover:text-slate-600 transition-colors">
             {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}

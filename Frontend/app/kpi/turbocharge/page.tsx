@@ -110,7 +110,11 @@ const fetchUserByFilter = async (filters: {
     const res = await fetchWithAuth(`${API_BASE}/api/users?${params.toString()}`);
     if (!res.ok) return [];
     const payload = await res.json();
-    const users = payload?.users ?? payload;
+
+
+    console.log(payload)
+    const users = payload?.data?.users ?? payload;
+    console.log(users)
     return Array.isArray(users) ? users : users ? [users] : [];
   } catch(e) {
     console.error('Error fetching users:', e);
@@ -287,9 +291,12 @@ export default function KPITurbocharge() {
       }
 
       const payload = await res.json();
-      const modulesData = payload?.data || payload;
+      const modulesData = payload?.data || payload?.modules|| payload;
+      console.log(payload)
 
+      console.log(modulesData)
       if (modulesData && modulesData.length > 0) {
+        console.log(modulesData)
         setModules(modulesData.map((m: any) => ({
           module_id: m.module_id,
           title: m.title
@@ -357,6 +364,9 @@ export default function KPITurbocharge() {
         return;
       }
 
+
+      console.log("Till here no error");
+
       // Fetch related modules for each KPI
       const kpiDataWithModules = await Promise.all(
         kpis.map(async (kpi: any) => {
@@ -368,9 +378,14 @@ export default function KPITurbocharge() {
               }
             });
 
+
+            console.log("This is the response of hte training_modules",res);
             if (res.ok) {
               const payload = await res.json();
-              const modulesData = payload?.data || payload;
+
+              console.log("This is causing the error",payload)
+              const modulesData = payload?.modules ||payload?.data|| payload;
+              console.log("No this is no causing the error")
               modules = (modulesData || []).slice(0, 2);
             }
           }
@@ -404,7 +419,8 @@ export default function KPITurbocharge() {
         titleId: selectedTitleId
       });
 
-      const userIds = users.map(u => u.user_id);
+      console.log("Users to fecth the training modules",users)
+      const userIds = users[0]?.data?.map(u => u.user_id);
 
       if (userIds.length === 0) {
         setTopModules([]);
@@ -421,9 +437,11 @@ export default function KPITurbocharge() {
           }
         });
 
+        console.log(res);
         if (res.ok) {
           const payload = await res.json();
-          allModules = payload?.data || payload || [];
+          console.log(payload)
+          allModules = payload?.modules || payload?.data || [];
         }
       }
 
@@ -434,6 +452,7 @@ export default function KPITurbocharge() {
       }
 
       // Calculate performance for each module
+      console.log("User Ids",userIds)
       const moduleStats = await Promise.all(
         allModules.map(async (module) => {
           // Get learning plans for this module and filtered users
@@ -442,6 +461,7 @@ export default function KPITurbocharge() {
             .select('user_id, overall_status, processed_module_ids')
             .eq('module_id', module.module_id)
             .in('user_id', userIds);
+
 
           if (!learningPlans || learningPlans.length === 0) {
             return null; // No data for this module
@@ -514,7 +534,8 @@ export default function KPITurbocharge() {
         titleId: selectedTitleId
       });
 
-      const users = allUsers.slice(0, 4);
+      console.log(allUsers)
+      const users = allUsers.data?.slice(0, 4);
 
       if (!users || users.length === 0) {
         setRecommendedActions([]);
@@ -522,7 +543,8 @@ export default function KPITurbocharge() {
       }
 
       const userIds = users.map(u => u.user_id);
-
+      console.log("User Ids 2",userIds)
+      console.log(users)
       const { data: learningPlans } = await supabase
         .from('learning_plan')
         .select('user_id, module_id, status')
@@ -597,7 +619,7 @@ export default function KPITurbocharge() {
         return;
       }
 
-      const userIds = users.map(u => u.user_id);
+      const userIds = users[0].data?.map(u => u.user_id);
 
       // If a specific KPI is selected, fetch its details including target
       if (selectedKpiId) {
@@ -642,7 +664,9 @@ export default function KPITurbocharge() {
 
         if (res.ok) {
           const payload = await res.json();
-          const allAssessments = payload?.assessments || payload?.data || [];
+          console.log("This is the payload for scatter plot",payload);
+          const allAssessments = payload?.assessments || payload?.data?.assessments || [];
+          console.log("This is for the scatter plot",allAssessments)
           // Filter by userIds and only include rows with valid scores
           assessmentScores = allAssessments.filter(
             (a: any) => userIds.includes(a.user_id) && a.score != null && a.max_score != null
@@ -722,7 +746,8 @@ export default function KPITurbocharge() {
 
         if (res.ok) {
           const payload = await res.json();
-          allModules = (payload?.data || payload || []).slice(0, 10);
+          console.log("This is the module Data",payload)
+          allModules = (payload?.data?.data ||payload?.modules||payload.data|| payload || []).slice(0, 10);
         }
       }
 
@@ -731,9 +756,10 @@ export default function KPITurbocharge() {
         return;
       }
 
-      const userIds = users.map(u => u.user_id);
+      const userIds = users[0].data.map(u => u.user_id);
       const moduleIds = allModules.map(m => m.module_id);
 
+      console.log("User Ids 3",userIds);
       // Get all learning plans for these users and modules
       const { data: learningPlans } = await supabase
         .from('learning_plan')
@@ -752,6 +778,7 @@ export default function KPITurbocharge() {
 
         if (res.ok) {
           const payload = await res.json();
+          console.log("This progress is causing the error",payload)
           const allProgress = payload?.progress || payload?.data || payload || [];
           moduleProgress = allProgress.filter((mp: any) => userIds.includes(mp.user_id) && mp.quiz_score != null);
         } else {
@@ -771,7 +798,9 @@ export default function KPITurbocharge() {
 
         if (res.ok) {
           const payload = await res.json();
-          const allAssessments = payload?.assessments || payload?.data || [];
+          console.log("This is the payload data for the employee-assessments",payload)
+          const allAssessments =  payload?.data?.assessments ||payload?.assessments ||payload?.data|| [];
+          console.log(allAssessments)
           // Filter by userIds and only include rows with valid max_score and assessments data
           maxScoreData = allAssessments.filter(
             (a: any) => userIds.includes(a.user_id) && a.max_score != null && a.assessments
@@ -802,7 +831,8 @@ export default function KPITurbocharge() {
 
         if (res.ok) {
           const payload = await res.json();
-          const modules = payload?.data || payload || [];
+          console.log("This is the allModules.",payload)
+          const modules = payload?.data || payload.data.data ||payload|| [];
           processedModules.push(...modules.map((m: any) => ({
             processed_module_id: m.processed_module_id,
             original_module_id: m.original_module_id
@@ -957,12 +987,12 @@ export default function KPITurbocharge() {
         titleId: selectedTitleId
       });
      
-      const userIds = users.map((u: BackendUser) => u.user_id);
+      const userIds = users[0].data?.map((u: BackendUser) => u.user_id);
 
       if (userIds.length === 0) {
         setWorkforceReadiness({ score: 0, change: 0, status: 'No Users Found' });
         return;
-      }
+      } 
 
       // Module-wise calculation
       let totalReadyCount = 0;
@@ -972,22 +1002,26 @@ export default function KPITurbocharge() {
         let moduleReadyCount = 0;
         let moduleNotReadyCount = 0;
 
+        console.log('UserId 4',userIds)
         for (const userId of userIds) {
+
+          // console.log("This is causing error")
           // Get learning plan for this user and module
           const { data: learningPlan } = await supabase
             .from('learning_plan')
             .select('overall_status, processed_module_ids')
             .eq('user_id', userId)
             .eq('module_id', module.module_id)
-            .single();
+            // .single();
+            let temp  =learningPlan[0];
 
-          if (learningPlan) {
+          if (temp) {
             // Check if user has passed the module (overall_status is true)
-            if (learningPlan.overall_status === true) {
+            if (temp.overall_status === true) {
               moduleReadyCount++;
             } else {
               // User has not passed - check processed_module_ids
-              if (learningPlan.processed_module_ids === null || learningPlan.processed_module_ids === '') {
+              if (temp.processed_module_ids === null || temp.processed_module_ids === '') {
                 // Don't count this user (not started yet)
                 continue;
               } else {
@@ -1041,8 +1075,10 @@ export default function KPITurbocharge() {
       let readyCount = 0;
       let notReadyCount = 0;
 
+
+      console.log('UserId 5',users)
       // Check each user
-      for (const user of users) {
+      for (const user of users[0].data) {
         // Get all learning plans for this user
         const { data: learningPlans, error } = await supabase
           .from('learning_plan')

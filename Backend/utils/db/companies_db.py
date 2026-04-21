@@ -77,6 +77,9 @@ async def create_company(requesting_user_id: Optional[str], company_data: Dict[s
     
     if not company_data.get('domain'):
         return {"data": None, "error": "Company domain is required"}
+
+    if not company_data.get('company_logo'):
+        return {"data": None, "error": "Company logo is required"}
     
     try:
         resp = supabase.table('companies').insert(company_data).execute()

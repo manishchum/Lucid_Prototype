@@ -1808,6 +1808,8 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [newCompanyName, setNewCompanyName] = useState('');
   const [newCompanyDomain, setNewCompanyDomain] = useState('');
+  const [newCompanyLogoFile, setNewCompanyLogoFile] = useState<File | null>(null);
+  const [newCompanyLogoPreview, setNewCompanyLogoPreview] = useState('');
   const [creatingCompany, setCreatingCompany] = useState(false);
   const [showProvisionModal, setShowProvisionModal] = useState(false);
   const [provisioningCompany, setProvisioningCompany] = useState<any | null>(null);
@@ -1850,6 +1852,8 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       setSelectedCompanyId(companyId || '');
       setNewCompanyName('');
       setNewCompanyDomain('');
+      setNewCompanyLogoFile(null);
+      setNewCompanyLogoPreview('');
       setShowProvisionModal(false);
       setProvisioningCompany(null);
       setTemplateDepartments([]);
@@ -2128,13 +2132,47 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
 
   const handleCreateCompany = async () => {
     setError('');
-    if (!newCompanyName.trim() || !newCompanyDomain.trim()) {
-      setError('Company name and domain are required');
+    if (!newCompanyName.trim() || !newCompanyDomain.trim() || !newCompanyLogoFile) {
+      setError('Company name, domain, and logo are required');
       return;
     }
 
     setCreatingCompany(true);
     try {
+      const originalName = newCompanyLogoFile.name || 'logo';
+      const ext = originalName.includes('.') ? originalName.split('.').pop()?.toLowerCase() : 'png';
+      const safeExt = ext || 'png';
+      const safeName = newCompanyName
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      const logoPath = `companies/${safeName || 'company'}-${Date.now()}.${safeExt}`;
+
+      if (!supabase?.storage?.from) {
+        throw new Error('Storage client is not configured');
+      }
+      console.log("THis is the file path",logoPath)
+
+      const { data: logoUploadData, error: logoUploadError } = await supabase.storage
+        .from('logos')
+        .upload(logoPath, newCompanyLogoFile, {
+          contentType: newCompanyLogoFile.type || undefined,
+          upsert: true,
+        });
+
+
+      console.log("Upload successfull")
+      if (logoUploadError || !logoUploadData?.path) {
+        throw new Error(logoUploadError?.message || 'Failed to upload company logo');
+      }
+
+      const { data: publicLogo } = supabase.storage.from('logos').getPublicUrl(logoUploadData.path);
+      const logoUrl = publicLogo?.publicUrl;
+      if (!logoUrl) {
+        throw new Error('Failed to resolve company logo URL');
+      }
+
       const res = await fetchWithAuth(`${API_URL}/api/companies/`, {
         method: 'POST',
         headers: {
@@ -2144,6 +2182,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
         body: JSON.stringify({
           name: newCompanyName.trim(),
           domain: newCompanyDomain.trim().toLowerCase(),
+          company_logo: logoUrl,
           learning_style: false
         })
       });
@@ -2170,6 +2209,8 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       setFormData(prev => ({ ...prev, company_name: createdCompany.name || prev.company_name }));
       setNewCompanyName('');
       setNewCompanyDomain('');
+      setNewCompanyLogoFile(null);
+      setNewCompanyLogoPreview('');
 
       await loadDepartmentTemplatesForProvisioning();
       setProvisioningCompany(createdCompany);
@@ -2435,6 +2476,31 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
                         value={newCompanyDomain}
                         onChange={(e) => setNewCompanyDomain(e.target.value)}
                       />
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] || null;
+                          setNewCompanyLogoFile(file);
+                          if (!file) {
+                            setNewCompanyLogoPreview('');
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = () => setNewCompanyLogoPreview(String(reader.result || ''));
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                      {newCompanyLogoPreview && (
+                        <div className="rounded-md border border-gray-200 bg-white p-2 w-fit">
+                          <img
+                            src={newCompanyLogoPreview}
+                            alt="Company logo preview"
+                            className="h-12 w-auto object-contain"
+                          />
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-500">Upload company logo (stored in logos bucket).</p>
                       <Button type="button" variant="outline" onClick={handleCreateCompany} disabled={creatingCompany}>
                         {creatingCompany ? 'Creating company...' : 'Create Company'}
                       </Button>

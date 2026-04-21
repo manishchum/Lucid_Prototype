@@ -23,12 +23,14 @@ router = APIRouter(prefix="/api/companies", tags=["companies"])
 class CreateCompanyRequest(BaseModel):
     name: str
     domain: str
+    company_logo: str
     learning_style: Optional[bool] = False
 
 
 class UpdateCompanyRequest(BaseModel):
     name: Optional[str] = None
     domain: Optional[str] = None
+    company_logo: Optional[str] = None
     learning_style: Optional[bool] = None
 
 
