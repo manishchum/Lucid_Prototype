@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { useTenant } from "@/contexts/tenant-context";
 import CompanySelector from "@/components/company-selector";
 import { LeaderboardModal } from "@/components/leaderboard-modal";
+import { LeaderboardModal } from "@/components/leaderboard-modal";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import {
@@ -914,6 +915,11 @@ const handleGenerateCertificate = (sprintId: string) => {
       );
       setBaselineRequired(baselineNeeded);
 
+      const completedCount = data?.userRank?.modules_completed ?? 0;
+      const totalAssigned = mappedAssigned.length;
+      const progressValue = totalAssigned > 0 ? (completedCount / totalAssigned) * 100 : 0;
+      setProgressPercentage(progressValue);
+      
       const totalUsers = Array.isArray(data?.users) ? data.users.length : 0;
       const completedCount = mappedAssigned.filter(
         (p) => p.status === "completed",
@@ -965,6 +971,7 @@ const handleGenerateCertificate = (sprintId: string) => {
   }, [user, authLoading, activeCompanyId, isDeveloperMode]);
 
    const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
+     if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint!");
      if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint!");
      else setNudgeMessage(`💪 One step in! Complete your sprints and stand among the top 5%.`);
    };
@@ -1042,6 +1049,7 @@ const handleGenerateCertificate = (sprintId: string) => {
                             className="bg-slate-100 text-slate-600 border-none font-bold text-[10px] sm:text-xs"
                           >
                             {companyStats.completedEmployees} COMPLETED
+                            {companyStats.completedEmployees} COMPLETED
                           </Badge>
                         </div>
                       </div>
@@ -1062,9 +1070,11 @@ const handleGenerateCertificate = (sprintId: string) => {
                           }`}
                         >
                           {progressPercentage.toFixed(1)}%
+                          {progressPercentage.toFixed(1)}%
                         </span>
                       </div>
                       <div className="mt-2 text-[10px] sm:text-xs font-black uppercase tracking-[0.05em] text-slate-400 text-center">
+                        {companyStats.completedEmployees} of {assignedModules.length}
                         {companyStats.completedEmployees} of {assignedModules.length}
                       </div>
                     </div>
