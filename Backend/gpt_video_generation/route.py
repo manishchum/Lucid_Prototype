@@ -413,8 +413,7 @@ async def composeScene(
     background: str,
     overlay: str,
     avatar: str,
-    audio_en: str,
-    audio_hi: str,
+    audio: str,
     out: str,
     fallbacks: Dict[str, str],
     duration: float
@@ -449,8 +448,7 @@ async def composeScene(
         "[2:v]scale=350:350[av_scaled]" if avatarExists else "[2:v]scale=1:1[av_scaled]",
         "[av_scaled]pad=iw+10:ih+10:5:5:color='#38bdf8'[av]" if avatarExists else "[av_scaled]copy[av]",
         "[combined][av]overlay=W-w-40:H-h-40[outv]",
-        "[3:a]apad[a1]",
-        "[4:a]apad[a2]"
+        "[3:a]apad[a1]"
     ]
 
     cmd = [
@@ -462,19 +460,13 @@ async def composeScene(
         "-i", overlay,
         "-loop", "1",
         "-i", avInput,
-        "-i", audio_en,
-        "-i", audio_hi,
+        "-i", audio,
         "-filter_complex", ";".join(filter_complex),
         "-map", "[outv]",
         "-map", "[a1]",
-        "-map", "[a2]",
         "-c:v", "libx264",
         "-c:a", "aac",
         "-pix_fmt", "yuv420p",
-        "-metadata:s:a:0", "language=eng",
-        "-metadata:s:a:0", "title=English",
-        "-metadata:s:a:1", "language=hin",
-        "-metadata:s:a:1", "title=Hinglish",
         "-t", str(duration),
         out
     ]
@@ -574,7 +566,8 @@ async def generateVideo(processedModuleId: str) -> dict:
     print("[VIDEO] Generating AI instructor avatar...")
     avatar = await generateAvatarImage(tmpDir)
 
-    sceneVideos: List[str] = []
+    sceneVideos_en: List[str] = []
+    sceneVideos_hi: List[str] = []
     timeline = 0
 
     for i in range(len(scenes)):
@@ -598,31 +591,47 @@ async def generateVideo(processedModuleId: str) -> dict:
 
         max_duration = max(duration_en, duration_hi)
         
-        out = os.path.join(tmpDir, f"scene-{i}.mp4")
-        await composeScene(bg, slide, avatar, audio_en, audio_hi, out, fallbacks, max_duration)
-        sceneVideos.append(out)
+        out_en = os.path.join(tmpDir, f"scene-en-{i}.mp4")
+        out_hi = os.path.join(tmpDir, f"scene-hi-{i}.mp4")
+        
+        await composeScene(bg, slide, avatar, audio_en, out_en, fallbacks, max_duration)
+        await composeScene(bg, slide, avatar, audio_hi, out_hi, fallbacks, max_duration)
+        
+        sceneVideos_en.append(out_en)
+        sceneVideos_hi.append(out_hi)
         timeline += max_duration
 
-    listFile = os.path.join(tmpDir, "scenes.txt")
-    with open(listFile, "w", encoding="utf-8") as f:
-        f.write("\n".join([f"file '{v.replace(chr(92), '/')}'" for v in sceneVideos]))
+    listFile_en = os.path.join(tmpDir, "scenes_en.txt")
+    with open(listFile_en, "w", encoding="utf-8") as f:
+        f.write("\n".join([f"file '{v.replace(chr(92), '/')}'" for v in sceneVideos_en]))
 
-    finalVideo = os.path.join(tmpDir, "final.mp4")
+    listFile_hi = os.path.join(tmpDir, "scenes_hi.txt")
+    with open(listFile_hi, "w", encoding="utf-8") as f:
+        f.write("\n".join([f"file '{v.replace(chr(92), '/')}'" for v in sceneVideos_hi]))
+
+    finalVideo_en = os.path.join(tmpDir, "final_en.mp4")
+    finalVideo_hi = os.path.join(tmpDir, "final_hi.mp4")
 
     if not FFMPEG_PATH:
         raise Exception("ffmpeg not found in PATH. Please install ffmpeg.")
     
-    # ffmpeg concat
-    cmd_concat = [
+    # ffmpeg concat EN
+    cmd_concat_en = [
         FFMPEG_PATH, "-y",
         "-f", "concat",
         "-safe", "0",
-        "-i", listFile,
-        "-map", "0:v",
-        "-map", "0:a:0",
-        "-map", "0:a:1",
+        "-i", listFile_en,
         "-c", "copy",
-        finalVideo
+        finalVideo_en
+    ]
+    # ffmpeg concat HI
+    cmd_concat_hi = [
+        FFMPEG_PATH, "-y",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", listFile_hi,
+        "-c", "copy",
+        finalVideo_hi
     ]
     
     def run_concat(cmd):
@@ -632,44 +641,63 @@ async def generateVideo(processedModuleId: str) -> dict:
             stderr=subprocess.PIPE
         )
     
-    result = await run_in_threadpool(run_concat, cmd_concat)
-    if result.returncode != 0:
-        raise Exception(result.stderr.decode("utf-8", errors="ignore")[:2000])
+    result_en = await run_in_threadpool(run_concat, cmd_concat_en)
+    if result_en.returncode != 0:
+        raise Exception(result_en.stderr.decode("utf-8", errors="ignore")[:2000])
 
-    # Upload Video
-    with open(finalVideo, "rb") as f:
-        buffer = f.read()
+    result_hi = await run_in_threadpool(run_concat, cmd_concat_hi)
+    if result_hi.returncode != 0:
+        raise Exception(result_hi.stderr.decode("utf-8", errors="ignore")[:2000])
+
+    # Upload English Video
+    with open(finalVideo_en, "rb") as f:
+        buffer_en = f.read()
 
     # Upload to Supabase
     print("[VIDEO] Step 1: Ensuring bucket exists...")
     bucket_result = await ensureBucketExists()
     print(f"[VIDEO] Bucket check result: {bucket_result}")
     
-    uploadPath = f"{actualId}/{str(uuid_lib.uuid4())}_notebooklm_video.mp4"
+    uploadPath_en = f"{actualId}/{str(uuid_lib.uuid4())}_notebooklm_video_en.mp4"
+    uploadPath_hi = f"{actualId}/{str(uuid_lib.uuid4())}_notebooklm_video_hi.mp4"
 
     try:
         supabase.storage.from_(BUCKET).upload(
-            path=uploadPath,
-            file=buffer,
+            path=uploadPath_en,
+            file=buffer_en,
+            file_options={"content-type": "video/mp4", "upsert": "true"}
+        )
+        
+        with open(finalVideo_hi, "rb") as f:
+            buffer_hi = f.read()
+
+        supabase.storage.from_(BUCKET).upload(
+            path=uploadPath_hi,
+            file=buffer_hi,
             file_options={"content-type": "video/mp4", "upsert": "true"}
         )
     except Exception as e:
         print(f"[VIDEO] Upload exception caught: {type(e).__name__}: {e}")
     
-    videoUrl = supabase.storage.from_(BUCKET).get_public_url(uploadPath)
+    videoUrl_en = supabase.storage.from_(BUCKET).get_public_url(uploadPath_en)
+    videoUrl_hi = supabase.storage.from_(BUCKET).get_public_url(uploadPath_hi)
     
-    if isinstance(videoUrl, dict):
-        videoUrl = videoUrl.get("publicURL") or videoUrl.get("publicUrl") or videoUrl.get("signedURL")
+    if isinstance(videoUrl_en, dict):
+        videoUrl_en = videoUrl_en.get("publicURL") or videoUrl_en.get("publicUrl") or videoUrl_en.get("signedURL")
+    if isinstance(videoUrl_hi, dict):
+        videoUrl_hi = videoUrl_hi.get("publicURL") or videoUrl_hi.get("publicUrl") or videoUrl_hi.get("signedURL")
     
-    if not videoUrl or not isinstance(videoUrl, str):
-        raise Exception(f"Failed to get video URL.")
+    if not videoUrl_en or not isinstance(videoUrl_en, str):
+        raise Exception(f"Failed to get EN video URL.")
 
     # Save URL in DB
-    print("[VIDEO] Saving video URL to database:")
-    print("URL:", videoUrl)
+    print("[VIDEO] Saving video URLs to database:")
+    print("EN:", videoUrl_en)
+    print("HI:", videoUrl_hi)
 
     supabase.table("processed_modules").update({
-        "video_url": videoUrl,
+        "video_url": videoUrl_en,
+        "video_url_hinglish": videoUrl_hi,
         "video_generated_at": datetime.datetime.utcnow().isoformat()
     }).eq("processed_module_id", actualId).execute()
 
@@ -680,7 +708,8 @@ async def generateVideo(processedModuleId: str) -> dict:
         pass
 
     return {
-        "videoUrl": videoUrl
+        "videoUrl": videoUrl_en,
+        "videoUrlHinglish": videoUrl_hi
     }
 
 
@@ -705,7 +734,8 @@ async def POST(req: Request):
         urls = await generateVideo(moduleId)
 
         return JSONResponse({
-            "videoUrl": urls["videoUrl"]
+            "videoUrl": urls["videoUrl"],
+            "videoUrlHinglish": urls["videoUrlHinglish"]
         })
     except Exception as e:
         print("[GPT-VIDEO] Video generation failed:", e)
