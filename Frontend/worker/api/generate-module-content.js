@@ -295,6 +295,11 @@ ${objectivesText}
       
       console.log(`[RAG] Matched chunks count: ${matchedChunks?.length || 0}`);
 
+      if (matchedChunks) {
+        console.log('[CHUNKS] Matched chunk IDs:', matchedChunks.map(c => c.chunk_id));
+        console.log('[QUERY] Semantic Query:', semanticQuery);
+      }
+
       if (matchError) {
         console.error(`[RAG] Vector search error:`, matchError);
       }
