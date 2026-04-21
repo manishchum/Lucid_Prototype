@@ -30,6 +30,7 @@ interface AssignedSprintsSectionProps {
   userId: string;
   companyId: string;
   isLocked: boolean;
+  onGenerateCertificate: (sprintId: string) => void;
 }
 
 export function AssignedSprintsSection({
@@ -38,6 +39,7 @@ export function AssignedSprintsSection({
   userId,
   companyId,
   isLocked,
+  onGenerateCertificate,
 }: AssignedSprintsSectionProps) {
   const [viewType, setViewType] = useState<"grid" | "table">("grid");
   const [sprints, setSprints] = useState<Sprint[]>([]);
@@ -107,8 +109,8 @@ export function AssignedSprintsSection({
             title: module.title,
             moduleName: module.moduleName,
             dueDate,
-            status,
-            completionPercentage,
+            status : module.certificateEarned ? "Completed" : status, // Override to Completed if certificate is earned
+            completionPercentage : module.certificateEarned ? 100 : completionPercentage, // Override to 100% if certificate is earned
             quizzesAttempted,
             totalQuizzes,
             hasBaseline: module.hasBaseline,
@@ -390,8 +392,8 @@ export function AssignedSprintsSection({
                         {sprint.status === "Completed" ? "Review" : sprint.status === "In Progress" ? "Resume" : "Start"}
                       </button>
                       <button
-                        
-                        disabled={sprint.status !== "Completed"}
+                        onClick={() => onGenerateCertificate(sprint.id)}
+                        disabled={!sprint.certificateEarned}
                         className="w-1/2 flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-colors border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                       >
                         Certificate
@@ -528,8 +530,8 @@ export function AssignedSprintsSection({
                     </td>
                     <td className="px-4 md:px-6 py-4 text-center">
                       <button
-                        // onClick={() => alert("Certificate generation not implemented yet.")}
-                        disabled={sprint.status !== "Completed"}
+                        onClick={() => onGenerateCertificate(sprint.id)}
+                        disabled={!sprint.certificateEarned}
                         className="px-3 py-1.5 rounded text-xs font-semibold transition-colors border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed whitespace-nowrap"
                       >
                         Certificate
