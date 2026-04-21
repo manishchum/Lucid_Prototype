@@ -68,6 +68,7 @@ interface Sprint {
   id: string;
   name: string;
   completionTime?: string;
+  timeUnit?: 'days' | 'hours';
 }
 
 interface Level {
@@ -106,6 +107,7 @@ export default function CareerJourneysPage() {
   ]);
   const [sprintInputs, setSprintInputs] = useState<Record<string, string>>({});
   const [sprintTimeInputs, setSprintTimeInputs] = useState<Record<string, string>>({});
+  const [sprintTimeUnits, setSprintTimeUnits] = useState<Record<string, 'days' | 'hours'>>({});
   const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [submittedJourney, setSubmittedJourney] = useState<CareerJourney | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -162,11 +164,13 @@ export default function CareerJourneysPage() {
         };
         levelsMap.set(skill.level, level);
       }
-      level.sprints.push({
+      const sprint = {
         id: skill.id,
         name: skill.title,
-        completionTime: skill.estimatedHours ? `${skill.estimatedHours}h` : '',
-      });
+        completionTime: skill.estimatedHours ? `${skill.estimatedHours}` : '',
+        timeUnit: skill.timeUnit || 'hours'
+      };
+      level.sprints.push(sprint);
     });
 
     const transformedLevels = Array.from(levelsMap.values()).sort((a, b) => a.levelNumber - b.levelNumber);
@@ -189,6 +193,7 @@ export default function CareerJourneysPage() {
         description: '',
         level: (level.levelNumber === 1 ? 'beginner' : level.levelNumber === 2 ? 'intermediate' : 'advanced') as 'beginner' | 'intermediate' | 'advanced',
         estimatedHours: sprint.completionTime ? parseInt(sprint.completionTime) : undefined,
+        timeUnit: sprint.timeUnit || 'days',
       }))
     );
 
@@ -228,6 +233,8 @@ export default function CareerJourneysPage() {
   const addSprint = (levelId: string) => {
     const name = sprintInputs[levelId]?.trim();
     const time = sprintTimeInputs[levelId]?.trim();
+    const timeUnit = sprintTimeUnits[levelId] || 'days';
+    
     if (!name) return;
 
     const level = levels.find(l => l.id === levelId);
@@ -242,12 +249,14 @@ export default function CareerJourneysPage() {
     const newSprint = {
       id: crypto.randomUUID(),
       name,
-      completionTime: time
+      completionTime: time,
+      timeUnit: timeUnit
     };
 
     updateLevel(levelId, { sprints: [...level.sprints, newSprint] });
     setSprintInputs({ ...sprintInputs, [levelId]: '' });
     setSprintTimeInputs({ ...sprintTimeInputs, [levelId]: '' });
+    setSprintTimeUnits({ ...sprintTimeUnits, [levelId]: 'days' });
   };
 
   const removeSprint = (levelId: string, sprintId: string) => {
@@ -500,9 +509,9 @@ export default function CareerJourneysPage() {
               <div className="grid grid-cols-1 gap-6">
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Phase Goals</label>
+                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Level Goals</label>
                     <div className="flex flex-col gap-3">
-                      <div className="flex gap-3">
+                      <div className="flex gap-3 items-end">
                         <input
                           type="text"
                           value={sprintInputs[level.id] || ''}
@@ -511,24 +520,32 @@ export default function CareerJourneysPage() {
                           placeholder="What should they complete?"
                           className="flex-1 px-4 py-3 rounded-lg border border-gray-200 bg-white text-sm font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-300"
                         />
-                        <div className="relative w-48">
-                          <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" size={18} />
+                        <div className="flex items-center gap-2">
+                          <Clock className="text-gray-400 flex-shrink-0" size={18} />
                           <input
-                            type="text"
+                            type="number"
                             value={sprintTimeInputs[level.id] || ''}
                             onChange={(e) => setSprintTimeInputs({ ...sprintTimeInputs, [level.id]: e.target.value })}
                             onKeyDown={(e) => e.key === 'Enter' && addSprint(level.id)}
-                            placeholder="Time..."
-                            className="w-full pl-11 pr-4 py-3 rounded-lg border border-gray-200 bg-white text-sm font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-300"
+                            placeholder="0"
+                            className="w-16 px-3 py-3 rounded-lg border border-gray-200 bg-white text-sm font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-300"
                           />
+                          <select
+                            value={sprintTimeUnits[level.id] || 'days'}
+                            onChange={(e) => setSprintTimeUnits({ ...sprintTimeUnits, [level.id]: e.target.value as 'days' | 'hours' })}
+                            className="px-3 py-3 rounded-lg border border-gray-200 bg-white text-sm font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-gray-600"
+                          >
+                            <option value="days">Days</option>
+                            <option value="hours">Hours</option>
+                          </select>
                         </div>
+                        <button
+                          onClick={() => addSprint(level.id)}
+                          className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-black transition-all font-semibold text-sm active:scale-95 flex items-center justify-center gap-2 flex-shrink-0 whitespace-nowrap"
+                        >
+                          <Plus size={18} /> Add Goal
+                        </button>
                       </div>
-                      <button
-                        onClick={() => addSprint(level.id)}
-                        className="w-full bg-gray-900 text-white px-6 py-3 rounded-lg hover:bg-black transition-all font-semibold text-sm active:scale-95 flex items-center justify-center gap-2"
-                      >
-                        <Plus size={18} /> Add Goal
-                      </button>
                     </div>
                   </div>
 
@@ -546,7 +563,7 @@ export default function CareerJourneysPage() {
                             <span className="font-semibold text-gray-700 truncate text-sm">{sprint.name}</span>
                             {sprint.completionTime && (
                               <span className="text-xs font-medium text-blue-600 flex items-center gap-1 uppercase">
-                                <Clock size={12} /> {sprint.completionTime}
+                                <Clock size={12} /> {sprint.completionTime} {sprint.timeUnit === 'hours' ? 'hours' : 'days'}
                               </span>
                             )}
                           </div>
@@ -652,7 +669,7 @@ export default function CareerJourneysPage() {
                     <div className="flex-1 bg-gray-50/50 p-8 rounded-[2rem] border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-8 group hover:bg-white hover:shadow-2xl hover:shadow-blue-900/5 transition-all duration-500">
                         <div className="space-y-6 flex-1">
                           <div className="flex items-center gap-4">
-                            <h4 className="font-black text-gray-900 text-2xl tracking-tight">Phase {level.levelNumber}</h4>
+                            <h4 className="font-black text-gray-900 text-2xl tracking-tight">Level {level.levelNumber}</h4>
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {level.sprints.map((s) => (
@@ -662,7 +679,7 @@ export default function CareerJourneysPage() {
                               </span>
                               {s.completionTime && (
                                 <span className="text-[10px] font-black text-blue-600 flex items-center gap-1 uppercase tracking-widest opacity-70">
-                                  <Clock size={10} /> {s.completionTime}
+                                  <Clock size={10} /> {s.completionTime} {s.timeUnit === 'hours' ? 'hours' : 'days'}
                                 </span>
                               )}
                             </div>
@@ -716,7 +733,7 @@ export default function CareerJourneysPage() {
                       <div>
                         <h3 className="text-2xl font-black text-gray-900 tracking-tighter uppercase">{journey.roleName}</h3>
                         <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">
-                          {journey.levels.length} PHASES • {journey.levels.reduce((acc, l) => acc + l.sprints.length, 0)} SPRINTS
+                          {journey.levels.length} Levels • {journey.levels.reduce((acc, l) => acc + l.sprints.length, 0)} SPRINTS
                         </p>
                       </div>
                     </div>
@@ -767,7 +784,7 @@ export default function CareerJourneysPage() {
                               </div>
                               <div className="flex-1 bg-white p-6 rounded-2xl border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-6 group/item hover:shadow-md transition-all">
                                 <div className="space-y-4">
-                                  <h4 className="font-bold text-gray-900 text-lg tracking-tight uppercase">Phase {level.levelNumber}</h4>
+                                  <h4 className="font-bold text-gray-900 text-lg tracking-tight uppercase">Level {level.levelNumber}</h4>
                                   <div className="flex flex-wrap gap-2">
                                     {level.sprints.map((s) => (
                                       <span key={s.id} className="px-3 py-1 bg-gray-50 border border-gray-100 rounded-lg text-sm text-gray-600 font-bold uppercase tracking-wide">
@@ -835,7 +852,7 @@ export default function CareerJourneysPage() {
                       <div>
                         <h3 className="text-2xl font-black text-gray-900 tracking-tighter uppercase">{journey.roleName}</h3>
                         <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">
-                          {journey.levels.length} PHASES • {journey.levels.reduce((acc, l) => acc + l.sprints.length, 0)} SPRINTS
+                          {journey.levels.length} Levels • {journey.levels.reduce((acc, l) => acc + l.sprints.length, 0)} SPRINTS
                         </p>
                       </div>
                     </div>
@@ -876,7 +893,7 @@ export default function CareerJourneysPage() {
                               </div>
                               <div className="flex-1 bg-white p-6 rounded-2xl border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-6 group/item hover:shadow-md transition-all">
                                 <div className="space-y-4">
-                                  <h4 className="font-bold text-gray-900 text-lg tracking-tight uppercase">Phase {level.levelNumber}</h4>
+                                  <h4 className="font-bold text-gray-900 text-lg tracking-tight uppercase">Level {level.levelNumber}</h4>
                                   <div className="flex flex-wrap gap-2">
                                     {level.sprints.map((s) => (
                                       <span key={s.id} className="px-3 py-1 bg-gray-50 border border-gray-100 rounded-lg text-sm text-gray-600 font-bold uppercase tracking-wide">
