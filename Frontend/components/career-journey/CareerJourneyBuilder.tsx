@@ -8,6 +8,7 @@ interface Goal {
   id: string;
   description: string;
   timeInDays: number;
+  timeUnit?: 'days' | 'hours';
 }
 
 interface Level {
@@ -95,7 +96,7 @@ export default function CareerJourneyBuilder({
   const handleUpdateGoal = (
     levelId: string,
     goalId: string,
-    field: 'description' | 'timeInDays',
+    field: 'description' | 'timeInDays' | 'timeUnit',
     value: any
   ) => {
     setLevels((prev) =>
@@ -283,11 +284,11 @@ export default function CareerJourneyBuilder({
                                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-600 placeholder-gray-400"
                               />
                             </div>
-                            <div className="w-40 flex items-center gap-2">
+                            <div className="flex items-center gap-2">
                               <Clock size={18} className="text-gray-400 flex-shrink-0" />
                               <input
                                 type="number"
-                                placeholder="Days"
+                                placeholder="0"
                                 value={goal.timeInDays}
                                 onChange={(e) =>
                                   handleUpdateGoal(
@@ -297,8 +298,23 @@ export default function CareerJourneyBuilder({
                                     parseInt(e.target.value) || 0
                                   )
                                 }
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-600 placeholder-gray-400"
+                                className="w-16 px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-600 placeholder-gray-400"
                               />
+                              <select
+                                value={goal.timeUnit || 'days'}
+                                onChange={(e) =>
+                                  handleUpdateGoal(
+                                    level.id,
+                                    goal.id,
+                                    'timeUnit',
+                                    e.target.value
+                                  )
+                                }
+                                className="px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-600 bg-white text-sm"
+                              >
+                                <option value="days">Days</option>
+                                <option value="hours">Hours</option>
+                              </select>
                             </div>
                             <button
                               onClick={() => handleRemoveGoal(level.id, goal.id)}
@@ -311,20 +327,41 @@ export default function CareerJourneyBuilder({
                       </AnimatePresence>
 
                       {level.goals.length === 0 && (
-                        <p className="text-center py-8 text-gray-400 text-sm">
-                          NO SPRINTS DEFINED
-                        </p>
+                        <div className="flex gap-3 items-end">
+                          <div className="flex-1">
+                            <input
+                              type="text"
+                              placeholder="What should they complete?"
+                              disabled
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg bg-gray-50 text-gray-400 placeholder-gray-400 cursor-not-allowed"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Clock size={18} className="text-gray-400 flex-shrink-0" />
+                            <input
+                              type="number"
+                              placeholder="0"
+                              disabled
+                              className="w-16 px-3 py-3 border border-gray-300 rounded-lg bg-gray-50 text-gray-400 placeholder-gray-400 cursor-not-allowed"
+                            />
+                            <select
+                              disabled
+                              className="px-3 py-3 border border-gray-300 rounded-lg bg-gray-50 text-gray-400 text-sm cursor-not-allowed"
+                            >
+                              <option value="days">Days</option>
+                              <option value="hours">Hours</option>
+                            </select>
+                          </div>
+                          <button
+                            onClick={() => handleAddGoal(level.id)}
+                            className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 font-semibold transition-colors flex items-center justify-center gap-2 text-base flex-shrink-0 whitespace-nowrap"
+                          >
+                            <Plus size={20} />
+                            Add Goal
+                          </button>
+                        </div>
                       )}
                     </div>
-
-                    {/* Add Goal Button */}
-                    <button
-                      onClick={() => handleAddGoal(level.id)}
-                      className="w-full mt-4 px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 font-semibold transition-colors flex items-center justify-center gap-2 text-base"
-                    >
-                      <Plus size={20} />
-                      Add Goal with Time
-                    </button>
                   </div>
                 </motion.div>
               ))}
