@@ -1,0 +1,345 @@
+"""
+FastAPI routes for Career Journey CRUD operations
+Handles admin creation, editing, publishing and user retrieval of career journeys
+"""
+
+import os
+import json
+from datetime import datetime
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
+from supabase import create_client, Client
+from utils.auth import get_request_auth_required_from_request
+
+router = APIRouter()
+
+supabase: Client = create_client(
+    os.environ["NEXT_PUBLIC_SUPABASE_URL"],
+    os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+)
+
+
+@router.post("/career-journeys")
+async def create_career_journey(request: Request):
+    """
+    Create a new career journey draft
+    Requires: X-User-ID header (admin)
+    """
+    try:
+        auth_ctx = get_request_auth_required_from_request(request)
+        body = await request.json()
+
+        # Validate required fields
+        title = body.get("title", "").strip()
+        description = body.get("description", "").strip()
+        skills = body.get("skills", [])
+
+        if not title:
+            return JSONResponse(
+                {"error": "Journey title is required"},
+                status_code=400
+            )
+
+        if len(skills) == 0:
+            return JSONResponse(
+                {"error": "At least one skill is required"},
+                status_code=400
+            )
+
+        # Create journey record
+        journey_data = {
+            "title": title,
+            "description": description,
+            "category": body.get("category", ""),
+            "tags": body.get("tags", []),
+            "skills": skills,
+            "connections": body.get("connections", []),
+            "thumbnail": body.get("thumbnail"),
+            "status": "draft",
+            "created_by": str(auth_ctx.user_id),
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+
+        resp = supabase.table("career_journeys").insert(journey_data).execute()
+
+        if not resp.data:
+            return JSONResponse(
+                {"error": "Failed to create career journey"},
+                status_code=500
+            )
+
+        return JSONResponse({
+            "success": True,
+            "data": resp.data[0] if isinstance(resp.data, list) else resp.data
+        })
+
+    except HTTPException as error:
+        return JSONResponse({"error": error.detail}, status_code=error.status_code)
+    except Exception as error:
+        print("[career-journeys POST] Error:", error)
+        return JSONResponse(
+            {"error": "Failed to create career journey", "details": str(error)},
+            status_code=500
+        )
+
+
+@router.get("/career-journeys")
+async def list_career_journeys(request: Request, status: str = None):
+    """
+    List career journeys with optional status filter
+    - Admin: can see all drafts (status=draft)
+    - Users: can see published journeys (status=published)
+    """
+    try:
+        # Check if user is authenticated (optional for public published journeys)
+        user_id = request.headers.get("X-User-ID")
+
+        query = supabase.table("career_journeys").select("*")
+
+        # Filter by status if provided
+        if status:
+            query = query.eq("status", status)
+
+        resp = query.order("created_at", desc=True).execute()
+
+        journeys = resp.data or []
+
+        return JSONResponse({
+            "success": True,
+            "data": journeys
+        })
+
+    except Exception as error:
+        print("[career-journeys GET] Error:", error)
+        return JSONResponse(
+            {"error": "Failed to fetch career journeys", "details": str(error)},
+            status_code=500
+        )
+
+
+@router.get("/career-journeys/{journey_id}")
+async def get_career_journey(request: Request, journey_id: str):
+    """
+    Get a single career journey by ID
+    """
+    try:
+        auth_ctx = get_request_auth_required_from_request(request)
+
+        resp = supabase.table("career_journeys").select("*").eq(
+            "id", journey_id
+        ).single().execute()
+
+        if not resp.data:
+            return JSONResponse(
+                {"error": "Career journey not found"},
+                status_code=404
+            )
+
+        journey = resp.data
+
+        # Permission check: allow if user is creator or status is published
+        is_creator = str(journey.get("created_by")) == str(auth_ctx.user_id)
+        is_published = journey.get("status") == "published"
+
+        if not is_creator and not is_published:
+            return JSONResponse(
+                {"error": "Access denied"},
+                status_code=403
+            )
+
+        return JSONResponse({
+            "success": True,
+            "data": journey
+        })
+
+    except Exception as error:
+        print("[career-journeys GET {id}] Error:", error)
+        return JSONResponse(
+            {"error": "Failed to fetch career journey", "details": str(error)},
+            status_code=500
+        )
+
+
+@router.put("/career-journeys/{journey_id}")
+async def update_career_journey(request: Request, journey_id: str):
+    """
+    Update an existing career journey draft
+    Requires: X-User-ID header (admin)
+    """
+    try:
+        auth_ctx = get_request_auth_required_from_request(request)
+        body = await request.json()
+
+        # Get existing journey
+        resp = supabase.table("career_journeys").select("*").eq(
+            "id", journey_id
+        ).single().execute()
+
+        if not resp.data:
+            return JSONResponse(
+                {"error": "Career journey not found"},
+                status_code=404
+            )
+
+        journey = resp.data
+
+        # Permission check: only creator or admin can edit
+        if str(journey.get("created_by")) != str(auth_ctx.user_id):
+            return JSONResponse(
+                {"error": "Only the creator can edit this draft"},
+                status_code=403
+            )
+
+        # Cannot edit published journeys
+        if journey.get("status") == "published":
+            return JSONResponse(
+                {"error": "Cannot edit published journeys"},
+                status_code=400
+            )
+
+        # Prepare update data
+        update_data = {
+            "title": body.get("title", journey.get("title")),
+            "description": body.get("description", journey.get("description")),
+            "category": body.get("category", journey.get("category", "")),
+            "tags": body.get("tags", journey.get("tags", [])),
+            "skills": body.get("skills", journey.get("skills", [])),
+            "connections": body.get("connections", journey.get("connections", [])),
+            "thumbnail": body.get("thumbnail", journey.get("thumbnail")),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+
+        update_resp = supabase.table("career_journeys").update(update_data).eq(
+            "id", journey_id
+        ).execute()
+
+        if not update_resp.data:
+            return JSONResponse(
+                {"error": "Failed to update career journey"},
+                status_code=500
+            )
+
+        return JSONResponse({
+            "success": True,
+            "data": update_resp.data[0] if isinstance(update_resp.data, list) else update_resp.data
+        })
+
+    except Exception as error:
+        print("[career-journeys PUT] Error:", error)
+        return JSONResponse(
+            {"error": "Failed to update career journey", "details": str(error)},
+            status_code=500
+        )
+
+
+@router.patch("/career-journeys/{journey_id}/publish")
+async def publish_career_journey(request: Request, journey_id: str):
+    """
+    Publish a career journey (change status from draft to published)
+    Requires: X-User-ID header (admin)
+    """
+    try:
+        auth_ctx = get_request_auth_required_from_request(request)
+
+        # Get existing journey
+        resp = supabase.table("career_journeys").select("*").eq(
+            "id", journey_id
+        ).single().execute()
+
+        if not resp.data:
+            return JSONResponse(
+                {"error": "Career journey not found"},
+                status_code=404
+            )
+
+        journey = resp.data
+
+        # Permission check: only creator can publish
+        if str(journey.get("created_by")) != str(auth_ctx.user_id):
+            return JSONResponse(
+                {"error": "Only the creator can publish this journey"},
+                status_code=403
+            )
+
+        # Check if already published
+        if journey.get("status") == "published":
+            return JSONResponse(
+                {"error": "This journey is already published"},
+                status_code=400
+            )
+
+        # Update status to published
+        update_data = {
+            "status": "published",
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+
+        update_resp = supabase.table("career_journeys").update(update_data).eq(
+            "id", journey_id
+        ).execute()
+
+        if not update_resp.data:
+            return JSONResponse(
+                {"error": "Failed to publish career journey"},
+                status_code=500
+            )
+
+        return JSONResponse({
+            "success": True,
+            "data": update_resp.data[0] if isinstance(update_resp.data, list) else update_resp.data
+        })
+
+    except Exception as error:
+        print("[career-journeys PATCH /publish] Error:", error)
+        return JSONResponse(
+            {"error": "Failed to publish career journey", "details": str(error)},
+            status_code=500
+        )
+
+
+@router.delete("/career-journeys/{journey_id}")
+async def delete_career_journey(request: Request, journey_id: str):
+    """
+    Delete a career journey (drafts only)
+    Requires: X-User-ID header (admin)
+    """
+    try:
+        auth_ctx = get_request_auth_required_from_request(request)
+
+        # Get existing journey
+        resp = supabase.table("career_journeys").select("*").eq(
+            "id", journey_id
+        ).single().execute()
+
+        if not resp.data:
+            return JSONResponse(
+                {"error": "Career journey not found"},
+                status_code=404
+            )
+
+        journey = resp.data
+
+        # Permission check: only creator can delete
+        if str(journey.get("created_by")) != str(auth_ctx.user_id):
+            return JSONResponse(
+                {"error": "Only the creator can delete this journey"},
+                status_code=403
+            )
+
+        # Delete journey (both drafts and published)
+        del_resp = supabase.table("career_journeys").delete().eq(
+            "id", journey_id
+        ).execute()
+
+        return JSONResponse({
+            "success": True,
+            "message": "Career journey deleted successfully"
+        })
+
+    except Exception as error:
+        print("[career-journeys DELETE] Error:", error)
+        return JSONResponse(
+            {"error": "Failed to delete career journey", "details": str(error)},
+            status_code=500
+        )

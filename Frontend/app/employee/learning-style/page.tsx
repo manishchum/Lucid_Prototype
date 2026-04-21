@@ -641,7 +641,7 @@ export default function LearningStyleSurvey() {
       <div className="min-h-screen py-10">
         <div className="max-w-4xl mx-auto px-4">
         
-        {/* Header Section */}}
+        {/* Header Section */}
         <div className="text-center mb-8">
           {/* <CheckCircle className="w-20 h-20 text-green-500 mx-auto mb-4" /> */}
           <h1 className="text-3xl font-bold mb-2">Survey Complete!</h1>

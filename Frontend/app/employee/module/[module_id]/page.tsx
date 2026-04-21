@@ -303,8 +303,15 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       };
                     });
                   }}
-                  onVideoGenerated={(url: string) => {
-                    setModule((prev: any) => (prev ? { ...prev, video_url: url } : prev));
+                  onVideoGenerated={(url: string, hinglishUrl?: string) => {
+                    setModule((prev: any) => {
+                      if (!prev) return prev;
+                      return {
+                        ...prev,
+                        video_url: url,
+                        ...(hinglishUrl ? { video_url_hinglish: hinglishUrl } : {})
+                      };
+                    });
                   }}
                 />
 
@@ -1522,7 +1529,45 @@ function ContentTransformer({
           <div className="space-y-3 flex flex-col">
             {module.video_url && (
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <video controls className="w-full rounded-lg">
+                <div className="flex justify-end gap-2 mb-2">
+                  <button 
+                    onClick={() => {
+                      const video = document.getElementById('module-video') as HTMLVideoElement;
+                      if (!video) return;
+                      const currentTime = video.currentTime;
+                      const isPaused = video.paused;
+                      video.src = module.video_url;
+                      video.onloadedmetadata = () => {
+                        video.currentTime = currentTime;
+                        if (!isPaused) video.play();
+                        video.onloadedmetadata = null;
+                      };
+                    }}
+                    className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold"
+                  >
+                    English Audio
+                  </button>
+                  {module.video_url_hinglish && (
+                    <button 
+                      onClick={() => {
+                        const video = document.getElementById('module-video') as HTMLVideoElement;
+                        if (!video) return;
+                        const currentTime = video.currentTime;
+                        const isPaused = video.paused;
+                        video.src = module.video_url_hinglish;
+                        video.onloadedmetadata = () => {
+                          video.currentTime = currentTime;
+                          if (!isPaused) video.play();
+                          video.onloadedmetadata = null;
+                        };
+                      }}
+                      className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold"
+                    >
+                      Hinglish Audio
+                    </button>
+                  )}
+                </div>
+                <video id="module-video" controls className="w-full rounded-lg">
                   <source src={module.video_url} type="video/mp4" />
                   Your browser does not support video playback.
                 </video>
@@ -1534,8 +1579,8 @@ function ContentTransformer({
                 <div>Video is not available yet.</div>
                 <GenerateVideoButton
                   moduleId={module.processed_module_id}
-                  onVideoGenerated={(url) => {
-                    if (onVideoGenerated) onVideoGenerated(url);
+                  onVideoGenerated={(url, hinglishUrl) => {
+                    if (onVideoGenerated) onVideoGenerated(url, hinglishUrl);
                   }}
                 />
               </div>
@@ -2256,7 +2301,7 @@ function GenerateVideoButton({
   onVideoGenerated,
 }: {
   moduleId: string;
-  onVideoGenerated: (url: string) => void;
+  onVideoGenerated: (url: string, hinglishUrl?: string) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2272,7 +2317,7 @@ function GenerateVideoButton({
       });
       const data = await res.json();
       if (res.ok && data.videoUrl) {
-        onVideoGenerated(data.videoUrl);
+        onVideoGenerated(data.videoUrl, data.videoUrlHinglish);
       } else {
         setError(data.error || 'Failed to generate video');
       }

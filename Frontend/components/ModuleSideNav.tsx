@@ -128,8 +128,9 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
   if (loading && modules.length === 0) {
     return (
       <div
-        className="hidden lg:block lg:fixed lg:top-0 lg:left-64 lg:h-screen lg:w-64 lg:bg-white lg:border-r lg:shadow-sm lg:z-20 lg:overflow-y-auto lg:transition-all lg:duration-300 lg:ease-in-out"
+        className="hidden lg:block lg:fixed lg:top-0 lg:h-screen lg:w-64 lg:bg-white lg:border-r lg:shadow-sm lg:z-20 lg:overflow-y-auto lg:transition-all lg:duration-300 lg:ease-in-out"
         style={{ 
+          left: "var(--sidebar-width, 17.5rem)",
           paddingTop: "4rem"
         }}
       >
@@ -147,8 +148,9 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
   if (modules.length === 0) {
     return (
       <div
-        className="hidden lg:block lg:fixed lg:top-0 lg:left-64 lg:h-screen lg:w-64 lg:bg-white lg:border-r lg:shadow-sm lg:z-20 lg:overflow-y-auto lg:transition-all lg:duration-300 lg:ease-in-out"
+        className="hidden lg:block lg:fixed lg:top-0 lg:h-screen lg:w-64 lg:bg-white lg:border-r lg:shadow-sm lg:z-20 lg:overflow-y-auto lg:transition-all lg:duration-300 lg:ease-in-out"
         style={{ 
+          left: "var(--sidebar-width, 17.5rem)",
           paddingTop: "4rem"
         }}
       >
@@ -162,8 +164,9 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
 
   return (
     <div
-      className="hidden lg:block lg:fixed lg:top-0 lg:left-64 lg:h-screen lg:w-64 lg:bg-white lg:border-r lg:shadow-sm lg:z-20 lg:overflow-y-auto lg:transition-all lg:duration-300 lg:ease-in-out"
+      className="hidden lg:block lg:fixed lg:top-0 lg:h-screen lg:w-64 lg:bg-white lg:border-r lg:shadow-sm lg:z-20 lg:overflow-y-auto lg:transition-all lg:duration-300 lg:ease-in-out"
       style={{ 
+        left: "var(--sidebar-width, 17.5rem)",
         paddingTop: "4rem"
       }}
     >

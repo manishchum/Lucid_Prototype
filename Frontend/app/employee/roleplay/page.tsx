@@ -331,32 +331,6 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         return;
       }
 
-      if (userId) {
-        try {
-          const notificationResponse = await fetchWithAuth(`${API_URL}/api/notifications/assignment`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-User-ID': userId,
-            },
-            body: JSON.stringify({
-              assignment_type: 'roleplay',
-              assignment_title: assigningScenario.title,
-              company_id: companyId,
-              target_type: assignmentType,
-              target_ids: selectedTargets,
-              frontend_url: typeof window !== 'undefined' ? window.location.origin : undefined,
-            }),
-          });
-
-          if (!notificationResponse.ok) {
-            console.warn('Roleplay assignment notification failed:', await notificationResponse.text());
-          }
-        } catch (notificationError) {
-          console.warn('Failed to send roleplay assignment notification:', notificationError);
-        }
-      }
-
       // Close modal and reset
       setShowAssignModal(false);
       setAssigningScenario(null);
@@ -666,11 +640,11 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
               )}
             </div>
 
-            <div className="flex justify-center">
+            <div className="flex justify-center mt-8">
               <Button
                 onClick={() => selectedScenario && handleScenarioSelect(selectedScenario)}
                 disabled={!selectedScenario}
-                className="px-8 py-3 text-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-12 py-4 text-lg font-semibold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transition-all"
               >
                 Start Role-Play
               </Button>
@@ -693,10 +667,13 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
               onStartNew={handleStartNew}
             />
           ) : (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
-              <p className="text-yellow-800">No assessment data available.</p>
-              <Button onClick={handleStartNew} className="mt-4">
-                Start New Role-Play
+            <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-8 text-center">
+              <p className="text-blue-800 font-medium mb-4">No assessment data available.</p>
+              <Button
+                onClick={handleCreateCustomRoleplay}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                Start New Role-play
               </Button>
             </div>
           )

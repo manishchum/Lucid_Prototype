@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
@@ -210,13 +210,13 @@ const EmployeeNavigation = ({
             {isCollapsed && <NavTooltip label="Home" />}
           </div>
 
-          {/* Training Plan (Dropdown) */}
+          {/* Training Plan (Dropdown)
           <div className="relative group">
             <button 
               onClick={() => isCollapsed ? handleNavigate('/employee/welcome') : setCoursesOpen(!coursesOpen)} 
               className={`w-full flex items-center justify-between px-4 py-2.5 rounded-[12px] transition-all duration-200 text-[#1E293B] hover:bg-slate-50`}
             >
-              <div className="flex items-center gap-3.5">
+              {/* <div className="flex items-center gap-3.5">
                 <BookOpen size={20} className="shrink-0" />
                 {!isCollapsed && <span className="text-[15px] font-bold">Performance Sprint</span>}
               </div>
@@ -240,9 +240,9 @@ const EmployeeNavigation = ({
                     <span className="truncate">{item.label}</span>
                   </button>
                 ))}
-              </div>
-            )}
-          </div>
+              </div> */}
+            
+          {/* </div> */}
 
           {/* Reports */}
           <div className="relative group">

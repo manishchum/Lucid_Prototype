@@ -210,6 +210,21 @@ async def create_learning_plan(
         # Set default status if not provided
         if 'status' not in plan_data:
             plan_data['status'] = 'ASSIGNED'
+
+        # If this module has processed modules (i.e., it's a sprint composed of multiple
+        # processed_module entries), fetch them and attach processed_module_ids so the
+        # frontend can render all child modules. This is a safe, best-effort enrichment
+        # and will be skipped on error.
+        try:
+            pm_resp = supabase.table('processed_modules').select('processed_module_id').eq(
+                'original_module_id', module_id
+            ).execute()
+            pm_rows = pm_resp.data or []
+            if pm_rows and isinstance(pm_rows, list):
+                plan_data['processed_module_ids'] = [r.get('processed_module_id') for r in pm_rows if r.get('processed_module_id')]
+        except Exception:
+            # don't block plan creation if this enrichment fails
+            pass
         
         # Create the learning plan
         resp = supabase.table('learning_plan').insert(plan_data).execute()
