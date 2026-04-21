@@ -228,8 +228,8 @@ function ContentUpload({
   };
 
   const handleUpload = async () => {
-    if (files.length === 0  || !title || !retrievedReviewerId){
-      alert("Retriever ID Required");
+    if (files.length === 0  || !title){
+      alert("Data is not sufficient");
       return;
     } 
 
@@ -598,11 +598,11 @@ function ContentUpload({
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
           />
-          <Button onClick={handleAddLink}>Add</Button>
+          <Button onClick={handleAddLink} className="bg-blue-600 text-white hover:bg-blue-700">Add</Button>
         </div>
       </div>
       <div className="md:col-span-2 flex justify-end">
-      <Button onClick={handleUpload} disabled={files.length === 0 || !title || uploading}>
+      <Button onClick={handleUpload} className = "bg-blue-600 text-white hover:bg-blue-700" disabled={files.length === 0 || !title || uploading}>
         {uploading ? 'Creating...' : 'Add Sprint Content'}
       </Button>
       </div>

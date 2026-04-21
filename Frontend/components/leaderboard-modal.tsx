@@ -254,8 +254,7 @@ export function LeaderboardModal({
                           )}
                         </div>
                         <p className="text-xs text-gray-500">
-                          {entry.modules_completed} module
-                          {entry.modules_completed !== 1 ? "s" : ""} completed
+                          {entry.modules_completed} / {entry.modules_assigned} module{entry.modules_completed !== 1 ? "s" : ""} completed
                         </p>
                       </div>
 
