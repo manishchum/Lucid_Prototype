@@ -990,19 +990,21 @@ const handleGenerateCertificate = (sprintId: string) => {
   return (
     <div>
       <main className="min-h-screen pt-4 md:pt-8 pb-8 md:pb-12 px-4 sm:px-6 lg:px-8 relative">
+        {/* Fixed Leaderboard Button (Positioned directly below the company logo pill for responsiveness) */}
         <Button
           onClick={() => setShowLeaderboard(true)}
           variant="outline"
-          className="fixed top-4 right-[160px] z-50 rounded-xl border border-slate-200 bg-white/95 backdrop-blur shadow-sm hover:bg-amber-50 hover:border-amber-200 transition-colors"
+          className="fixed top-[72px] right-4 z-50 rounded-xl border border-slate-200 bg-white/95 backdrop-blur shadow-sm hover:bg-amber-50 hover:border-amber-200 transition-colors flex items-center justify-center"
           title="View leaderboard"
           size="icon"
         >
           <Trophy className="w-5 h-5 text-amber-500" />
         </Button>
+
         <div className="max-w-6xl mx-auto w-full">
           {/* Dashboard Header */}
           <div className="mb-6 md:mb-10 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+            <div className="flex items-center gap-3 sm:gap-4 min-w-0 w-full sm:w-auto">
               <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100 shrink-0">
                 <Users className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
               </div>
