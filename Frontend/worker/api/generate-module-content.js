@@ -93,15 +93,7 @@ async function generateModuleContent({ moduleId = null } = {}) {
       title,
       content,
       original_module_id,
-      learning_style,
-      training_modules (
-        ai_modules,
-        ai_topics,
-        ai_objectives,
-        gpt_summary,
-        match_chunks,
-        company_id
-      )
+      learning_style
     `)
     .or('content.is.null,content.eq.\'\',content.eq.""');
 
@@ -133,7 +125,29 @@ async function generateModuleContent({ moduleId = null } = {}) {
     
     // Fetch company-specific RAG configuration
     let ragConfig = DEFAULT_RAG_CONFIG;
-    const companyId = mod.training_modules?.[0]?.company_id;
+    let trainingModuleData = null;
+
+    if (mod.original_module_id) {
+      console.log(`[FETCH] Fetching training_module data for original_module_id: ${mod.original_module_id}`);
+      const { data: tmData, error: tmError } = await supabase
+        .from('training_modules')
+        .select('ai_modules, ai_topics, ai_objectives, match_chunks, company_id')
+        .eq('module_id', mod.original_module_id)
+        .single();
+
+      if (tmError) {
+        console.error(`[FETCH] Error fetching training_module:`, tmError.message);
+      } else if (tmData) {
+        console.log(`[FETCH] Successfully fetched training_module data.`);
+        trainingModuleData = tmData;
+      } else {
+        console.warn(`[FETCH] No training_module found for original_module_id: ${mod.original_module_id}`);
+      }
+    } else {
+        console.warn(`[FETCH] original_module_id is missing from processed_module, cannot fetch training data.`);
+    }
+    
+    const companyId = trainingModuleData?.company_id;
     if (companyId) {
       console.log(`[CONFIG] Fetching RAG config for company: ${companyId}`);
       ragConfig = await getCompanyRagConfig(companyId);
@@ -146,39 +160,38 @@ async function generateModuleContent({ moduleId = null } = {}) {
       let topics = [];
       let objectives = [];
       
-      console.log(`[EXTRACT] Found ${mod.training_modules?.length || 0} training modules`);
+      if (trainingModuleData) {
+        console.log(`[EXTRACT] Processing training_module data.`);
+        const aiModules = typeof trainingModuleData.ai_modules === 'string' 
+          ? JSON.parse(trainingModuleData.ai_modules) 
+          : trainingModuleData.ai_modules;
+
+        if (Array.isArray(aiModules)) {
+          console.log(`[EXTRACT] Checking ${aiModules.length} AI modules for match`);
+          
+          const matched = aiModules.find(m =>
+            normalizeTitle(m.title) === normalizeTitle(mod.title)
+          );
+
+          if (matched) {
+            console.log(`[EXTRACT] Found matching module!`);
+            topics = Array.isArray(matched.topics) ? matched.topics : [];
+            objectives = Array.isArray(matched.objectives) ? matched.objectives : [];
+            console.log(`[EXTRACT] Extracted ${topics.length} topics, ${objectives.length} objectives`);
+          } else {
+            console.log(`[EXTRACT] No matching module found for title: "${mod.title}"`);
+          }
+        }
+      } else {
+        console.log(`[EXTRACT] No training_module data available to extract topics/objectives.`);
+      }
+      
       function normalizeTitle(title) {
         return title
           ?.toLowerCase()
           .replace(/[^\w\s]/g, '')   // remove punctuation
           .replace(/\s+/g, ' ')      // collapse multiple spaces
           .trim();
-      }
-      
-      if (Array.isArray(mod.training_modules)) {
-        for (const tm of mod.training_modules) {
-          if (Array.isArray(tm.ai_modules)) {
-            // console.log(typeof tm.ai_modules);
-            console.log(`[EXTRACT] Checking ${tm.ai_modules.length} AI modules for match`);
-            // const matched = tm.ai_modules.find(m =>
-            //   m.title?.trim().toLowerCase() === mod.title?.trim().toLowerCase()
-            // );
-            const matched = tm.ai_modules.find(m =>
-              normalizeTitle(m.title) === normalizeTitle(mod.title)
-            );
-            console.log(`[EXTRACT] Processed title: "${mod.title}"`);
-            console.log(`[EXTRACT] AI module titles:`, tm.ai_modules.map(m => m.title));
-
-            if (matched) {
-              console.log(`[EXTRACT] Found matching module!`);
-              topics = Array.isArray(matched.topics) ? matched.topics : [];
-              objectives = Array.isArray(matched.objectives) ? matched.objectives : [];
-              console.log(`[EXTRACT] Extracted ${topics.length} topics, ${objectives.length} objectives`);
-            } else {
-              console.log(`[EXTRACT] No matching module found`);
-            }
-          }
-        }
       }
       
       topics = [...new Set(topics)];
@@ -211,7 +224,7 @@ ${objectivesText}
 
       console.log(`[QUERY] Semantic query built for: ${mod.title}`);
       console.log("Module:", mod.title);
-      console.log(`Topics for ${mod.title}`, topicsText,"--notopic");
+      console.log(`Topics for ${mod.title}`);
       console.log(`Objectives for ${mod.title}`, objectivesText);
       
       // -------------------------------------
@@ -267,20 +280,22 @@ ${objectivesText}
       const queryEmbedding = await generateEmbeddingWithRetry(semanticQuery);
       
       console.log(`[RAG] Fetching top-K chunks from vector DB...`);
-      console.log(`[RAG] Module ID: ${mod.original_module_id}, Match count: 6`);
+      console.log(`[RAG] Module ID: ${mod.original_module_id}`);
       
       let matchChunks = 2; // fallback
 
-      if (Array.isArray(mod.training_modules)) {
-        for (const tm of mod.training_modules) {
-          if (tm.match_chunks) {
-            matchChunks = tm.match_chunks;
-            break;
-          }
-        }
+      const tm = trainingModuleData;
+
+      const parsedMatchChunks = Number(tm?.match_chunks);
+
+      if (Number.isInteger(parsedMatchChunks) && parsedMatchChunks > 0) {
+        matchChunks = parsedMatchChunks;
       }
 
-      console.log(`[RAG] Using dynamic match_chunks: ${matchChunks}`);
+      
+      console.log('[RAG] fetched match_chunks =', tm?.match_chunks);
+      console.log('[RAG] final matchChunks =', matchChunks);
+
 
       const { data: matchedChunks, error: matchError } = await supabase.rpc(
         'match_module_chunks',
@@ -491,9 +506,9 @@ MODULE CONTEXT
 -----------------------------
 **Module Context:**
 * **Module Title:** "${mod.title}"
-// * **Topics to Cover:** ${topicsText}
-// * **Target Objectives:** ${objectivesText}
-// * **Learning Style Focus:** ${style}
+* **Topics to Cover:** ${topicsText}
+* **Target Objectives:** ${objectivesText}
+* **Learning Style Focus:** ${style}
 
 ────────────────────────────────────
 SOURCE CONTEXT (AUTHORITATIVE)
@@ -1186,155 +1201,3 @@ Module is fully self-contained
 }
 
 module.exports = { generateModuleContent };
-
-
-
-
-// // Standalone version of generate-module-content for VM worker
-// const { createClient } = require('@supabase/supabase-js');
-// const OpenAI = require('openai');
-// require('dotenv').config();
-
-// const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-// const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-// const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-
-// const openai = new OpenAI({
-//   apiKey: process.env.OPENAI_API_KEY,
-// });
-
-// async function generateModuleContent({ moduleId = null } = {}) {
-//   let query = supabase
-//     .from('processed_modules')
-//     .select('processed_module_id, title, content, original_module_id, learning_style, training_modules(ai_modules, ai_topics, ai_objectives, gpt_summary)')
-//     .or('content.is.null,content.eq.\'\',content.eq.""');
-
-//   if (moduleId) {
-//     query = query.eq('original_module_id', moduleId);
-//   }
-
-//   const { data: modules, error } = await query;
-
-//   if (error) {
-//     console.error('Supabase fetch error:', error);
-//     throw new Error(error.message);
-//   }
-
-//   let updated = 0;
-
-//   for (const mod of modules || []) {
-//     try {
-//       let topics = [];
-//       let objectives = [];
-//       let globalObjectives = [];
-//       let summaries = [];
-
-//       if (Array.isArray(mod.training_modules)) {
-//         for (const tm of mod.training_modules) {
-//           if (Array.isArray(tm.ai_modules)) {
-//             for (const aimod of tm.ai_modules) {
-//               if (Array.isArray(aimod.topics)) topics.push(...aimod.topics);
-//               if (Array.isArray(aimod.objectives)) objectives.push(...aimod.objectives);
-//             }
-//           }
-//           if (Array.isArray(tm.ai_objectives)) globalObjectives.push(...tm.ai_objectives);
-//           if (tm.gpt_summary && typeof tm.gpt_summary === 'string') summaries.push(tm.gpt_summary);
-//         }
-//       }
-
-//       topics = [...new Set(topics)];
-//       objectives = [...new Set(objectives)];
-//       globalObjectives = [...new Set(globalObjectives)];
-//       summaries = [...new Set(summaries)];
-
-//       if (objectives.length === 0 && globalObjectives.length > 0) {
-//         objectives = globalObjectives;
-//       }
-
-//       const topicsText = topics.length > 0
-//         ? `Topics for this module:\n${topics.map((topic, idx) => `${idx + 1}. ${topic}`).join('\n')}`
-//         : '';
-
-//       const objectivesText = objectives.length > 0
-//         ? `Objectives for this module:\n${objectives.map((obj, idx) => `${idx + 1}. ${obj}`).join('\n')}`
-//         : '';
-
-//       const companyContext = summaries.length > 0
-//         ? `\n\n**COMPANY-SPECIFIC CONTEXT (CRITICAL):**\n${summaries.join('\n\n')}`
-//         : '';
-
-//       const style = mod.learning_style;
-
-//       const stylePrompt = `You are an expert Instructional Designer and Technical Writer. Your task is to write a complete, self-contained training module for employees, formatted as a high-end professional e-learning chapter with rich HTML formatting.
-
-// **Module Context:**
-// * **Module Title:** "${mod.title}"
-// * **Topics to Cover:** ${topicsText}
-// * **Target Objectives:** ${objectivesText}
-// * **Learning Style Focus:** ${style}${companyContext}
-
-// **CRITICAL COMPANY-SPECIFIC REQUIREMENTS:**
-// 1. This training module is for a SPECIFIC COMPANY whose context is provided above.
-// 2. You MUST reference the company name, policies, procedures, and specific business context throughout the content.
-// 3. DO NOT write generic textbook content - all examples must be tailored.
-// 4. Extract and use company-specific terminology from the context.
-// 5. Tie concepts directly to how they apply within THIS organization.
-// 6. Use the company name naturally throughout the module.
-// 7. All activities must reflect the company's real environment.
-
-// **Core Instructions:**
-// - Output ONLY valid HTML5 (no Markdown)
-// - Use semantic tags: <section>, <h2>, <h3>, <p>, <table>, <ul>, <ol>, <blockquote>
-// - Tables must use <thead> and <tbody>
-// - Lists must use <ul>/<ol> with <li>
-// - Use <strong>/<em> for emphasis
-// - Close all HTML tags
-// - Generate 3–5 detailed sections with structured tables and activities`;
-
-//       console.log(`Calling OpenAI for module: ${mod.title} (${mod.processed_module_id}) with learning style: ${style}`);
-
-//       const response = await openai.responses.create({
-//         model: 'gpt-5.2-2025-12-11',
-//         input: stylePrompt,
-//         max_output_tokens: 7000
-//       });
-
-//       let aiContent = response.output_text;
-
-//       if (aiContent) {
-//         if (aiContent.includes('```html')) {
-//           aiContent = aiContent.replace(/```html\n?/g, '').replace(/```\n?/g, '');
-//         } else if (aiContent.includes('```')) {
-//           aiContent = aiContent.replace(/```[\s\S]*?```/g, '');
-//         }
-//         aiContent = aiContent.trim();
-//       }
-
-//       if (!aiContent) {
-//         console.warn(`No content generated for module: ${mod.processed_module_id} style: ${style}`);
-//         continue;
-//       }
-
-//       aiContent = aiContent.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
-//       aiContent = aiContent.replace(/\b(CS|CR|AS|AR)\b/g, '');
-
-//       const { error: updateError } = await supabase
-//         .from('processed_modules')
-//         .update({ content: aiContent })
-//         .eq('processed_module_id', mod.processed_module_id);
-
-//       if (updateError) {
-//         console.error(`Failed to update module ${mod.processed_module_id}:`, updateError);
-//       } else {
-//         updated++;
-//       }
-
-//     } catch (err) {
-//       console.error(`Error processing module ${mod.processed_module_id}:`, err);
-//     }
-//   }
-
-//   return { message: `Updated ${updated} modules with AI-generated content.` };
-// }
-
-// module.exports = { generateModuleContent };
