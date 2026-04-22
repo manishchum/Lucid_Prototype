@@ -143,9 +143,9 @@ export default function LucidAssistant() {
   // Modified send to optionally accept a message (for auto-send from voice)
   const send = async (overrideInput?: string) => {
     const txt = (overrideInput !== undefined ? overrideInput : input).trim();
-    console.log('[LucidAssistant] 📨 send called with:', txt);
+    // console.log('[LucidAssistant] 📨 send called with:', txt);
     if (!txt) {
-      console.log('[LucidAssistant] 🚫 send aborted: empty input');
+      // console.log('[LucidAssistant] 🚫 send aborted: empty input');
       return;
     }
     setMessages(m => [...m, { from: "user", text: txt }]);
@@ -178,19 +178,19 @@ export default function LucidAssistant() {
 
   const handleVoiceTranscription = (transcribedText: string) => {
     // Set input for UI, but immediately send to AI
-    console.log('[LucidAssistant] 📝 Received transcription:', transcribedText);
+    // console.log('[LucidAssistant] 📝 Received transcription:', transcribedText);
     setInput(transcribedText);
     setTimeout(() => {
       inputRef.current?.focus();
       // Fallback: programmatically click the send button if present
       if (sendButtonRef.current && transcribedText && transcribedText.trim()) {
-        console.log('[LucidAssistant] 🖱️ Programmatically clicking send button for auto-send');
+        // console.log('[LucidAssistant] 🖱️ Programmatically clicking send button for auto-send');
         sendButtonRef.current.click();
       }
     }, 100);
     // Also call send directly (should work, but fallback above ensures it)
     if (transcribedText && transcribedText.trim()) {
-      console.log('[LucidAssistant] 🚀 Auto-sending transcribed text to bot:', transcribedText);
+      // console.log('[LucidAssistant] 🚀 Auto-sending transcribed text to bot:', transcribedText);
       send(transcribedText);
     }
   };

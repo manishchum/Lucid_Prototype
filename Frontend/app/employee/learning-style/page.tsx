@@ -436,9 +436,9 @@ export default function LearningStyleSurvey() {
       } else {
         // Parse GPT result from backend response
         const gptResult = data.gpt || {}
-        console.log('[Learning Style Submit] Full response data:', data)
-        console.log('[Learning Style Submit] gptResult:', gptResult)
-        console.log('[Learning Style Submit] gptResult.report:', gptResult.report)
+        //console.log('[Learning Style Submit] Full response data:', data)
+        //console.log('[Learning Style Submit] gptResult:', gptResult)
+        //console.log('[Learning Style Submit] gptResult.report:', gptResult.report)
         
         const learningStyleMap = {
           'CS': { code: 'CS', label: 'Concrete Sequential', description: 'The Planner - Prefers structure, clear steps, and hands-on practice.' },
@@ -631,11 +631,11 @@ export default function LearningStyleSurvey() {
   // Summary page
   if (page === 'summary' && learningStyleResult) {
     const rawAnalysis = learningStyleResult.gptAnalysis || learningStyleResult.description
-    console.log('[Learning Style] Raw Analysis:', rawAnalysis)
+    //console.log('[Learning Style] Raw Analysis:', rawAnalysis)
     const reportText = extractReportFromJson(rawAnalysis) || rawAnalysis
-    console.log('[Learning Style] Extracted Report Text:', reportText)
+    //console.log('[Learning Style] Extracted Report Text:', reportText)
     const accordionSections = buildAccordionSections(reportText, learningStyleResult.description)
-    console.log('[Learning Style] Accordion Sections:', accordionSections)
+    //console.log('[Learning Style] Accordion Sections:', accordionSections)
     
     return (
       <div className="min-h-screen py-10">

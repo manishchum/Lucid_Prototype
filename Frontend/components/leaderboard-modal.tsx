@@ -58,28 +58,28 @@ export function LeaderboardModal({
 
   // Debug: Log employee from props whenever it changes
   useEffect(() => {
-    console.log("[LeaderboardModal] Employee from props:", {
-      employee,
-      authLoading,
-    });
+    //console.log("[LeaderboardModal] Employee from props:", {
+    //   employee,
+    //   authLoading,
+    // });
   }, [employee, authLoading]);
 
   useEffect(() => {
     // Only fetch when modal is open AND employee object is fully available
     if (open && employee?.user_id && employee?.company_id && !authLoading) {
-      console.log("[LeaderboardModal] Conditions met, fetching data for:", {
-        user_id: employee.user_id,
-        company_id: employee.company_id,
-      });
+      // //console.log("[LeaderboardModal] Conditions met, fetching data for:", {
+      //   user_id: employee.user_id,
+      //   company_id: employee.company_id,
+      // });
       fetchLeaderboard();
     } else {
-      console.log("[LeaderboardModal] Waiting for conditions:", {
-        open,
-        has_employee: !!employee,
-        has_user_id: !!employee?.user_id,
-        has_company_id: !!employee?.company_id,
-        authLoading,
-      });
+      //console.log("[LeaderboardModal] Waiting for conditions:", {
+      //   open,
+      //   has_employee: !!employee,
+      //   has_user_id: !!employee?.user_id,
+      //   has_company_id: !!employee?.company_id,
+      //   authLoading,
+      // });
     }
   }, [open, employee, authLoading]);
 
@@ -99,7 +99,7 @@ export function LeaderboardModal({
         'X-Company-ID': employee.company_id,
       };
 
-      console.log("[LeaderboardModal] Request headers:", headers);
+      //console.log("[LeaderboardModal] Request headers:", headers);
 
       const [leaderboardRes, rankRes] = await Promise.all([
         fetchWithAuth(

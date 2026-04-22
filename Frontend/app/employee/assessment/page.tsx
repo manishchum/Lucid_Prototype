@@ -106,7 +106,7 @@ const AssessmentContent = () => {
           companyId = empData?.company_id || null;
           employeeId = empData?.user_id || null;
         }
-        console.log("the gpt mcq quiz is called");
+        // console.log("the gpt mcq quiz is called");
         if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
         
         // Fetch user's learning style
@@ -119,8 +119,8 @@ const AssessmentContent = () => {
         learningStyle = learningStyleData?.learning_style || 'default';
         // If a moduleId query param is present, request a per-module quiz.
         const urlModuleId = searchParams.get('moduleId');
-        console.log("URL Module ID:", urlModuleId);
-        console.log(urlModuleId);
+        // console.log("URL Module ID:", urlModuleId);
+        // console.log(urlModuleId);
 
         let isBaselineRequest = false;
         let res;
@@ -132,17 +132,17 @@ const AssessmentContent = () => {
               { headers: { 'X-User-ID': employeeId } }
             );
 
-            console.log("Learning Plan Query - User ID:", employeeId, "Module ID:", urlModuleId);
+            // console.log("Learning Plan Query - User ID:", employeeId, "Module ID:", urlModuleId);
             
             if (lpRes.ok) {
               const lpData = await lpRes.json();
               const learningPlan = lpData?.plans?.[0] || null;
               
-              console.log("Learning Plan Data:", learningPlan);
+              // console.log("Learning Plan Data:", learningPlan);
               
               // baseline_assessment is stored as smallint (0 or 1) in database, not boolean
               if (learningPlan) {
-                console.log("baseline_assessment value:", learningPlan.baseline_assessment, "type:", typeof learningPlan.baseline_assessment);
+                // console.log("baseline_assessment value:", learningPlan.baseline_assessment, "type:", typeof learningPlan.baseline_assessment);
                 isBaselineRequest = learningPlan.baseline_assessment === true;
               }
             } else {
@@ -150,15 +150,15 @@ const AssessmentContent = () => {
               console.error("Error fetching learning plan:", errorData);
             }
             
-            console.log("Is Baseline Request:", isBaselineRequest);
+            // console.log("Is Baseline Request:", isBaselineRequest);
           } catch (err) {
             console.error("Exception while checking learning plan:", err);
             isBaselineRequest = false;
           }
           // console.log(isBaselineRequest)
           // console.log")
-            console.log("Inside the if statement for per-module quiz request.");
-          console.log(urlModuleId)
+            // console.log("Inside the if statement for per-module quiz request.");
+          // console.log(urlModuleId)
           res = await fetchWithAuth(`${API_BASE}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -173,7 +173,7 @@ const AssessmentContent = () => {
           });
         } else {
           // Request a baseline quiz for all assigned modules (multi-module baseline)
-          console.log("Inside the else statement for per-module quiz request.");
+          // console.log("Inside the else statement for per-module quiz request.");
           res = await fetchWithAuth(`${API_BASE}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

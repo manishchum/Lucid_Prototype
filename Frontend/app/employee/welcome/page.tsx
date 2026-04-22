@@ -672,17 +672,31 @@ const handleGenerateCertificate = (sprintId: string) => {
     employeeData: any,
     effectiveCompanyId: string,
   ) => {
+    const userId = employeeData.user_id || employeeData.id || "";
+    
     const result = await sharedDataClient.query(
       createCacheKey({
         namespace: "dashboard",
         tenantId: effectiveCompanyId,
-        userId: employeeData.user_id,
+        userId: userId,
         path: "/employee/dashboard",
       }),
       async () => {
         const headers = {
-          "X-User-ID": employeeData.user_id,
+          "X-User-ID": userId,
           "X-Company-ID": effectiveCompanyId,
+        };
+
+        const fetchCached = async (cacheKey: string, fetcher: () => Promise<any>) => {
+          if (typeof window !== "undefined") {
+            const cached = sessionStorage.getItem(cacheKey);
+            if (cached) return JSON.parse(cached);
+          }
+          const data = await fetcher();
+          if (typeof window !== "undefined" && data && !data.error) {
+            sessionStorage.setItem(cacheKey, JSON.stringify(data));
+          }
+          return data;
         };
 
         const [
@@ -696,7 +710,7 @@ const handleGenerateCertificate = (sprintId: string) => {
           userRankRes,
         ] = await Promise.all([
           fetchWithAuth(
-            `${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`,
+            `${API_BASE}/api/learning-plans/?user_id=${userId}`,
             { headers },
           ).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(
@@ -704,23 +718,27 @@ const handleGenerateCertificate = (sprintId: string) => {
             { headers },
           ).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(
-            `${API_BASE}/api/module-progress/user/${employeeData.user_id}`,
+            `${API_BASE}/api/module-progress/user/${userId}`,
             { headers },
           ).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(
             `${API_BASE}/api/users/company/${employeeData.company_id}`,
             { headers },
           ).then((r) => (r.ok ? r.json() : ({} as any))),
+          fetchCached(`company_${employeeData.company_id}`, () =>
+            fetchWithAuth(
+              `${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`,
+              { headers },
+            ).then((r) => (r.ok ? r.json() : ({} as any)))
+          ),
+          fetchCached(`learningStyle_${userId}`, () =>
+            fetchWithAuth(
+              `${API_BASE}/api/learning-style?user_id=${encodeURIComponent(userId)}`,
+              { headers },
+            ).then((r) => (r.ok ? r.json() : ({} as any)))
+          ),
           fetchWithAuth(
-            `${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`,
-            { headers },
-          ).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchWithAuth(
-            `${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`,
-            { headers },
-          ).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchWithAuth(
-            `${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeData.user_id)}`,
+            `${API_BASE}/api/employee-assessments/user/${encodeURIComponent(userId)}`,
             { headers },
           ).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(`${API_BASE}/api/analytics/leaderboard/${employeeData.company_id}/user-rank`, { headers }).then((r) => r.ok ? r.json() : {}),
@@ -916,7 +934,7 @@ const handleGenerateCertificate = (sprintId: string) => {
       setBaselineRequired(baselineNeeded);
 
       const completedCount = data?.userRank?.modules_completed ?? 0;
-      const totalAssigned = mappedAssigned.length;
+         const totalAssigned = mappedAssigned.length;
       const progressValue = totalAssigned > 0 ? (completedCount / totalAssigned) * 100 : 0;
       setProgressPercentage(progressValue);
       
@@ -931,22 +949,10 @@ const handleGenerateCertificate = (sprintId: string) => {
       // setProgressPercentage(progressValue);
       setCompanyStats({
         totalEmployees: totalUsers,
-        completedEmployees: 5,
-        userRank: 1,
-        topPercentile: 10,
-      });
-      generateNudgeMessage(progressValue, 1, totalUsers, 10, 5);
-      // const totalAssigned = mappedAssigned.length;
-      // setProgressPercentage(progressValue);
-      
-
-      setCompanyStats({
-        totalEmployees: totalUsers,
         completedEmployees: completedCount,
         userRank: data?.userRank?.rank ?? null,
         topPercentile: data?.userRank?.top_percentile ?? null,
       });
-
       generateNudgeMessage(
         progressValue,
         data?.userRank?.rank ?? null,
