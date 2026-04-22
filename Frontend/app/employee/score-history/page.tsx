@@ -32,10 +32,10 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
         if (Array.isArray(arr)) {
           return {
             answers: arr.map((raw: string) => {
-              if (typeof raw !== 'string') return { status: 'Unknown' };
+              if (typeof raw !== 'string') return { status: 'Incorrect' };
               if (raw.startsWith('Correct')) return { status: 'Correct' };
               if (raw.startsWith('Incorrect')) return { status: 'Incorrect', explanation: raw.replace(/^Incorrect\.\s*/,'').trim() };
-              return { status: 'Unknown' };
+              return { status: 'Incorrect' };
             }),
             total: arr.length
           };
@@ -60,11 +60,11 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
         if (Array.isArray(arr)) {
           return {
             answers: arr.map((token: string) => {
-              if (typeof token !== 'string') return { status: 'Unknown' };
+              if (typeof token !== 'string') return { status: 'Incorrect' };
               const clean = token.trim();
               if (clean.startsWith('Correct')) return { status: 'Correct' };
               if (clean.startsWith('Incorrect')) return { status: 'Incorrect', explanation: clean.replace(/^Incorrect\.\s*/,'').trim() };
-              return { status: 'Unknown' };
+              return { status: 'Incorrect' };
             }),
             total: totalQuestions || arr.length
           };
@@ -77,7 +77,7 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
             answers: parts.map(p => {
               if (p.startsWith('Correct')) return { status: 'Correct' };
               if (p.startsWith('Incorrect')) return { status: 'Incorrect', explanation: p.replace(/^Incorrect\.\s*/,'').trim() };
-              return { status: 'Unknown' };
+              return { status: 'Incorrect' };
             }),
             total: totalQuestions || parts.length
           };
