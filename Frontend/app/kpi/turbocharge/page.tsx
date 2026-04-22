@@ -112,9 +112,9 @@ const fetchUserByFilter = async (filters: {
     const payload = await res.json();
 
 
-    console.log(payload)
+    //console.log(payload)
     const users = payload?.data?.users ?? payload;
-    console.log(users)
+    //console.log(users)
     return Array.isArray(users) ? users : users ? [users] : [];
   } catch(e) {
     console.error('Error fetching users:', e);
@@ -199,18 +199,18 @@ export default function KPITurbocharge() {
 
   useEffect(() => {
    
-    console.log("Changes in the selectedSubFunctionId, selectedTitleId")
+    //console.log("Changes in the selectedSubFunctionId, selectedTitleId")
     fetchAllData();
   }, [selectedSubFunctionId, selectedTitleId]);
   useEffect(() => {
-    console.log("Changes in the selectedKPiId, selectedModuleId")
+    //console.log("Changes in the selectedKPiId, selectedModuleId")
     fetchAllData();
   }, [selectedKpiId,selectedModuleId]);
  
  
   useEffect(() => {
 
-    console.log("Calling beacause of the changes in function Id")
+    //console.log("Calling beacause of the changes in function Id")
     fetchAllData();
   },[selectedFunctionId]);
 
@@ -223,8 +223,8 @@ export default function KPITurbocharge() {
         .order('function_name');
 
       if (functionsData && functionsData.length > 0) {
-        console.log("Selected Functions:", functionsData);
-        console.log("Selected Function Id:", selectedFunctionId);
+        //console.log("Selected Functions:", functionsData);
+        //console.log("Selected Function Id:", selectedFunctionId);
         setFunctions(functionsData);
         // setSelectedFunctionId('');
       }
@@ -292,11 +292,11 @@ export default function KPITurbocharge() {
 
       const payload = await res.json();
       const modulesData = payload?.data || payload?.modules|| payload;
-      console.log(payload)
+      //console.log(payload)
 
-      console.log(modulesData)
+      //console.log(modulesData)
       if (modulesData && modulesData.length > 0) {
-        console.log(modulesData)
+        //console.log(modulesData)
         setModules(modulesData.map((m: any) => ({
           module_id: m.module_id,
           title: m.title
@@ -309,7 +309,7 @@ export default function KPITurbocharge() {
 
   const fetchAllData = async () => {
     setLoading(true);
-    console.log("Calling the fetch all data")
+    //console.log("Calling the fetch all data")
     try {
       await Promise.all([
         fetchKPIData(),
@@ -330,7 +330,7 @@ export default function KPITurbocharge() {
 
   const fetchKPIData = async () => {
     try {
-      console.log('Fetching KPIs with filters:', { selectedFunctionId, selectedSubFunctionId, selectedTitleId });
+      //console.log('Fetching KPIs with filters:', { selectedFunctionId, selectedSubFunctionId, selectedTitleId });
      
       let kpiQuery = supabase
         .from('kpis')
@@ -338,19 +338,19 @@ export default function KPITurbocharge() {
 
       // Apply filters in order of specificity
       if (selectedTitleId && selectedTitleId !== '') {
-        console.log('Filtering by title_id:', selectedTitleId);
+        //console.log('Filtering by title_id:', selectedTitleId);
         kpiQuery = kpiQuery.eq('title_id', selectedTitleId);
       } else if (selectedSubFunctionId && selectedSubFunctionId !== '') {
-        console.log('Filtering by sub_function_id:', selectedSubFunctionId);
+        //console.log('Filtering by sub_function_id:', selectedSubFunctionId);
         kpiQuery = kpiQuery.eq('sub_function_id', selectedSubFunctionId);
       } else if (selectedFunctionId && selectedFunctionId !== '') {
-        console.log('Filtering by function_id:', selectedFunctionId);
+        //console.log('Filtering by function_id:', selectedFunctionId);
         kpiQuery = kpiQuery.eq('function_id', selectedFunctionId);
       }
 
       const { data: kpis, error: kpiError } = await kpiQuery.limit(3);
 
-      console.log('KPI Query Result:', { kpis, kpiError });
+      //console.log('KPI Query Result:', { kpis, kpiError });
 
       if (kpiError) {
         console.error('Error fetching KPIs:', kpiError);
@@ -359,13 +359,13 @@ export default function KPITurbocharge() {
       }
 
       if (!kpis || kpis.length === 0) {
-        console.log('No KPIs found for selected filters');
+        //console.log('No KPIs found for selected filters');
         setKpiData([]);
         return;
       }
 
 
-      console.log("Till here no error");
+      //console.log("Till here no error");
 
       // Fetch related modules for each KPI
       const kpiDataWithModules = await Promise.all(
@@ -379,13 +379,13 @@ export default function KPITurbocharge() {
             });
 
 
-            console.log("This is the response of hte training_modules",res);
+            //console.log("This is the response of hte training_modules",res);
             if (res.ok) {
               const payload = await res.json();
 
-              console.log("This is causing the error",payload)
+              //console.log("This is causing the error",payload)
               const modulesData = payload?.modules ||payload?.data|| payload;
-              console.log("No this is no causing the error")
+              //console.log("No this is no causing the error")
               modules = (modulesData || []).slice(0, 2);
             }
           }
@@ -403,7 +403,7 @@ export default function KPITurbocharge() {
         })
       );
 
-      console.log('Setting KPI Data:', kpiDataWithModules);
+      //console.log('Setting KPI Data:', kpiDataWithModules);
       setKpiData(kpiDataWithModules);
     } catch (error) {
       console.error('Error fetching KPI data:', error);
@@ -419,7 +419,7 @@ export default function KPITurbocharge() {
         titleId: selectedTitleId
       });
 
-      console.log("Users to fecth the training modules",users)
+      //console.log("Users to fecth the training modules",users)
       const userIds = users[0]?.data?.map(u => u.user_id);
 
       if (userIds.length === 0) {
@@ -437,10 +437,10 @@ export default function KPITurbocharge() {
           }
         });
 
-        console.log(res);
+        //console.log(res);
         if (res.ok) {
           const payload = await res.json();
-          console.log(payload)
+          //console.log(payload)
           allModules = payload?.modules || payload?.data || [];
         }
       }
@@ -452,7 +452,7 @@ export default function KPITurbocharge() {
       }
 
       // Calculate performance for each module
-      console.log("User Ids",userIds)
+      //console.log("User Ids",userIds)
       const moduleStats = await Promise.all(
         allModules.map(async (module) => {
           // Get learning plans for this module and filtered users
@@ -534,7 +534,7 @@ export default function KPITurbocharge() {
         titleId: selectedTitleId
       });
 
-      console.log(allUsers)
+      //console.log(allUsers)
       const users = allUsers.data?.slice(0, 4);
 
       if (!users || users.length === 0) {
@@ -543,8 +543,8 @@ export default function KPITurbocharge() {
       }
 
       const userIds = users.map(u => u.user_id);
-      console.log("User Ids 2",userIds)
-      console.log(users)
+      //console.log("User Ids 2",userIds)
+      //console.log(users)
       const { data: learningPlans } = await supabase
         .from('learning_plan')
         .select('user_id, module_id, status')
@@ -664,9 +664,9 @@ export default function KPITurbocharge() {
 
         if (res.ok) {
           const payload = await res.json();
-          console.log("This is the payload for scatter plot",payload);
+          //console.log("This is the payload for scatter plot",payload);
           const allAssessments = payload?.assessments || payload?.data?.assessments || [];
-          console.log("This is for the scatter plot",allAssessments)
+          //console.log("This is for the scatter plot",allAssessments)
           // Filter by userIds and only include rows with valid scores
           assessmentScores = allAssessments.filter(
             (a: any) => userIds.includes(a.user_id) && a.score != null && a.max_score != null
@@ -746,7 +746,7 @@ export default function KPITurbocharge() {
 
         if (res.ok) {
           const payload = await res.json();
-          console.log("This is the module Data",payload)
+          //console.log("This is the module Data",payload)
           allModules = (payload?.data?.data ||payload?.modules||payload.data|| payload || []).slice(0, 10);
         }
       }
@@ -759,7 +759,7 @@ export default function KPITurbocharge() {
       const userIds = users[0].data.map(u => u.user_id);
       const moduleIds = allModules.map(m => m.module_id);
 
-      console.log("User Ids 3",userIds);
+      //console.log("User Ids 3",userIds);
       // Get all learning plans for these users and modules
       const { data: learningPlans } = await supabase
         .from('learning_plan')
@@ -778,7 +778,7 @@ export default function KPITurbocharge() {
 
         if (res.ok) {
           const payload = await res.json();
-          console.log("This progress is causing the error",payload)
+          //console.log("This progress is causing the error",payload)
           const allProgress = payload?.progress || payload?.data || payload || [];
           moduleProgress = allProgress.filter((mp: any) => userIds.includes(mp.user_id) && mp.quiz_score != null);
         } else {
@@ -787,7 +787,7 @@ export default function KPITurbocharge() {
       }
 
       // Get max_score for each sub-module (processed_module_id) via backend
-      console.log(userIds);
+      //console.log(userIds);
       let maxScoreData: any[] = [];
       if (currentEmployee?.company_id) {
         const res = await fetchWithAuth(`${API_BASE}/api/employee-assessments/company/${currentEmployee.company_id}?limit=500`, {
@@ -798,9 +798,9 @@ export default function KPITurbocharge() {
 
         if (res.ok) {
           const payload = await res.json();
-          console.log("This is the payload data for the employee-assessments",payload)
+          //console.log("This is the payload data for the employee-assessments",payload)
           const allAssessments =  payload?.data?.assessments ||payload?.assessments ||payload?.data|| [];
-          console.log(allAssessments)
+          //console.log(allAssessments)
           // Filter by userIds and only include rows with valid max_score and assessments data
           maxScoreData = allAssessments.filter(
             (a: any) => userIds.includes(a.user_id) && a.max_score != null && a.assessments
@@ -815,7 +815,7 @@ export default function KPITurbocharge() {
         }
       }
 
-      console.log(maxScoreData);
+      //console.log(maxScoreData);
       // Get processed modules mapping
       let processedModules: Array<{ processed_module_id: string; original_module_id: string }> = [];
       
@@ -831,7 +831,7 @@ export default function KPITurbocharge() {
 
         if (res.ok) {
           const payload = await res.json();
-          console.log("This is the allModules.",payload)
+          //console.log("This is the allModules.",payload)
           const modules = payload?.data || payload.data.data ||payload|| [];
           processedModules.push(...modules.map((m: any) => ({
             processed_module_id: m.processed_module_id,
@@ -1002,7 +1002,7 @@ export default function KPITurbocharge() {
         let moduleReadyCount = 0;
         let moduleNotReadyCount = 0;
 
-        console.log('UserId 4',userIds)
+        //console.log('UserId 4',userIds)
         for (const userId of userIds) {
 
           // console.log("This is causing error")
@@ -1076,7 +1076,7 @@ export default function KPITurbocharge() {
       let notReadyCount = 0;
 
 
-      console.log('UserId 5',users)
+      // console.log('UserId 5',users)
       // Check each user
       for (const user of users[0].data) {
         // Get all learning plans for this user

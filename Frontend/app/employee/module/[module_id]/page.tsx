@@ -135,9 +135,9 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const handleSendChat = async (e: FormEvent<HTMLFormElement>, overrideInput?: string) => {
     e.preventDefault();
     const inputToSend = overrideInput !== undefined ? overrideInput : chatInput;
-    console.log('[ModuleChat] handleSendChat called. inputToSend:', inputToSend, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
+    // //console.log('[ModuleChat] handleSendChat called. inputToSend:', inputToSend, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
     if (!inputToSend.trim() || chatLoading || !module?.processed_module_id) {
-      console.log('[ModuleChat] handleSendChat aborted: missing input, loading, or module');
+      // //console.log('[ModuleChat] handleSendChat aborted: missing input, loading, or module');
       return;
     }
 
@@ -212,21 +212,21 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
  
   if (shouldExit) {
     setVoiceLoopActive(false);
-    console.log('[ModuleChat] Voice loop stopped - exit phrase detected:', text);
+    //console.log('[ModuleChat] Voice loop stopped - exit phrase detected:', text);
     return; // Don't auto-send, let user decide
   }
  
   setVoiceLoopActive(true);
-    console.log('[ModuleChat] handleVoiceTranscription called. text:', text, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
+    //console.log('[ModuleChat] handleVoiceTranscription called. text:', text, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
     // Auto-send after transcription
     setTimeout(() => {
       if (text && text.trim() && !chatLoading && module?.processed_module_id) {
-        console.log('[ModuleChat] Auto-sending after transcription:', text);
+        //console.log('[ModuleChat] Auto-sending after transcription:', text);
         // Create a synthetic event for form submission
         const fakeEvent = { preventDefault: () => {} } as FormEvent<HTMLFormElement>;
         handleSendChat(fakeEvent, text);
       } else {
-        console.log('[ModuleChat] Auto-send conditions not met:', {text, chatLoading, module: module?.processed_module_id});
+        //console.log('[ModuleChat] Auto-send conditions not met:', {text, chatLoading, module: module?.processed_module_id});
       }
     }, 100);
   };
@@ -408,7 +408,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                         disabled={chatLoading}
                         autoStart={autoStartMic}
                         onManualStop={() => {
-                          console.log('[ModuleChat] Voice loop stopped - manual stop by user');
+                          //console.log('[ModuleChat] Voice loop stopped - manual stop by user');
                           setVoiceLoopActive(false);
                         }}
                       />
@@ -612,7 +612,7 @@ function parseContentIntoSections(content: string) {
   const isHTML = /<[^>]+>/.test(content);
 
   if (isHTML) {
-    console.log("This is returning html content");
+    //console.log("This is returning html content");
     // Split HTML content into sections based on <section> tags
     return splitHTMLIntoSections(content);
   } else {
@@ -1017,7 +1017,7 @@ function ContentTransformer({
     const timelineData = language === 'hinglish' ? module?.podcast_timeline_hinglish : module?.podcast_timeline;
    
     if (!timelineData) {
-      console.log(`[ContentTransformer] No ${timelineField} in module data`);
+      //console.log(`[ContentTransformer] No ${timelineField} in module data`);
       return;
     }
 
@@ -1049,7 +1049,7 @@ function ContentTransformer({
       }
 
       setPodcastTimeline(timeline);
-      // console.log(`[ContentTransformer] ${timelineField} loaded from module:`, {
+      // //console.log(`[ContentTransformer] ${timelineField} loaded from module:`, {
       //   segmentCount: timeline.length,
       //   totalDuration: timeline.length > 0 ? timeline[timeline.length - 1].endSec : 0,
       // });
@@ -1092,7 +1092,7 @@ function ContentTransformer({
     if (active !== activeSegmentIndex) {
       setActiveSegmentIndex(active);
       if (active >= 0 && active < podcastTimeline.length) {
-        // console.log('[ContentTransformer] Active segment:', {
+        // //console.log('[ContentTransformer] Active segment:', {
         //   index: active,
         //   speaker: podcastTimeline[active].speaker,
         //   currentTime: current,
@@ -2043,7 +2043,7 @@ function formatContent(content: string) {
     return styleHTMLContent(content);
   }
 
-  console.log("This is not a html content")
+  //console.log("This is not a html content")
 
   // Legacy markdown-to-HTML conversion for backward compatibility
   return styleMarkdownContent(content);
@@ -2051,10 +2051,10 @@ function formatContent(content: string) {
 
 function styleHTMLContent(content: string): string {
 
-  console.log("Style the html content is called")
+  //console.log("Style the html content is called")
   // Create a temporary container to work with HTML
   if (typeof window === 'undefined') {
-    console.log("Inside this if")
+    //console.log("Inside this if")
     // Server-side fallback
     return sanitizeHTML(content);
   }
@@ -2092,8 +2092,8 @@ function styleHTMLContent(content: string): string {
 
 
 
-      console.log("THis is the edited table")
-      console.log(table.querySelectorAll)
+      //console.log("THis is the edited table")
+      //console.log(table.querySelectorAll)
     });
 
     // Style headings
@@ -2245,7 +2245,7 @@ function styleMarkdownContent(content: string): string {
   formatted = formatted.replace(/\b(CS|CR|AS|AR)\b(?=\W|$)/g, '');
 
 
-  console.log("This is getting called",formatted)
+  //console.log("This is getting called",formatted)
   return formatted;
 }
 

@@ -165,15 +165,15 @@ const CreateRoleplayComponent = () => {
   }, [isEditMode]);
 
   const fetchUserData = async () => {
-    console.log('Fetching user data...');
+    //console.log('Fetching user data...');
     if (user) {
       const {data:userData} = await supabase.from('users').select('user_id,company_id').eq('email',user.email).single();
       if(userData) {
         userId = userData.user_id;
         userCompanyId = userData.company_id;
       }
-      console.log('Fetched user ID:', userId);
-      console.log('Fetched user Company ID:', userCompanyId);
+      //console.log('Fetched user ID:', userId);
+      //console.log('Fetched user Company ID:', userCompanyId);
     }else{
       console.log('User not logged in yet.');
     }

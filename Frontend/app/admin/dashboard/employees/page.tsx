@@ -250,7 +250,7 @@ export default function EmployeesPage() {
       const users = payload.data?.users || payload.users || [];
 
       setUsers(users);
-      console.log("payload:", payload)
+      // console.log("payload:", payload)
     } catch (error: any) {
       setError(`Failed to load users: ${error.message}`);
     }
@@ -2152,7 +2152,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       if (!supabase?.storage?.from) {
         throw new Error('Storage client is not configured');
       }
-      console.log("THis is the file path",logoPath)
+      // console.log("THis is the file path",logoPath)
 
       const { data: logoUploadData, error: logoUploadError } = await supabase.storage
         .from('logos')
@@ -2162,7 +2162,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
         });
 
 
-      console.log("Upload successfull")
+      // console.log("Upload successfull")
       if (logoUploadError || !logoUploadData?.path) {
         throw new Error(logoUploadError?.message || 'Failed to upload company logo');
       }
@@ -2192,11 +2192,11 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
         throw new Error(payload?.detail || 'Failed to create company');
       }
 
-      console.log(payload)
+      // console.log(payload)
       const createdCompany = Array.isArray(payload?.company)
         ? payload.company[0]
         : payload?.company || payload.data?.company || payload?.data[0];
-      console.log(createdCompany);
+      // console.log(createdCompany);
       if (!createdCompany?.company_id) {
         throw new Error('Company created but missing company_id');
       }
@@ -2278,7 +2278,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       }
 
       const responseData = await createRes.json();
-      console.log(responseData);
+      // console.log(responseData);
       // Handle both array and object responses from backend
       const userPayload = responseData?.data?.user || responseData?.user;
       const userData = Array.isArray(userPayload) ? userPayload[0] : userPayload;
@@ -3144,7 +3144,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
             const errorData = await createRes.json();
             if (errorData.detail?.includes('23505') || errorData.detail?.includes('duplicate')) {
               // Handle duplicates silently or log
-              console.log('Duplicate assignment skipped:', plan);
+              // console.log('Duplicate assignment skipped:', plan);
             } else {
               failCount++;
               console.error('Failed to create assignment:', errorData);

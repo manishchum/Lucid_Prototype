@@ -19,11 +19,11 @@ const supabaseService = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
 });
 
 export async function POST(req: Request) {
-  console.log('Upload route invoked');
+  //console.log('Upload route invoked');
   try {
     const form = await req.formData();
-    console.log('Upload route received form data');
-    console.log(form);
+    //console.log('Upload route received form data');
+    //console.log(form);
     // Log all form entries to help debug which fields the client actually sent
     for (const entry of form.entries()) {
       try {
