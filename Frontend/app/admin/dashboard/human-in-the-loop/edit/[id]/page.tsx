@@ -158,7 +158,7 @@ export default function EditModulePage() {
 
       // // Check if user session exists
       // const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      console.log(user);
+      // console.log(user);
       if(!user?.email)return
      
 
@@ -208,10 +208,10 @@ export default function EditModulePage() {
         }
       }
 
-      console.log(userData)
-      console.log(moduleData)
-      console.log(isReviewer)
-      console.log(isUploader)
+      // console.log(userData)
+      // console.log(moduleData)
+      // console.log(isReviewer)
+      // console.log(isUploader)
       if (!isUploader && !isReviewer) {
         console.error('User not authorized to access this module');
         alert('You are not authorized to access this module. You must be either the uploader or assigned reviewer.');
@@ -345,7 +345,7 @@ export default function EditModulePage() {
       }
 
 
-      console.log("Inside the pending history")
+      // console.log("Inside the pending history")
       const data = await response.json();
       const historyData = data.data.history || [];
 
@@ -1102,7 +1102,7 @@ export default function EditModulePage() {
           })
         });
 
-        console.log(response)
+        // console.log(response)
         if (!response.ok) {
           const error = await response.json();
           throw new Error(error.detail || 'Failed to create history entry');
@@ -1146,7 +1146,7 @@ export default function EditModulePage() {
       const data = await response.json();
      
      
-      console.log(data)
+      // console.log(data)
       const pendingEntries = data.history || data.data.history || [];
 
       if (!pendingEntries || pendingEntries.length === 0) {

@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { useTenant } from "@/contexts/tenant-context";
 import CompanySelector from "@/components/company-selector";
 import { LeaderboardModal } from "@/components/leaderboard-modal";
+// import { LeaderboardModal } from "@/components/leaderboard-modal";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import {
@@ -671,17 +672,31 @@ const handleGenerateCertificate = (sprintId: string) => {
     employeeData: any,
     effectiveCompanyId: string,
   ) => {
+    const userId = employeeData.user_id || employeeData.id || "";
+    
     const result = await sharedDataClient.query(
       createCacheKey({
         namespace: "dashboard",
         tenantId: effectiveCompanyId,
-        userId: employeeData.user_id,
+        userId: userId,
         path: "/employee/dashboard",
       }),
       async () => {
         const headers = {
-          "X-User-ID": employeeData.user_id,
+          "X-User-ID": userId,
           "X-Company-ID": effectiveCompanyId,
+        };
+
+        const fetchCached = async (cacheKey: string, fetcher: () => Promise<any>) => {
+          if (typeof window !== "undefined") {
+            const cached = sessionStorage.getItem(cacheKey);
+            if (cached) return JSON.parse(cached);
+          }
+          const data = await fetcher();
+          if (typeof window !== "undefined" && data && !data.error) {
+            sessionStorage.setItem(cacheKey, JSON.stringify(data));
+          }
+          return data;
         };
 
         const [
@@ -695,7 +710,7 @@ const handleGenerateCertificate = (sprintId: string) => {
           userRankRes,
         ] = await Promise.all([
           fetchWithAuth(
-            `${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`,
+            `${API_BASE}/api/learning-plans/?user_id=${userId}`,
             { headers },
           ).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(
@@ -703,23 +718,27 @@ const handleGenerateCertificate = (sprintId: string) => {
             { headers },
           ).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(
-            `${API_BASE}/api/module-progress/user/${employeeData.user_id}`,
+            `${API_BASE}/api/module-progress/user/${userId}`,
             { headers },
           ).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(
             `${API_BASE}/api/users/company/${employeeData.company_id}`,
             { headers },
           ).then((r) => (r.ok ? r.json() : ({} as any))),
+          fetchCached(`company_${employeeData.company_id}`, () =>
+            fetchWithAuth(
+              `${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`,
+              { headers },
+            ).then((r) => (r.ok ? r.json() : ({} as any)))
+          ),
+          fetchCached(`learningStyle_${userId}`, () =>
+            fetchWithAuth(
+              `${API_BASE}/api/learning-style?user_id=${encodeURIComponent(userId)}`,
+              { headers },
+            ).then((r) => (r.ok ? r.json() : ({} as any)))
+          ),
           fetchWithAuth(
-            `${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`,
-            { headers },
-          ).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchWithAuth(
-            `${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`,
-            { headers },
-          ).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchWithAuth(
-            `${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeData.user_id)}`,
+            `${API_BASE}/api/employee-assessments/user/${encodeURIComponent(userId)}`,
             { headers },
           ).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(`${API_BASE}/api/analytics/leaderboard/${employeeData.company_id}/user-rank`, { headers }).then((r) => r.ok ? r.json() : {}),
@@ -914,33 +933,26 @@ const handleGenerateCertificate = (sprintId: string) => {
       );
       setBaselineRequired(baselineNeeded);
 
-      const totalUsers = Array.isArray(data?.users) ? data.users.length : 0;
-      const completedCount = mappedAssigned.filter(
-        (p) => p.status === "completed",
-      ).length;
-      const progressValue =
-        mappedAssigned.length > 0
-          ? Math.round((completedCount / mappedAssigned.length) * 100)
-          : 0;
-      setProgressPercentage(progressValue);
-      setCompanyStats({
-        totalEmployees: totalUsers,
-        completedEmployees: 5,
-        userRank: 1,
-        topPercentile: 10,
-      });
-      generateNudgeMessage(progressValue, 1, totalUsers, 10, 5);
-      const totalAssigned = mappedAssigned.length;
+      const completedCount = data?.userRank?.modules_completed ?? 0;
+         const totalAssigned = mappedAssigned.length;
+      const progressValue = totalAssigned > 0 ? (completedCount / totalAssigned) * 100 : 0;
       setProgressPercentage(progressValue);
       
-
+      const totalUsers = Array.isArray(data?.users) ? data.users.length : 0;
+      // const completedCount = mappedAssigned.filter(
+      //   (p) => p.status === "completed",
+      // ).length;
+      // const progressValue =
+      //   mappedAssigned.length > 0
+      //     ? Math.round((completedCount / mappedAssigned.length) * 100)
+      //     : 0;
+      // setProgressPercentage(progressValue);
       setCompanyStats({
         totalEmployees: totalUsers,
         completedEmployees: completedCount,
         userRank: data?.userRank?.rank ?? null,
         topPercentile: data?.userRank?.top_percentile ?? null,
       });
-
       generateNudgeMessage(
         progressValue,
         data?.userRank?.rank ?? null,
@@ -966,6 +978,7 @@ const handleGenerateCertificate = (sprintId: string) => {
 
    const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
      if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint!");
+     if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint!");
      else setNudgeMessage(`💪 One step in! Complete your sprints and stand among the top 5%.`);
    };
 
@@ -983,19 +996,21 @@ const handleGenerateCertificate = (sprintId: string) => {
   return (
     <div>
       <main className="min-h-screen pt-4 md:pt-8 pb-8 md:pb-12 px-4 sm:px-6 lg:px-8 relative">
+        {/* Fixed Leaderboard Button (Positioned directly below the company logo pill for responsiveness) */}
         <Button
           onClick={() => setShowLeaderboard(true)}
           variant="outline"
-          className="absolute top-4 right-4 rounded-lg border-slate-200 hover:bg-amber-50 hover:border-amber-200 transition-colors"
+          className="fixed top-[72px] right-4 z-50 rounded-xl border border-slate-200 bg-white/95 backdrop-blur shadow-sm hover:bg-amber-50 hover:border-amber-200 transition-colors flex items-center justify-center"
           title="View leaderboard"
           size="icon"
         >
-          <Trophy className="w-4 h-4 text-amber-500" />
+          <Trophy className="w-5 h-5 text-amber-500" />
         </Button>
+
         <div className="max-w-6xl mx-auto w-full">
           {/* Dashboard Header */}
           <div className="mb-6 md:mb-10 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+            <div className="flex items-center gap-3 sm:gap-4 min-w-0 w-full sm:w-auto">
               <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100 shrink-0">
                 <Users className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
               </div>
@@ -1042,6 +1057,7 @@ const handleGenerateCertificate = (sprintId: string) => {
                             className="bg-slate-100 text-slate-600 border-none font-bold text-[10px] sm:text-xs"
                           >
                             {companyStats.completedEmployees} COMPLETED
+                            {/* {companyStats.completedEmployees} COMPLETED */}
                           </Badge>
                         </div>
                       </div>
@@ -1062,10 +1078,12 @@ const handleGenerateCertificate = (sprintId: string) => {
                           }`}
                         >
                           {progressPercentage.toFixed(1)}%
+                          {/* {progressPercentage.toFixed(1)}% */}
                         </span>
                       </div>
                       <div className="mt-2 text-[10px] sm:text-xs font-black uppercase tracking-[0.05em] text-slate-400 text-center">
                         {companyStats.completedEmployees} of {assignedModules.length}
+                        {/* {companyStats.completedEmployees} of {assignedModules.length} */}
                       </div>
                     </div>
                   </div>

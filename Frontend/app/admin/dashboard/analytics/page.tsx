@@ -222,7 +222,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       return;
     }
     
-    console.log('[Analytics] Starting data load for company:', companyId);
+    // console.log('[Analytics] Starting data load for company:', companyId);
     setLoading(true);
     try {
       try{
@@ -231,7 +231,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
           const compPayload = await compRes.json().catch(() => null);
           const companyData = compPayload?.data?.company ?? compPayload?.data ?? compPayload?.company ?? compPayload;
           setCompanyLearningStyleEnabled(companyData?.learning_style_enabled ?? true);
-          console.log('[Analytics] Company data loaded:', companyData?.learning_style_enabled);
+          // console.log('[Analytics] Company data loaded:', companyData?.learning_style_enabled);
         } else {
           console.warn('Failed to fetch company data for learning style setting');
           setCompanyLearningStyleEnabled(false);
@@ -242,12 +242,12 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       }
 
       // Load modules from backend then other analytics (other loaders may depend on modules/state)
-      console.log('[Analytics] Loading modules...');
+      // console.log('[Analytics] Loading modules...');
       const mods = await loadModules(companyId, adminUserId);
-      console.log('[Analytics] Modules loaded:', mods?.length || 0);
+      // console.log('[Analytics] Modules loaded:', mods?.length || 0);
       setModules(mods);
       
-      console.log('[Analytics] Loading all analytics data in parallel...');
+      // console.log('[Analytics] Loading all analytics data in parallel...');
       await Promise.all([
         loadLearningPlanData(mods),
         loadAssessmentData(),
@@ -255,7 +255,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
         loadKpiData(),
         loadOverallStatistics()
       ]);
-      console.log('[Analytics] All data loaded successfully');
+      // console.log('[Analytics] All data loaded successfully');
     } catch (error) {
       console.error('Failed to load analytics data:', error);
     } finally {
@@ -313,7 +313,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       const companyUsers = await fetchCompanyUsers(companyId, adminUserId);
       const companyUserIds = (companyUsers || []).map((u: any) => u.user_id).filter(Boolean);
       if (companyUserIds.length === 0) {
-        console.log('[LP] No company users found');
+        // console.log('[LP] No company users found');
         setProgressData([]);
         return;
       }
@@ -353,11 +353,11 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
 
       // Enrich learning plans with training module data
       const moduleMap = new Map((modsToUse || []).map((m: any) => [m.module_id, m]));
-      console.log('[LP] Module map has', moduleMap.size, 'modules');
+      // console.log('[LP] Module map has', moduleMap.size, 'modules');
       
       let enrichedResults = learningPlans.map((lp: any) => {
         const mod = moduleMap.get(lp.module_id);
-        console.log('[LP] Enriching plan for module', lp.module_id, '- found:', !!mod);
+        // console.log('[LP] Enriching plan for module', lp.module_id, '- found:', !!mod);
         return {
           ...lp,
           training_modules: mod || { 
@@ -470,7 +470,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
          
          // Fetch and enrich with assessment scores
          try {
-           console.log('[LP] Fetching assessment scores for quiz data enrichment...');
+          //  console.log('[LP] Fetching assessment scores for quiz data enrichment...');
            const assessmentRes = await fetchWithAuth(
              `${API_URL}/api/employee-assessments/company/${encodeURIComponent(companyId)}`,
              { headers: { 'X-User-ID': adminUserId || '' } }
@@ -479,7 +479,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
            if (assessmentRes.ok) {
              const assessmentPayload = await assessmentRes.json().catch(() => ({}));
              const allAssessments = assessmentPayload?.data?.assessments || assessmentPayload?.assessments || [];
-             console.log('[LP] Assessment records fetched:', allAssessments.length);
+            //  console.log('[LP] Assessment records fetched:', allAssessments.length);
              
              // Create a map of assessments by user_id for quick lookup
              const assessmentsByUser = new Map();
@@ -503,7 +503,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                  ? Math.round(scores.reduce((sum: number, s: number) => sum + s, 0) / scores.length)
                  : 0;
 
-               console.log(`[LP] User ${record.user_id} - ${scores.length} assessments, avg score: ${avgScore}%`);
+              //  console.log(`[LP] User ${record.user_id} - ${scores.length} assessments, avg score: ${avgScore}%`);
 
                return {
                  ...record,
@@ -522,7 +522,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
 
       setProgressData(enrichedResults);
       // DEBUG
-      console.log('[LP] enrichedResults count:', enrichedResults.length, 'sample:', enrichedResults[0]);
+      // console.log('[LP] enrichedResults count:', enrichedResults.length, 'sample:', enrichedResults[0]);
       calculateModuleStatistics(enrichedResults);
     } catch (err) {
       console.error('loadLearningPlanData error', err);
@@ -564,8 +564,8 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       const assessmentPayload = await assessmentRes.json().catch(() => ({ assessments: [] }));
       let assessmentResults = assessmentPayload?.data?.assessments || assessmentPayload?.assessments || [];
       // DEBUG
-      console.log('[Assessments] raw payload:', assessmentPayload);
-      console.log('[Assessments] results count:', assessmentResults.length);
+      // console.log('[Assessments] raw payload:', assessmentPayload);
+      // console.log('[Assessments] results count:', assessmentResults.length);
 
       // Apply time range filter on frontend since backend doesn't support it yet
       if (selectedTimeRange !== 'all') {
@@ -769,12 +769,12 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
               }
             }
           );
-          console.log("Assessment response status:", assessmentRes);
+          // console.log("Assessment response status:", assessmentRes);
           if (assessmentRes.ok) {
             const payload = await assessmentRes.json().catch(() => ({ assessments: [] }));
             assessmentData = payload?.data?.assessments || payload?.assessments || [];
           } else {
-            console.log("Failed in else");
+            // console.log("Failed in else");
             console.warn('[loadOverallStatistics] Failed to fetch assessments:', assessmentRes.status);
           }
         }
@@ -783,7 +783,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       }
 
       // DEBUG
-      console.log('[Overall] totalEmployees:', totalEmployees, 'assessmentData count:', assessmentData.length);
+      // console.log('[Overall] totalEmployees:', totalEmployees, 'assessmentData count:', assessmentData.length);
       const totalAssessments = assessmentData?.length || 0;
       const completedAssessments = assessmentData?.filter(assessment => assessment.score !== null).length || 0;
       const averageAssessmentScore = assessmentData && assessmentData.length > 0
@@ -2004,7 +2004,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
 
 export default function AnalyticsPage() {
   const router = useRouter();
-  const { user,loading:authLoading } = useAuth();
+  const { user,loading:authLoading, isManager } = useAuth();
   const [admin, setAdmin] = useState<Admin|null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -2062,18 +2062,24 @@ export default function AnalyticsPage() {
         return;
       }
 
-      // Check if user has Admin role (level >= 3)
+      // Check if user has Admin or Manager role
       const hasAdminRole = roleData.some((assignment: any) => {
-        const roleName = assignment.role?.name?.toLowerCase();
+        const roleName = assignment.role?.name?.toLowerCase()?.replace(/[-_\s]/g, '');
         const roleLevel = assignment.role?.level;
         return roleLevel >= 3 || 
                roleName === 'admin' || 
-               roleName === 'super_admin' ||
+               roleName === 'superadmin' ||
                roleName === 'ceo';
       });
 
-      if (!hasAdminRole) {
-        console.error("User does not have admin role");
+      const hasManagerRole = roleData.some((assignment: any) => {
+        const roleName = assignment.role?.name?.toLowerCase()?.replace(/[-_\s]/g, '');
+        const roleLevel = assignment.role?.level;
+        return roleLevel === 2 || Boolean(roleName?.includes('manager'));
+      });
+
+      if (!hasAdminRole && !hasManagerRole && !isManager) {
+        console.error("User does not have console access role");
         return;
       }
 

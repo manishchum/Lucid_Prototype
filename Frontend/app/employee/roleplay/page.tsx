@@ -74,11 +74,11 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       if (!userId) return;
       
       setLoadingScenarios(true);
-      console.log('Fetching Scenarios for user id:', userId, 'isAdmin:', isAdmin);
+      // console.log('Fetching Scenarios for user id:', userId, 'isAdmin:', isAdmin);
       
       const { data, error } = await fetchScenariosForUserAPI(userId, isAdmin || false);
 
-      console.log('Fetched scenarios:', data);
+      //console.log('Fetched scenarios:', data);
       if (data) {
         setAllScenarios(data);
       }
@@ -104,7 +104,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       const customScenarioData = sessionStorage.getItem('customScenario');
 
 
-      console.log(customScenarioData)
+      //console.log(customScenarioData)
       if (customScenarioData) {
         try {
           const scenario = JSON.parse(customScenarioData);
@@ -114,7 +114,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
             scenario.scenario_id = `custom-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
           }
           
-          console.log('Loaded custom scenario from sessionStorage:', scenario);
+          //console.log('Loaded custom scenario from sessionStorage:', scenario);
           setSelectedScenario(scenario);
           setCurrentScreen('config'); // Show config page first
           // Clear the sessionStorage after loading
@@ -188,7 +188,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
             .eq('scope_type', 'COMPANY');
 
           if (roleError || !roleData || roleData.length === 0) {
-            console.log('No admin role found');
+            //console.log('No admin role found');
             setIsAdmin(false);
             return;
           }
@@ -198,7 +198,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
             ['admin', 'super_admin', 'ceo'].includes(assignment.roles?.name?.toLowerCase())
           );
 
-          console.log('User is admin:', hasAdminRole);
+          //console.log('User is admin:', hasAdminRole);
           setIsAdmin(hasAdminRole);
         } catch (error) {
           console.error('Error in fetchUserDataAndCheckAdmin:', error);
@@ -211,7 +211,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   }, [user]);
 
   const handleScenarioSelect = (scenario: Scenario) => {
-          console.log('Loaded custom scenario from sessionStorage:', scenario);
+          //console.log('Loaded custom scenario from sessionStorage:', scenario);
 
     setSelectedScenario(scenario);
     setCurrentScreen('config');
@@ -266,7 +266,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     e.stopPropagation(); // Prevent card click
 
 
-    console.log('Assigning scenario:', scenario);
+    //console.log('Assigning scenario:', scenario);
     setAssigningScenario(scenario);
     setShowAssignModal(true);
     
@@ -313,8 +313,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     }
 
     try {
-      console.log("Inside the save assignment");
-      console.log(selectedTargets);
+      //console.log("Inside the save assignment");
+      //console.log(selectedTargets);
       
       const { error } = await assignScenarioAPI(
         assigningScenario.scenario_id,
@@ -353,7 +353,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         tone: config.tone as 'Neutral' | 'Friendly' | 'Aggressive',
         userRole: config.userRole || selectedScenario.userRole,
       };
-          console.log('Loaded custom scenario from sessionStorage:', updatedScenario);
+          //console.log('Loaded custom scenario from sessionStorage:', updatedScenario);
 
       setSelectedScenario(updatedScenario);
     }
@@ -375,19 +375,19 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   };
 
   const handleEndSession = async (messages: Message[], sessionId?: string) => {
-    console.log('🏁 Ending session with messages:', messages.length);
-    console.log('📝 Last 3 messages:', messages.slice(-3));
+    //console.log('🏁 Ending session with messages:', messages.length);
+    //console.log('📝 Last 3 messages:', messages.slice(-3));
     
     setConversationHistory(messages);
 
-    // console.log()
-    console.log(sessionId)
+    // //console.log()
+    //console.log(sessionId)
     setCurrentSessionId(sessionId || null);
     setIsGeneratingAssessment(true);
     setError(null);
 
     try {
-      console.log('📊 Generating fresh assessment...');
+      //console.log('📊 Generating fresh assessment...');
       const response = await fetchWithAuth(`${API_URL}/api/roleplay/assessment`, {
         method: 'POST',
         headers: {
@@ -410,22 +410,22 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       }
 
       const assessment = await response.json();
-      console.log('📊 Assessment response:', response);
-      console.log('✅ Assessment received:', assessment.overallScore);
+      //console.log('📊 Assessment response:', response);
+      //console.log('✅ Assessment received:', assessment.overallScore);
       setAssessmentReport(assessment);
       setCurrentScreen('assessmentReport');
 
       // Save assessment to database if we have a session ID
       if (sessionId && employeeId) {
         try {
-          console.log('💾 Saving assessment to database...', {
-            sessionId,
-            employeeId,
-            assessment
-          });
+          //console.log('💾 Saving assessment to database...', {
+          //   sessionId,
+          //   employeeId,
+          //   assessment
+          // });
           
           await createRolePlayAssessment(sessionId, employeeId, assessment);
-          console.log('✅ Assessment saved to database successfully');
+          //console.log('✅ Assessment saved to database successfully');
         } catch (dbError) {
           console.error('❌ Error saving assessment to database:', dbError);
           console.error('Error details:', JSON.stringify(dbError, null, 2));
@@ -447,8 +447,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   };
 
   const handleStartNew = () => {
-          console.log('scenario set to null');
-
+          //console.log('scenario set to null');
     setSelectedScenario(null);
     setConversationHistory([]);
     setAssessmentReport(null);
@@ -478,7 +477,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     };
 
     // Set it as selected and start the roleplay
-          console.log('Loaded custom scenario from new scenario sessionStorage:', newScenario);
+          //console.log('Loaded custom scenario from new scenario sessionStorage:', newScenario);
 
     setSelectedScenario(newScenario);
     setShowCustomModal(false);

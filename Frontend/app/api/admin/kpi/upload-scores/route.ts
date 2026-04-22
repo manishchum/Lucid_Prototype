@@ -44,6 +44,7 @@ export async function POST(req: Request) {
 		for (let i = 0; i < rows.length; i++) {
 			const [companyEmpId, email, rawKpi, rawScore] = rows[i];
 			console.log("Row data")
+			console.log("Inside the scores upload")
 			console.log(rows[i]);
 			if (!email || !rawKpi || !rawScore) {
 				skipped.push({ row: i + 1, reason: "Missing required fields" });

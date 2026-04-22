@@ -78,6 +78,11 @@ interface Department {
   created_at: string;
 }
 
+interface CustomFunctionEntry {
+  function_name: string;
+  sub_function_name: string;
+}
+
 interface Role {
   role_id: string;
   name: string;
@@ -245,7 +250,7 @@ export default function EmployeesPage() {
       const users = payload.data?.users || payload.users || [];
 
       setUsers(users);
-      console.log("payload:", payload)
+      // console.log("payload:", payload)
     } catch (error: any) {
       setError(`Failed to load users: ${error.message}`);
     }
@@ -1803,8 +1808,21 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [newCompanyName, setNewCompanyName] = useState('');
   const [newCompanyDomain, setNewCompanyDomain] = useState('');
+  const [newCompanyLogoFile, setNewCompanyLogoFile] = useState<File | null>(null);
+  const [newCompanyLogoPreview, setNewCompanyLogoPreview] = useState('');
   const [creatingCompany, setCreatingCompany] = useState(false);
+  const [showProvisionModal, setShowProvisionModal] = useState(false);
+  const [provisioningCompany, setProvisioningCompany] = useState<any | null>(null);
+  const [templateDepartments, setTemplateDepartments] = useState<Department[]>([]);
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
+  const [customFunctionEntries, setCustomFunctionEntries] = useState<CustomFunctionEntry[]>([
+    { function_name: '', sub_function_name: '' },
+  ]);
+  const [provisioningFunctions, setProvisioningFunctions] = useState(false);
+  const [provisioningError, setProvisioningError] = useState('');
   let temp = false;
+
+  const canManageCompanySelection = isDeveloper || isSuperAdmin;
 
   // Filter roles based on current user's role level
   // Admin can only assign 'user' role
@@ -1834,12 +1852,117 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       setSelectedCompanyId(companyId || '');
       setNewCompanyName('');
       setNewCompanyDomain('');
+      setNewCompanyLogoFile(null);
+      setNewCompanyLogoPreview('');
+      setShowProvisionModal(false);
+      setProvisioningCompany(null);
+      setTemplateDepartments([]);
+      setSelectedTemplateIds([]);
+      setCustomFunctionEntries([{ function_name: '', sub_function_name: '' }]);
+      setProvisioningError('');
       // Auto-set company name for admin/super_admin
       if (companyName) {
         setFormData(prev => ({ ...prev, company_name: companyName }));
       }
     }
   }, [isOpen, companyName]);
+
+  const loadDepartmentTemplatesForProvisioning = async () => {
+    const response = await fetchWithAuth(`${API_URL}/api/companies/org-templates`, {
+      headers: {
+        'X-User-ID': adminId,
+      },
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(payload?.detail || payload?.error || 'Failed to load department templates');
+    }
+
+    const rows: Department[] = payload?.data || [];
+    setTemplateDepartments(rows);
+    setSelectedTemplateIds(rows.map((row) => row.department_id));
+  };
+
+  const updateCustomFunctionEntry = (index: number, field: 'function_name' | 'sub_function_name', value: string) => {
+    setCustomFunctionEntries((prev) =>
+      prev.map((entry, entryIndex) =>
+        entryIndex === index ? { ...entry, [field]: value } : entry
+      )
+    );
+  };
+
+  const addCustomFunctionEntry = () => {
+    setCustomFunctionEntries((prev) => [...prev, { function_name: '', sub_function_name: '' }]);
+  };
+
+  const removeCustomFunctionEntry = (index: number) => {
+    setCustomFunctionEntries((prev) => {
+      if (prev.length === 1) {
+        return [{ function_name: '', sub_function_name: '' }];
+      }
+      return prev.filter((_, entryIndex) => entryIndex !== index);
+    });
+  };
+
+  const handleProvisionFunctions = async () => {
+    if (!provisioningCompany?.company_id) {
+      setProvisioningError('Missing company id for provisioning');
+      return;
+    }
+
+    const validCustomEntries = customFunctionEntries
+      .map((entry) => ({
+        function_name: (entry.function_name || '').trim(),
+        sub_function_name: (entry.sub_function_name || '').trim(),
+      }))
+      .filter((entry) => !!entry.function_name)
+      .map((entry) => ({
+        function_name: entry.function_name,
+        sub_function_name: entry.sub_function_name || null,
+      }));
+
+    if (selectedTemplateIds.length === 0 && validCustomEntries.length === 0) {
+      setProvisioningError('Select at least one template or add one custom function');
+      return;
+    }
+
+    setProvisioningFunctions(true);
+    setProvisioningError('');
+
+    try {
+      const response = await fetchWithAuth(
+        `${API_URL}/api/companies/${encodeURIComponent(provisioningCompany.company_id)}/provision-functions`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': adminId,
+          },
+          body: JSON.stringify({
+            selected_department_ids: selectedTemplateIds,
+            custom_entries: validCustomEntries,
+          }),
+        }
+      );
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || payload?.error) {
+        throw new Error(payload?.detail || payload?.error || 'Failed to provision functions');
+      }
+
+      shadcnToast({
+        title: 'Company structure provisioned',
+        description: 'Functions and sub-functions were added for the new company.',
+      });
+      setShowProvisionModal(false);
+      setProvisioningCompany(null);
+    } catch (provisionError: any) {
+      setProvisioningError(provisionError?.message || 'Failed to provision functions');
+    } finally {
+      setProvisioningFunctions(false);
+    }
+  };
 
   const handleRoleToggle = (roleId: string) => {
     setFormData(prev => ({
@@ -1952,7 +2075,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
   const checkEmailExists = async (email: string, currentUserId: string): Promise<boolean> => {
     try {
       const activeCompanyId = companyId;
-      const targetCompanyId = isDeveloper ? selectedCompanyId : activeCompanyId;
+      const targetCompanyId = canManageCompanySelection ? selectedCompanyId : activeCompanyId;
       if (!targetCompanyId || targetCompanyId === '__create_new__' || !adminId) return false;
       const res = await fetchWithAuth(`${API_URL}/api/users/company/${targetCompanyId}`, {
         headers: { 'X-User-ID': adminId }
@@ -1977,7 +2100,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
   const validateForm = async (): Promise<boolean> => {
     const errors: {[key: string]: string} = {};
 
-    if (isDeveloper && (!selectedCompanyId || selectedCompanyId === '__create_new__')) {
+    if (canManageCompanySelection && (!selectedCompanyId || selectedCompanyId === '__create_new__')) {
       errors.company_name = 'Please select a company';
     }
 
@@ -2009,13 +2132,47 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
 
   const handleCreateCompany = async () => {
     setError('');
-    if (!newCompanyName.trim() || !newCompanyDomain.trim()) {
-      setError('Company name and domain are required');
+    if (!newCompanyName.trim() || !newCompanyDomain.trim() || !newCompanyLogoFile) {
+      setError('Company name, domain, and logo are required');
       return;
     }
 
     setCreatingCompany(true);
     try {
+      const originalName = newCompanyLogoFile.name || 'logo';
+      const ext = originalName.includes('.') ? originalName.split('.').pop()?.toLowerCase() : 'png';
+      const safeExt = ext || 'png';
+      const safeName = newCompanyName
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      const logoPath = `companies/${safeName || 'company'}-${Date.now()}.${safeExt}`;
+
+      if (!supabase?.storage?.from) {
+        throw new Error('Storage client is not configured');
+      }
+      // console.log("THis is the file path",logoPath)
+
+      const { data: logoUploadData, error: logoUploadError } = await supabase.storage
+        .from('logos')
+        .upload(logoPath, newCompanyLogoFile, {
+          contentType: newCompanyLogoFile.type || undefined,
+          upsert: true,
+        });
+
+
+      // console.log("Upload successfull")
+      if (logoUploadError || !logoUploadData?.path) {
+        throw new Error(logoUploadError?.message || 'Failed to upload company logo');
+      }
+
+      const { data: publicLogo } = supabase.storage.from('logos').getPublicUrl(logoUploadData.path);
+      const logoUrl = publicLogo?.publicUrl;
+      if (!logoUrl) {
+        throw new Error('Failed to resolve company logo URL');
+      }
+
       const res = await fetchWithAuth(`${API_URL}/api/companies/`, {
         method: 'POST',
         headers: {
@@ -2025,6 +2182,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
         body: JSON.stringify({
           name: newCompanyName.trim(),
           domain: newCompanyDomain.trim().toLowerCase(),
+          company_logo: logoUrl,
           learning_style: false
         })
       });
@@ -2034,11 +2192,11 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
         throw new Error(payload?.detail || 'Failed to create company');
       }
 
-      console.log(payload)
+      // console.log(payload)
       const createdCompany = Array.isArray(payload?.company)
         ? payload.company[0]
         : payload?.company || payload.data?.company || payload?.data[0];
-      console.log(createdCompany);
+      // console.log(createdCompany);
       if (!createdCompany?.company_id) {
         throw new Error('Company created but missing company_id');
       }
@@ -2051,6 +2209,12 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       setFormData(prev => ({ ...prev, company_name: createdCompany.name || prev.company_name }));
       setNewCompanyName('');
       setNewCompanyDomain('');
+      setNewCompanyLogoFile(null);
+      setNewCompanyLogoPreview('');
+
+      await loadDepartmentTemplatesForProvisioning();
+      setProvisioningCompany(createdCompany);
+      setShowProvisionModal(true);
     } catch (e: any) {
       setError(e?.message || 'Failed to create company');
     } finally {
@@ -2071,7 +2235,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       return;
     }
     try {
-      const targetCompanyId = isDeveloper ? selectedCompanyId : companyId;
+      const targetCompanyId = canManageCompanySelection ? selectedCompanyId : companyId;
       if (!targetCompanyId || targetCompanyId === '__create_new__') {
         throw new Error('Company is required');
       }
@@ -2114,7 +2278,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       }
 
       const responseData = await createRes.json();
-      console.log(responseData);
+      // console.log(responseData);
       // Handle both array and object responses from backend
       const userPayload = responseData?.data?.user || responseData?.user;
       const userData = Array.isArray(userPayload) ? userPayload[0] : userPayload;
@@ -2274,7 +2438,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
             {/* Company Name - Read-only for admin/super_admin */}
             <div>
               <Label htmlFor="company_name">Company Name</Label>
-              {isDeveloper ? (
+              {canManageCompanySelection ? (
                 <>
                   <select
                     id="company_name"
@@ -2312,12 +2476,37 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
                         value={newCompanyDomain}
                         onChange={(e) => setNewCompanyDomain(e.target.value)}
                       />
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] || null;
+                          setNewCompanyLogoFile(file);
+                          if (!file) {
+                            setNewCompanyLogoPreview('');
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = () => setNewCompanyLogoPreview(String(reader.result || ''));
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                      {newCompanyLogoPreview && (
+                        <div className="rounded-md border border-gray-200 bg-white p-2 w-fit">
+                          <img
+                            src={newCompanyLogoPreview}
+                            alt="Company logo preview"
+                            className="h-12 w-auto object-contain"
+                          />
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-500">Upload company logo (stored in logos bucket).</p>
                       <Button type="button" variant="outline" onClick={handleCreateCompany} disabled={creatingCompany}>
                         {creatingCompany ? 'Creating company...' : 'Create Company'}
                       </Button>
                     </div>
                   )}
-                  <p className="text-xs text-gray-500 mt-1">Developers can create users in any company.</p>
+                  <p className="text-xs text-gray-500 mt-1">Developers and Super Admins can create users in any company.</p>
                 </>
               ) : (
                 <>
@@ -2514,6 +2703,129 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
               </Button>
             </div>
           </form>
+
+          {showProvisionModal && provisioningCompany && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+              <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+                <div className="p-6 border-b border-gray-200">
+                  <h3 className="text-lg font-semibold text-gray-900">Provision Company Functions</h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Select default department templates and optionally add custom function/sub-function pairs for {provisioningCompany?.name}.
+                  </p>
+                </div>
+
+                <div className="p-6 space-y-6">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <Label>Default Templates From sub_department</Label>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSelectedTemplateIds(templateDepartments.map((row) => row.department_id))}
+                        >
+                          Select All
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSelectedTemplateIds([])}
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="border border-gray-300 rounded-md max-h-56 overflow-y-auto">
+                      {templateDepartments.length === 0 ? (
+                        <div className="p-3 text-gray-500 text-center">No department templates found</div>
+                      ) : (
+                        <div className="p-2 space-y-1">
+                          {templateDepartments.map((row) => (
+                            <label key={row.department_id} className="flex items-start space-x-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={selectedTemplateIds.includes(row.department_id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedTemplateIds((prev) => [...prev, row.department_id]);
+                                  } else {
+                                    setSelectedTemplateIds((prev) => prev.filter((id) => id !== row.department_id));
+                                  }
+                                }}
+                                className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              />
+                              <div className="text-sm text-gray-800">
+                                <span className="font-medium">{row.department_name}</span>
+                                <span className="text-gray-500">{' -> '}{row.sub_department_name || 'No sub-function'}</span>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <Label>Custom Function/Sub-Function</Label>
+                      <Button type="button" variant="outline" size="sm" onClick={addCustomFunctionEntry}>
+                        + Add Row
+                      </Button>
+                    </div>
+                    <div className="space-y-2">
+                      {customFunctionEntries.map((entry, index) => (
+                        <div key={index} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                          <Input
+                            placeholder="Function name"
+                            value={entry.function_name}
+                            onChange={(e) => updateCustomFunctionEntry(index, 'function_name', e.target.value)}
+                          />
+                          <Input
+                            placeholder="Sub-function name (optional)"
+                            value={entry.sub_function_name}
+                            onChange={(e) => updateCustomFunctionEntry(index, 'sub_function_name', e.target.value)}
+                          />
+                          <Button type="button" variant="outline" onClick={() => removeCustomFunctionEntry(index)}>
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {provisioningError && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{provisioningError}</AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+
+                <div className="p-6 border-t border-gray-200 flex justify-end gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setShowProvisionModal(false);
+                      setProvisioningCompany(null);
+                    }}
+                    disabled={provisioningFunctions}
+                  >
+                    Skip for now
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleProvisionFunctions}
+                    disabled={provisioningFunctions}
+                  >
+                    {provisioningFunctions ? 'Provisioning...' : 'Provision Functions'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -2832,7 +3144,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
             const errorData = await createRes.json();
             if (errorData.detail?.includes('23505') || errorData.detail?.includes('duplicate')) {
               // Handle duplicates silently or log
-              console.log('Duplicate assignment skipped:', plan);
+              // console.log('Duplicate assignment skipped:', plan);
             } else {
               failCount++;
               console.error('Failed to create assignment:', errorData);

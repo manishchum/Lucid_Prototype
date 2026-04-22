@@ -77,7 +77,7 @@ function TrainingPlanContent() {
     try {
       const result = await fetchTrainingPlan(employeeData, moduleId);
       const data = result.data;
-      console.log("Fetched training plan data:", data);
+      ////console.log("Fetched training plan data:", data);
       if (data?.error === "BASELINE_REQUIRED") {
         setBaselineRequired(true);
         setBaselineMessage(data.message || "Please complete the baseline assessment first.");
@@ -425,7 +425,7 @@ function TrainingPlanContent() {
 
   // Defensive: Support both plan.modules and plan.learning_plan.modules
   let parsedPlan = plan;
-  console.log("Raw plan data:", parsedPlan);
+  //console.log("Raw plan data:", parsedPlan);
   // Unwrap common shapes: { modules }, { learning_plan: { modules } }, { plan: { modules } }
   let modules =
     parsedPlan?.modules ||
@@ -638,9 +638,9 @@ function TrainingPlanContent() {
 
   // Normalize module items to ensure stable unique keys/values for tabs
   const normalizedModules = (modules as any[]).map((mod: any, idx: number) => {
-    // console.log('This is the normalizedModules',mod)
+    // //console.log('This is the normalizedModules',mod)
     // Normalize: use 'name' as 'title' if title is missing
-    console.log(mod)
+    //console.log(mod)
     const normalizedMod = {
       ...mod,
       title: mod.title || mod.name || `Module ${idx + 1}`,
@@ -656,12 +656,12 @@ function TrainingPlanContent() {
 
     // Check completion using processed_module_id to match employee/welcome logic
     let isCompleted = false;
-    console.log(normalizedMod, resolvedProcessedModuleId, completedModules);
+    //console.log(normalizedMod, resolvedProcessedModuleId, completedModules);
     if (resolvedProcessedModuleId) {
       isCompleted = completedModules.includes(resolvedProcessedModuleId);
     }
-    // console.log("Is Completed")
-    // console.log(isCompleted);
+    // //console.log("Is Completed")
+    // //console.log(isCompleted);
     return {
       ...normalizedMod,
       resolved_processed_module_id: resolvedProcessedModuleId,

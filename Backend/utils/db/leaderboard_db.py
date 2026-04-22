@@ -127,7 +127,8 @@ async def get_company_leaderboard(
                 'email': user.get('email'),
                 'avatar_url': user.get('avatar_url'),
                 'completion_percentage': completion_percentage,
-                'modules_completed': total_completed
+                'modules_completed': total_completed,
+                'modules_assigned': total_assigned
             })
         
         # Sort by percentage (desc), then by modules completed (desc)

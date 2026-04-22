@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Header, Query
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 from utils.db.companies_db import (
     get_company_by_id,
@@ -10,7 +10,9 @@ from utils.db.companies_db import (
     create_company,
     update_company,
     delete_company,
-    search_companies
+    search_companies,
+    get_org_templates_from_sub_department,
+    provision_company_functions,
 )
 
 from utils.exceptions import NotFoundError, ValidationError, ConflictError
@@ -21,13 +23,25 @@ router = APIRouter(prefix="/api/companies", tags=["companies"])
 class CreateCompanyRequest(BaseModel):
     name: str
     domain: str
+    company_logo: str
     learning_style: Optional[bool] = False
 
 
 class UpdateCompanyRequest(BaseModel):
     name: Optional[str] = None
     domain: Optional[str] = None
+    company_logo: Optional[str] = None
     learning_style: Optional[bool] = None
+
+
+class CustomFunctionEntry(BaseModel):
+    function_name: str
+    sub_function_name: Optional[str] = None
+
+
+class ProvisionCompanyFunctionsRequest(BaseModel):
+    selected_department_ids: List[str] = []
+    custom_entries: List[CustomFunctionEntry] = []
 
 
 @router.get("/")
@@ -68,6 +82,23 @@ async def search_companies_route(
     return {
         "success": True,
         "data": {"companies": companies, "count": len(companies)},
+        "error": result.get("error")
+    }
+
+
+@router.get("/org-templates")
+async def get_org_templates_route(
+    user_id: str = Header(..., alias="X-User-ID")
+):
+    """
+    Get default department/sub-department templates from sub_department.
+    Permission: Super admin/developer.
+    """
+    result = await get_org_templates_from_sub_department(user_id)
+
+    return {
+        "success": True,
+        "data": result.get("data") or [],
         "error": result.get("error")
     }
 
@@ -153,6 +184,31 @@ async def create_company_route(
     return {
         "success": True,
         "data": company,
+        "error": result.get("error")
+    }
+
+
+@router.post("/{company_id}/provision-functions")
+async def provision_company_functions_route(
+    company_id: str,
+    request: ProvisionCompanyFunctionsRequest,
+    user_id: str = Header(..., alias="X-User-ID")
+):
+    """
+    Provision function/sub_function rows for a company based on selected
+    sub_department templates and optional custom entries.
+    Permission: Super admin/developer.
+    """
+    result = await provision_company_functions(
+        user_id,
+        company_id,
+        request.selected_department_ids,
+        [entry.dict() for entry in request.custom_entries],
+    )
+
+    return {
+        "success": True,
+        "data": result.get("data"),
         "error": result.get("error")
     }
 
