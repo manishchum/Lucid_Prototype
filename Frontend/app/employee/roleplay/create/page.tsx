@@ -6,9 +6,12 @@ import { ChevronLeft, Save, Play, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Scenario } from '@/lib/roleplay/types';
-import { insertCustomScenario, updateCustomScenario } from '@/lib/roleplayDatabase';
 import { useAuth } from '@/contexts/auth-context';
-import { supabase } from '@/lib/supabase';
+import { 
+  fetchUserDataAPI, 
+  insertCustomScenarioAPI, 
+  updateCustomScenarioAPI 
+} from '@/lib/roleplayApi';
 let userId:any = '';
 let userCompanyId:any = '';
 
@@ -166,18 +169,19 @@ const CreateRoleplayComponent = () => {
 
   const fetchUserData = async () => {
     console.log('Fetching user data...');
-    if (user) {
-      const {data:userData} = await supabase.from('users').select('user_id,company_id').eq('email',user.email).single();
-      if(userData) {
+    if (user && user.email) {
+      const { data: userData, error } = await fetchUserDataAPI(user.email);
+      if (error) {
+        console.error('Error fetching user data:', error);
+      } else if (userData) {
         userId = userData.user_id;
         userCompanyId = userData.company_id;
+        console.log('Fetched user ID:', userId);
+        console.log('Fetched user Company ID:', userCompanyId);
       }
-      console.log('Fetched user ID:', userId);
-      console.log('Fetched user Company ID:', userCompanyId);
-    }else{
+    } else {
       console.log('User not logged in yet.');
     }
-  
   }
 
   // Predefined options
@@ -302,22 +306,22 @@ const CreateRoleplayComponent = () => {
       passingScore: formData.cutoffScore
     };
 
-    // Save or update scenario
+    // Save or update scenario via backend API
     if (isEditMode && editingScenarioId) {
       // Update existing scenario
-      const { error } = await updateCustomScenario(editingScenarioId, customScenario);
+      const { error } = await updateCustomScenarioAPI(editingScenarioId, formData, userId, userCompanyId);
       if (error) {
-        alert('Failed to update scenario: ' + error.message);
+        alert('Failed to update scenario: ' + (typeof error === 'string' ? error : error.message));
         return;
       }
       alert('Scenario updated successfully!');
       // Navigate back to roleplay selection
       router.push('/employee/roleplay');
     } else {
-      // Create new scenario
-      const { error } = await insertCustomScenario(customScenario, userCompanyId);
+      // Create new scenario via backend API
+      const { error } = await insertCustomScenarioAPI(formData, userId, userCompanyId);
       if (error) {
-        alert('Failed to create scenario: ' + error.message);
+        alert('Failed to create scenario: ' + (typeof error === 'string' ? error : error.message));
         return;
       }
 
@@ -366,27 +370,10 @@ const CreateRoleplayComponent = () => {
   const handleSaveChanges = async () => {
     if (!editingScenarioId) return;
     setIsSaving(true);
-    const updatedScenario: Scenario = {
-      scenario_id: editingScenarioId,
-      title: formData.title,
-      description: formData.description || formData.learnerBrief,
-      role: formData.aiRole,
-      difficulty: formData.difficulty,
-      initialPrompt: formData.initialPrompt,
-      userRole: formData.userRole,
-      tone: formData.tone,
-      learnerBrief: formData.learnerBrief,
-      aiObjectives: formData.aiObjectives,
-      maxDuration: formData.maxDuration,
-      minTurns: formData.minTurns,
-      endConditions: formData.endConditions,
-      evaluationParams: formData.evaluationParameters,
-      passingScore: formData.cutoffScore,
-    };
-    const { error } = await updateCustomScenario(editingScenarioId, updatedScenario);
+    const { error } = await updateCustomScenarioAPI(editingScenarioId, formData, userId, userCompanyId);
     setIsSaving(false);
     if (error) {
-      alert('Failed to save changes: ' + error.message);
+      alert('Failed to save changes: ' + (typeof error === 'string' ? error : error.message));
     } else {
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -564,9 +551,9 @@ const CreateRoleplayComponent = () => {
                 {activeTab === 'learner-brief' && (
                   <div className="space-y-6">
                     <div>
-                      <h2 className="text-2xl font-bold text-slate-900 mb-2">Brief for the learner</h2>
+                      <h2 className="text-2xl font-bold text-slate-900 mb-2">Brief For The Learner</h2>
                       <p className="text-slate-600 text-sm mb-6">
-                        Brief the learner on the scenario and objective during roleplay. Learners will see this.
+                        Brief About The Scenario and Objective During Roleplay.
                       </p>
                     </div>
                     

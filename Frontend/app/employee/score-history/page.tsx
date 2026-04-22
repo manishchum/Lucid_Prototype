@@ -597,7 +597,7 @@ export default function ScoreHistoryPage() {
                 </div>
                 {learningStyleExpanded && (
                   <div className="mt-8 space-y-4">
-                    <h3 className="text-xl font-bold text-slate-900">Your Learning Insights</h3>
+                    <h3 className="text-xl font-bold text-slate-900">Your Insights</h3>
                     {buildLearningSections(learningStyleData.gpt_analysis || '', getLearningStyleInfo(learningStyleData.learning_style).description).filter(section => section.id !== 'checklist').map(section => {
                       const isOpen = reportOpenSections.includes(section.id)
                       const toggle = () => {
@@ -663,15 +663,15 @@ export default function ScoreHistoryPage() {
                 <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-4 mx-auto">
                   <BookOpen size={32} />
                 </div>
-                <h4 className="text-lg font-bold text-slate-900 mb-2">Discover Your Performance Sprint</h4>
+                <h4 className="text-lg font-bold text-slate-900 mb-2">Discover Your Sprint</h4>
                 <p className="text-slate-500 mb-6">
-                  Complete your Performance Sprint assessment to see personalized recommendations
+                  Complete Your Performance Sprint Assessment To See Personalized Recommendations
                 </p>
                 <button 
                   onClick={() => router.push("/employee/learning-style")}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  Take Performance Sprint Assessment
+                  Take Sprint Assessment
                 </button>
               </div>
             </CardContent>
@@ -683,7 +683,7 @@ export default function ScoreHistoryPage() {
           <CardContent className="p-8">
             <div className="border-b pb-6 mb-6">
               <h2 className="text-2xl font-bold text-slate-900">Your Growth Record</h2>
-              <p className="text-slate-500 text-sm mt-1">Review your scores & track growth</p>
+              <p className="text-slate-500 text-sm mt-1">Review Your Scores & Track Growth</p>
             </div>
             
             {scoreHistory.length === 0 && (

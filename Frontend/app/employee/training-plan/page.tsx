@@ -560,7 +560,7 @@ function TrainingPlanContent() {
               </h2>
               <p className="text-gray-700 mb-6">
                 {baselineMessage ||
-                  "Please complete the baseline assessment before accessing your personalized Performance Sprint."}
+                  "Please Complete The Baseline Assessment Before Accessing Your Personalized Sprint."}
               </p>
               <div className="flex gap-4">
                 <Button
@@ -604,9 +604,9 @@ function TrainingPlanContent() {
         <div className="max-w-3xl mx-auto">
           <Card className="mb-8">
             <CardHeader>
-              <CardTitle>Personalized Training Plan</CardTitle>
+              <CardTitle>Personalized Plan</CardTitle>
               <CardDescription>
-                Your AI-generated learning roadmap
+                Your AI-generated Roadmap
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -615,7 +615,7 @@ function TrainingPlanContent() {
                   Error: {parsedPlan.error}
                 </div>
               ) : (
-                <div className="text-gray-500">No plan generated yet.</div>
+                <div className="text-gray-500">No Plan Generated Yet.</div>
               )}
               {parsedPlan && parsedPlan.raw && (
                 <>
@@ -680,7 +680,6 @@ function TrainingPlanContent() {
   ).length;
 
   const totalModulesCount = normalizedModules.length;
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
         <div className="px-4 py-8">
@@ -695,7 +694,7 @@ function TrainingPlanContent() {
               Back
             </button>
             <h1 className="text-3xl font-bold text-gray-800 mb-2">
-              Learner's Performance Sprint{moduleTitle ? `- ${moduleTitle}` : ''}
+              Sprint{moduleTitle ? `- ${moduleTitle}` : ''}
             </h1>
             <p className="text-slate-600">Your personalized roadmap to master new skills</p>
           </div>
@@ -712,7 +711,7 @@ function TrainingPlanContent() {
                     Your Roadmap to Mastery
                   </CardTitle>
                   <CardDescription className="text-sm text-gray-600">
-                    Performance Sprint which works for you.
+                  Sprint which works for you.
                   </CardDescription>
                 </div>
               </div>
@@ -794,7 +793,7 @@ function TrainingPlanContent() {
                       Additional Readings
                     </CardTitle>
                     <CardDescription className="text-sm text-gray-600">
-                      Extra resources curated for this performance sprint.
+                      Extra Resources Curated for this Sprint.
                     </CardDescription>
                   </div>
                 </div>
@@ -979,7 +978,7 @@ function TrainingPlanContent() {
                   </div>
 
                   <div className="p-4 bg-white rounded-lg">
-                    <h3 className="font-semibold text-gray-900 mb-2">Learning Blueprint</h3>
+                    <h3 className="font-semibold text-gray-900 mb-2"> Blueprint</h3>
                     <p className="text-sm text-gray-700 leading-relaxed">
                       {reasoning?.overall_strategy || 
                        "The learning plan is designed using a 'Macro-to-Micro' and 'Theory-to-Practice' architecture, structured around the Kolb Learning Cycle. We begin with 'Professional Identity' (Profile modules) to establish the learner's baseline. We then move to 'Contextual Application' (Internship modules) to build real-world understanding."}
