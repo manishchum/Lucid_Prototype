@@ -33,18 +33,18 @@ async def get_user_total_points(user_id: str, company_id: str) -> int:
         
         # Filter for completed plans in Python (overall_status = True)
         completed_plans = [p for p in (all_plans_resp.data or []) if p.get('overall_status') is True]
-        print(f"[get_user_total_points] completed_plans_count={len(completed_plans)}")
+        
         
         if not completed_plans:
-            print(f"[get_user_total_points] No completed plans found")
+            
             return 0
         
         # Extract module_ids and fetch their points in batch
         module_ids = [plan.get('module_id') for plan in completed_plans if plan.get('module_id')]
-        print(f"[get_user_total_points] module_ids={module_ids}")
+        
         
         if not module_ids:
-            print(f"[get_user_total_points] No module_ids found")
+            
             return 0
         
         # Fetch points for all modules
@@ -52,15 +52,15 @@ async def get_user_total_points(user_id: str, company_id: str) -> int:
             'module_id, points'
         ).in_('module_id', module_ids).execute()
         
-        print(f"[get_user_total_points] modules_resp.data={modules_resp.data}")
+        
         
         # Create lookup map of module_id -> points
         module_points = {m['module_id']: m.get('points', 0) for m in (modules_resp.data or [])}
-        print(f"[get_user_total_points] module_points_map={module_points}")
+        
         
         # Sum points from all completed modules
         total_points = sum(module_points.get(mid, 0) for mid in module_ids)
-        print(f"[get_user_total_points] final total_points={total_points}")
+        
         
         return total_points
     except Exception as e:

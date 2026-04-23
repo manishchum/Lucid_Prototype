@@ -2051,8 +2051,8 @@ function styleHTMLContent(content: string): string {
     // Style tables with Tailwind classes
     const tables = container.querySelectorAll('table');
     tables.forEach((table) => {
-      table.className = 'w-full  border-2 border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
-      table.setAttribute('style', 'border-collapse: collapse; border: 2px solid rgb(0, 0, 0);');
+      table.className = 'w-full border-2 border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
+      table.setAttribute('style', 'border-collapse: collapse; border: 2px solid rgb(0, 0, 0); table-layout: fixed; word-wrap: break-word;');
      
       // Style table headers
       const headers = table.querySelectorAll('thead th, thead td');
@@ -2064,7 +2064,7 @@ function styleHTMLContent(content: string): string {
       // Style table rows
       const rows = table.querySelectorAll('tr');
       rows.forEach((row) => {
-        (row as HTMLElement).style.cssText = 'border-bottom: 2px solidrgb(21, 22, 22);';
+        (row as HTMLElement).style.cssText = 'border-bottom: 2px solid rgb(21, 22, 22);';
       });
 
       // Style table body
@@ -2072,7 +2072,7 @@ function styleHTMLContent(content: string): string {
       cells.forEach((cell, idx) => {
         const isEvenRow = Math.floor(idx / (table.querySelectorAll('tbody tr')[0]?.children.length || 1)) % 2;
         cell.className = `border border-gray-300 px-4 py-3 text-gray-800 text-sm ${isEvenRow ? 'bg-white' : 'bg-gray-50'}`;
-        (cell as HTMLElement).style.cssText = `border: 1px solidrgb(11, 12, 12); padding: 12px 16px; ${isEvenRow ? 'background-color: #ffffff;' : 'background-color: #f9fafb;'}`;
+        (cell as HTMLElement).style.cssText = `border: 1px solid rgb(11, 12, 12); padding: 12px 16px; ${isEvenRow ? 'background-color: #ffffff;' : 'background-color: #f9fafb;'}`;
       });
 
 

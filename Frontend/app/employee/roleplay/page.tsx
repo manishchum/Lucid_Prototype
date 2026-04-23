@@ -418,10 +418,10 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       if (sessionId && employeeId) {
         try {
           //console.log('💾 Saving assessment to database...', {
-            sessionId,
-            employeeId,
-            assessment
-          });
+          //   sessionId,
+          //   employeeId,
+          //   assessment
+          // });
           
           await createRolePlayAssessment(sessionId, employeeId, assessment);
           //console.log('✅ Assessment saved to database successfully');
@@ -447,7 +447,6 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
   const handleStartNew = () => {
           //console.log('scenario set to null');
-
     setSelectedScenario(null);
     setConversationHistory([]);
     setAssessmentReport(null);
