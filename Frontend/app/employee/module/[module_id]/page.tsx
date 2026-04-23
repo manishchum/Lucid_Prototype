@@ -1529,43 +1529,28 @@ function ContentTransformer({
           <div className="space-y-3 flex flex-col">
             {module.video_url && (
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex justify-end gap-2 mb-2">
-                  <button 
-                    onClick={() => {
+                <div className="flex justify-start gap-2 mb-2">
+                  <select 
+                    onChange={(e) => {
                       const video = document.getElementById('module-video') as HTMLVideoElement;
                       if (!video) return;
                       const currentTime = video.currentTime;
                       const isPaused = video.paused;
-                      video.src = module.video_url;
+                      video.src = e.target.value === 'hinglish' ? module.video_url_hinglish : module.video_url;
                       video.onloadedmetadata = () => {
                         video.currentTime = currentTime;
                         if (!isPaused) video.play();
                         video.onloadedmetadata = null;
                       };
                     }}
-                    className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold"
+                    className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold cursor-pointer outline-none w-28 appearance-none text-center shadow-sm"
+                    defaultValue="en"
                   >
-                    English Audio
-                  </button>
-                  {module.video_url_hinglish && (
-                    <button 
-                      onClick={() => {
-                        const video = document.getElementById('module-video') as HTMLVideoElement;
-                        if (!video) return;
-                        const currentTime = video.currentTime;
-                        const isPaused = video.paused;
-                        video.src = module.video_url_hinglish;
-                        video.onloadedmetadata = () => {
-                          video.currentTime = currentTime;
-                          if (!isPaused) video.play();
-                          video.onloadedmetadata = null;
-                        };
-                      }}
-                      className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold"
-                    >
-                      Hinglish Audio
-                    </button>
-                  )}
+                    <option value="en">English</option>
+                    {module.video_url_hinglish && (
+                      <option value="hinglish">हिंदी</option>
+                    )}
+                  </select>
                 </div>
                 <video id="module-video" controls className="w-full rounded-lg">
                   <source src={module.video_url} type="video/mp4" />
@@ -2066,8 +2051,8 @@ function styleHTMLContent(content: string): string {
     // Style tables with Tailwind classes
     const tables = container.querySelectorAll('table');
     tables.forEach((table) => {
-      table.className = 'w-full  border-2 border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
-      table.setAttribute('style', 'border-collapse: collapse; border: 2px solid rgb(0, 0, 0);');
+      table.className = 'w-full border-2 border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
+      table.setAttribute('style', 'border-collapse: collapse; border: 2px solid rgb(0, 0, 0); table-layout: fixed; word-wrap: break-word;');
      
       // Style table headers
       const headers = table.querySelectorAll('thead th, thead td');
@@ -2079,7 +2064,7 @@ function styleHTMLContent(content: string): string {
       // Style table rows
       const rows = table.querySelectorAll('tr');
       rows.forEach((row) => {
-        (row as HTMLElement).style.cssText = 'border-bottom: 2px solidrgb(21, 22, 22);';
+        (row as HTMLElement).style.cssText = 'border-bottom: 2px solid rgb(21, 22, 22);';
       });
 
       // Style table body
@@ -2087,7 +2072,7 @@ function styleHTMLContent(content: string): string {
       cells.forEach((cell, idx) => {
         const isEvenRow = Math.floor(idx / (table.querySelectorAll('tbody tr')[0]?.children.length || 1)) % 2;
         cell.className = `border border-gray-300 px-4 py-3 text-gray-800 text-sm ${isEvenRow ? 'bg-white' : 'bg-gray-50'}`;
-        (cell as HTMLElement).style.cssText = `border: 1px solidrgb(11, 12, 12); padding: 12px 16px; ${isEvenRow ? 'background-color: #ffffff;' : 'background-color: #f9fafb;'}`;
+        (cell as HTMLElement).style.cssText = `border: 1px solid rgb(11, 12, 12); padding: 12px 16px; ${isEvenRow ? 'background-color: #ffffff;' : 'background-color: #f9fafb;'}`;
       });
 
 
