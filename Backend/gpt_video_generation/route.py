@@ -582,7 +582,7 @@ async def generateVideo(processedModuleId: str) -> dict:
         
         # English audio
         print(f"[VIDEO] Scene {i + 1} - English Script: {scene.get('spoken_script', '')}")
-        duration_en = await generateTTSAudio(scene["spoken_script"], audio_en, "en-US", "en-US-Neural2-J")
+        duration_en = await generateTTSAudio(scene["spoken_script"], audio_en, "en-IN", "en-IN-Chirp3-HD-Callirrhoe")
 
         # Hinglish audio
         hinglish_script = scene.get("hinglish_script", scene["spoken_script"])
