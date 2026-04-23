@@ -105,7 +105,12 @@ export default function EmployeeWelcome() {
   const [isExportingCertificate, setIsExportingCertificate] = useState<boolean>(false);
   const [showLeaderboard, setShowLeaderboard] = useState<boolean>(false);
   const [showAllModules, setShowAllModules] = useState(false);
-  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
+  const [showLoadingProgress, setShowLoadingProgress] = useState(true);
+
+  // Sync basic loading state without fake UI delays
+  useEffect(() => {
+    setShowLoadingProgress(authLoading || loading);
+  }, [authLoading, loading]);
 
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
@@ -687,193 +692,27 @@ const handleGenerateCertificate = (sprintId: string) => {
           "X-Company-ID": effectiveCompanyId,
         };
 
-        const fetchCached = async (cacheKey: string, fetcher: () => Promise<any>) => {
-          if (typeof window !== "undefined") {
-            const cached = sessionStorage.getItem(cacheKey);
-            if (cached) return JSON.parse(cached);
-          }
-          const data = await fetcher();
-          if (typeof window !== "undefined" && data && !data.error) {
-            sessionStorage.setItem(cacheKey, JSON.stringify(data));
-          }
-          return data;
-        };
-
-        const [
-          plansRes,
-          modulesRes,
-          progressRes,
-          usersRes,
-          companyRes,
-          learningStyleRes,
-          employeeAssessmentsRes,
-          userRankRes,
-        ] = await Promise.all([
-          fetchWithAuth(
-            `${API_BASE}/api/learning-plans/?user_id=${userId}`,
-            { headers },
-          ).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchWithAuth(
-            `${API_BASE}/api/training-modules/company/${employeeData.company_id}`,
-            { headers },
-          ).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchWithAuth(
-            `${API_BASE}/api/module-progress/user/${userId}`,
-            { headers },
-          ).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchWithAuth(
-            `${API_BASE}/api/users/company/${employeeData.company_id}`,
-            { headers },
-          ).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchCached(`company_${employeeData.company_id}`, () =>
-            fetchWithAuth(
-              `${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`,
-              { headers },
-            ).then((r) => (r.ok ? r.json() : ({} as any)))
-          ),
-          fetchCached(`learningStyle_${userId}`, () =>
-            fetchWithAuth(
-              `${API_BASE}/api/learning-style?user_id=${encodeURIComponent(userId)}`,
-              { headers },
-            ).then((r) => (r.ok ? r.json() : ({} as any)))
-          ),
-          fetchWithAuth(
-            `${API_BASE}/api/employee-assessments/user/${encodeURIComponent(userId)}`,
-            { headers },
-          ).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchWithAuth(`${API_BASE}/api/analytics/leaderboard/${employeeData.company_id}/user-rank`, { headers }).then((r) => r.ok ? r.json() : {}),
-
-        ]);
-
-        const employeeAssessments =
-          employeeAssessmentsRes?.data?.assessments ||
-          employeeAssessmentsRes?.assessments ||
-          [];
-
-        const assessmentIds = Array.from(
-          new Set(
-            (Array.isArray(employeeAssessments) ? employeeAssessments : [])
-              .map((ea: any) => ea?.assessment_id)
-              .filter(Boolean)
-              .map((id: any) => String(id)),
-          ),
+        const res = await fetchWithAuth(
+          `${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`,
+          { headers }
         );
-
-        const assessmentDetailsPayload = await Promise.all(
-          assessmentIds.map((id) =>
-            fetchWithAuth(
-              `${API_BASE}/api/assessments/${encodeURIComponent(id)}`,
-              { headers },
-            )
-              .then((r) => (r.ok ? r.json() : null))
-              .catch(() => null),
-          ),
-        );
-
-        const assessmentDetailById = new Map<string, any>();
-        (Array.isArray(assessmentDetailsPayload)
-          ? assessmentDetailsPayload
-          : []
-        ).forEach((payload: any) => {
-          const detail =
-            payload?.data?.assessment ||
-            payload?.data ||
-            payload?.assessment ||
-            payload;
-          if (detail?.assessment_id) {
-            assessmentDetailById.set(String(detail.assessment_id), detail);
-          }
-        });
-
-        const processedModuleIds = Array.from(
-          new Set(
-            Array.from(assessmentDetailById.values())
-              .map((d: any) => d?.processed_module_id)
-              .filter(Boolean)
-              .map((id: any) => String(id)),
-          ),
-        );
-
-        let processedModulesById = new Map<string, any>();
-        if (processedModuleIds.length > 0) {
-          const processedModulesPayload = await fetchWithAuth(
-            `${API_BASE}/api/processed-modules/batch`,
-            {
-              method: "POST",
-              headers: { ...headers, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                processed_module_ids: processedModuleIds,
-              }),
-            },
-          )
-            .then((r) => (r.ok ? r.json() : null))
-            .catch(() => null);
-
-          const processedModules =
-            processedModulesPayload?.data?.modules ||
-            processedModulesPayload?.data ||
-            processedModulesPayload?.modules ||
-            [];
-
-          processedModulesById = new Map(
-            (Array.isArray(processedModules) ? processedModules : [])
-              .filter((pm: any) => pm?.processed_module_id)
-              .map((pm: any) => [String(pm.processed_module_id), pm]),
-          );
+        
+        if (!res.ok) {
+          throw new Error("Failed to fetch dashboard summary");
         }
-
-        const assessmentEvidenceByModuleId: Record<
-          string,
-          AssessmentEvidence[]
-        > = {};
-        (Array.isArray(employeeAssessments)
-          ? employeeAssessments
-          : []
-        ).forEach((ea: any) => {
-          const detail = assessmentDetailById.get(
-            String(ea?.assessment_id || ""),
-          );
-          if (!detail || detail?.type !== "module") return;
-
-          const processedModule = processedModulesById.get(
-            String(detail?.processed_module_id || ""),
-          );
-          const originalModuleId = String(
-            detail?.original_module_id ||
-              processedModule?.original_module_id ||
-              "",
-          );
-          if (!originalModuleId) return;
-
-          const score =
-            typeof ea?.score === "number" ? ea.score : null;
-          const maxScore =
-            typeof ea?.max_score === "number" ? ea.max_score : null;
-          const scorePercent =
-            score !== null
-              ? maxScore && maxScore > 0
-                ? Number(((score / maxScore) * 100).toFixed(2))
-                : score
-              : null;
-
-          const bucket =
-            assessmentEvidenceByModuleId[originalModuleId] || [];
-          bucket.push({
-            scorePercent,
-            completedAt: toIso(ea?.completed_at),
-          });
-          assessmentEvidenceByModuleId[originalModuleId] = bucket;
-        });
-
+        
+        const data = await res.json();
+        
         return {
-          plans: plansRes?.plans || [],
-          modules: modulesRes?.modules || [],
-          progress: progressRes?.progress || [],
-          users: usersRes?.users || [],
-          company: companyRes?.company ||companyRes?.data|| companyRes || null,
-          learningStyle: learningStyleRes?.data?.learning_style || null,
-          assessmentEvidenceByModuleId,
-          userRank: userRankRes?.data || null,
+          plans: data.plans || [],
+          modules: data.modules || [],
+          progress: data.progress || [],
+          users: [], // No longer fetching all users, using total_users instead
+          company: data.company || null,
+          learningStyle: data.learning_style || null,
+          assessmentEvidenceByModuleId: data.assessment_evidence_by_module_id || {},
+          userRank: data.user_rank || null,
+          totalUsers: data.total_users || 0,
         };
       },
       {
@@ -938,7 +777,7 @@ const handleGenerateCertificate = (sprintId: string) => {
       const progressValue = totalAssigned > 0 ? (completedCount / totalAssigned) * 100 : 0;
       setProgressPercentage(progressValue);
       
-      const totalUsers = Array.isArray(data?.users) ? data.users.length : 0;
+      const totalUsers = data?.totalUsers ?? 0;
       // const completedCount = mappedAssigned.filter(
       //   (p) => p.status === "completed",
       // ).length;
@@ -985,8 +824,7 @@ const handleGenerateCertificate = (sprintId: string) => {
     if (showLoadingProgress) {
     return (
       <LoadingProgress
-        label="Preparing your dashboard"
-        progress={loadingProgress}
+        label="Loading your dashboard"
       />
     );
   }
@@ -1525,64 +1363,20 @@ function LearningStyleBlurb({ styleCode }: { styleCode: string }) {
   );
 }
 
-// ─── useIllusionProgress ───────────────────────────────────────────────────────
-
-function useIllusionProgress(active: boolean) {
-  const [progress, setProgress] = useState(12);
-  const [show, setShow] = useState(active);
-
-  useEffect(() => {
-    if (!active) {
-      setProgress(100);
-      const timeout = setTimeout(() => setShow(false), 180);
-      return () => clearTimeout(timeout);
-    }
-
-    setShow(true);
-    setProgress(Math.min(25, 10 + Math.round(Math.random() * 12)));
-
-    const id = setInterval(() => {
-      setProgress((prev) => {
-        const shouldHold =
-          prev > 70 ? Math.random() < 0.45 : Math.random() < 0.25;
-        if (shouldHold) return prev;
-        const increment = Math.max(1, Math.round(Math.random() * 7));
-        return Math.min(prev + increment, 93);
-      });
-    }, 420 + Math.round(Math.random() * 240));
-
-    return () => clearInterval(id);
-  }, [active]);
-
-  return { progress: Math.min(progress, 100), show };
-}
-
 // ─── LoadingProgress ───────────────────────────────────────────────────────────
 
 function LoadingProgress({
   label,
-  progress,
 }: {
   label: string;
-  progress: number;
 }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
-        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
-          <span>{label}</span>
-          <span className="text-slate-900 text-base font-black">
-            {progress}%
-          </span>
-        </div>
-        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
-          <div
-            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 flex flex-col items-center justify-center space-y-4">
+        <div className="w-8 h-8 md:w-10 md:h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-sm font-semibold text-slate-700">{label}</p>
         <p className="text-xs text-slate-500 font-medium">
-          We are personalizing your experience. This will only take a moment.
+          Loading your data securely...
         </p>
       </div>
     </div>
