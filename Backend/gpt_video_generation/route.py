@@ -318,7 +318,7 @@ async def generateAvatarImage(dir: str) -> str:
 # ------------------------------------------------------------------
 # GOOGLE TTS
 # ------------------------------------------------------------------
-async def generateTTSAudio(script: str, outFile: str, language_code: str = "en-US", voice_name: str = "en-US-Neural2-J") -> float:
+async def generateTTSAudio(script: str, outFile: str, language_code: str = "en-IN", voice_name: str = "en-IN-Chirp3-HD-Callirrhoe") -> float:
     ttsClient = texttospeech.TextToSpeechClient()
 
     response = ttsClient.synthesize_speech(

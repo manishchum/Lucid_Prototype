@@ -1530,42 +1530,27 @@ function ContentTransformer({
             {module.video_url && (
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex justify-end gap-2 mb-2">
-                  <button 
-                    onClick={() => {
+                  <select 
+                    onChange={(e) => {
                       const video = document.getElementById('module-video') as HTMLVideoElement;
                       if (!video) return;
                       const currentTime = video.currentTime;
                       const isPaused = video.paused;
-                      video.src = module.video_url;
+                      video.src = e.target.value === 'hinglish' ? module.video_url_hinglish : module.video_url;
                       video.onloadedmetadata = () => {
                         video.currentTime = currentTime;
                         if (!isPaused) video.play();
                         video.onloadedmetadata = null;
                       };
                     }}
-                    className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold"
+                    className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold cursor-pointer outline-none w-28 appearance-none text-center shadow-sm"
+                    defaultValue="en"
                   >
-                    English Audio
-                  </button>
-                  {module.video_url_hinglish && (
-                    <button 
-                      onClick={() => {
-                        const video = document.getElementById('module-video') as HTMLVideoElement;
-                        if (!video) return;
-                        const currentTime = video.currentTime;
-                        const isPaused = video.paused;
-                        video.src = module.video_url_hinglish;
-                        video.onloadedmetadata = () => {
-                          video.currentTime = currentTime;
-                          if (!isPaused) video.play();
-                          video.onloadedmetadata = null;
-                        };
-                      }}
-                      className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold"
-                    >
-                      Hinglish Audio
-                    </button>
-                  )}
+                    <option value="en">English</option>
+                    {module.video_url_hinglish && (
+                      <option value="hinglish">हिंदी</option>
+                    )}
+                  </select>
                 </div>
                 <video id="module-video" controls className="w-full rounded-lg">
                   <source src={module.video_url} type="video/mp4" />
