@@ -22,6 +22,7 @@ export interface SkillNode {
   level: 'beginner' | 'intermediate' | 'advanced';
   moduleId?: string; // Reference to training module if available
   estimatedHours?: number;
+  timeUnit?: 'days' | 'hours'; // Unit for the estimated time
   resources?: string[];
 }
 

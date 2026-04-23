@@ -10,6 +10,7 @@ interface Sprint {
   id: string;
   name: string;
   completionTime?: string;
+  timeUnit?: 'days' | 'hours';
 }
 
 interface Level {
@@ -56,7 +57,8 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
       level.sprints.push({
         id: skill.id,
         name: skill.title,
-        completionTime: skill.estimatedHours ? `${skill.estimatedHours}h` : '',
+        completionTime: skill.estimatedHours ? `${skill.estimatedHours}` : '',
+        timeUnit: skill.timeUnit || 'hours'
       });
     });
 
@@ -355,9 +357,6 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
                                   <div className="w-10 h-10 bg-white rounded-2xl border border-gray-100 flex items-center justify-center group-hover/sprint:bg-blue-600 group-hover/sprint:text-white transition-all shadow-sm">
                                     <Zap size={18} />
                                   </div>
-                                  <span className="text-[10px] font-black text-blue-600 hover:underline cursor-pointer opacity-0 group-hover/sprint:opacity-100 transition-opacity uppercase tracking-widest">
-                                    START
-                                  </span>
                                 </div>
                                 <div className="flex flex-col gap-1">
                                   <span className="font-black text-gray-800 group-hover/sprint:text-blue-600 transition-colors uppercase text-sm tracking-tight leading-snug">
@@ -365,7 +364,7 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
                                   </span>
                                   {sprint.completionTime && (
                                     <div className="flex items-center gap-1.5 text-[10px] font-black text-blue-500 uppercase tracking-widest opacity-70">
-                                      <Clock size={12} /> {sprint.completionTime}
+                                      <Clock size={12} /> {sprint.completionTime} {sprint.timeUnit === 'hours' ? 'hours' : 'days'}
                                     </div>
                                   )}
                                 </div>
