@@ -798,6 +798,8 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const [selectedModule, setSelectedModule] = useState<any | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1.25);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
 
   const files = (() => {
     if (!selectedModule) return [];
@@ -995,6 +997,13 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       setLoading(false);
     }
   };
+
+  const paginatedModules = trainingModules.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  const totalPages = Math.ceil(trainingModules.length / itemsPerPage);
 
   const getStatusBadge = (status: string) => {
     switch (status?.toLowerCase()) {
@@ -1343,7 +1352,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           </div>
         ) : (
           <div className="grid gap-4">
-            {trainingModules.map((module) => (
+            {paginatedModules.map((module) => (
               <Card key={module.module_id}>
               <CardContent className="p-4">
 
@@ -1465,9 +1474,51 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
               </CardContent>
               </Card>
                 
-
               
             ))}
+          </div>
+        )}
+         {totalPages > 1 && (
+          <div className="flex justify-between items-center mt-4">
+            <div>
+              <span className="text-sm text-gray-600">
+                Page {currentPage} of {totalPages}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                }
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
+            <div>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="border-gray-300 rounded-md shadow-sm"
+              >
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+              </select>
+            </div>
           </div>
         )}
       </div>
