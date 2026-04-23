@@ -212,7 +212,7 @@ def buildGeminiPodcastPrompt(moduleTitle: str, moduleContent: str, language: Lit
     
     format_instruction = hinglish_format if language == "hinglish" else english_format
 
-    hinglish_filler = '"arey", "toh", "matlab", "dekho", "acha", "sahi hai", "bilkul"'
+    hinglish_filler = '"toh", "matlab", "dekho", "acha", "sahi hai", "bilkul"'
     english_filler = '"you know", "I mean", "actually", "right", "so"'
     filler_words = hinglish_filler if language == "hinglish" else english_filler
 
