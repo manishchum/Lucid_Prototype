@@ -838,7 +838,7 @@ const handleGenerateCertificate = (sprintId: string) => {
         <Button
           onClick={() => setShowLeaderboard(true)}
           variant="outline"
-          className="fixed top-[72px] right-4 z-50 rounded-xl border border-slate-200 bg-white/95 backdrop-blur shadow-sm hover:bg-amber-50 hover:border-amber-200 transition-colors flex items-center justify-center"
+          className="fixed top-[36px] right-4 z-50 rounded-xl border border-slate-200 bg-white/95 backdrop-blur shadow-sm hover:bg-amber-50 hover:border-amber-200 transition-colors flex items-center justify-center"
           title="View leaderboard"
           size="icon"
         >
