@@ -42,7 +42,7 @@ const API_BASE_URLS = uniqueNonEmpty([
   process.env.BACKEND_URL,
 ]);
 
-const POLL_INTERVAL_MS = Number(process.env.AUDIO_WORKER_POLL_INTERVAL_MS || 15000);
+const POLL_INTERVAL_MS = Number(process.env.AUDIO_WORKER_POLL_INTERVAL_MS || 120000);
 const MIN_CONTENT_LENGTH = Number(process.env.AUDIO_WORKER_MIN_CONTENT_LENGTH || 1);
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
@@ -115,7 +115,7 @@ async function callTtsForLanguage(processedModuleId, language) {
           const maxWaitMs = 15 * 60 * 1000; // wait up to 15 minutes
           const startMs = Date.now();
           const col = normalizedLanguage === 'hinglish' ? 'audio_url_hinglish' : 'audio_url';
-          
+
           while (Date.now() - startMs < maxWaitMs) {
             await sleep(15000);
             const { data, error } = await supabase
@@ -123,7 +123,7 @@ async function callTtsForLanguage(processedModuleId, language) {
               .select(col)
               .eq('processed_module_id', processedModuleId)
               .single();
-              
+
             if (!error && data && data[col]) {
               console.log(`[AUDIO WORKER] Recovered from HTTP ${response.status}! ${normalizedLanguage} audio successfully found in DB for ${processedModuleId}`);
               return { success: true, recovered: true, url: data[col] };
@@ -257,21 +257,27 @@ async function generateModuleAudio({ moduleId = null, processedModuleId = null, 
 
 async function pollLoop() {
   console.log('[AUDIO WORKER] Polling for processed_modules missing English/Hinglish audio...');
+  let idleCount = 0;
+  const MIN_POLL_MS = 15000;
+  const MAX_POLL_MS = 120000;
 
   while (true) {
     try {
       const row = await fetchNextPendingRow();
 
       if (!row) {
+        idleCount++;
         console.log('[AUDIO WORKER] No eligible modules right now.');
       } else {
+        idleCount = 0;
         await processProcessedModuleRow(row);
       }
     } catch (error) {
       console.error('[AUDIO WORKER] Poll loop error:', error.message || error);
     }
 
-    await sleep(POLL_INTERVAL_MS);
+    const backoff = Math.min(MIN_POLL_MS * Math.pow(2, idleCount), MAX_POLL_MS);
+    await sleep(backoff);
   }
 }
 

@@ -85,24 +85,24 @@ async function generateWithRetry(callFn, retries = 3) {
 async function generateModuleContent({ moduleId = null } = {}) {
   console.log(`[GENERATE] Starting content generation ${moduleId ? `for module: ${moduleId}` : 'for all modules'}`);
   
+  if (!moduleId) {
+    throw new Error('[GENERATE] moduleId is required.');
+  }
+
   // Fetch all processed_modules with empty or placeholder content (optionally scoped by moduleId)
   let query = supabase
     .from('processed_modules')
     .select(`
       processed_module_id,
       title,
-      content,
       original_module_id,
       learning_style
     `)
-    .or('content.is.null,content.eq.\'\',content.eq.""');
+    .eq('original_module_id', moduleId)
+    .or(`content.is.null,content.eq.'',content.eq.""`)
+    .limit(100);
 
-    
-
-  if (moduleId) {
-    console.log(`[GENERATE] Filtering by module_id: ${moduleId}`);
-    query = query.eq('original_module_id', moduleId);
-  }
+  console.log(`[GENERATE] Filtering by module_id: ${moduleId}`);
 
   console.log(`[GENERATE] Fetching modules from Supabase...`);
   const { data: modules, error } = await query;
@@ -348,8 +348,8 @@ ${objectivesText}
           }
 
           const prioritizedImages = [];
-          const MAX_TOTAL_IMAGES = 12;
-          const primaryChunks = (matchedChunks || []).slice(0, 6);
+          const MAX_TOTAL_IMAGES = Number(process.env.MAX_GEMINI_CONTEXT_IMAGES || 4);
+          const primaryChunks = (matchedChunks || []).slice(0, Math.min(matchChunks, 4));
 
           for (let i = 0; i < primaryChunks.length; i++) {
             const chunk = primaryChunks[i];
@@ -405,7 +405,7 @@ ${objectivesText}
 
               const { data: signedUrlData, error: signedUrlError } = await supabase.storage
                 .from('module-assets')
-                .createSignedUrl(path, 7 * 24 * 60 * 60);
+                .createSignedUrl(path, 60 * 60);
 
               if (signedUrlError) {
                 console.warn(`[GEMINI] Failed to create signed URL for ${path}:`, signedUrlError.message);

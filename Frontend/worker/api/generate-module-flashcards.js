@@ -42,7 +42,7 @@ const API_BASE_URLS = uniqueNonEmpty([
   process.env.BACKEND_URL,
 ]);
 
-const POLL_INTERVAL_MS = Number(process.env.FLASHCARD_WORKER_POLL_INTERVAL_MS || 15000);
+const POLL_INTERVAL_MS = Number(process.env.FLASHCARD_WORKER_POLL_INTERVAL_MS || 120000);
 const MIN_CONTENT_LENGTH = Number(process.env.FLASHCARD_WORKER_MIN_CONTENT_LENGTH || 1);
 const MAX_CONTENT_CHARS = Number(process.env.FLASHCARD_WORKER_MAX_CONTENT_CHARS || 18000);
 const SCAN_BATCH_SIZE = Math.max(1, Number(process.env.FLASHCARD_WORKER_SCAN_BATCH_SIZE || 500));
@@ -258,21 +258,27 @@ async function generateModuleFlashcards({ moduleId = null, processedModuleId = n
 
 async function pollLoop() {
   console.log('[FLASHCARD WORKER] Polling for processed_modules missing flashcard_data with non-empty content...');
+  let idleCount = 0;
+  const MIN_POLL_MS = 15000;
+  const MAX_POLL_MS = 120000;
 
   while (true) {
     try {
       const row = await fetchNextPendingRow();
 
       if (!row) {
+        idleCount++;
         console.log('[FLASHCARD WORKER] No eligible modules right now.');
       } else {
+        idleCount = 0;
         await processProcessedModuleRow(row);
       }
     } catch (error) {
-      console.error('[FLASHCARD WORKER] Poll loop error:', error.message || error);
+      console.error('[WORKER] Poll loop error:', error.message || error);
     }
 
-    await sleep(POLL_INTERVAL_MS);
+    const backoff = Math.min(MIN_POLL_MS * Math.pow(2, idleCount), MAX_POLL_MS);
+    await sleep(backoff);
   }
 }
 

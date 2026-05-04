@@ -43,7 +43,7 @@ const API_BASE_URLS = uniqueNonEmpty([
   process.env.BACKEND_URL,
 ]);
 
-const POLL_INTERVAL_MS = Number(process.env.VIDEO_WORKER_POLL_INTERVAL_MS || 15000);
+const POLL_INTERVAL_MS = Number(process.env.VIDEO_WORKER_POLL_INTERVAL_MS || 120000);
 const MIN_CONTENT_LENGTH = Number(process.env.VIDEO_WORKER_MIN_CONTENT_LENGTH || 1);
 const VIDEO_RECOVERY_WAIT_MS = Number(process.env.VIDEO_WORKER_RECOVERY_WAIT_MS || 1800000);
 const VIDEO_RECOVERY_POLL_MS = Number(process.env.VIDEO_WORKER_RECOVERY_POLL_MS || 15000);
@@ -125,8 +125,8 @@ async function callVideoGeneration(processedModuleId) {
 
       if (!response.ok) {
         if ([502, 503, 504].includes(response.status)) {
-        //   console.log(`[VIDEO WORKER] HTTP ${response.status} from ${baseUrl}. Waiting for DB video_url update...`);
-        console.log(`[VIDEO WORKER] Video generation running in background. Waiting for DB video_url update...`);
+          //   console.log(`[VIDEO WORKER] HTTP ${response.status} from ${baseUrl}. Waiting for DB video_url update...`);
+          console.log(`[VIDEO WORKER] Video generation running in background. Waiting for DB video_url update...`);
           const recoveredUrl = await waitForVideoUrlInDb(processedModuleId);
           if (recoveredUrl) {
             console.log(`[VIDEO WORKER] video found in DB for ${processedModuleId}`);
@@ -255,21 +255,26 @@ async function generateModuleVideo({ moduleId = null, processedModuleId = null }
 
 async function pollLoop() {
   console.log('[VIDEO WORKER] Polling for processed_modules missing video_url with non-empty content...');
+  let idleCount = 0;
+  const MIN_POLL_MS = 15000;
+  const MAX_POLL_MS = 120000;
 
   while (true) {
     try {
       const row = await fetchNextPendingRow();
 
       if (!row) {
-        console.log('[VIDEO WORKER] No eligible modules right now.');
+        idleCount++;
       } else {
+        idleCount = 0;
         await processProcessedModuleRow(row);
       }
     } catch (error) {
       console.error('[VIDEO WORKER] Poll loop error:', error.message || error);
     }
 
-    await sleep(POLL_INTERVAL_MS);
+    const backoff = Math.min(MIN_POLL_MS * Math.pow(2, idleCount), MAX_POLL_MS);
+    await sleep(backoff);
   }
 }
 

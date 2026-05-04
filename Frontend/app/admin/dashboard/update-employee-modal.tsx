@@ -96,7 +96,7 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
       // Load subdepartments
       const { data: subDeptData, error: subDeptError } = await supabase
         .from('sub_department')
-        .select('*')
+        .select('department_id, department_name, sub_department_name')
         .order('department_name')
         .order('sub_department_name');
 
