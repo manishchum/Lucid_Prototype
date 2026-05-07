@@ -58,6 +58,7 @@ if (API_BASE_URLS.length === 0) {
 console.log('[AUDIO WORKER] API base URL candidates:', API_BASE_URLS.join(' | '));
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+const ACTIVE_JOB_STATUSES = ['pending', 'in-progress'];
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -180,7 +181,7 @@ async function processProcessedModuleRow(row, forceLanguage = null) {
 async function fetchRowByProcessedId(processedModuleId) {
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('processed_module_id, content, audio_url, audio_url_hinglish, created_at')
+    .select('processed_module_id, content, audio_url, audio_url_hinglish')
     .eq('processed_module_id', processedModuleId)
     .maybeSingle();
 
@@ -195,10 +196,32 @@ async function fetchRowByProcessedId(processedModuleId) {
   return data;
 }
 
+async function fetchActiveModuleIds() {
+  const { data, error } = await supabase
+    .from('content_jobs')
+    .select('module_id')
+    .in('status', ACTIVE_JOB_STATUSES)
+    .order('created_at', { ascending: true })
+    .limit(50);
+
+  if (error) {
+    throw new Error(`Active module fetch failed: ${error.message}`);
+  }
+
+  const moduleIds = [...new Set((data || []).map((row) => row.module_id).filter(Boolean))];
+  return moduleIds;
+}
+
 async function fetchNextPendingRow() {
+  const activeModuleIds = await fetchActiveModuleIds();
+  if (activeModuleIds.length === 0) {
+    return null;
+  }
+
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('processed_module_id, content, audio_url, audio_url_hinglish, created_at')
+    .select('processed_module_id, content, audio_url, audio_url_hinglish')
+    .in('original_module_id', activeModuleIds)
     .not('content', 'is', null)
     .neq('content', '')
     .or('audio_url.is.null,audio_url.eq."",audio_url_hinglish.is.null,audio_url_hinglish.eq.""')

@@ -61,6 +61,7 @@ if (API_BASE_URLS.length === 0) {
 console.log('[VIDEO WORKER] API base URL candidates:', API_BASE_URLS.join(' | '));
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+const ACTIVE_JOB_STATUSES = ['pending', 'in-progress'];
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -178,7 +179,7 @@ async function processProcessedModuleRow(row) {
 async function fetchRowByProcessedId(processedModuleId) {
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('processed_module_id, content, video_url, created_at')
+    .select('processed_module_id, content, video_url')
     .eq('processed_module_id', processedModuleId)
     .maybeSingle();
 
@@ -193,15 +194,37 @@ async function fetchRowByProcessedId(processedModuleId) {
   return data;
 }
 
+async function fetchActiveModuleIds() {
+  const { data, error } = await supabase
+    .from('content_jobs')
+    .select('module_id')
+    .in('status', ACTIVE_JOB_STATUSES)
+    .order('created_at', { ascending: true })
+    .limit(50);
+
+  if (error) {
+    throw new Error(`Active module fetch failed: ${error.message}`);
+  }
+
+  const moduleIds = [...new Set((data || []).map((row) => row.module_id).filter(Boolean))];
+  return moduleIds;
+}
+
 async function fetchNextPendingRow() {
+  const activeModuleIds = await fetchActiveModuleIds();
+  if (activeModuleIds.length === 0) {
+    return null;
+  }
+
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('processed_module_id, content, video_url, created_at')
+    .select('processed_module_id, content, video_url')
+    .in('original_module_id', activeModuleIds)
     .not('content', 'is', null)
     .neq('content', '')
     .or('video_url.is.null,video_url.eq.""')
     .order('created_at', { ascending: true })
-    .limit(50);
+    .limit(1);
 
   if (error) {
     throw new Error(`Pending row fetch failed: ${error.message}`);

@@ -45,8 +45,7 @@ const API_BASE_URLS = uniqueNonEmpty([
 const POLL_INTERVAL_MS = Number(process.env.FLASHCARD_WORKER_POLL_INTERVAL_MS || 120000);
 const MIN_CONTENT_LENGTH = Number(process.env.FLASHCARD_WORKER_MIN_CONTENT_LENGTH || 1);
 const MAX_CONTENT_CHARS = Number(process.env.FLASHCARD_WORKER_MAX_CONTENT_CHARS || 18000);
-const SCAN_BATCH_SIZE = Math.max(1, Number(process.env.FLASHCARD_WORKER_SCAN_BATCH_SIZE || 500));
-const MAX_SCAN_ROWS = Math.max(SCAN_BATCH_SIZE, Number(process.env.FLASHCARD_WORKER_MAX_SCAN_ROWS || 5000));
+const ACTIVE_JOB_STATUSES = ['pending', 'in-progress'];
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error('[FLASHCARD WORKER] FATAL: Supabase env vars are missing.');
@@ -161,7 +160,7 @@ async function processProcessedModuleRow(row) {
 async function fetchRowByProcessedId(processedModuleId) {
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('processed_module_id, original_module_id, title, content, flashcard_data, created_at')
+    .select('processed_module_id, title, content, flashcard_data')
     .eq('processed_module_id', processedModuleId)
     .maybeSingle();
 
@@ -176,48 +175,44 @@ async function fetchRowByProcessedId(processedModuleId) {
   return data;
 }
 
-async function fetchNextPendingRow() {
-  let offset = 0;
-  let scanned = 0;
+async function fetchActiveModuleIds() {
+  const { data, error } = await supabase
+    .from('content_jobs')
+    .select('module_id')
+    .in('status', ACTIVE_JOB_STATUSES)
+    .order('created_at', { ascending: true })
+    .limit(50);
 
-  while (scanned < MAX_SCAN_ROWS) {
-    const end = offset + SCAN_BATCH_SIZE - 1;
-
-    const { data, error } = await supabase
-      .from('processed_modules')
-      .select('processed_module_id, original_module_id, title, content, flashcard_data, created_at')
-      .not('content', 'is', null)
-      .neq('content', '')
-      .order('created_at', { ascending: true })
-      .range(offset, end);
-
-    if (error) {
-      throw new Error(`Pending row fetch failed: ${error.message}`);
-    }
-
-    const rows = Array.isArray(data) ? data : [];
-    if (rows.length === 0) break;
-
-    const next = rows.find(isEligible);
-    if (next) {
-      if (offset > 0) {
-        console.log(
-          `[FLASHCARD WORKER] Found eligible row after scanning offset=${offset}, scanned=${scanned + rows.length}`
-        );
-      }
-      return next;
-    }
-
-    scanned += rows.length;
-    offset += rows.length;
-
-    if (rows.length < SCAN_BATCH_SIZE) break;
+  if (error) {
+    throw new Error(`Active module fetch failed: ${error.message}`);
   }
 
-  console.log(
-    `[FLASHCARD WORKER] No eligible rows found after scanning up to ${Math.min(scanned, MAX_SCAN_ROWS)} rows.`
-  );
-  return null;
+  const moduleIds = [...new Set((data || []).map((row) => row.module_id).filter(Boolean))];
+  return moduleIds;
+}
+
+async function fetchNextPendingRow() {
+  const activeModuleIds = await fetchActiveModuleIds();
+  if (activeModuleIds.length === 0) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from('processed_modules')
+    .select('processed_module_id, title, content, flashcard_data')
+    .in('original_module_id', activeModuleIds)
+    .not('content', 'is', null)
+    .neq('content', '')
+    .or('flashcard_data.is.null,flashcard_data.eq."",flashcard_data.eq."[]",flashcard_data.eq."{}"')
+    .order('created_at', { ascending: true })
+    .limit(1);
+
+  if (error) {
+    throw new Error(`Pending row fetch failed: ${error.message}`);
+  }
+
+  const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
+  return row && isEligible(row) ? row : null;
 }
 
 async function generateModuleFlashcards({ moduleId = null, processedModuleId = null } = {}) {
@@ -232,7 +227,7 @@ async function generateModuleFlashcards({ moduleId = null, processedModuleId = n
   if (moduleId) {
     const { data, error } = await supabase
       .from('processed_modules')
-      .select('processed_module_id, original_module_id, title, content, flashcard_data, created_at')
+      .select('processed_module_id, title, content, flashcard_data')
       .eq('original_module_id', moduleId)
       .order('created_at', { ascending: true });
 

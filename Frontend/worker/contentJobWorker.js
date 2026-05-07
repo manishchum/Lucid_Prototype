@@ -33,7 +33,7 @@ async function storeInitialContentHistory(moduleId) {
     // Fetch all processed_modules for this original module
     const { data: processedModules, error: fetchError } = await supabase
       .from('processed_modules')
-      .select('processed_module_id, content, title, learning_style, order_index')
+      .select('processed_module_id, content')
       .eq('original_module_id', moduleId);
 
     if (fetchError) {
