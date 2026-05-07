@@ -43,7 +43,7 @@ const API_BASE_URLS = uniqueNonEmpty([
   process.env.INTERNAL_API_BASE_URL,
 ]);
 
-const POLL_INTERVAL_MS = Number(process.env.MINDMAP_WORKER_POLL_INTERVAL_MS || 15000);
+const POLL_INTERVAL_MS = Number(process.env.MINDMAP_WORKER_POLL_INTERVAL_MS || 120000);
 const MIN_CONTENT_LENGTH = Number(process.env.MINDMAP_WORKER_MIN_CONTENT_LENGTH || 1);
 const MAX_CONTENT_CHARS = Number(process.env.MINDMAP_WORKER_MAX_CONTENT_CHARS || 18000);
 const SCAN_BATCH_SIZE = Math.max(1, Number(process.env.MINDMAP_WORKER_SCAN_BATCH_SIZE || 500));
@@ -274,22 +274,27 @@ async function generateModuleMindmap({ moduleId = null, processedModuleId = null
 }
 
 async function pollLoop() {
-  console.log('[MINDMAP WORKER] Polling for processed_modules missing mindmap_data with non-empty content...');
+  console.log('[MINDMAP WORKER] Polling for pending modules...');
+  let idleCount = 0;
+  const MIN_POLL_MS = 15000;
+  const MAX_POLL_MS = 120000;
 
   while (true) {
     try {
       const row = await fetchNextPendingRow();
 
       if (!row) {
-        console.log('[MINDMAP WORKER] No eligible modules right now.');
+        idleCount++;
       } else {
+        idleCount = 0;
         await processProcessedModuleRow(row);
       }
     } catch (error) {
       console.error('[MINDMAP WORKER] Poll loop error:', error.message || error);
     }
 
-    await sleep(POLL_INTERVAL_MS);
+    const backoff = Math.min(MIN_POLL_MS * Math.pow(2, idleCount), MAX_POLL_MS);
+    await sleep(backoff);
   }
 }
 

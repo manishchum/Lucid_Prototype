@@ -81,7 +81,7 @@ async function processJobs() {
     console.log('Polling for pending jobs...');
     const { data: jobs, error } = await supabase
       .from('content_jobs')
-      .select('*')
+      .select('id, module_id')
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
       .limit(1);

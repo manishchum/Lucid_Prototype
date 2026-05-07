@@ -692,7 +692,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
     try {
       const { data: learningStyleResults, error: styleError } = await supabase
         .from('employee_learning_style')
-        .select('*');
+        .select('user_id, learning_style, created_at, updated_at');
 
       if (styleError) {
         console.error('Error fetching learning styles:', styleError);
