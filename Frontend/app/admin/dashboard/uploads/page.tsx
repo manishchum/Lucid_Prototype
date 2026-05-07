@@ -133,7 +133,7 @@ function ContentUpload({
     }
 
     try {
-      console.log(`[AI] Starting processing for Sprint: ${moduleId}`);
+      // console.log(`[AI] Starting processing for Sprint: ${moduleId}`);
 
       const firstFile = uploadFiles[0];
       const initialStatus = isMediaFile(firstFile?.type || "") ? "transcribing" : "summarizing";
@@ -201,7 +201,7 @@ function ContentUpload({
         }
       }
 
-      console.log(`[AI] Processing triggered successfully for Sprint: ${moduleId}`);
+      // console.log(`[AI] Processing triggered successfully for Sprint: ${moduleId}`);
       onUploadComplete();
     } catch (err) {
       console.error("[AI] Pipeline failed:", err);
@@ -258,7 +258,7 @@ function ContentUpload({
       }
 
       const result = await response.json();
-      console.log('Creation successful:', result);
+      // console.log('Creation successful:', result);
 
       const uploadedFileRaw = result.inserted?.[0]?.module;
 
@@ -285,7 +285,7 @@ function ContentUpload({
           
           if (pathMatch && pathMatch[1]) {
             storagePath = pathMatch[1];
-            console.log('[Upload] Extracted storage path:', storagePath, 'from URL:', moduleUrl);
+            // console.log('[Upload] Extracted storage path:', storagePath, 'from URL:', moduleUrl);
           } else {
             console.warn('[Upload] Could not extract storage path from URL:', moduleUrl);
           }
@@ -300,7 +300,7 @@ function ContentUpload({
         };
       });
       
-      console.log('[Upload] Individual file URLs extracted:', individualFileUrls);
+      // console.log('[Upload] Individual file URLs extracted:', individualFileUrls);
       
       if (uploadedFile) {
         // Create training module via backend API
@@ -330,7 +330,7 @@ function ContentUpload({
           alert('Failed to create training module: ' + errorText);
         } else {
           const createPayload = await createRes.json().catch(() => ({}));
-          console.log('[Upload] Backend response:', createPayload);
+          // console.log('[Upload] Backend response:', createPayload);
           
           // Backend returns {message: "...", module: [{...}]}
           // The module is an array from Supabase insert
@@ -343,10 +343,10 @@ function ContentUpload({
             }
           }
           
-          console.log('[Upload] Extracted moduleData:', moduleData);
+          // console.log('[Upload] Extracted moduleData:', moduleData);
           
           if (moduleData && moduleData.module_id) {
-            console.log('[Upload] Created module with ID:', moduleData.module_id);
+            // console.log('[Upload] Created module with ID:', moduleData.module_id);
             
             // Store source file names and URLs in localStorage (frontend-only solution)
             const sourceFilesMap = JSON.parse(localStorage.getItem('moduleSourceFiles') || '{}');
@@ -354,17 +354,17 @@ function ContentUpload({
               ? individualFileUrls 
               : files.map(f => ({ name: f.name, url: '' }));
             localStorage.setItem('moduleSourceFiles', JSON.stringify(sourceFilesMap));
-            console.log('[Upload] Stored source files in localStorage:', sourceFilesMap[moduleData.module_id]);
+            // console.log('[Upload] Stored source files in localStorage:', sourceFilesMap[moduleData.module_id]);
             
             // Refresh UI immediately to show the new module card
             onUploadComplete();
             
             // Trigger AI background processing
             await triggerAIProcessing( moduleData.module_id, uploadFiles, uploadedFile);
-            console.log("Triggering AI with:");
-            console.log("moduleId:", moduleData.module_id);
-            console.log("files count:", uploadFiles.length);
-            console.log("file names:", uploadFiles.map(f => f.name));
+            // console.log("Triggering AI with:");
+            // console.log("moduleId:", moduleData.module_id);
+            // console.log("files count:", uploadFiles.length);
+            // console.log("file names:", uploadFiles.map(f => f.name));
           } else {
             console.error('[Upload] No module_id in response. Full payload:', createPayload);
             alert('Module created but ID not found in response');
@@ -798,6 +798,8 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const [selectedModule, setSelectedModule] = useState<any | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1.25);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
 
   const files = (() => {
     if (!selectedModule) return [];
@@ -805,7 +807,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     const sourceFiles: any[] = [];
     const raw = selectedModule?.source_files;
 
-    console.log("RAW SOURCE FILES:", raw);
+    // console.log("RAW SOURCE FILES:", raw);
 
     // Handle array format
     if (Array.isArray(raw)) {
@@ -912,8 +914,8 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       }
 
       const modulesPayload = await modulesRes.json().catch(() => ({}));
-      console.log("Backend response");
-      console.log(modulesPayload);
+      // console.log("Backend response");
+      // console.log(modulesPayload);
 
       const data = modulesPayload.modules || [];
 
@@ -934,7 +936,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
               jobsMap.set(job.module_id, job);
             }
           });
-          console.log(`[uploads] Loaded ${jobsMap.size} content jobs in batch`);
+          // console.log(`[uploads] Loaded ${jobsMap.size} content jobs in batch`);
         } else {
           const errorText = await jobsRes.text().catch(() => '');
           console.error('[uploads] Failed to fetch content jobs batch:', jobsRes.status, errorText);
@@ -947,10 +949,10 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       // Map modules with their job status (no async operations, just lookups)
       const modulesWithStatus = (data || []).map((module: any) => {
 
-        console.log("Logging each module source file");
-        console.log("MODULE ID:",module.module_id);
-        console.log("Source files:", module.source_files);
-        console.log("Type:", typeof module.source_files);
+        // console.log("Logging each module source file");
+        // console.log("MODULE ID:",module.module_id);
+        // console.log("Source files:", module.source_files);
+        // console.log("Type:", typeof module.source_files);
 
 
         let finalStatus = module.processing_status;
@@ -995,6 +997,13 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       setLoading(false);
     }
   };
+
+  const paginatedModules = trainingModules.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  const totalPages = Math.ceil(trainingModules.length / itemsPerPage);
 
   const getStatusBadge = (status: string) => {
     switch (status?.toLowerCase()) {
@@ -1249,7 +1258,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                             return;
                           }
 
-                          console.log("Requesting preview for:", file.path);
+                          // console.log("Requesting preview for:", file.path);
 
                           const res = await fetchWithAuth(`${API_URL}/api/preview-file`, {
                             method: "POST",
@@ -1343,7 +1352,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           </div>
         ) : (
           <div className="grid gap-4">
-            {trainingModules.map((module) => (
+            {paginatedModules.map((module) => (
               <Card key={module.module_id}>
               <CardContent className="p-4">
 
@@ -1390,12 +1399,12 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                     setSelectedModule(module);
 
                     try {
-                      console.log('[View Button] Loading module:', module.title);
-                      console.log('[View Button] Content URL:', module.content_url);
+                      // console.log('[View Button] Loading module:', module.title);
+                      // console.log('[View Button] Content URL:', module.content_url);
 
                       const url = new URL(module.content_url);
                       const pathname = decodeURIComponent(url.pathname);
-                      console.log('[View Button] Decoded pathname:', pathname);
+                      // console.log('[View Button] Decoded pathname:', pathname);
 
                       let pathMatch = pathname.match(/\/(?:storage\/v1\/)?object\/(?:public|sign)\/training-content\/(.+)$/);
                       let bucketName = 'training-content';
@@ -1416,13 +1425,13 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                       }
 
                       if (!pathMatch || !pathMatch[1]) {
-                        console.log('[View Button] No bucket/path pattern found, using URL as-is');
+                        // console.log('[View Button] No bucket/path pattern found, using URL as-is');
                         setPreviewUrl(module.content_url);
                         return;
                       }
 
                       const storagePath = pathMatch[1];
-                      console.log('[View Button] Bucket:', bucketName, 'Path:', storagePath);
+                      // console.log('[View Button] Bucket:', bucketName, 'Path:', storagePath);
 
                       const { data, error } = await supabase
                         .storage
@@ -1435,7 +1444,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                         return;
                       }
 
-                      console.log('[View Button] Generated signed URL successfully');
+                      // console.log('[View Button] Generated signed URL successfully');
                       setPreviewUrl(data.publicUrl);
                     } catch (err) {
                       console.error("[View Button] Preview error:", err);
@@ -1465,9 +1474,51 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
               </CardContent>
               </Card>
                 
-
               
             ))}
+          </div>
+        )}
+         {totalPages > 1 && (
+          <div className="flex justify-between items-center mt-4">
+            <div>
+              <span className="text-sm text-gray-600">
+                Page {currentPage} of {totalPages}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                }
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
+            <div>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="border-gray-300 rounded-md shadow-sm"
+              >
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+              </select>
+            </div>
           </div>
         )}
       </div>

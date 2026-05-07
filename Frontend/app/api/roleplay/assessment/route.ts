@@ -14,12 +14,12 @@ export async function POST(request: NextRequest) {
 
     const { messages, scenarioTitle, scenarioRole, userRole } = await request.json();
 
-    console.log('[assessment] Received request:', {
-      messagesCount: messages?.length,
-      scenarioTitle,
-      scenarioRole,
-      userRole
-    });
+    //console.log('[assessment] Received request:', {
+    //   messagesCount: messages?.length,
+    //   scenarioTitle,
+    //   scenarioRole,
+    //   userRole
+    // });
 
     if (!messages || messages.length === 0) {
       console.error('[assessment] No messages provided');
@@ -33,22 +33,22 @@ export async function POST(request: NextRequest) {
     const userMessages = messages.filter((msg: any) => msg.sender === 'user');
     const aiMessages = messages.filter((msg: any) => msg.sender === 'avatar');
     
-    console.log('[assessment] Message breakdown:', {
-      userMessages: userMessages.length,
-      aiMessages: aiMessages.length,
-      total: messages.length
-    });
+    //console.log('[assessment] Message breakdown:', {
+    //   userMessages: userMessages.length,
+    //   aiMessages: aiMessages.length,
+    //   total: messages.length
+    // });
     
     // If there are fewer than 3 exchanges or the conversation is very short, return zero score
     const minExchanges = 3;
     const minUserMessages = 2;
     
     if (userMessages.length < minUserMessages || messages.length < minExchanges * 2) {
-      console.log('⚠️ Conversation too short - returning zero score', {
-        totalMessages: messages.length,
-        userMessages: userMessages.length,
-        aiMessages: aiMessages.length
-      });
+      //console.log('⚠️ Conversation too short - returning zero score', {
+      //   totalMessages: messages.length,
+      //   userMessages: userMessages.length,
+      //   aiMessages: aiMessages.length
+      // });
       
       return NextResponse.json({
         overallScore: 0,
@@ -241,10 +241,10 @@ Provide ONLY the JSON object, no additional text.`;
       throw new Error('Invalid assessment report structure');
     }
 
-    console.log('[assessment] Generated assessment:', {
-      overallScore: assessment.overallScore,
-      parametersCount: assessment.parameters.length
-    });
+    //console.log('[assessment] Generated assessment:', {
+    //   overallScore: assessment.overallScore,
+    //   parametersCount: assessment.parameters.length
+    // });
 
     return NextResponse.json(assessment);
 

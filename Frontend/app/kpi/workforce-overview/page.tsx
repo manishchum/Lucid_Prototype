@@ -288,7 +288,7 @@ export default function WorkforceOverview() {
         subFunctionId: selectedSubFunctionId || undefined,
         titleId: selectedTitleId || undefined
       });
-      console.log(users);
+      // console.log(users);
       const userIds = users.map((u: any) => u.user_id);
 
       if (userIds.length === 0) {

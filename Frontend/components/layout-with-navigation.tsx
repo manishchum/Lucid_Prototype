@@ -66,7 +66,7 @@ const LayoutWithNavigation = ({ children }: LayoutWithNavigationProps) => {
   return (
     <>
       <EmployeeNavigation />
-      <div className="fixed top-4 right-4 z-40 pointer-events-none">
+      {/* <div className="fixed top-4 right-4 z-40 pointer-events-none">
         <div className="bg-white/95 backdrop-blur border border-slate-200 shadow-sm rounded-xl px-3 py-2 flex items-center gap-2 max-w-[260px]">
           {companyLogo ? (
             <img
@@ -81,7 +81,7 @@ const LayoutWithNavigation = ({ children }: LayoutWithNavigationProps) => {
           )}
           <span className="min-w-0 text-xs font-semibold text-slate-700 truncate">{companyDisplayName}</span>
         </div>
-      </div>
+      </div> */}
       <div 
         className="transition-all duration-300 ease-in-out md:ml-[var(--sidebar-width)]"
         style={{ 
