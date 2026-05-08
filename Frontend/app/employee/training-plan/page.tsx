@@ -404,7 +404,7 @@ function TrainingPlanContent() {
         },
       );
 
-      const allModules = result?.data?.data || result?.data?.modules || [];
+      const allModules = (Array.isArray(result?.data) ? result.data : (result?.data?.data || result?.data?.modules || []));
       const targetTitle = String(mod?.title || mod?.name || "").trim().toLowerCase();
 
       const matched = (Array.isArray(allModules) ? allModules : []).find((pm: any) => {
@@ -872,10 +872,12 @@ function TrainingPlanContent() {
                       variant="outline"
                       className="shrink-0"
                       onClick={async () => {
-                        const stableModuleId = getNormalizedProcessedModuleId(mod) || mod._tabValue;
-                        const moduleIdentifier = stableModuleId;
-                        setContentLoadingModuleId(moduleIdentifier);
-                        const navId = stableModuleId || (await resolveModuleId(mod));
+                        const realId = getNormalizedProcessedModuleId(mod);
+                        setContentLoadingModuleId(mod._tabValue);
+                        
+                        // Only navigate if we have a real ID or can resolve one
+                        const navId = realId || (await resolveModuleId(mod));
+                        
                         if (navId) {
                           router.push(`/employee/module/${navId}`);
                         } else {
@@ -907,10 +909,11 @@ function TrainingPlanContent() {
                           : "bg-blue-600 hover:bg-blue-700"
                       }`}
                       onClick={async () => {
-                        const stableModuleId = getNormalizedProcessedModuleId(mod) || mod._tabValue;
-                        const moduleIdentifier = stableModuleId;
-                        setQuizLoadingModuleId(moduleIdentifier);
-                        const navId = stableModuleId || (await resolveModuleId(mod));
+                        const realId = getNormalizedProcessedModuleId(mod);
+                        setQuizLoadingModuleId(mod._tabValue);
+                        
+                        const navId = realId || (await resolveModuleId(mod));
+                        
                         if (navId) {
                           router.push(`/employee/quiz/${navId}`);
                         } else {
