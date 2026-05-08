@@ -479,7 +479,7 @@ export default function ScoreHistoryPage() {
       async () => {
         const { data } = await supabase
           .from("employee_learning_style")
-          .select("*")
+          .select("learning_style, gpt_analysis, gemini_analysis, scores, updated_at")
           .eq("user_id", employee.user_id)
           .single();
 

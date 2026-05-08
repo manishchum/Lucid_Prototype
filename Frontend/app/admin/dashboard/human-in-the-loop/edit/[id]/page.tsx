@@ -44,6 +44,8 @@ interface ContentHistory {
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const DEFAULT_MAX_VIDEO_UPLOAD_MB = 50;
 const MAX_VIDEO_UPLOAD_MB = Number(process.env.NEXT_PUBLIC_MODULE_MEDIA_MAX_UPLOAD_MB || DEFAULT_MAX_VIDEO_UPLOAD_MB);
+const TRAINING_MODULE_REVIEW_COLUMNS = 'module_id, title, description, review_stage, created_at, reviewer_id, uploaded_by';
+const PROCESSED_MODULE_REVIEW_COLUMNS = 'processed_module_id, original_module_id, title, content, section_type, order_index, created_at';
 const DEFAULT_MAX_IMAGE_UPLOAD_MB = 20;
 const DEFAULT_MAX_AUDIO_UPLOAD_MB = 25;
 const MAX_IMAGE_UPLOAD_MB = Number(process.env.NEXT_PUBLIC_MODULE_MEDIA_MAX_IMAGE_UPLOAD_MB || DEFAULT_MAX_IMAGE_UPLOAD_MB);
@@ -258,7 +260,7 @@ export default function EditModulePage() {
 
       const { data: moduleData, error: moduleError } = await supabase
         .from('training_modules')
-        .select('*')
+        .select(TRAINING_MODULE_REVIEW_COLUMNS)
         .eq('module_id', moduleId)
         .single();
 
@@ -294,7 +296,7 @@ export default function EditModulePage() {
 
         const { data: subModulesData, error: subModulesError } = await supabase
           .from('processed_modules')
-          .select('*')
+          .select(PROCESSED_MODULE_REVIEW_COLUMNS)
           .eq('original_module_id', moduleId)
           .order('order_index', { ascending: true });
 
@@ -1039,7 +1041,7 @@ export default function EditModulePage() {
       // Refresh module to get updated review_stage
       const { data: updatedModule } = await supabase
         .from('training_modules')
-        .select('*')
+        .select(TRAINING_MODULE_REVIEW_COLUMNS)
         .eq('module_id', moduleId)
         .single();
       if (updatedModule) setModule(updatedModule);
