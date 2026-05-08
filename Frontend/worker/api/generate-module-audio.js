@@ -200,10 +200,12 @@ async function fetchActiveModuleIds() {
   const { data, error } = await supabase
     .from('content_jobs')
     .select('module_id')
-    .in('status', ACTIVE_JOB_STATUSES)
+    .eq('status','pending')
     .order('created_at', { ascending: true })
     .limit(50);
 
+
+  console.log("THese are the moudules that are fetched",data);
   if (error) {
     throw new Error(`Active module fetch failed: ${error.message}`);
   }

@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import EmployeeNavigation from "@/components/employee-navigation";
+import Footer from "@/components/Footer";
 import { useTenant } from "@/contexts/tenant-context";
 
 interface LayoutWithNavigationProps {
@@ -57,14 +58,21 @@ const LayoutWithNavigation = ({ children }: LayoutWithNavigationProps) => {
   }, [shouldShowNavigation]);
 
   if (!shouldShowNavigation) {
-    return <>{children}</>;
+    return (
+      <div className="flex flex-col min-h-screen">
+        <div className="flex-1">
+          {children}
+        </div>
+        <Footer />
+      </div>
+    );
   }
 
   const companyDisplayName = activeCompany?.name || 'Company';
   const companyLogo = activeCompany?.company_logo;
 
   return (
-    <>
+    <div className="flex flex-col min-h-screen">
       <EmployeeNavigation />
       {/* <div className="fixed top-4 right-4 z-40 pointer-events-none">
         <div className="bg-white/95 backdrop-blur border border-slate-200 shadow-sm rounded-xl px-3 py-2 flex items-center gap-2 max-w-[260px]">
@@ -83,19 +91,12 @@ const LayoutWithNavigation = ({ children }: LayoutWithNavigationProps) => {
         </div>
       </div> */}
       <div 
-        className="transition-all duration-300 ease-in-out md:ml-[var(--sidebar-width)]"
-        style={{ 
-          minHeight: '100vh'
-        }}
+        className="flex-1 transition-all duration-300 ease-in-out md:ml-[var(--sidebar-width)]"
       >
         {children}
       </div>
-      <footer className="fixed bottom-3 right-4 z-30 pointer-events-none">
-        <div className="text-[11px] font-semibold text-slate-600 bg-white/90 border border-slate-200 px-3 py-1.5 rounded-full shadow-sm">
-          Powered by Lucid
-        </div>
-      </footer>
-    </>
+      <Footer />
+    </div>
   );
 };
 
