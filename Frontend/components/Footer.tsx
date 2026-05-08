@@ -17,7 +17,7 @@ const Footer = () => {
         
         {/* Footer Text */}
         <div className="text-xs md:text-sm text-slate-600 font-medium">
-          Powered by Lucid <span className="text-slate-400">·</span> Workflow.ai
+          Powered by Lucid <span className="text-slate-400">·</span> Workfloww.ai
         </div>
       </div>
     </footer>
