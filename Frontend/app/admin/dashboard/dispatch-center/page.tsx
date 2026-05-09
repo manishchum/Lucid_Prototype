@@ -1297,7 +1297,7 @@ export default function AdminDispatchCenterPage() {
                           </div>
                           <div className="flex-1">
                             <p className="font-semibold text-sm text-slate-800">Video Lesson</p>
-                            <p className="text-xs text-slate-500">Send video learning materials via WhatsApp</p>
+                            <p className="text-xs text-slate-500">Send Video via WhatsApp</p>
                           </div>
                           {selectedContent.includes('video') && (
                             <Check size={16} className="text-red-500 shrink-0" />
@@ -1351,7 +1351,7 @@ export default function AdminDispatchCenterPage() {
                           </div>
                           <div className="flex-1">
                             <p className="font-semibold text-sm text-slate-800">Infographic</p>
-                            <p className="text-xs text-slate-500">Send infographic images for visual learning</p>
+                            <p className="text-xs text-slate-500">Send Infographic Images For Visual Understanding</p>
                           </div>
                           {selectedContent.includes('infographic') && (
                             <Check size={16} className="text-pink-500 shrink-0" />

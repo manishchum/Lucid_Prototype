@@ -44,15 +44,16 @@ export default function AdminCareerJourneyConsole({
         <div className="space-y-6">
       {/* Header Card */}
       <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-2">Career Jouney</h1>
-        <p className="text-slate-600">Create New Sprint for your Organization</p>
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">SprintVerse</h1>
+        <p className="text-slate-600">Create New SprintVerse For Your Organization</p>
       </div>
+        </div>
         <button
           onClick={handleOpenBuilder}
           className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-colors shadow-lg hover:shadow-xl"
         >
           <Plus className="w-5 h-5" />
-          New Journey
+          New Sprintverse
         </button>
       </div>
 
@@ -77,7 +78,7 @@ export default function AdminCareerJourneyConsole({
               onClose={handleBuilderClose}
               onNotification={onNotification}
               userId={userId}
-              initialDraft={editingDraft}
+              initialData={editingDraft}
             />
           </motion.div>
         )}

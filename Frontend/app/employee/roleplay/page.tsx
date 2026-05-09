@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
-import { fetchScenariosForUser, deleteCustomScenario, assignScenario, getScenarioAssignments } from '@/lib/roleplayDatabase';
+import { fetchScenariosForUserAPI, deleteCustomScenarioAPI, assignScenarioAPI, getScenarioAssignmentsAPI } from '@/lib/roleplayPageApi';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import RolePlayConversation from '@/components/roleplay/RolePlayConversation';
@@ -76,7 +76,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       setLoadingScenarios(true);
       // console.log('Fetching Scenarios for user id:', userId, 'isAdmin:', isAdmin);
       
-      const { data, error } = await fetchScenariosForUser(userId, isAdmin);
+      const { data, error } = await fetchScenariosForUserAPI(userId, isAdmin || false);
 
       //console.log('Fetched scenarios:', data);
       if (data) {
@@ -234,7 +234,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     }
 
     try {
-      const { error } = await deleteCustomScenario(scenario.scenario_id);
+      const { error } = await deleteCustomScenarioAPI(scenario.scenario_id, userId, companyId);
       
       if (error) {
         console.error('Error deleting scenario:', error);
@@ -243,8 +243,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       }
 
       // Refresh scenarios list
-      const { data, error: fetchError } = await fetchScenariosForUser(userId, isAdmin);
-      //console.log('scenarios for the admins',data);
+      const { data, error: fetchError } = await fetchScenariosForUserAPI(userId, isAdmin || false);
+      console.log('scenarios for the admins',data);
       if (data) {
         setAllScenarios(data);
       }
@@ -316,11 +316,12 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       //console.log("Inside the save assignment");
       //console.log(selectedTargets);
       
-      const { error } = await assignScenario(
+      const { error } = await assignScenarioAPI(
         assigningScenario.scenario_id,
         assignmentType,
         selectedTargets,
-        companyId
+        companyId,
+        userId
       );
 
       if (error) {

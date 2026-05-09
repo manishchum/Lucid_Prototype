@@ -89,7 +89,7 @@ export default function SavedDrafts({
           animate={{ opacity: 1 }}
           className="text-center py-12 bg-slate-50 rounded-lg border border-slate-200"
         >
-          <p className="text-slate-500">No drafts yet. Create your first career journey!</p>
+          <p className="text-slate-500">No Drafts Yet. Create Your First SprintVerse!</p>
         </motion.div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

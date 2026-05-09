@@ -770,6 +770,7 @@ async def POST(request: Request):
         # print('[Training Plan API] Raw Gemini response:', planJsonRaw)
         # print("Modules that have been sent", modules)
         cleanedContent = planJsonRaw.strip()
+        print("[Training Plan API] Cleaned Gemini response:", cleanedContent)
         if cleanedContent.lower().startswith("```json"):
             cleanedContent = cleanedContent.replace("```json", "", 1).strip()
         elif cleanedContent.lower().startswith("```"):
