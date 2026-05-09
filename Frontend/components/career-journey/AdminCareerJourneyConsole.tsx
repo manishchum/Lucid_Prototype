@@ -44,8 +44,8 @@ export default function AdminCareerJourneyConsole({
         <div className="space-y-6">
       {/* Header Card */}
       <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-2">Sprintverse</h1>
-        <p className="text-slate-600">Create New Sprintverse For Your Organization</p>
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">SprintVerse</h1>
+        <p className="text-slate-600">Create New SprintVerse For Your Organization</p>
       </div>
         </div>
         <button

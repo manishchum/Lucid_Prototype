@@ -181,7 +181,7 @@ export default function CareerJourneyBuilder({
       {/* Header */}
       <div className="bg-white border-b border-gray-200 p-8 flex justify-between items-start sticky top-0 z-10">
         <div>
-          <h2 className="text-3xl font-bold text-slate-900">+Sprintverse Builder</h2>
+          <h2 className="text-3xl font-bold text-slate-900">+SprintVerse Builder</h2>
           <p className="text-gray-500 text-base mt-1">
             Design Multiple Structured Progression Paths For Different Roles.
           </p>

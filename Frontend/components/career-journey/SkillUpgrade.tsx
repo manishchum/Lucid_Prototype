@@ -153,7 +153,7 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
           <Zap size={32} className="opacity-20" />
         </div>
         <h3 className="text-lg font-bold text-gray-600">No Journeys Available yet</h3>
-        <p className="text-sm">Please Wait For The Admin To Publish Sprintverse.</p>
+        <p className="text-sm">Please Wait For The Admin To Publish SprintVerse.</p>
       </div>
     );
   }
@@ -172,7 +172,7 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
           >
             <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
             <h1 className="text-3xl font-bold text-gray-800 mb-2">
-              Available Sprintverse
+              Available SprintVerse
             </h1>
             {/* <p className="text-slate-600">
               Send nudge emails or WhatsApp messages to employees assigned to a sprint.
