@@ -647,8 +647,8 @@ async def POST(request: Request):
             + "{\n"
             + '  "plan": {\n'
             + '    "modules": [\n'
-            + '      { "title": "Module Name", "recommended_time": 5, "order": 1 },\n'
-            + '      { "title": "Module Name 2", "recommended_time": 5, "order": 2 }\n'
+            + '      { "title": "Module Name", "processed_module_id": "id-here", "recommended_time": 5, "order": 1 },\n'
+            + '      { "title": "Module Name 2", "processed_module_id": "id-here", "recommended_time": 5, "order": 2 }\n'
             + "    ],\n"
             + '    "tips": "' + ('General study tips and strategies for success' if not useLearningStyle else 'Study tips tailored to learning style') + '..."\n'
             + "  },\n"
@@ -697,9 +697,9 @@ async def POST(request: Request):
             + "{\n"
             + '  "plan": {\n'
             + '    "modules": [\n'
-            + '      { "title": "Module Name", "recommended_time": 5, "order": 1 },\n'
-            + '      { "title": "Module Name 2", "recommended_time": 4, "order": 2 },\n'
-            + '      { "title": "Module Name 3", "recommended_time": 5, "order": 3 }\n'
+            + '      { "title": "Module Name", "processed_module_id": "id-here", "recommended_time": 5, "order": 1 },\n'
+            + '      { "title": "Module Name 2", "processed_module_id": "id-here", "recommended_time": 4, "order": 2 },\n'
+            + '      { "title": "Module Name 3", "processed_module_id": "id-here", "recommended_time": 5, "order": 3 }\n'
             + "    ],\n"
             + '    "tips": "' + ('Study tips tailored to learning style' if useLearningStyle else 'General study tips and strategies for success') + '..."\n'
             + "  },\n"
@@ -770,6 +770,7 @@ async def POST(request: Request):
         # print('[Training Plan API] Raw Gemini response:', planJsonRaw)
         # print("Modules that have been sent", modules)
         cleanedContent = planJsonRaw.strip()
+        print("[Training Plan API] Cleaned Gemini response:", cleanedContent)
         if cleanedContent.lower().startswith("```json"):
             cleanedContent = cleanedContent.replace("```json", "", 1).strip()
         elif cleanedContent.lower().startswith("```"):

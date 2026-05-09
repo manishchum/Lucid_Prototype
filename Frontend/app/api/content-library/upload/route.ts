@@ -18,6 +18,8 @@ const supabaseService = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
 
+const INSERTED_COURSE_COLUMNS = 'course_id, title, description, category_id, created_at, module, parent_course_id';
+
 export async function POST(req: Request) {
   //console.log('Upload route invoked');
   try {
@@ -82,7 +84,9 @@ export async function POST(req: Request) {
         const arrayBuffer = await file.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
-        const { data: storageData, error: storageError } = await supabaseService.storage.from('content library').upload(filePath, buffer, { contentType: file.type });
+        const { data: storageData, error: storageError } = await supabaseService.storage
+          .from('content library')
+          .upload(filePath, buffer, { contentType: file.type, cacheControl: '3600' });
         if (storageError) {
           console.error('Server upload error for file', file.name, storageError);
           // Skip this file but continue with others
@@ -125,7 +129,7 @@ export async function POST(req: Request) {
     // retry the insert without it (some deployments may not have migrated the column).
     let insertedChildren = null;
     try {
-      const resp = await supabaseService.from('courses').insert(childPayloads).select();
+      const resp = await supabaseService.from('courses').insert(childPayloads).select(INSERTED_COURSE_COLUMNS);
       insertedChildren = resp.data;
       if (resp.error) throw resp.error;
     } catch (insertError: any) {
@@ -139,7 +143,7 @@ export async function POST(req: Request) {
             delete copy.file_size;
             return copy;
           });
-          const resp2 = await supabaseService.from('courses').insert(fallback).select();
+          const resp2 = await supabaseService.from('courses').insert(fallback).select(INSERTED_COURSE_COLUMNS);
           insertedChildren = resp2.data;
           if (resp2.error) throw resp2.error;
         } catch (finalErr: any) {

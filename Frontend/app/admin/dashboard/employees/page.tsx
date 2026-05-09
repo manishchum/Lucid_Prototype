@@ -261,7 +261,7 @@ export default function EmployeesPage() {
       // Note: Assuming departments are linked to company via users
       const { data, error } = await supabase
         .from('sub_department')
-        .select('*')
+        .select('department_id, department_name, sub_department_name')
         .order('department_name')
         .order('sub_department_name');
 
@@ -276,7 +276,7 @@ export default function EmployeesPage() {
     try {
       const { data, error } = await supabase
         .from('roles')
-        .select('*')
+        .select('role_id, name, description, level')
         .eq('is_active', true);
 
       if (error) throw error;
@@ -1350,7 +1350,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       // Load subdepartments
       const { data: subDeptData, error: subDeptError } = await supabase
         .from('sub_department')
-        .select('*')
+        .select('department_id, department_name, sub_department_name')
         .order('department_name')
         .order('sub_department_name');
 
@@ -1360,7 +1360,7 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
       // Load roles
       const { data: rolesData, error: rolesError } = await supabase
         .from('roles')
-        .select('*')
+        .select('role_id, name, description, level')
         .order('name');
         
       if (rolesError) throw rolesError;
@@ -3753,7 +3753,7 @@ function UpdateEmployeeModal({
       // Load subdepartments
       const { data: subDeptData, error: subDeptError } = await supabase
         .from('sub_department')
-        .select('*')
+        .select('department_id, department_name, sub_department_name')
         .order('department_name')
         .order('sub_department_name');
 
@@ -3763,7 +3763,7 @@ function UpdateEmployeeModal({
       // Load roles
       const { data: rolesData, error: rolesError } = await supabase
         .from('roles')
-        .select('*')
+        .select('role_id, name, description, level')
         .order('name');
         
       if (rolesError) throw rolesError;

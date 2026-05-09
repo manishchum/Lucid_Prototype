@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
         .from('module_progress')
         .update(updateData)
         .eq('module_progress_id', existingRecord.module_progress_id)
-        .select()  // Add this to return the updated data
+        .select('module_progress_id, user_id, processed_module_id, completed_at, quiz_score, pass_status')
 
       if (updateError) {
         console.error('📚 DEBUG: Error updating module progress:', updateError)
@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
       const { data, error: insertError } = await supabase
         .from('module_progress')
         .insert(insertData)  // Changed from .update() to .insert()
-        .select()  // Add this to return the inserted data
+        .select('module_progress_id, user_id, processed_module_id, completed_at, quiz_score, pass_status')
 
       if (insertError) {
         console.error('📚 DEBUG: Error creating module progress:', insertError)
