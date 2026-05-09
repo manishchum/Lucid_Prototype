@@ -135,7 +135,6 @@ export default function KPITurbocharge() {
   const {user, loading:authLoading} = useAuth();
   const router = useRouter();
   const [currentEmployee, setCurrentEmployee] = useState<BackendUser | null>(null);
-
   const [loading, setLoading] = useState(true);
   const [kpiData, setKpiData] = useState<KPIData[]>([]);
   const [topModules, setTopModules] = useState<ModulePerformance[]>([]);
@@ -164,6 +163,7 @@ export default function KPITurbocharge() {
       }
 
       const backendUser = await fetchBackendUserByEmail(user.email);
+      console.log("Backend User", backendUser)
       setCurrentEmployee(backendUser);
     };
 
@@ -198,21 +198,22 @@ export default function KPITurbocharge() {
   }, [selectedSubFunctionId]);
 
   useEffect(() => {
-   
+    if (!currentEmployee) return;
     //console.log("Changes in the selectedSubFunctionId, selectedTitleId")
     fetchAllData();
-  }, [selectedSubFunctionId, selectedTitleId]);
+  }, [selectedSubFunctionId, selectedTitleId, currentEmployee]);
   useEffect(() => {
+    if (!currentEmployee) return;
     //console.log("Changes in the selectedKPiId, selectedModuleId")
     fetchAllData();
-  }, [selectedKpiId,selectedModuleId]);
+  }, [selectedKpiId, selectedModuleId, currentEmployee]);
  
  
   useEffect(() => {
-
+    if (!currentEmployee) return;
     //console.log("Calling beacause of the changes in function Id")
     fetchAllData();
-  },[selectedFunctionId]);
+  },[selectedFunctionId, currentEmployee]);
 
   const loadFilters = async () => {
     try {
@@ -223,9 +224,13 @@ export default function KPITurbocharge() {
         .order('function_name');
 
       if (functionsData && functionsData.length > 0) {
-        //console.log("Selected Functions:", functionsData);
+        // Remove duplicates by function_name, keeping first occurrence
+        const uniqueFunctions = Array.from(
+          new Map(functionsData.map(f => [f.function_name, f])).values()
+        );
+        //console.log("Selected Functions:", uniqueFunctions);
         //console.log("Selected Function Id:", selectedFunctionId);
-        setFunctions(functionsData);
+        setFunctions(uniqueFunctions);
         // setSelectedFunctionId('');
       }
     } catch (error) {
@@ -243,7 +248,11 @@ export default function KPITurbocharge() {
         .order('sub_function_name');
 
       if (subFunctionsData && subFunctionsData.length > 0) {
-        setSubFunctions(subFunctionsData);
+        // Remove duplicates by sub_function_name, keeping first occurrence
+        const uniqueSubFunctions = Array.from(
+          new Map(subFunctionsData.map(sf => [sf.sub_function_name, sf])).values()
+        );
+        setSubFunctions(uniqueSubFunctions);
         setSelectedSubFunctionId('');
       } else {
         setSubFunctions([]);
@@ -308,6 +317,10 @@ export default function KPITurbocharge() {
   };
 
   const fetchAllData = async () => {
+    if (!currentEmployee?.company_id) {
+      console.warn('currentEmployee not ready, skipping fetchAllData');
+      return;
+    }
     setLoading(true);
     //console.log("Calling the fetch all data")
     try {
@@ -422,7 +435,8 @@ export default function KPITurbocharge() {
       //console.log("Users to fecth the training modules",users)
       const userIds = users[0]?.data?.map(u => u.user_id);
 
-      if (userIds.length === 0) {
+      // console.log(users[0]);
+      if (userIds?.length === 0) {
         setTopModules([]);
         setNeedsOptimization([]);
         return;
@@ -655,6 +669,9 @@ export default function KPITurbocharge() {
 
       // Get module performance (average quiz scores from employee_assessments)
       let assessmentScores: any[] = [];
+
+
+      // console.log()
       if (currentEmployee?.company_id) {
         const res = await fetchWithAuth(`${API_BASE}/api/employee-assessments/company/${currentEmployee.company_id}?limit=500`, {
           headers: {
@@ -662,10 +679,16 @@ export default function KPITurbocharge() {
           }
         });
 
+        console.log("Response foom the database",res);
+
         if (res.ok) {
           const payload = await res.json();
+
+          console.log("This is the payload",payload)
           //console.log("This is the payload for scatter plot",payload);
           const allAssessments = payload?.assessments || payload?.data?.assessments || [];
+
+          console.log("This is the parsed data",allAssessments)
           //console.log("This is for the scatter plot",allAssessments)
           // Filter by userIds and only include rows with valid scores
           assessmentScores = allAssessments.filter(
@@ -678,13 +701,16 @@ export default function KPITurbocharge() {
 
       // Calculate data for each user
       const scatterPoints: ScatterDataPoint[] = [];
-
-      for (const user of users) {
+      console.log(users)
+      for (const user of users[0]?.data) {
+        // console.log(user)
+        // console.log(kpiScores)
         // Get KPI scores for this user
         const userKpiScores = kpiScores?.filter((k: { user_id: string; score: number }) => k.user_id === user.user_id) || [];
        
-        if (userKpiScores.length === 0) continue;
 
+        if (userKpiScores.length === 0) continue;
+        
         // Calculate average KPI score
         let avgKpiScore;
         if (selectedKpiId) {
@@ -695,9 +721,13 @@ export default function KPITurbocharge() {
           avgKpiScore = userKpiScores.reduce((sum: number, k: { score: number }) => sum + Number(k.score), 0) / userKpiScores.length;
         }
 
+          console.log(avgKpiScore)
         // Get assessment scores for this user
         const userAssessments = assessmentScores?.filter(a => a.user_id === user.user_id) || [];
        
+
+        console.log(assessmentScores)
+        console.log(userAssessments)
         if (userAssessments.length === 0) continue;
 
         // Calculate average module performance (percentage)
@@ -713,7 +743,7 @@ export default function KPITurbocharge() {
           module_performance: Math.round(avgModulePerformance)
         });
       }
-
+      console.log("Adding the data",scatterPoints);
       setScatterData(scatterPoints);
     } catch (error) {
       console.error('Error fetching scatter plot data:', error);
