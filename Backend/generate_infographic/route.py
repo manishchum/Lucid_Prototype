@@ -24,7 +24,8 @@ if not apiKey:
     raise Exception("GEMINI_API_KEY or GOOGLE_API_KEY environment variable not set")
 
 genai.configure(api_key=apiKey)
-model = genai.GenerativeModel("gemini-2.5-flash-lite")
+# Optimization: Standardize on gemini-1.5-flash for cost efficiency
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 # --------------------------------------------------------------------------
 # SUPABASE INIT (same as TS import)
@@ -96,7 +97,10 @@ Keep all text concise and informative. Extract the most important information fr
     print("[geminiService] Sending prompt to Gemini model")
     try:
         print("[geminiService] Starting content generation...")
-        response = model.generate_content(prompt)
+        response = model.generate_content(
+            prompt,
+            generation_config={"max_output_tokens": 1200}
+        )
         text = response.text or ""
 
         print("[geminiService] Raw Gemini response length:", len(text))

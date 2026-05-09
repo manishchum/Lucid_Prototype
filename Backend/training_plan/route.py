@@ -759,8 +759,14 @@ async def POST(request: Request):
         # Call Gemini
         planJsonRaw = ""
         try:
-            model = genai.GenerativeModel("gemini-3-pro-preview")
-            result = model.generate_content(prompt)
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            result = model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=1500,
+                    temperature=0.7,
+                )
+            )
             planJsonRaw = (result.text or "").strip()
         except Exception as err:
             print("[Training Plan API] Gemini call failed:", str(err))

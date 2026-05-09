@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 router = APIRouter()
 
-COMMON_GEMINI_MODELS = ["gemini-2.5-flash-lite"]
+COMMON_GEMINI_MODELS = ["gemini-1.5-flash"] # Optimized for cost
 
 # ---------------------------------------------------------------------
 # GEMINI HELPER (Python port of gemini-helper.ts)
@@ -170,7 +170,8 @@ END_JSON
 Study Text:
 {content}"""
     
-        resp = await callGemini(prompt, {"maxOutputTokens": 800})
+        # Optimization: Limit output tokens to 600 (sufficient for 8 cards)
+        resp = await callGemini(prompt, {"maxOutputTokens": 600})
         print("[generate-flashcards-gemini] callGemini ok:", resp.get("ok"), "model:", resp.get("model"))
 
         if not resp.get("ok"):
