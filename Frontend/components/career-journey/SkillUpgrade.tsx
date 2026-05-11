@@ -32,6 +32,66 @@ interface SkillUpgradeProps {
   onNotification?: (message: string, type: 'success' | 'error' | 'info') => void;
 }
 
+// ─── Shared glass style ────────────────────────────────────────────────────────
+const glass: React.CSSProperties = {
+  background: 'rgba(255,255,255,0.02)',
+  backdropFilter: 'blur(16px)',
+  border: '1px solid rgba(255,255,255,0.05)',
+  boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)',
+};
+
+// ─── StarField ─────────────────────────────────────────────────────────────────
+function StarField() {
+  const [stars, setStars] = useState<{ id: number; x: number; y: number; size: number; duration: number }[]>([]);
+
+  useEffect(() => {
+    const newStars = Array.from({ length: 150 }).map((_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      y: Math.random() * 100,
+      size: Math.random() * 2 + 1,
+      duration: Math.random() * 3 + 2,
+    }));
+    setStars(newStars);
+  }, []);
+
+  return (
+    <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden" style={{ background: '#05050a' }}>
+      {/* Nebula Gradients */}
+      <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] rounded-full" style={{ background: 'rgba(88,28,135,0.10)', filter: 'blur(120px)' }} />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full" style={{ background: 'rgba(29,78,216,0.10)', filter: 'blur(100px)' }} />
+
+      {/* Shooting Stars */}
+      {[0, 1, 2].map((i) => (
+        <motion.div
+          key={`shoot-${i}`}
+          className="absolute h-px"
+          style={{
+            width: 100,
+            background: 'linear-gradient(to right, transparent, white, transparent)',
+            top: `${20 + i * 15}%`,
+            left: -100,
+            rotate: '25deg',
+          }}
+          animate={{ x: ['0vw', '120vw'], y: ['0vh', '50vh'], opacity: [0, 1, 0] }}
+          transition={{ duration: 2, repeat: Infinity, delay: i * 8 + 2, ease: 'easeOut' }}
+        />
+      ))}
+
+      {/* Twinkling Stars */}
+      {stars.map((star) => (
+        <motion.div
+          key={star.id}
+          className="absolute bg-white rounded-full"
+          style={{ left: `${star.x}%`, top: `${star.y}%`, width: star.size, height: star.size, opacity: 0 }}
+          animate={{ opacity: [0, 0.8, 0] }}
+          transition={{ duration: star.duration, repeat: Infinity, delay: Math.random() * 5 }}
+        />
+      ))}
+    </div>
+  );
+}
+
 export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
   const [publishedJourneys, setPublishedJourneys] = useState<CareerJourney[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,7 +102,7 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
   // Transform database format to UI format
   const transformDBToUI = (dbJourney: CareerJourneyDB): CareerJourney => {
     const levelsMap = new Map<string, Level>();
-    
+
     dbJourney.skills?.forEach((skill) => {
       let level = levelsMap.get(skill.level);
       if (!level) {
@@ -58,7 +118,7 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
         id: skill.id,
         name: skill.title,
         completionTime: skill.estimatedHours ? `${skill.estimatedHours}` : '',
-        timeUnit: skill.timeUnit || 'hours'
+        timeUnit: skill.timeUnit || 'hours',
       });
     });
 
@@ -86,7 +146,7 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
         setError(result.error);
         onNotification?.(result.error, 'error');
       } else if (result.data) {
-        const transformedJourneys = result.data.map(db => transformDBToUI(db));
+        const transformedJourneys = result.data.map((db) => transformDBToUI(db));
         setPublishedJourneys(transformedJourneys);
       }
     } catch (err: any) {
@@ -108,279 +168,417 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
     setActiveLevel(null);
   };
 
-  // --- Loading State ---
+  // ── Loading State ────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-        <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center mb-4 border border-gray-100">
-          <Loader2 size={32} className="text-blue-600 animate-spin" />
+      <div
+        className="min-h-screen flex flex-col items-center justify-center"
+        style={{ fontFamily: "'Space Grotesk', ui-sans-serif, system-ui, sans-serif" }}
+      >
+        <StarField />
+        <div className="relative z-10 flex flex-col items-center gap-4">
+          <div
+            className="w-16 h-16 rounded-2xl flex items-center justify-center"
+            style={glass}
+          >
+            <Loader2 size={28} className="text-blue-400 animate-spin" />
+          </div>
+          <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.4em]">Loading journeys…</p>
         </div>
-        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Loading journeys...</p>
       </div>
     );
   }
 
-  // --- Error State ---
+  // ── Error State ──────────────────────────────────────────────────────────────
   if (error && publishedJourneys.length === 0) {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex flex-col items-center justify-center py-20 gap-4"
+      <div
+        className="min-h-screen flex flex-col items-center justify-center"
+        style={{ fontFamily: "'Space Grotesk', ui-sans-serif, system-ui, sans-serif" }}
       >
-        <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center border border-red-100">
-          <AlertCircle size={32} className="text-red-400" />
-        </div>
-        <div className="text-center">
-          <h3 className="text-lg font-bold text-gray-600">Failed to load journeys</h3>
-          <p className="text-sm text-gray-400 mt-1">{error}</p>
-        </div>
-        <button
-          onClick={loadPublishedJourneys}
-          className="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all"
+        <StarField />
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative z-10 flex flex-col items-center gap-5 text-center"
         >
-          Try Again
-        </button>
-      </motion.div>
-    );
-  }
-
-  // --- Empty State ---
-  if (publishedJourneys.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-        <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center mb-4 border border-gray-100">
-          <Zap size={32} className="opacity-20" />
-        </div>
-        <h3 className="text-lg font-bold text-gray-600">No Journeys Available yet</h3>
-        <p className="text-sm">Please Wait For The Admin To Publish SprintVerse.</p>
+          <div
+            className="w-16 h-16 rounded-2xl flex items-center justify-center"
+            style={{ ...glass, border: '1px solid rgba(239,68,68,0.2)' }}
+          >
+            <AlertCircle size={28} className="text-red-400" />
+          </div>
+          <div>
+            <h3 className="text-lg font-black text-slate-300 uppercase tracking-tight">Failed to load journeys</h3>
+            <p className="text-sm text-slate-600 mt-1">{error}</p>
+          </div>
+          <button
+            onClick={loadPublishedJourneys}
+            className="px-6 py-2.5 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all active:scale-95"
+            style={{ background: '#2563eb', boxShadow: '0 4px 20px rgba(37,99,235,0.3)' }}
+          >
+            Try Again
+          </button>
+        </motion.div>
       </div>
     );
   }
 
-  return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-20">
-      <AnimatePresence mode="wait">
-        {!selectedJourney ? (
-          // ── Journey List ──────────────────────────────────────────────────────
-          <motion.div
-            key="list"
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            className="space-y-8"
+  // ── Empty State ──────────────────────────────────────────────────────────────
+  if (publishedJourneys.length === 0) {
+    return (
+      <div
+        className="min-h-screen flex flex-col items-center justify-center"
+        style={{ fontFamily: "'Space Grotesk', ui-sans-serif, system-ui, sans-serif" }}
+      >
+        <StarField />
+        <div className="relative z-10 flex flex-col items-center gap-4 text-center">
+          <div
+            className="w-16 h-16 rounded-2xl flex items-center justify-center"
+            style={glass}
           >
-            <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">
-              Available SprintVerse
-            </h1>
-            {/* <p className="text-slate-600">
-              Send nudge emails or WhatsApp messages to employees assigned to a sprint.
-            </p> */}
+            <Zap size={28} className="text-slate-700" />
           </div>
+          <h3 className="text-lg font-black text-slate-400 uppercase tracking-tight">No Journeys Available yet</h3>
+          <p className="text-sm text-slate-600">Please Wait For The Admin To Publish SprintVerse.</p>
+        </div>
+      </div>
+    );
+  }
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {publishedJourneys.map((journey) => (
-                <motion.div
-                  whileHover={{ y: -2 }}
-                  key={journey.id}
-                  onClick={() => handleSelectJourney(journey)}
-                  className="group bg-white p-6 rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all duration-300 cursor-pointer"
-                >
-                  <div className="flex flex-col gap-4">
-                    <div className="flex items-center justify-between">
-                      <div className="w-12 h-12 bg-gray-50 rounded-lg flex items-center justify-center text-gray-400 group-hover:bg-blue-50 group-hover:text-blue-600 transition-all">
-                        <Briefcase size={24} />
-                      </div>
-                      <div className="flex -space-x-2">
-                        {journey.levels.map((_, i) => (
-                          <div key={i} className="w-7 h-7 rounded-full bg-white border border-gray-200 flex items-center justify-center text-[9px] font-semibold text-gray-600">
-                            {i + 1}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+  // ── Main View ────────────────────────────────────────────────────────────────
+  return (
+    <div
+      className="min-h-screen pb-20 text-slate-100"
+      style={{ background: '#05050a', fontFamily: "'Space Grotesk', ui-sans-serif, system-ui, sans-serif" }}
+    >
+      <StarField />
 
-                    <div>
-                      <h3 className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
-                        {journey.roleName}
-                      </h3>
-                      <div className="flex items-center gap-2 mt-2">
-                        <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded-md">
-                          {journey.levels.length} LEVELS
-                        </span>
-                        <span className="text-xs font-medium text-gray-500">
-                          {journey.levels.reduce((acc, l) => acc + l.sprints.length, 0)} SPRINTS
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                      <span className="text-xs font-semibold text-gray-500 flex items-center gap-1">
-                        <Star size={12} className="text-yellow-400 fill-yellow-400" /> Professional
-                      </span>
-                      <ChevronRight size={18} className="text-gray-300 group-hover:text-blue-600 transition-colors" />
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-        ) : (
-          // ── Journey Detail ────────────────────────────────────────────────────
-          <motion.div
-            key="details"
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="space-y-12"
-          >
-            <button
-              onClick={handleBack}
-              className="flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-6 transition-colors"
+      <div className="relative z-10 max-w-6xl mx-auto px-6 py-10 space-y-8">
+        <AnimatePresence mode="wait">
+          {!selectedJourney ? (
+            // ── Journey List ─────────────────────────────────────────────────
+            <motion.div
+              key="list"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="space-y-8"
             >
-              <ArrowLeft className="w-5 h-5" />
-              <span className="font-medium">Back to Scenarios</span>
-            </button>            <div className="flex flex-col gap-16">
-              {/* Role Title */}
-              <div className="w-full text-center space-y-4">
-                <h2 className="text-5xl md:text-6xl font-black text-gray-900 tracking-tighter uppercase leading-tight">
-                  {selectedJourney.roleName}
-                </h2>
-                <div className="flex items-center justify-center gap-4">
-                  <div className="flex items-center gap-2 px-5 py-2.5 bg-yellow-50 text-yellow-700 rounded-2xl font-black text-[10px] uppercase tracking-[0.15em] border border-yellow-100/50">
-                    <Target size={14} /> Path Master
-                  </div>
-                  <div className="flex items-center gap-2 px-5 py-2.5 bg-purple-50 text-purple-700 rounded-2xl font-black text-[10px] uppercase tracking-[0.15em] border border-purple-100/50">
-                    <Layers size={14} /> {selectedJourney.levels.length} LEVELS
+              {/* Header Card */}
+              <div className="rounded-[2.5rem] p-10 py-12 relative overflow-hidden" style={glass}>
+                <div className="relative z-10">
+                  <h1 className="text-4xl font-bold tracking-tight text-white mb-2">Available SprintVerse</h1>
+                  <p className="text-slate-400 font-medium">Select a career path to explore its journey</p>
+                </div>
+                {/* Orbital decoration */}
+                <div className="absolute right-[5%] top-1/2 -translate-y-1/2 pointer-events-none flex items-center justify-center">
+                  <div className="relative w-40 h-40 flex items-center justify-center">
+                    <div className="absolute inset-0 border border-white/5 rounded-full" />
+                    <div className="absolute inset-4 border border-white/5 rounded-full" />
+                    <div className="absolute inset-10 border border-white/5 rounded-full" />
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 20, repeat: Infinity, ease: 'linear' }}
+                      className="absolute inset-0"
+                    >
+                      <div
+                        className="absolute top-0 left-1/2 -translate-x-1/2 w-3 h-3 bg-blue-500 rounded-full"
+                        style={{ filter: 'blur(2px)', boxShadow: '0 0 10px rgba(59,130,246,0.5)' }}
+                      />
+                    </motion.div>
+                    <Zap className="w-7 h-7 text-white/20" />
                   </div>
                 </div>
               </div>
 
-              <div className="flex flex-col xl:flex-row items-center xl:items-start gap-12 w-full">
-                {/* Circular Progression Map */}
-                <div className="shrink-0 transform xl:scale-90 2xl:scale-100 transition-transform">
-                  <div className="relative w-[440px] h-[440px] flex items-center justify-center bg-white rounded-full shadow-[0_0_100px_rgba(59,130,246,0.03)] border border-gray-50">
-                    <div className="absolute inset-4 border-[1px] border-dashed border-gray-100 rounded-full" />
-                    <div className="absolute inset-12 border-[20px] border-gray-50/50 rounded-full" />
-
-                    {/* Center Icon */}
-                    <motion.div
-                      layoutId="journey-icon"
-                      className="w-36 h-36 bg-white rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.08)] border-4 border-blue-50 flex items-center justify-center text-blue-600 z-20"
-                    >
-                      <Briefcase size={56} />
-                    </motion.div>
-
-                    {/* Level Nodes */}
-                    {selectedJourney.levels.map((level, index) => {
-                      const total = selectedJourney.levels.length;
-                      const angle = (index * (360 / total) - 90) * (Math.PI / 180);
-                      const x = Math.cos(angle) * 175;
-                      const y = Math.sin(angle) * 175;
-                      const isActive = activeLevel?.id === level.id;
-
-                      return (
-                        <motion.button
-                          key={level.id}
-                          initial={{ opacity: 0, scale: 0 }}
-                          animate={{ opacity: 1, scale: 1, x, y }}
-                          transition={{ delay: index * 0.1 }}
-                          onClick={() => setActiveLevel(level)}
-                          className={`absolute w-20 h-20 rounded-[1.75rem] flex flex-col items-center justify-center transition-all z-30 group ${
-                            isActive
-                              ? 'bg-blue-600 text-white shadow-2xl shadow-blue-500/40 scale-110 -translate-y-1'
-                              : 'bg-white text-gray-400 border border-gray-100 hover:border-blue-400 hover:text-blue-600 shadow-xl shadow-gray-200/20'
-                          }`}
+              {/* Journey Cards Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {publishedJourneys.map((journey) => (
+                  <motion.div
+                    whileHover={{ y: -2, x: 4 }}
+                    key={journey.id}
+                    onClick={() => handleSelectJourney(journey)}
+                    className="group rounded-[2rem] p-6 px-8 cursor-pointer transition-all duration-300"
+                    style={glass}
+                  >
+                    <div className="flex flex-col gap-5">
+                      <div className="flex items-center justify-between">
+                        <div
+                          className="w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:bg-blue-600"
+                          style={{ background: 'rgba(37,99,235,0.05)', border: '1px solid rgba(37,99,235,0.15)' }}
                         >
-                          <span className={`text-[10px] font-black uppercase tracking-tighter leading-none mb-1 ${isActive ? 'opacity-70' : 'opacity-40'}`}>Level</span>
-                          <span className="text-2xl font-black leading-none">{level.levelNumber}</span>
-                          {isActive && (
-                            <motion.div
-                              layoutId="active-glow"
-                              className="absolute -inset-2 bg-blue-100/50 rounded-[2.25rem] -z-10 blur-sm"
-                            />
-                          )}
-                        </motion.button>
-                      );
-                    })}
+                          <Briefcase size={24} className="text-blue-500 group-hover:text-white transition-colors" />
+                        </div>
+                        {/* Level bubbles */}
+                        <div className="flex -space-x-2">
+                          {journey.levels.map((_, i) => (
+                            <div
+                              key={i}
+                              className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-black text-slate-400"
+                              style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(255,255,255,0.07)' }}
+                            >
+                              {i + 1}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
 
-                    {/* Dashed Ring */}
-                    <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none overflow-visible">
-                      <circle
-                        cx="220" cy="220" r="175"
-                        fill="none"
-                        stroke="#F3F4F6"
-                        strokeWidth="2"
-                        strokeDasharray="8 8"
-                      />
-                    </svg>
+                      <div>
+                        <h3 className="text-lg font-bold text-white group-hover:text-blue-400 transition-colors uppercase tracking-tight leading-snug">
+                          {journey.roleName}
+                        </h3>
+                        <div className="flex items-center gap-3 mt-3">
+                          <span
+                            className="text-[10px] font-black text-blue-400 px-3 py-1 rounded-full uppercase tracking-widest"
+                            style={{ background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.2)' }}
+                          >
+                            {journey.levels.length} Levels
+                          </span>
+                          <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                            {journey.levels.reduce((acc, l) => acc + l.sprints.length, 0)} Sprints
+                          </span>
+                        </div>
+                      </div>
+
+                      <div
+                        className="flex items-center justify-between pt-4"
+                        style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}
+                      >
+                        <span className="text-[10px] font-black text-slate-600 flex items-center gap-2 uppercase tracking-widest">
+                          <Star size={11} className="text-yellow-500" style={{ fill: '#eab308' }} /> Professional
+                        </span>
+                        <ChevronRight size={18} className="text-slate-700 group-hover:text-blue-400 transition-colors" />
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+          ) : (
+            // ── Journey Detail ───────────────────────────────────────────────
+            <motion.div
+              key="details"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="space-y-10"
+            >
+              {/* Back button */}
+              <button
+                onClick={handleBack}
+                className="flex items-center gap-2 text-slate-500 hover:text-slate-200 transition-colors font-medium text-sm"
+              >
+                <ArrowLeft className="w-5 h-5" />
+                Back to Scenarios
+              </button>
+
+              <div className="flex flex-col gap-14">
+                {/* Role Title */}
+                <div className="w-full text-center space-y-5">
+                  <h2 className="text-5xl md:text-6xl font-black text-white tracking-tighter uppercase leading-tight">
+                    {selectedJourney.roleName}
+                  </h2>
+                  <div className="flex items-center justify-center gap-4">
+                    <div
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-[0.15em]"
+                      style={{ background: 'rgba(234,179,8,0.08)', color: '#fbbf24', border: '1px solid rgba(234,179,8,0.15)' }}
+                    >
+                      <Target size={13} /> Path Master
+                    </div>
+                    <div
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-[0.15em]"
+                      style={{ background: 'rgba(139,92,246,0.08)', color: '#a78bfa', border: '1px solid rgba(139,92,246,0.15)' }}
+                    >
+                      <Layers size={13} /> {selectedJourney.levels.length} Levels
+                    </div>
                   </div>
                 </div>
 
-                {/* Phase Detail Panel */}
-                <div className="flex-1 w-full min-w-0">
-                  <AnimatePresence mode="wait">
-                    {activeLevel && (
+                <div className="flex flex-col xl:flex-row items-center xl:items-start gap-12 w-full">
+                  {/* Circular Progression Map */}
+                  <div className="shrink-0 transform xl:scale-90 2xl:scale-100 transition-transform">
+                    <div
+                      className="relative w-[440px] h-[440px] flex items-center justify-center rounded-full"
+                      style={{
+                        background: 'rgba(255,255,255,0.015)',
+                        border: '1px solid rgba(255,255,255,0.05)',
+                        boxShadow: '0 0 80px rgba(37,99,235,0.06)',
+                      }}
+                    >
+                      <div className="absolute inset-4 border border-dashed border-white/5 rounded-full" />
+                      <div className="absolute inset-12 rounded-full" style={{ border: '16px solid rgba(255,255,255,0.02)' }} />
+
+                      {/* Center Icon */}
                       <motion.div
-                        key={activeLevel.id}
-                        initial={{ opacity: 0, x: 30 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -30 }}
-                        className="bg-white p-10 rounded-[3.5rem] border border-gray-100 shadow-2xl shadow-blue-900/10 relative overflow-hidden h-full min-h-[440px]"
+                        layoutId="journey-icon"
+                        className="w-36 h-36 rounded-full flex items-center justify-center text-blue-400 z-20"
+                        style={{
+                          background: 'rgba(15,23,42,0.9)',
+                          border: '4px solid rgba(37,99,235,0.15)',
+                          boxShadow: '0 20px 50px rgba(0,0,0,0.4)',
+                        }}
                       >
-                        <div className="relative z-10 space-y-10">
-                          <div className="pb-8 border-b border-gray-50">
-                            <div className="flex items-center gap-5">
-                              <div className="w-14 h-14 bg-blue-600 text-white rounded-2xl flex items-center justify-center font-black text-2xl shadow-xl shadow-blue-500/20">
-                                {activeLevel.levelNumber}
-                              </div>
-                              <div>
-                                <h3 className="font-black text-3xl text-gray-900 uppercase tracking-tight">Level {activeLevel.levelNumber}</h3>
-                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-2">
-                                  Master {activeLevel.sprints.length} Core Skills for this stage
-                                </p>
+                        <Briefcase size={52} />
+                      </motion.div>
+
+                      {/* Level Nodes */}
+                      {selectedJourney.levels.map((level, index) => {
+                        const total = selectedJourney.levels.length;
+                        const angle = (index * (360 / total) - 90) * (Math.PI / 180);
+                        const x = Math.cos(angle) * 175;
+                        const y = Math.sin(angle) * 175;
+                        const isActive = activeLevel?.id === level.id;
+
+                        return (
+                          <motion.button
+                            key={level.id}
+                            initial={{ opacity: 0, scale: 0 }}
+                            animate={{ opacity: 1, scale: 1, x, y }}
+                            transition={{ delay: index * 0.1 }}
+                            onClick={() => setActiveLevel(level)}
+                            className="absolute w-20 h-20 rounded-[1.75rem] flex flex-col items-center justify-center transition-all z-30"
+                            style={
+                              isActive
+                                ? {
+                                    background: '#2563eb',
+                                    color: 'white',
+                                    boxShadow: '0 0 40px rgba(37,99,235,0.5)',
+                                    transform: `translate(${x}px, ${y}px) scale(1.1) translateY(-4px)`,
+                                  }
+                                : {
+                                    background: 'rgba(15,23,42,0.9)',
+                                    color: '#64748b',
+                                    border: '1px solid rgba(255,255,255,0.07)',
+                                    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                                    transform: `translate(${x}px, ${y}px)`,
+                                  }
+                            }
+                          >
+                            <span
+                              className="text-[9px] font-black uppercase tracking-tighter leading-none mb-1"
+                              style={{ opacity: isActive ? 0.7 : 0.4 }}
+                            >
+                              Level
+                            </span>
+                            <span className="text-2xl font-black leading-none">{level.levelNumber}</span>
+                            {isActive && (
+                              <motion.div
+                                layoutId="active-glow"
+                                className="absolute -inset-2 rounded-[2.25rem] -z-10"
+                                style={{ background: 'rgba(37,99,235,0.15)', filter: 'blur(6px)' }}
+                              />
+                            )}
+                          </motion.button>
+                        );
+                      })}
+
+                      {/* Dashed Ring */}
+                      <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none overflow-visible">
+                        <circle
+                          cx="220" cy="220" r="175"
+                          fill="none"
+                          stroke="rgba(255,255,255,0.05)"
+                          strokeWidth="2"
+                          strokeDasharray="8 8"
+                        />
+                      </svg>
+                    </div>
+                  </div>
+
+                  {/* Phase Detail Panel */}
+                  <div className="flex-1 w-full min-w-0">
+                    <AnimatePresence mode="wait">
+                      {activeLevel && (
+                        <motion.div
+                          key={activeLevel.id}
+                          initial={{ opacity: 0, x: 30 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -30 }}
+                          className="rounded-[3.5rem] p-10 relative overflow-hidden min-h-[440px]"
+                          style={glass}
+                        >
+                          <div className="relative z-10 space-y-10">
+                            <div className="pb-8" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                              <div className="flex items-center gap-5">
+                                <div
+                                  className="w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl text-white"
+                                  style={{ background: '#2563eb', boxShadow: '0 8px 20px rgba(37,99,235,0.35)' }}
+                                >
+                                  {activeLevel.levelNumber}
+                                </div>
+                                <div>
+                                  <h3 className="font-black text-3xl text-white uppercase tracking-tight">
+                                    Level {activeLevel.levelNumber}
+                                  </h3>
+                                  <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest mt-2">
+                                    Master {activeLevel.sprints.length} Core Skills for this stage
+                                  </p>
+                                </div>
                               </div>
                             </div>
-                          </div>
 
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {activeLevel.sprints.map((sprint, i) => (
-                              <motion.div
-                                initial={{ opacity: 0, scale: 0.9 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                transition={{ delay: i * 0.05 }}
-                                key={sprint.id}
-                                className="group/sprint p-6 bg-gray-50/50 hover:bg-white rounded-[2rem] border border-gray-50 hover:border-blue-100 hover:shadow-xl transition-all flex flex-col gap-4 relative overflow-hidden"
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div className="w-10 h-10 bg-white rounded-2xl border border-gray-100 flex items-center justify-center group-hover/sprint:bg-blue-600 group-hover/sprint:text-white transition-all shadow-sm">
-                                    <Zap size={18} />
-                                  </div>
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                  <span className="font-black text-gray-800 group-hover/sprint:text-blue-600 transition-colors uppercase text-sm tracking-tight leading-snug">
-                                    {sprint.name}
-                                  </span>
-                                  {sprint.completionTime && (
-                                    <div className="flex items-center gap-1.5 text-[10px] font-black text-blue-500 uppercase tracking-widest opacity-70">
-                                      <Clock size={12} /> {sprint.completionTime} {sprint.timeUnit === 'hours' ? 'hours' : sprint.timeUnit === 'weeks' ? 'weeks' : sprint.timeUnit === 'months' ? 'months' : 'days'}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {activeLevel.sprints.map((sprint, i) => (
+                                <motion.div
+                                  initial={{ opacity: 0, scale: 0.9 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  transition={{ delay: i * 0.05 }}
+                                  key={sprint.id}
+                                  className="group/sprint p-6 rounded-[2rem] flex flex-col gap-4 relative overflow-hidden transition-all"
+                                  style={{
+                                    background: 'rgba(15,23,42,0.5)',
+                                    border: '1px solid rgba(255,255,255,0.05)',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(37,99,235,0.3)';
+                                    (e.currentTarget as HTMLDivElement).style.boxShadow = '0 8px 32px rgba(37,99,235,0.1)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,0.05)';
+                                    (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
+                                  }}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div
+                                      className="w-10 h-10 rounded-2xl flex items-center justify-center transition-all text-slate-500 group-hover/sprint:bg-blue-600 group-hover/sprint:text-white"
+                                      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+                                    >
+                                      <Zap size={16} />
                                     </div>
-                                  )}
-                                </div>
-                              </motion.div>
-                            ))}
+                                  </div>
+                                  <div className="flex flex-col gap-1">
+                                    <span className="font-black text-slate-200 group-hover/sprint:text-blue-400 transition-colors uppercase text-sm tracking-tight leading-snug">
+                                      {sprint.name}
+                                    </span>
+                                    {sprint.completionTime && (
+                                      <div className="flex items-center gap-1.5 text-[10px] font-black text-blue-400 uppercase tracking-widest opacity-70">
+                                        <Clock size={11} />
+                                        {sprint.completionTime}{' '}
+                                        {sprint.timeUnit === 'hours'
+                                          ? 'hours'
+                                          : sprint.timeUnit === 'weeks'
+                                          ? 'weeks'
+                                          : sprint.timeUnit === 'months'
+                                          ? 'months'
+                                          : 'days'}
+                                      </div>
+                                    )}
+                                  </div>
+                                </motion.div>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 </div>
               </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

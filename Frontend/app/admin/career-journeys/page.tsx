@@ -1,7 +1,17 @@
 'use client';
 
 import { useAuth } from '@/contexts/auth-context';
+import type { CareerJourneyDB } from '@/lib/types/career-journey';
+import {
+  createCareerJourney,
+  updateCareerJourney,
+  publishCareerJourney,
+  deleteCareerJourney,
+  getDraftJourneys,
+  getPublishedJourneys,
+} from '@/lib/careerJourneyDatabase';
 import { useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Trash2, Layers, X, CheckCircle2, ChevronRight, Briefcase, Edit2, Rocket, Clock, Target } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -104,16 +114,6 @@ function LoadingProgress({ label, progress }: { label: string; progress: number 
   );
 }
 
-import {
-  createCareerJourney,
-  updateCareerJourney,
-  publishCareerJourney,
-  deleteCareerJourney,
-  getDraftJourneys,
-  getPublishedJourneys,
-} from '@/lib/careerJourneyDatabase';
-import { CareerJourneyDB } from '@/lib/types/career-journey';
-
 interface Sprint {
   id: string;
   name: string;
@@ -137,7 +137,7 @@ interface CareerJourney {
 }
 
 // ─── Glass style helper ───────────────────────────────────────────────────────
-const glass: React.CSSProperties = {
+const glass: CSSProperties = {
   background: 'rgba(255,255,255,0.02)',
   backdropFilter: 'blur(16px)',
   border: '1px solid rgba(255,255,255,0.05)',
@@ -173,6 +173,7 @@ export default function CareerJourneysPage() {
   const [publishedJourneys, setPublishedJourneys] = useState<CareerJourney[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [mode, setMode] = useState<'studio' | 'manage'>('studio');
 
   useEffect(() => {
     if (!isLoading && userId && isAdmin) loadJourneys();
@@ -284,9 +285,8 @@ export default function CareerJourneysPage() {
     if (!userId) { notify('error', 'User not authenticated'); return; }
     setIsSaving(true);
     try {
-  const journeyData = transformUIToDB({ id: editingDraftId || `temp-${Date.now()}`, roleName, levels: JSON.parse(JSON.stringify(levels)) });
-  // Debug: log payload being sent to API to help diagnose server 500 errors
-  console.debug('Submitting career journey payload:', journeyData);
+      const journeyData = transformUIToDB({ id: editingDraftId || `temp-${Date.now()}`, roleName, levels: JSON.parse(JSON.stringify(levels)) });
+      console.debug('Submitting career journey payload:', journeyData);
       const result = editingDraftId
         ? await updateCareerJourney(editingDraftId, journeyData, userId)
         : await createCareerJourney(journeyData, userId);
@@ -301,6 +301,7 @@ export default function CareerJourneysPage() {
 
   const handleEdit = () => {
     if (!submittedJourney) return;
+    setMode('studio');
     setRoleName(submittedJourney.roleName);
     setLevels(submittedJourney.levels);
     setEditingDraftId(submittedJourney.id);
@@ -382,17 +383,38 @@ export default function CareerJourneysPage() {
       </AnimatePresence>
 
       {/* ── Nav ── */}
-      <nav className="relative z-20 max-w-5xl mx-auto px-6 pt-10 flex justify-between items-center">
+      {/* <nav className="relative z-20 max-w-5xl mx-auto px-6 pt-10 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg" style={{ boxShadow: '0 0 20px rgba(37,99,235,0.4)' }}>
             <Rocket className="w-5 h-5 text-white" />
           </div>
           <span className="text-xl font-black tracking-tighter text-white italic uppercase">+SprintVerse</span>
         </div>
-      </nav>
+      </nav> */}
 
       <main className="relative z-10 max-w-5xl mx-auto px-6 py-8 space-y-6">
+        {/* ── Mode Toggle (Studio / Manage) ── */}
+        <div className="flex items-center justify-start">
+          <div className="rounded-full bg-white/5 p-1 flex items-center gap-1" role="tablist" aria-label="Career journeys view switch">
+            <button
+              onClick={() => setMode('studio')}
+              aria-pressed={mode === 'studio'}
+              className={`px-4 py-2 rounded-full text-xs font-black transition-colors ${mode === 'studio' ? 'bg-white/10 text-white' : 'text-slate-400'}`}
+            >
+              Studio
+            </button>
+            <button
+              onClick={() => setMode('manage')}
+              aria-pressed={mode === 'manage'}
+              className={`px-4 py-2 rounded-full text-xs font-black transition-colors ${mode === 'manage' ? 'bg-white/10 text-white' : 'text-slate-400'}`}
+            >
+              Manage
+            </button>
+          </div>
+        </div>
 
+        {mode === 'studio' && (
+          <>
         {/* ── Header Card ── */}
         <div className="rounded-[2.5rem] p-10 py-12 relative overflow-hidden" style={glass}>
           <div className="relative z-10">
@@ -429,7 +451,7 @@ export default function CareerJourneysPage() {
           </div>
         </div>
 
-        {/* ── Levels Container ── */}
+        {/* ── Levels Container ───────────────────────────────────────────────── */}
         <div className="rounded-3xl p-10 space-y-8" style={glass}>
           <div className="flex justify-between items-center border-b pb-6" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
             <div className="flex items-center gap-3 text-white">
@@ -687,9 +709,11 @@ export default function CareerJourneysPage() {
             </motion.section>
           )}
         </AnimatePresence>
+          </>
+        )}
 
         {/* ── Saved Drafts ── */}
-        {draftJourneys.length > 0 && (
+        {mode === 'manage' && draftJourneys.length > 0 && (
           <section className="pt-12 space-y-6">
             <div className="flex items-center gap-6">
               <div className="h-px flex-1" style={{ background: 'rgba(255,255,255,0.06)' }} />
@@ -715,7 +739,12 @@ export default function CareerJourneysPage() {
                   >
                     <div className="p-6 px-10 flex items-center gap-8">
                       <div
-                        onClick={() => { setSubmittedJourney(journey); setEditingDraftId(journey.id); }}
+                        onClick={() => {
+                          setSubmittedJourney(journey);
+                          setEditingDraftId(journey.id);
+                          setMode('studio');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
                         className="flex items-center gap-6 cursor-pointer flex-1"
                       >
                         <div
@@ -798,11 +827,16 @@ export default function CareerJourneysPage() {
                           </div>
                           <div className="mt-8 pt-8 flex justify-end" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                             <button
-                              onClick={() => { setSubmittedJourney(journey); setEditingDraftId(journey.id); window.scrollTo({ top: 300, behavior: 'smooth' }); }}
+                              onClick={() => {
+                                setSubmittedJourney(journey);
+                                setEditingDraftId(journey.id);
+                                setMode('studio');
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                              }}
                               className="flex items-center gap-2 px-6 py-3 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all hover:opacity-80"
                               style={{ background: '#2563eb', boxShadow: '0 4px 20px rgba(37,99,235,0.25)' }}
                             >
-                              Preview This Draft
+                                Edit in Studio
                             </button>
                           </div>
                         </motion.div>
@@ -816,7 +850,7 @@ export default function CareerJourneysPage() {
         )}
 
         {/* ── Published Journeys ── */}
-        {publishedJourneys.length > 0 && (
+        {mode === 'manage' && publishedJourneys.length > 0 && (
           <section className="pt-12 space-y-6">
             <div className="flex items-center gap-6">
               <div className="h-px flex-1" style={{ background: 'rgba(255,255,255,0.06)' }} />
