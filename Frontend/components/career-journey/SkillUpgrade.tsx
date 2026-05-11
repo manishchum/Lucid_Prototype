@@ -10,7 +10,7 @@ interface Sprint {
   id: string;
   name: string;
   completionTime?: string;
-  timeUnit?: 'days' | 'hours';
+  timeUnit?: 'days' | 'hours' | 'weeks' | 'months';
 }
 
 interface Level {
@@ -364,7 +364,7 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
                                   </span>
                                   {sprint.completionTime && (
                                     <div className="flex items-center gap-1.5 text-[10px] font-black text-blue-500 uppercase tracking-widest opacity-70">
-                                      <Clock size={12} /> {sprint.completionTime} {sprint.timeUnit === 'hours' ? 'hours' : 'days'}
+                                      <Clock size={12} /> {sprint.completionTime} {sprint.timeUnit === 'hours' ? 'hours' : sprint.timeUnit === 'weeks' ? 'weeks' : sprint.timeUnit === 'months' ? 'months' : 'days'}
                                     </div>
                                   )}
                                 </div>

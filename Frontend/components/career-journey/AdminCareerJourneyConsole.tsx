@@ -53,7 +53,7 @@ export default function AdminCareerJourneyConsole({
           className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-colors shadow-lg hover:shadow-xl"
         >
           <Plus className="w-5 h-5" />
-          New Sprintverse
+          New SprintVerse
         </button>
       </div>
 
