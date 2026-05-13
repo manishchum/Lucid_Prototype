@@ -197,13 +197,15 @@ async function fetchNextPendingRow() {
     return null;
   }
 
+  console.log("These are the active module id", activeModuleIds)
+
   const { data, error } = await supabase
     .from('processed_modules')
     .select('processed_module_id, title, content, flashcard_data')
     .in('original_module_id', activeModuleIds)
     .not('content', 'is', null)
     .neq('content', '')
-    .or('flashcard_data.is.null,flashcard_data.eq."",flashcard_data.eq."[]",flashcard_data.eq."{}"')
+    .or('flashcard_data.is.null,flashcard_data.eq."{}"')
     .order('created_at', { ascending: true })
     .limit(1);
 
