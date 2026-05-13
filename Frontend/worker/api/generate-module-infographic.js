@@ -228,7 +228,7 @@ async function fetchNextPendingRow() {
     .in('original_module_id', activeModuleIds)
     .not('content', 'is', null)
     .neq('content', '')
-    .or('infographic_data.is.null,infographic_data.eq."",infographic_data.eq."[]",infographic_data.eq."{}"')
+    .or('infographic_data.is.null,infographic_data.eq."{}"')
     .order('created_at', { ascending: true })
     .limit(1);
 
