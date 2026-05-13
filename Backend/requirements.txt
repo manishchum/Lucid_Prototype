@@ -1,4 +1,4 @@
-apscheduler==3.11.2
+apscheduler
 Backend==0.2.4.1
 cloudconvert==2.1.0
 faiss-cpu
