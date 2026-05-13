@@ -12,8 +12,16 @@ const { migrateProcessedModules } = require(path.join(__dirname, 'api/migrate-pr
 // const { startContentGeneration } = require(path.join(__dirname, 'api/start-content-generation'));
 console.log('Loading generate-module-content...');
 const { generateModuleContent } = require(path.join(__dirname, 'api/generate-module-content'));
-// console.log('Loading generate-module-video...');
-// const { generateModuleVideo } = require(path.join(__dirname, 'api/generate-module-video'));
+console.log('Loading generate-module-audio...');
+const { generateModuleAudio } = require(path.join(__dirname, 'api/generate-module-audio'));
+console.log('Loading generate-module-video...');
+const { generateModuleVideo } = require(path.join(__dirname, 'api/generate-module-video'));
+console.log('Loading generate-module-mindmap...');
+const { generateModuleMindmap } = require(path.join(__dirname, 'api/generate-module-mindmap'));
+console.log('Loading generate-module-infographic...');
+const { generateModuleInfographic } = require(path.join(__dirname, 'api/generate-module-infographic'));
+console.log('Loading generate-module-flashcards...');
+const { generateModuleFlashcards } = require(path.join(__dirname, 'api/generate-module-flashcards'));
 console.log('All modules loaded successfully.');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -29,7 +37,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 async function storeInitialContentHistory(moduleId) {
   try {
     console.log(`[HISTORY] Storing initial content history for module_id=${moduleId}`);
-    
+
     // Fetch all processed_modules for this original module
     const { data: processedModules, error: fetchError } = await supabase
       .from('processed_modules')
@@ -52,7 +60,7 @@ async function storeInitialContentHistory(moduleId) {
     const historyEntries = processedModules.map(pm => ({
       processed_module_id: pm.processed_module_id,
       content: pm.content,
-      original_module_id:moduleId,
+      original_module_id: moduleId,
       status: 'initial'
     }));
 
@@ -72,6 +80,34 @@ async function storeInitialContentHistory(moduleId) {
   } catch (err) {
     console.error(`[HISTORY] Unexpected error storing content history for module_id=${moduleId}:`, err);
     return { success: false, error: err };
+  }
+}
+
+async function runModuleGenerators(moduleId) {
+  const tasks = [
+    ['audio', generateModuleAudio],
+    ['video', generateModuleVideo],
+    ['mindmap', generateModuleMindmap],
+    ['infographic', generateModuleInfographic],
+    ['flashcards', generateModuleFlashcards],
+  ];
+
+  const failures = [];
+
+  for (const [name, generator] of tasks) {
+    try {
+      console.log(`[JOB] Running ${name} generation for module_id=${moduleId}`);
+      const result = await generator({ moduleId });
+      console.log(`[JOB] ${name} generation completed for module_id=${moduleId}:`, result);
+    } catch (error) {
+      failures.push({ name, error });
+      console.error(`[JOB] ${name} generation failed for module_id=${moduleId}:`, error);
+    }
+  }
+
+  if (failures.length > 0) {
+    const failureSummary = failures.map(({ name, error }) => `${name}: ${error?.message || error}`).join(' | ');
+    throw new Error(`One or more media generators failed for module_id=${moduleId}: ${failureSummary}`);
   }
 }
 
@@ -112,25 +148,18 @@ async function processJobs() {
         const genResult = await generateModuleContent({ moduleId: job.module_id });
         console.log(`[JOB] Content generation completed:`, genResult.message);
 
-        // Trigger video generation for any processed_modules rows missing video_url.
-        // Non-fatal: keep the content job flow reliable even if video generation fails.
-        try {
-          console.log(`[JOB] Triggering video generation for module_id=${job.module_id}`);
-          const videoResult = await generateModuleVideo({ moduleId: job.module_id });
-          console.log('[JOB] Video generation result:', videoResult);
-        } catch (videoErr) {
-          console.error('[JOB] Video generation failed (non-fatal):', videoErr);
-        }
-        
-        // Store initial content history after successful generation
+        // Store initial content history after successful text generation
         console.log(`[JOB] Storing initial content history for module_id=${job.module_id}`);
         const historyResult = await storeInitialContentHistory(job.module_id);
         if (historyResult.success) {
           console.log(`[JOB] Content history stored: ${historyResult.inserted} entries`);
         } else {
-          console.error(`[JOB] Failed to store content history, but job will still be marked complete:`, historyResult.error);
+          console.error(`[JOB] Failed to store content history, but job will continue:`, historyResult.error);
         }
-        
+
+        // Generate all derived assets for this specific module before completing the job.
+        await runModuleGenerators(job.module_id);
+
         await supabase.from('content_jobs').update({ status: 'completed', updated_at: new Date() }).eq('id', job.id);
         console.log(`[JOB] Job completed: id=${job.id}, module_id=${job.module_id}`);
       } catch (err) {
