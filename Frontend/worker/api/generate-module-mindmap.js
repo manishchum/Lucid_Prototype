@@ -220,7 +220,7 @@ async function fetchNextPendingRow() {
     .in('original_module_id', activeModuleIds)
     .not('content', 'is', null)
     .neq('content', '')
-    .or('mindmap_data.is.null,mindmap_data.eq."",mindmap_data.eq."[]",mindmap_data.eq."{}"')
+    .or('mindmap_data.is.null,mindmap_data.eq."{}"')
     .order('created_at', { ascending: true })
     .limit(1);
 
