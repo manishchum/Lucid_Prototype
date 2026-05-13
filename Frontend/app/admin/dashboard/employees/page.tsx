@@ -2686,9 +2686,10 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
             )}
 
             {/* Form Actions */}
-            <div className="flex gap-3 pt-4 border-t">
+            <div className="flex  gap-3 pt-4 border-t">
               <Button
                 type="button"
+                
                 variant="outline"
                 onClick={onClose}
                 disabled={loading}
@@ -2697,6 +2698,8 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
               </Button>
               <Button
                 type="submit"
+                
+                    className="bg-blue-600 hover:bg-blue-700"
                 disabled={loading || !formData.name || !formData.email || !!fieldErrors.email || !!fieldErrors.phone || !!fieldErrors.name}
               >
                 {loading ? 'Creating...' : 'Create Employee'}
