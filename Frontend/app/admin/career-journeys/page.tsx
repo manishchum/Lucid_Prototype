@@ -401,7 +401,7 @@ export default function CareerJourneysPage() {
               aria-pressed={mode === 'studio'}
               className={`px-4 py-2 rounded-full text-xs font-black transition-colors ${mode === 'studio' ? 'bg-white/10 text-white' : 'text-slate-400'}`}
             >
-              Studio
+              Builder
             </button>
             <button
               onClick={() => setMode('manage')}
@@ -418,8 +418,8 @@ export default function CareerJourneysPage() {
         {/* ── Header Card ── */}
         <div className="rounded-[2.5rem] p-10 py-12 relative overflow-hidden" style={glass}>
           <div className="relative z-10">
-            <h1 className="text-4xl font-bold tracking-tight text-white mb-2">+SprintVerse Studio</h1>
-            <p className="text-slate-400 font-medium">Create New SprintVerse For Your Organization</p>
+            <h1 className="text-4xl font-bold tracking-tight text-white mb-2">+SprintVerse</h1>
+            <p className="text-slate-400 font-medium">Create New SprintVerse</p>
           </div>
           {/* Orbital decoration */}
           <div className="absolute right-[5%] top-1/2 -translate-y-1/2 pointer-events-none flex items-center justify-center">
@@ -437,7 +437,7 @@ export default function CareerJourneysPage() {
 
         {/* ── Role Name ── */}
         <div className="rounded-[2rem] p-10 space-y-4" style={glass}>
-          <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest block pl-1">Role Target Identity</label>
+          <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest block pl-1">Persona Matrix</label>
           <div className="relative">
             <input
               type="text"
@@ -836,7 +836,7 @@ export default function CareerJourneysPage() {
                               className="flex items-center gap-2 px-6 py-3 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all hover:opacity-80"
                               style={{ background: '#2563eb', boxShadow: '0 4px 20px rgba(37,99,235,0.25)' }}
                             >
-                                Edit in Studio
+                                Edit in Builder
                             </button>
                           </div>
                         </motion.div>

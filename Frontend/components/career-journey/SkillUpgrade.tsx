@@ -268,7 +268,7 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
               {/* Header Card */}
               <div className="rounded-[2.5rem] p-10 py-12 relative overflow-hidden" style={glass}>
                 <div className="relative z-10">
-                  <h1 className="text-4xl font-bold tracking-tight text-white mb-2">Available SprintVerse</h1>
+                  <h1 className="text-4xl font-bold tracking-tight text-white mb-2">SprintVerse</h1>
                   <p className="text-slate-400 font-medium">Select a career path to explore its journey</p>
                 </div>
                 {/* Orbital decoration */}
