@@ -548,7 +548,7 @@ export default function SignupPage() {
         {/* Footer */}
         <div className="text-center mt-8">
           <p className="text-sm text-gray-500">
-            Secure signup powered by Lucid Learning Platform
+            Secure Signup Powered By Lucid Platform
           </p>
         </div>
       </div>

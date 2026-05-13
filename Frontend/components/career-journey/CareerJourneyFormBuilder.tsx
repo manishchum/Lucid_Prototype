@@ -177,8 +177,8 @@ export default function CareerJourneyFormBuilder({
       {/* Header */}
       <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 flex justify-between items-center z-10">
         <div>
-          <h2 className="text-2xl font-bold">Career Journey Builder</h2>
-          <p className="text-blue-100 text-sm">Design a career progression path for a role</p>
+          <h2 className="text-2xl font-bold">+SprintVerse Builder</h2>
+          <p className="text-blue-100 text-sm">Design a Career Progression Path For a Role</p>
         </div>
         <button
           onClick={onClose}

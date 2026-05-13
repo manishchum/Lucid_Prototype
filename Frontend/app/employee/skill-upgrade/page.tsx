@@ -47,7 +47,7 @@ function LoadingProgress({ label, progress }: { label: string; progress: number 
             style={{ width: `${progress}%` }}
           />
         </div>
-        <p className="text-xs text-slate-500 font-medium">Loading skill upgrade paths. This may take a moment.</p>
+        <p className="text-xs text-slate-500 font-medium">Loading SprintVerse Paths. This May Take a Moment.</p>
       </div>
     </div>
   );

@@ -49,7 +49,7 @@ function LoadingProgress({ label, progress }: { label: string; progress: number 
             style={{ width: `${progress}%` }}
           />
         </div>
-        <p className="text-xs text-slate-500 font-medium">Preparing career journeys. This may take a moment.</p>
+        <p className="text-xs text-slate-500 font-medium">Preparing +SprintVerse. This May Take a Moment.</p>
       </div>
     </div>
   );
@@ -428,8 +428,8 @@ export default function CareerJourneysPage() {
       <div className="max-w-6xl mx-auto space-y-8 pb-20 px-4 py-8">
         {/* Career Journey Studio Banner */}
         <div className="bg-white border border-gray-200 rounded-xl p-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Career Journey Studio</h1>
-          <p className="text-sm text-gray-600">Create New Career Path for your Organization</p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">+SprintVerse Manage</h1>
+          <p className="text-sm text-gray-600">Create New SprintVerse For Your Organization</p>
         </div>
 
       <AnimatePresence>

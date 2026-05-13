@@ -275,7 +275,7 @@ const EmployeeNavigation = ({
               className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/skill-upgrade') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
             >
               <Award size={20} className="shrink-0" />
-              {!isCollapsed && <span className="text-[15px] font-bold">Skill Upgrade</span>}
+              {!isCollapsed && <span className="text-[15px] font-bold">SprintVerse</span>}
             </button>
             {isCollapsed && <NavTooltip label="Skill Upgrade" />}
           </div>
@@ -317,7 +317,7 @@ const EmployeeNavigation = ({
                         { href: "/admin/dashboard/employees", label: "Assign Sprints", icon: Users },
                         { href: "/admin/dashboard/uploads", label: "Sprint Manager", icon: Upload },
                         { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
-                        { href: "/admin/career-journeys", label: "Career Journey", icon: Briefcase },
+                        { href: "/admin/career-journeys", label: "+SprintVerse", icon: Briefcase },
                       ]),
                   ].map((item) => (
                       <button
