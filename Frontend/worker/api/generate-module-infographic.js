@@ -43,11 +43,10 @@ const API_BASE_URLS = uniqueNonEmpty([
   process.env.INTERNAL_API_BASE_URL,
 ]);
 
-const POLL_INTERVAL_MS = Number(process.env.INFOGRAPHIC_WORKER_POLL_INTERVAL_MS || 15000);
+const POLL_INTERVAL_MS = Number(process.env.INFOGRAPHIC_WORKER_POLL_INTERVAL_MS || 120000);
 const MIN_CONTENT_LENGTH = Number(process.env.INFOGRAPHIC_WORKER_MIN_CONTENT_LENGTH || 1);
 const MAX_CONTENT_CHARS = Number(process.env.INFOGRAPHIC_WORKER_MAX_CONTENT_CHARS || 18000);
-const SCAN_BATCH_SIZE = Math.max(1, Number(process.env.INFOGRAPHIC_WORKER_SCAN_BATCH_SIZE || 100));
-const MAX_SCAN_ROWS = Math.max(SCAN_BATCH_SIZE, Number(process.env.INFOGRAPHIC_WORKER_MAX_SCAN_ROWS || 5000));
+const ACTIVE_JOB_STATUSES = ['pending', 'in-progress'];
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error('[INFOGRAPHIC WORKER] FATAL: Supabase env vars are missing.');
@@ -186,7 +185,7 @@ async function processProcessedModuleRow(row) {
 async function fetchRowByProcessedId(processedModuleId) {
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('processed_module_id, original_module_id, title, content, infographic_data, created_at')
+    .select('processed_module_id, title, content, infographic_data')
     .eq('processed_module_id', processedModuleId)
     .maybeSingle();
 
@@ -201,48 +200,44 @@ async function fetchRowByProcessedId(processedModuleId) {
   return data;
 }
 
-async function fetchNextPendingRow() {
-  let offset = 0;
-  let scanned = 0;
+async function fetchActiveModuleIds() {
+  const { data, error } = await supabase
+    .from('content_jobs')
+    .select('module_id')
+    .in('status', ACTIVE_JOB_STATUSES)
+    .order('created_at', { ascending: true })
+    .limit(50);
 
-  while (scanned < MAX_SCAN_ROWS) {
-    const end = offset + SCAN_BATCH_SIZE - 1;
-
-    const { data, error } = await supabase
-      .from('processed_modules')
-      .select('processed_module_id, original_module_id, title, content, infographic_data, created_at')
-      .not('content', 'is', null)
-      .neq('content', '')
-      .order('created_at', { ascending: true })
-      .range(offset, end);
-
-    if (error) {
-      throw new Error(`Pending row fetch failed: ${error.message}`);
-    }
-
-    const rows = Array.isArray(data) ? data : [];
-    if (rows.length === 0) break;
-
-    const next = rows.find(isEligible);
-    if (next) {
-      if (offset > 0) {
-        console.log(
-          `[INFOGRAPHIC WORKER] Found eligible row after scanning offset=${offset}, scanned=${scanned + rows.length}`
-        );
-      }
-      return next;
-    }
-
-    scanned += rows.length;
-    offset += rows.length;
-
-    if (rows.length < SCAN_BATCH_SIZE) break;
+  if (error) {
+    throw new Error(`Active module fetch failed: ${error.message}`);
   }
 
-  console.log(
-    `[INFOGRAPHIC WORKER] No eligible rows found after scanning up to ${Math.min(scanned, MAX_SCAN_ROWS)} rows.`
-  );
-  return null;
+  const moduleIds = [...new Set((data || []).map((row) => row.module_id).filter(Boolean))];
+  return moduleIds;
+}
+
+async function fetchNextPendingRow() {
+  const activeModuleIds = await fetchActiveModuleIds();
+  if (activeModuleIds.length === 0) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from('processed_modules')
+    .select('processed_module_id, title, content, infographic_data')
+    .in('original_module_id', activeModuleIds)
+    .not('content', 'is', null)
+    .neq('content', '')
+    .or('infographic_data.is.null,infographic_data.eq."{}"')
+    .order('created_at', { ascending: true })
+    .limit(1);
+
+  if (error) {
+    throw new Error(`Pending row fetch failed: ${error.message}`);
+  }
+
+  const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
+  return row && isEligible(row) ? row : null;
 }
 
 async function generateModuleInfographic({ moduleId = null, processedModuleId = null } = {}) {
@@ -257,7 +252,7 @@ async function generateModuleInfographic({ moduleId = null, processedModuleId = 
   if (moduleId) {
     const { data, error } = await supabase
       .from('processed_modules')
-      .select('processed_module_id, original_module_id, title, content, infographic_data, created_at')
+      .select('processed_module_id, title, content, infographic_data')
       .eq('original_module_id', moduleId)
       .order('created_at', { ascending: true });
 
@@ -283,21 +278,26 @@ async function generateModuleInfographic({ moduleId = null, processedModuleId = 
 
 async function pollLoop() {
   console.log('[INFOGRAPHIC WORKER] Polling for processed_modules missing infographic_data with non-empty content...');
+  let idleCount = 0;
+  const MIN_POLL_MS = 15000;
+  const MAX_POLL_MS = 120000;
 
   while (true) {
     try {
       const row = await fetchNextPendingRow();
 
       if (!row) {
-        console.log('[INFOGRAPHIC WORKER] No eligible modules right now.');
+        idleCount++;
       } else {
+        idleCount = 0;
         await processProcessedModuleRow(row);
       }
     } catch (error) {
       console.error('[INFOGRAPHIC WORKER] Poll loop error:', error.message || error);
     }
 
-    await sleep(POLL_INTERVAL_MS);
+    const backoff = Math.min(MIN_POLL_MS * Math.pow(2, idleCount), MAX_POLL_MS);
+    await sleep(backoff);
   }
 }
 

@@ -32,12 +32,16 @@ from assistant.chat.route import router as assistant_chat_router
 from change_password.route import router as change_password_router
 from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications
 from routes.analytics_export import router as analytics_export_router
+from routes.career_journeys import router as career_journeys_router
+from routes.employee_dashboard import router as employee_dashboard_router
 
 # Import user routes
 # from routes.users import router as users_router
 from roleplay.assessment.route import router as roleplay_assessment_router
 from roleplay.assessment.conversation.route import router as roleplay_conversation_router
 from roleplay.realtime_ws.route import router as roleplay_realtime_router
+from roleplay.scenario.route import router as roleplay_scenario_router
+from roleplay.page.route import router as roleplay_page_router
 from ingestion.embedder import router as embed_router
 from routes import sub_departments
 
@@ -112,12 +116,16 @@ app.include_router(flashcard_generation_router, prefix="/api", tags=["flashcard-
 app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindmap"])
 app.include_router(roleplay_assessment_router, prefix="/api", tags=["roleplay-assessment"])
 app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
+app.include_router(roleplay_scenario_router, prefix="/api", tags=["roleplay-scenarios"])
+app.include_router(roleplay_page_router, prefix="/api", tags=["roleplay-page"])
 app.include_router(roleplay_realtime_router, tags=["roleplay-realtime"])
 app.include_router(embed_router, prefix="/api", tags=["embeddings"])
 app.include_router(module_chat, prefix="/api", tags=["module-chat"])
 app.include_router(assistant_router, prefix="/api", tags=["assistant"])
 app.include_router(assistant_chat_router, prefix="/api", tags=["assistant-chat"])
 app.include_router(change_password_router, prefix="/api", tags=["change-password"])
+app.include_router(career_journeys_router, prefix="/api", tags=["career-journeys"])
+app.include_router(employee_dashboard_router)  # employee dashboard summary router
 
 
 # Router Includes are here

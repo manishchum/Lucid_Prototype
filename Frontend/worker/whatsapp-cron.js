@@ -426,7 +426,7 @@ async function pollAndSend() {
   // 1. Fetch active schedules
   const { data: schedules, error: schedErr } = await supabase
     .from('scheduled_whatsapp')
-    .select('*')
+    .select('scheduled_whatsapp_id, schedule_type, scheduled_date, days_of_week, scheduled_time, message_body, media_url, media_type')
     .eq('is_active', true);
 
   if (schedErr) {
@@ -446,8 +446,9 @@ async function pollAndSend() {
     // 4. Fetch dispatch rows
     const { data: dispatches, error: dispatchErr } = await supabase
       .from('whatsapp_dispatch')
-      .select('*')
-      .eq('scheduled_whatsapp_id', schedule.scheduled_whatsapp_id);
+      .select('whatsapp_dispatch_id, phone_number, user_id, status, retry_count, max_retries')
+      .eq('scheduled_whatsapp_id', schedule.scheduled_whatsapp_id)
+      .in('status', ['pending', 'failed']);
 
     if (dispatchErr) {
       console.error('[whatsapp-cron] Dispatch fetch error:', dispatchErr.message);

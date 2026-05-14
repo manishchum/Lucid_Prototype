@@ -32,10 +32,10 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
         if (Array.isArray(arr)) {
           return {
             answers: arr.map((raw: string) => {
-              if (typeof raw !== 'string') return { status: 'Unknown' };
+              if (typeof raw !== 'string') return { status: 'Incorrect' };
               if (raw.startsWith('Correct')) return { status: 'Correct' };
               if (raw.startsWith('Incorrect')) return { status: 'Incorrect', explanation: raw.replace(/^Incorrect\.\s*/,'').trim() };
-              return { status: 'Unknown' };
+              return { status: 'Incorrect' };
             }),
             total: arr.length
           };
@@ -60,11 +60,11 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
         if (Array.isArray(arr)) {
           return {
             answers: arr.map((token: string) => {
-              if (typeof token !== 'string') return { status: 'Unknown' };
+              if (typeof token !== 'string') return { status: 'Incorrect' };
               const clean = token.trim();
               if (clean.startsWith('Correct')) return { status: 'Correct' };
               if (clean.startsWith('Incorrect')) return { status: 'Incorrect', explanation: clean.replace(/^Incorrect\.\s*/,'').trim() };
-              return { status: 'Unknown' };
+              return { status: 'Incorrect' };
             }),
             total: totalQuestions || arr.length
           };
@@ -77,7 +77,7 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
             answers: parts.map(p => {
               if (p.startsWith('Correct')) return { status: 'Correct' };
               if (p.startsWith('Incorrect')) return { status: 'Incorrect', explanation: p.replace(/^Incorrect\.\s*/,'').trim() };
-              return { status: 'Unknown' };
+              return { status: 'Incorrect' };
             }),
             total: totalQuestions || parts.length
           };
@@ -537,8 +537,8 @@ export default function ScoreHistoryPage() {
       <div className="px-4 py-8">
         <div className="max-w-7xl mx-auto">
           <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">Your Learning Journey</h1>
-            <p className="text-slate-600">Review your style & scores</p>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">Sprint Performance Reports</h1>
+            <p className="text-slate-600">Comprehensive analysis of your scores and performance metrics</p>
           </div>
           <main className="max-w-6xl mx-auto px-6 lg:px-8">
 
@@ -602,7 +602,7 @@ export default function ScoreHistoryPage() {
                 </div>
                 {learningStyleExpanded && (
                   <div className="mt-8 space-y-4">
-                    <h3 className="text-xl font-bold text-slate-900">Your Learning Insights</h3>
+                    <h3 className="text-xl font-bold text-slate-900">Your Insights</h3>
                     {buildLearningSections(learningStyleData.gpt_analysis || '', getLearningStyleInfo(learningStyleData.learning_style).description).filter(section => section.id !== 'checklist').map(section => {
                       const isOpen = reportOpenSections.includes(section.id)
                       const toggle = () => {
@@ -668,15 +668,15 @@ export default function ScoreHistoryPage() {
                 <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-4 mx-auto">
                   <BookOpen size={32} />
                 </div>
-                <h4 className="text-lg font-bold text-slate-900 mb-2">Discover Your Performance Sprint</h4>
+                <h4 className="text-lg font-bold text-slate-900 mb-2">Discover Your Sprint</h4>
                 <p className="text-slate-500 mb-6">
-                  Complete your Performance Sprint assessment to see personalized recommendations
+                  Complete Your Performance Sprint Assessment To See Personalized Recommendations
                 </p>
                 <button 
                   onClick={() => router.push("/employee/learning-style")}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  Take Performance Sprint Assessment
+                  Take Sprint Assessment
                 </button>
               </div>
             </CardContent>
@@ -688,7 +688,7 @@ export default function ScoreHistoryPage() {
           <CardContent className="p-8">
             <div className="border-b pb-6 mb-6">
               <h2 className="text-2xl font-bold text-slate-900">Your Growth Record</h2>
-              <p className="text-slate-500 text-sm mt-1">Review your scores & track growth</p>
+              <p className="text-slate-500 text-sm mt-1">Review Your Scores & Track Growth</p>
             </div>
             
             {scoreHistory.length === 0 && (

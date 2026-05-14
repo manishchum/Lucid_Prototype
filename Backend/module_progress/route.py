@@ -88,7 +88,7 @@ async def POST(request: Request):
 
             if not actualModuleId:
                 pm_res = supabase.table("processed_modules") \
-                    .select("module_id") \
+                    .select("original_module_id") \
                     .eq("processed_module_id", processed_module_id) \
                     .maybe_single() \
                     .execute()
@@ -99,7 +99,7 @@ async def POST(request: Request):
                 if pmError:
                     print("[module-progress] Error fetching module_id from processed_modules:", pmError)
                 else:
-                    actualModuleId = processedModule.get("module_id") if processedModule else None
+                    actualModuleId = processedModule.get("original_module_id") if processedModule else None
 
             updateData = {}
 
@@ -161,8 +161,44 @@ async def POST(request: Request):
 
         else:
             print("Inside the else")
+            actualModuleId = module_id
+
+            if not actualModuleId:
+                pm_res = supabase.table("processed_modules") \
+                    .select("original_module_id") \
+                    .eq("processed_module_id", processed_module_id) \
+                    .single() \
+                    .execute()
+
+                processedModule = pm_res.data
+                pmError = getattr(pm_res, "error", None)
+                if pmError:
+                    print("[module-progress] Error fetching original_module_id from processed_modules:", pmError)
+                else:
+                    actualModuleId = processedModule.get("original_module_id") if processedModule else None
+
+            if (
+                quiz_score is not None
+                and max_score
+                and actualModuleId
+            ):
+                threshold_res = supabase.table("training_modules") \
+                    .select("threshold_value") \
+                    .eq("module_id", actualModuleId) \
+                    .execute()
+
+                threshold = threshold_res.data
+                if threshold and len(threshold) > 0 and threshold[0].get("threshold_value"):
+                    scorePercentage = (quiz_score / max_score) * 100
+                    progressData["pass_status"] = scorePercentage >= threshold[0]["threshold_value"]
+
+            if quiz_score is not None and not progressData.get("completed_at"):
+                progressData["completed_at"] = datetime.utcnow().isoformat()
+
             create_res = supabase.table("module_progress") \
                 .insert(progressData) \
+                .select() \
+                .single() \
                 .execute()
 
             data = create_res.data
@@ -176,6 +212,48 @@ async def POST(request: Request):
                 )
 
             result = data
+
+        # START: Update overall_status in learning_plan
+        try:
+            if actualModuleId:
+                lp_res = supabase.table("learning_plan") \
+                    .select("learning_plan_id, processed_module_ids") \
+                    .eq("user_id", user_id) \
+                    .eq("module_id", actualModuleId) \
+                    .execute()
+                
+                lp_data = lp_res.data
+                if lp_data and len(lp_data) > 0:
+                    plan = lp_data[0]
+                    p_ids = plan.get("processed_module_ids")
+                    if p_ids and isinstance(p_ids, list) and len(p_ids) > 0:
+                        prog_res = supabase.table("module_progress") \
+                            .select("processed_module_id, pass_status, completed_at") \
+                            .eq("user_id", user_id) \
+                            .in_("processed_module_id", p_ids) \
+                            .execute()
+                        
+                        records = prog_res.data or []
+                        all_passed = True
+                        for req_id in p_ids:
+                            rec = next((r for r in records if r.get("processed_module_id") == req_id), None)
+                            if not rec or not rec.get("completed_at") or rec.get("pass_status") is not True:
+                                all_passed = False
+                                break
+
+                        if all_passed:
+                            print(f"[module-progress] 🏆 Sprint Completed! Updating learning_plan {plan['learning_plan_id']} to overall_status=True")
+                            supabase.table("learning_plan") \
+                                .update({
+                                    "overall_status": True,
+                                    "status": "COMPLETED",
+                                    "completed_at": datetime.utcnow().isoformat()
+                                }) \
+                                .eq("learning_plan_id", plan["learning_plan_id"]) \
+                                .execute()
+        except Exception as e_lp:
+            print("[module-progress] Error updating learning plan overall_status:", e_lp)
+        # END: Update overall_status in learning_plan
 
         return JSONResponse({
             "success": True,

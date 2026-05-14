@@ -43,7 +43,7 @@ const API_BASE_URLS = uniqueNonEmpty([
   process.env.BACKEND_URL,
 ]);
 
-const POLL_INTERVAL_MS = Number(process.env.VIDEO_WORKER_POLL_INTERVAL_MS || 15000);
+const POLL_INTERVAL_MS = Number(process.env.VIDEO_WORKER_POLL_INTERVAL_MS || 120000);
 const MIN_CONTENT_LENGTH = Number(process.env.VIDEO_WORKER_MIN_CONTENT_LENGTH || 1);
 const VIDEO_RECOVERY_WAIT_MS = Number(process.env.VIDEO_WORKER_RECOVERY_WAIT_MS || 1800000);
 const VIDEO_RECOVERY_POLL_MS = Number(process.env.VIDEO_WORKER_RECOVERY_POLL_MS || 15000);
@@ -61,6 +61,7 @@ if (API_BASE_URLS.length === 0) {
 console.log('[VIDEO WORKER] API base URL candidates:', API_BASE_URLS.join(' | '));
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+const ACTIVE_JOB_STATUSES = ['pending', 'in-progress'];
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -125,8 +126,8 @@ async function callVideoGeneration(processedModuleId) {
 
       if (!response.ok) {
         if ([502, 503, 504].includes(response.status)) {
-        //   console.log(`[VIDEO WORKER] HTTP ${response.status} from ${baseUrl}. Waiting for DB video_url update...`);
-        console.log(`[VIDEO WORKER] Video generation running in background. Waiting for DB video_url update...`);
+          //   console.log(`[VIDEO WORKER] HTTP ${response.status} from ${baseUrl}. Waiting for DB video_url update...`);
+          console.log(`[VIDEO WORKER] Video generation running in background. Waiting for DB video_url update...`);
           const recoveredUrl = await waitForVideoUrlInDb(processedModuleId);
           if (recoveredUrl) {
             console.log(`[VIDEO WORKER] video found in DB for ${processedModuleId}`);
@@ -178,7 +179,7 @@ async function processProcessedModuleRow(row) {
 async function fetchRowByProcessedId(processedModuleId) {
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('processed_module_id, content, video_url, created_at')
+    .select('processed_module_id, content, video_url')
     .eq('processed_module_id', processedModuleId)
     .maybeSingle();
 
@@ -193,15 +194,37 @@ async function fetchRowByProcessedId(processedModuleId) {
   return data;
 }
 
+async function fetchActiveModuleIds() {
+  const { data, error } = await supabase
+    .from('content_jobs')
+    .select('module_id')
+    .in('status', ACTIVE_JOB_STATUSES)
+    .order('created_at', { ascending: true })
+    .limit(50);
+
+  if (error) {
+    throw new Error(`Active module fetch failed: ${error.message}`);
+  }
+
+  const moduleIds = [...new Set((data || []).map((row) => row.module_id).filter(Boolean))];
+  return moduleIds;
+}
+
 async function fetchNextPendingRow() {
+  const activeModuleIds = await fetchActiveModuleIds();
+  if (activeModuleIds.length === 0) {
+    return null;
+  }
+
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('processed_module_id, content, video_url, created_at')
+    .select('processed_module_id, content, video_url')
+    .in('original_module_id', activeModuleIds)
     .not('content', 'is', null)
     .neq('content', '')
     .or('video_url.is.null,video_url.eq.""')
     .order('created_at', { ascending: true })
-    .limit(50);
+    .limit(1);
 
   if (error) {
     throw new Error(`Pending row fetch failed: ${error.message}`);
@@ -255,21 +278,26 @@ async function generateModuleVideo({ moduleId = null, processedModuleId = null }
 
 async function pollLoop() {
   console.log('[VIDEO WORKER] Polling for processed_modules missing video_url with non-empty content...');
+  let idleCount = 0;
+  const MIN_POLL_MS = 15000;
+  const MAX_POLL_MS = 120000;
 
   while (true) {
     try {
       const row = await fetchNextPendingRow();
 
       if (!row) {
-        console.log('[VIDEO WORKER] No eligible modules right now.');
+        idleCount++;
       } else {
+        idleCount = 0;
         await processProcessedModuleRow(row);
       }
     } catch (error) {
       console.error('[VIDEO WORKER] Poll loop error:', error.message || error);
     }
 
-    await sleep(POLL_INTERVAL_MS);
+    const backoff = Math.min(MIN_POLL_MS * Math.pow(2, idleCount), MAX_POLL_MS);
+    await sleep(backoff);
   }
 }
 

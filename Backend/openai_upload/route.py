@@ -462,11 +462,11 @@ async def processAndStoreResults(moduleId: str, message: str):
     print(f"[processAndStoreResults] - ai_objectives: {len(ai_objectives)} objectives")
 
     # First, verify the row exists
-    print("Insetion se phle tkk sab theek hai")
+    # print("Insetion se phle tkk sab theek hai")
     check_res = supabase.table("training_modules").select("module_id, processing_status").eq("module_id", moduleId).execute()
     check_data = getattr(check_res, "data", None)
     check_error = getattr(check_res, "error", None)
-    print("Insertion ke baad bhi theek hai")
+    # print("Insertion ke baad bhi theek hai")
     
     if check_error:
         print(f"[processAndStoreResults] Error checking row existence: {check_error}")

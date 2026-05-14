@@ -688,7 +688,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             </div>
 
             {/* Navigation */}
-            <div className="flex justify-between items-center mt-6">
+            <div className="flex justify-between items-center gap-3 mt-6 px-1">
               <Button
                 variant="outline"
                 onClick={handlePrevious}
@@ -724,7 +724,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                     const globalIdx = currentPage * questionsPerPage + idx;
                     return answers[globalIdx] === -1 || answers[globalIdx] === '';
                   })}
-                  className="px-6 py-3"
+                  className="px-6 py-3 min-w-[96px] bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-100 disabled:bg-blue-200 disabled:text-blue-700 disabled:border disabled:border-blue-300"
                 >
                   Next
                 </Button>

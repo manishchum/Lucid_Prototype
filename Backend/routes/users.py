@@ -4,6 +4,7 @@ from typing import Optional, List
 
 from utils.db.users_db import (
     get_user_by_email,
+    get_user_by_phone,
     get_users_by_company,
     get_user_by_id,
     create_user,

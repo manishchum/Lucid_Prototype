@@ -133,7 +133,7 @@ function ContentUpload({
     }
 
     try {
-      console.log(`[AI] Starting processing for Sprint: ${moduleId}`);
+      // console.log(`[AI] Starting processing for Sprint: ${moduleId}`);
 
       const firstFile = uploadFiles[0];
       const initialStatus = isMediaFile(firstFile?.type || "") ? "transcribing" : "summarizing";
@@ -201,7 +201,7 @@ function ContentUpload({
         }
       }
 
-      console.log(`[AI] Processing triggered successfully for Sprint: ${moduleId}`);
+      // console.log(`[AI] Processing triggered successfully for Sprint: ${moduleId}`);
       onUploadComplete();
     } catch (err) {
       console.error("[AI] Pipeline failed:", err);
@@ -229,7 +229,7 @@ function ContentUpload({
 
   const handleUpload = async () => {
     if (files.length === 0  || !title){
-      alert("Retriever ID Required");
+      alert("Data is not sufficient");
       return;
     } 
 
@@ -240,7 +240,7 @@ function ContentUpload({
       // We no longer rely on the frontend `/api/content-library/upload`. We just post directly
       // to the backend to create a skeleton training module, then ai trigger will upload the files!
       
-      const createRes = await fetchWithAuth(`${API_URL}/api/training-modules/`, {
+      const response = await fetchWithAuth(`${API_URL}/api/training-modules/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -260,46 +260,123 @@ function ContentUpload({
         })
       });
 
-      if (!createRes.ok) {
-        const errorText = await createRes.text().catch(() => '');
-        console.error('Failed to create training module entry:', errorText);
-        alert('Failed to create training module: ' + errorText);
-      } else {
-        const createPayload = await createRes.json().catch(() => ({}));
-        console.log('[Upload] Backend response:', createPayload);
-        
-        let moduleData = null;
-        if (createPayload.module) {
-          if (Array.isArray(createPayload.module)) {
-            moduleData = createPayload.module[0];
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Creation failed');
+      }
+
+      const result = await response.json();
+      // console.log('Creation successful:', result);
+
+      const uploadedFileRaw = result.inserted?.[0]?.module;
+
+      if (!uploadedFileRaw) {
+        throw new Error("Creation succeeded but no file URL returned from API");
+      }
+
+      const uploadedFile = uploadedFileRaw.replace("/object/sign","/object/public");
+      
+      // Extract individual file info from the API response
+      const individualFileUrls = (result.inserted || []).map((item: any) => {
+        const moduleUrl = item.module || '';
+        // Extract storage path from the URL (just the path after the bucket name)
+        let storagePath = '';
+        try {
+          const url = new URL(moduleUrl);
+          const pathname = decodeURIComponent(url.pathname);
+          
+          // Pattern 1: /object/public/content library/uploads/...
+          // Pattern 2: /object/sign/content library/uploads/...
+          // We want just "uploads/..." part
+          const pathMatch = pathname.match(/\/object\/(?:public|sign)\/content library\/(.+)$/) ||
+                           pathname.match(/content library\/(.+)$/);
+          
+          if (pathMatch && pathMatch[1]) {
+            storagePath = pathMatch[1];
+            // console.log('[Upload] Extracted storage path:', storagePath, 'from URL:', moduleUrl);
           } else {
-            moduleData = createPayload.module;
+            let moduleData = result.module;
           }
+        }catch (err) {
+          console.warn('Failed to parse URL for storage path extraction:', moduleUrl, err);
         }
         
-        console.log('[Upload] Extracted moduleData:', moduleData);
-        
-        if (moduleData && moduleData.module_id) {
-          console.log('[Upload] Created module with ID:', moduleData.module_id);
-          
-          // Store source file names and URLs in localStorage (frontend-only solution)
-          const sourceFilesMap = JSON.parse(localStorage.getItem('moduleSourceFiles') || '{}');
-          sourceFilesMap[moduleData.module_id] = files.map(f => ({ name: f.name, url: '' }));
-          localStorage.setItem('moduleSourceFiles', JSON.stringify(sourceFilesMap));
-          console.log('[Upload] Stored source files in localStorage:', sourceFilesMap[moduleData.module_id]);
-          
-          // Refresh UI immediately to show the new module card
-          onUploadComplete();
-          
-          // Trigger AI background processing
-          await triggerAIProcessing(moduleData.module_id, uploadFiles, "");
-          console.log("Triggering AI with:");
-          console.log("moduleId:", moduleData.module_id);
-          console.log("files count:", uploadFiles.length);
-          console.log("file names:", uploadFiles.map(f => f.name));
+        return {
+          name: item.title || 'Unknown',
+          url: moduleUrl.replace("/object/sign", "/object/public") || '',
+          path: storagePath
+        };
+      });
+      
+      // console.log('[Upload] Individual file URLs extracted:', individualFileUrls);
+      
+      if (uploadedFile) {
+        // Create training module via backend API
+        const createRes = await fetchWithAuth(`${API_URL}/api/training-modules/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': adminId
+          },
+          body: JSON.stringify({
+            company_id: companyId,
+            title: title,
+            description: description,
+            content_url: uploadedFile,
+            content_type: files[0]?.type || "application/pdf",
+            processing_status: 'pending',
+            threshold_value: thresholdValue,
+            reviewer_id: retrievedReviewerId,
+            additional_readings: additionalLinks.length > 0 ? additionalLinks : null,
+            source_files: individualFileUrls.map((f: { path: string }) => f.path)
+          })
+        });
+
+        if (!createRes.ok) {
+          const errorText = await createRes.text().catch(() => '');
+          console.error('Failed to create training module entry:', errorText);
+          alert('Failed to create training module: ' + errorText);
         } else {
-          console.error('[Upload] No module_id in response. Full payload:', createPayload);
-          alert('Module created but ID not found in response');
+          const createPayload = await createRes.json().catch(() => ({}));
+          // console.log('[Upload] Backend response:', createPayload);
+          
+          // Backend returns {message: "...", module: [{...}]}
+          // The module is an array from Supabase insert
+          let moduleData = null;
+          if (createPayload.module) {
+            if (Array.isArray(createPayload.module)) {
+              moduleData = createPayload.module[0];
+            } else {
+              moduleData = createPayload.module;
+            }
+          }
+          
+          // console.log('[Upload] Extracted moduleData:', moduleData);
+          
+          if (moduleData && moduleData.module_id) {
+            // console.log('[Upload] Created module with ID:', moduleData.module_id);
+            
+            // Store source file names and URLs in localStorage (frontend-only solution)
+            const sourceFilesMap = JSON.parse(localStorage.getItem('moduleSourceFiles') || '{}');
+            sourceFilesMap[moduleData.module_id] = individualFileUrls.length > 0 
+              ? individualFileUrls 
+              : files.map(f => ({ name: f.name, url: '' }));
+            localStorage.setItem('moduleSourceFiles', JSON.stringify(sourceFilesMap));
+            // console.log('[Upload] Stored source files in localStorage:', sourceFilesMap[moduleData.module_id]);
+            
+            // Refresh UI immediately to show the new module card
+            onUploadComplete();
+            
+            // Trigger AI background processing
+            await triggerAIProcessing( moduleData.module_id, uploadFiles, uploadedFile);
+            // console.log("Triggering AI with:");
+            // console.log("moduleId:", moduleData.module_id);
+            // console.log("files count:", uploadFiles.length);
+            // console.log("file names:", uploadFiles.map(f => f.name));
+          } else {
+            console.error('[Upload] No module_id in response. Full payload:', createPayload);
+            alert('Module created but ID not found in response');
+          }
         }
       }
 
@@ -345,6 +422,9 @@ function ContentUpload({
 
           <p className="text-xs text-gray-500 mt-1">
             Maximum file size 4MB. PDF, PPTx and DOCX only.
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            For a more robust and insightful Sprint, we recommend using detailed, text-rich documents (ideally 8+ pages)
           </p>
 
           <input
@@ -526,11 +606,11 @@ function ContentUpload({
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
           />
-          <Button onClick={handleAddLink}>Add</Button>
+          <Button onClick={handleAddLink} className="bg-blue-600 text-white hover:bg-blue-700">Add</Button>
         </div>
       </div>
       <div className="md:col-span-2 flex justify-end">
-      <Button onClick={handleUpload} disabled={files.length === 0 || !title || uploading}>
+      <Button onClick={handleUpload} className = "bg-blue-600 text-white hover:bg-blue-700" disabled={files.length === 0 || !title || uploading}>
         {uploading ? 'Creating...' : 'Add Sprint Content'}
       </Button>
       </div>
@@ -726,6 +806,8 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const [selectedModule, setSelectedModule] = useState<any | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1.25);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
 
   const files = (() => {
     if (!selectedModule) return [];
@@ -733,7 +815,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
     const sourceFiles: any[] = [];
     const raw = selectedModule?.source_files;
 
-    console.log("RAW SOURCE FILES:", raw);
+    // console.log("RAW SOURCE FILES:", raw);
 
     // Handle array format
     if (Array.isArray(raw)) {
@@ -840,8 +922,8 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       }
 
       const modulesPayload = await modulesRes.json().catch(() => ({}));
-      console.log("Backend response");
-      console.log(modulesPayload);
+      // console.log("Backend response");
+      // console.log(modulesPayload);
 
       const data = modulesPayload.modules || [];
 
@@ -862,7 +944,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
               jobsMap.set(job.module_id, job);
             }
           });
-          console.log(`[uploads] Loaded ${jobsMap.size} content jobs in batch`);
+          // console.log(`[uploads] Loaded ${jobsMap.size} content jobs in batch`);
         } else {
           const errorText = await jobsRes.text().catch(() => '');
           console.error('[uploads] Failed to fetch content jobs batch:', jobsRes.status, errorText);
@@ -875,10 +957,10 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       // Map modules with their job status (no async operations, just lookups)
       const modulesWithStatus = (data || []).map((module: any) => {
 
-        console.log("Logging each module source file");
-        console.log("MODULE ID:",module.module_id);
-        console.log("Source files:", module.source_files);
-        console.log("Type:", typeof module.source_files);
+        // console.log("Logging each module source file");
+        // console.log("MODULE ID:",module.module_id);
+        // console.log("Source files:", module.source_files);
+        // console.log("Type:", typeof module.source_files);
 
 
         let finalStatus = module.processing_status;
@@ -923,6 +1005,13 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
       setLoading(false);
     }
   };
+
+  const paginatedModules = trainingModules.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  const totalPages = Math.ceil(trainingModules.length / itemsPerPage);
 
   const getStatusBadge = (status: string) => {
     switch (status?.toLowerCase()) {
@@ -1177,7 +1266,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                             return;
                           }
 
-                          console.log("Requesting preview for:", file.path);
+                          // console.log("Requesting preview for:", file.path);
 
                           const res = await fetchWithAuth(`${API_URL}/api/preview-file`, {
                             method: "POST",
@@ -1271,7 +1360,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
           </div>
         ) : (
           <div className="grid gap-4">
-            {trainingModules.map((module) => (
+            {paginatedModules.map((module) => (
               <Card key={module.module_id}>
               <CardContent className="p-4">
 
@@ -1318,12 +1407,12 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                     setSelectedModule(module);
 
                     try {
-                      console.log('[View Button] Loading module:', module.title);
-                      console.log('[View Button] Content URL:', module.content_url);
+                      // console.log('[View Button] Loading module:', module.title);
+                      // console.log('[View Button] Content URL:', module.content_url);
 
                       const url = new URL(module.content_url);
                       const pathname = decodeURIComponent(url.pathname);
-                      console.log('[View Button] Decoded pathname:', pathname);
+                      // console.log('[View Button] Decoded pathname:', pathname);
 
                       let pathMatch = pathname.match(/\/(?:storage\/v1\/)?object\/(?:public|sign)\/training-content\/(.+)$/);
                       let bucketName = 'training-content';
@@ -1344,13 +1433,13 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                       }
 
                       if (!pathMatch || !pathMatch[1]) {
-                        console.log('[View Button] No bucket/path pattern found, using URL as-is');
+                        // console.log('[View Button] No bucket/path pattern found, using URL as-is');
                         setPreviewUrl(module.content_url);
                         return;
                       }
 
                       const storagePath = pathMatch[1];
-                      console.log('[View Button] Bucket:', bucketName, 'Path:', storagePath);
+                      // console.log('[View Button] Bucket:', bucketName, 'Path:', storagePath);
 
                       const { data, error } = await supabase
                         .storage
@@ -1363,7 +1452,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                         return;
                       }
 
-                      console.log('[View Button] Generated signed URL successfully');
+                      // console.log('[View Button] Generated signed URL successfully');
                       setPreviewUrl(data.publicUrl);
                     } catch (err) {
                       console.error("[View Button] Preview error:", err);
@@ -1393,9 +1482,51 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
               </CardContent>
               </Card>
                 
-
               
             ))}
+          </div>
+        )}
+         {totalPages > 1 && (
+          <div className="flex justify-between items-center mt-4">
+            <div>
+              <span className="text-sm text-gray-600">
+                Page {currentPage} of {totalPages}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                }
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
+            <div>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="border-gray-300 rounded-md shadow-sm"
+              >
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+              </select>
+            </div>
           </div>
         )}
       </div>

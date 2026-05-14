@@ -570,7 +570,7 @@ export default function AdminDispatchCenterPage() {
         // Gemini-written message AND the real flashcard/audio content
         if (selectedContent.length > 0 && selectedSprintId) {
           try {
-            console.log(currentUser)
+            // console.log(currentUser)
             const notifyRes = await fetchWithAuth(`${API_BASE}/api/dispatch/notify-email`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
@@ -784,10 +784,10 @@ export default function AdminDispatchCenterPage() {
       // customFlashcards and customAudioUrl are omitted - each module uses its own from DB
     }));
 
-    console.log('[FRONTEND DEBUG] Selected modules:', selectedSubModuleIds);
-    console.log('[FRONTEND DEBUG] Selected content:', selectedContent);
-    console.log('[FRONTEND DEBUG] Selected days:', selectedDays);
-    console.log('[FRONTEND DEBUG] Schedule items built:', schedule_items);
+    // console.log('[FRONTEND DEBUG] Selected modules:', selectedSubModuleIds);
+    // console.log('[FRONTEND DEBUG] Selected content:', selectedContent);
+    // console.log('[FRONTEND DEBUG] Selected days:', selectedDays);
+    // console.log('[FRONTEND DEBUG] Schedule items built:', schedule_items);
 
     try {
       const requestBody = {
@@ -796,22 +796,22 @@ export default function AdminDispatchCenterPage() {
       };
      
       // Comprehensive logging for audio and flashcards
-      console.log('\n========== FRONTEND REQUEST DETAILS ==========');
-      console.log('Total modules:', selectedSubModuleIds.length);
-      console.log('Content types:', selectedContent);
-      console.log('Days selected:', selectedDays);
+      // console.log('\n========== FRONTEND REQUEST DETAILS ==========');
+      // console.log('Total modules:', selectedSubModuleIds.length);
+      // console.log('Content types:', selectedContent);
+      // console.log('Days selected:', selectedDays);
      
       selectedSubModuleIds.forEach((moduleId, idx) => {
         const contentType = selectedContent[idx % selectedContent.length];
         const day = selectedDays[idx % selectedDays.length];
-        console.log(`\nModule ${idx + 1}:`);
-        console.log(`  - ID: ${moduleId}`);
-        console.log(`  - Content: ${contentType}`);
-        console.log(`  - Day: ${day}`);
+        // console.log(`\nModule ${idx + 1}:`);
+        // console.log(`  - ID: ${moduleId}`);
+        // console.log(`  - Content: ${contentType}`);
+        // console.log(`  - Day: ${day}`);
       });
-      console.log('==============================================\n');
+      // console.log('==============================================\n');
      
-      console.log('[FRONTEND DEBUG] Full request body:', JSON.stringify(requestBody, null, 2));
+      // console.log('[FRONTEND DEBUG] Full request body:', JSON.stringify(requestBody, null, 2));
      
       const res = await fetchWithAuth(`${API_BASE}/api/dispatch/schedule-multi-module`, {
         method: 'POST',
@@ -887,8 +887,8 @@ export default function AdminDispatchCenterPage() {
       if (res.ok) {
         setWhatsappResult(await res.json());
 
-        console.log('[FRONTEND DEBUG] WhatsApp Payload Sent:', JSON.stringify(whatsappPayload, null, 2));
-        console.log(whatsappResult)
+        // console.log('[FRONTEND DEBUG] WhatsApp Payload Sent:', JSON.stringify(whatsappPayload, null, 2));
+        // console.log(whatsappResult)
         // console.log(await res.json())
       } else {
         const err = await res.json().catch(() => null);
@@ -1297,7 +1297,7 @@ export default function AdminDispatchCenterPage() {
                           </div>
                           <div className="flex-1">
                             <p className="font-semibold text-sm text-slate-800">Video Lesson</p>
-                            <p className="text-xs text-slate-500">Send video learning materials via WhatsApp</p>
+                            <p className="text-xs text-slate-500">Send Video via WhatsApp</p>
                           </div>
                           {selectedContent.includes('video') && (
                             <Check size={16} className="text-red-500 shrink-0" />
@@ -1351,7 +1351,7 @@ export default function AdminDispatchCenterPage() {
                           </div>
                           <div className="flex-1">
                             <p className="font-semibold text-sm text-slate-800">Infographic</p>
-                            <p className="text-xs text-slate-500">Send infographic images for visual learning</p>
+                            <p className="text-xs text-slate-500">Send Infographic Images For Visual Understanding</p>
                           </div>
                           {selectedContent.includes('infographic') && (
                             <Check size={16} className="text-pink-500 shrink-0" />

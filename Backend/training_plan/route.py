@@ -648,8 +648,8 @@ async def POST(request: Request):
             + "{\n"
             + '  "plan": {\n'
             + '    "modules": [\n'
-            + '      { "title": "Module Name", "recommended_time": 5, "order": 1 },\n'
-            + '      { "title": "Module Name 2", "recommended_time": 5, "order": 2 }\n'
+            + '      { "title": "Module Name", "processed_module_id": "id-here", "recommended_time": 5, "order": 1 },\n'
+            + '      { "title": "Module Name 2", "processed_module_id": "id-here", "recommended_time": 5, "order": 2 }\n'
             + "    ],\n"
             + '    "tips": "' + ('General study tips and strategies for success' if not useLearningStyle else 'Study tips tailored to learning style') + '..."\n'
             + "  },\n"
@@ -698,9 +698,9 @@ async def POST(request: Request):
             + "{\n"
             + '  "plan": {\n'
             + '    "modules": [\n'
-            + '      { "title": "Module Name", "recommended_time": 5, "order": 1 },\n'
-            + '      { "title": "Module Name 2", "recommended_time": 4, "order": 2 },\n'
-            + '      { "title": "Module Name 3", "recommended_time": 5, "order": 3 }\n'
+            + '      { "title": "Module Name", "processed_module_id": "id-here", "recommended_time": 5, "order": 1 },\n'
+            + '      { "title": "Module Name 2", "processed_module_id": "id-here", "recommended_time": 4, "order": 2 },\n'
+            + '      { "title": "Module Name 3", "processed_module_id": "id-here", "recommended_time": 5, "order": 3 }\n'
             + "    ],\n"
             + '    "tips": "' + ('Study tips tailored to learning style' if useLearningStyle else 'General study tips and strategies for success') + '..."\n'
             + "  },\n"
@@ -751,11 +751,11 @@ async def POST(request: Request):
         elif len(baselinePercentAssessments) > 0:
             # Baseline is ON and assessments exist - use prompt1 (personalized)
             prompt = prompt1
-            print("[Training Plan API] Using prompt1 (baseline ON - personalized)")
+            # print("[Training Plan API] Using prompt1 (baseline ON - personalized)")
         else:
             # Baseline is ON but no assessments - use prompt2 (all modules)
             prompt = prompt2
-            print("[Training Plan API] Using prompt2 (baseline ON but no assessments)")
+            # print("[Training Plan API] Using prompt2 (baseline ON but no assessments)")
 
         # Call Gemini
         planJsonRaw = ""
@@ -768,9 +768,10 @@ async def POST(request: Request):
             return JSONResponse(content={"error": "Gemini call failed", "details": str(err)}, status_code=500)
 
         # Clean response
-        print('[Training Plan API] Raw Gemini response:', planJsonRaw)
-        print("Modules that have been sent", modules)
+        # print('[Training Plan API] Raw Gemini response:', planJsonRaw)
+        # print("Modules that have been sent", modules)
         cleanedContent = planJsonRaw.strip()
+        print("[Training Plan API] Cleaned Gemini response:", cleanedContent)
         if cleanedContent.lower().startswith("```json"):
             cleanedContent = cleanedContent.replace("```json", "", 1).strip()
         elif cleanedContent.lower().startswith("```"):
@@ -800,7 +801,7 @@ async def POST(request: Request):
             return out
 
         def tryParse(raw: str):
-            print(raw)
+            # print(raw)
             try:
                 parsed = json.loads(raw)
                 if isinstance(parsed, dict) and ("plan" in parsed or "reasoning" in parsed):

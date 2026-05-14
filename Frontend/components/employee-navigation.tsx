@@ -4,10 +4,11 @@ import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
+import { useTenant } from "@/contexts/tenant-context";
 import CompanySelector from "@/components/company-selector";
 
 interface EmployeeNavigationProps {
@@ -26,7 +27,8 @@ const EmployeeNavigation = ({
 }: EmployeeNavigationProps) => {
   const router = useRouter();
   const pathname = usePathname();
-  const { user: authUser, logout, userRoles, isAdmin, isSuperAdmin, employeeData } = useAuth();
+  const { user: authUser, logout, userRoles, isAdmin, isSuperAdmin, isDeveloper, isManager, employeeData } = useAuth();
+  const { activeCompany } = useTenant();
   
   // Existing Logic States
   const [isCollapsed, setIsCollapsed] = useState(forceCollapsed);
@@ -75,6 +77,10 @@ const EmployeeNavigation = ({
       computed_hasSuperAdminAccess: hasSuperAdminAccess
     });
   }, [mounted, authUser, isAdmin, isSuperAdmin, userRoles, hasAdminAccess, hasSuperAdminAccess]);
+  const companyDisplayName = activeCompany?.name || displayUser?.company_name || 'Company';
+  const companyLogo = activeCompany?.company_logo;
+  const canAccessConsole = isAdmin || isSuperAdmin || isDeveloper || isManager;
+  const isManagerOnlyConsole = isManager && !isAdmin && !isSuperAdmin && !isDeveloper;
 
   // Update isCollapsed when forceCollapsed prop changes
   useEffect(() => {
@@ -186,13 +192,21 @@ const EmployeeNavigation = ({
         {/* Header */}
         <div className="p-6 pb-4 flex items-center justify-between">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleNavigate('/employee/welcome')}>
-            <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0 shadow-sm">
-              <svg className="w-5 h-5 text-[#3B66F5]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="6" y="4" width="3" height="14" fill="#3B66F5" rx="0.5" />
-                <rect x="6" y="15" width="9" height="3" fill="#3B66F5" rx="0.5" />
-              </svg>
-            </div>
-            {!isCollapsed && <span className="text-[21px] font-bold text-[#1E293B] tracking-tight">Lucid</span>}
+            {companyLogo ? (
+              <img
+                src={companyLogo}
+                alt={`${companyDisplayName} logo`}
+                className="w-10 h-10 rounded-xl object-contain shrink-0 border border-slate-100 bg-white p-1 shadow-sm"
+              />
+            ) : (
+              <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0 shadow-sm">
+                <svg className="w-5 h-5 text-[#3B66F5]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="6" y="4" width="3" height="14" fill="#3B66F5" rx="0.5" />
+                  <rect x="6" y="15" width="9" height="3" fill="#3B66F5" rx="0.5" />
+                </svg>
+              </div>
+            )}
+            {!isCollapsed && <span className="text-[21px] font-bold text-[#1E293B] tracking-tight truncate">{companyDisplayName}</span>}
           </div>
           <button onClick={() => setIsCollapsed(!isCollapsed)} className="hidden lg:block text-slate-400 hover:text-slate-600 transition-colors">
             {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
@@ -232,13 +246,13 @@ const EmployeeNavigation = ({
             {isCollapsed && <NavTooltip label="Home" />}
           </div>
 
-          {/* Training Plan (Dropdown) */}
+          {/* Training Plan (Dropdown)
           <div className="relative group">
             {/* <button 
               onClick={() => isCollapsed ? handleNavigate('/employee/welcome') : setCoursesOpen(!coursesOpen)} 
               className={`w-full flex items-center justify-between px-4 py-2.5 rounded-[12px] transition-all duration-200 text-[#1E293B] hover:bg-slate-50`}
             >
-              <div className="flex items-center gap-3.5">
+              {/* <div className="flex items-center gap-3.5">
                 <BookOpen size={20} className="shrink-0" />
                 {!isCollapsed && <span className="text-[15px] font-bold">Performance Sprint</span>}
               </div>
@@ -262,9 +276,9 @@ const EmployeeNavigation = ({
                     <span className="truncate">{item.label}</span>
                   </button>
                 ))}
-              </div>
-            )}
-          </div>
+              </div> )}
+            
+          {/* </div> */}
 
           {/* Reports */}
           <div className="relative group">
@@ -291,7 +305,16 @@ const EmployeeNavigation = ({
               </div>
             )}
           </div>
-
+            <div className="relative group">
+            <button 
+              onClick={() => handleNavigate('/employee/skill-upgrade')}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/skill-upgrade') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+            >
+              <Award size={20} className="shrink-0" />
+              {!isCollapsed && <span className="text-[15px] font-bold">SprintVerse</span>}
+            </button>
+            {isCollapsed && <NavTooltip label="Skill Upgrade" />}
+          </div>
           <div className="relative group">
             <button 
               onClick={() => handleNavigate('/employee/roleplay')}
@@ -302,27 +325,36 @@ const EmployeeNavigation = ({
             </button>
             {isCollapsed && <NavTooltip label="Role-Play" />}
           </div>
-          {/* Console - visible for Admin and Super Admin */}
-          {mounted && hasAdminAccess && (
+          {/* Console - visible for manager and higher roles */}
+          {canAccessConsole && (
             <div className="relative group">
               <button 
-                onClick={() => isCollapsed ? handleNavigate('/admin/dashboard/analytics') : setAdminDropdownOpen(!adminDropdownOpen)} 
+                onClick={() => {
+                  if (isCollapsed || isManagerOnlyConsole) {
+                    handleNavigate('/admin/dashboard/analytics');
+                    return;
+                  }
+                  setAdminDropdownOpen(!adminDropdownOpen)
+                }} 
                 className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
               >
                 <div className="flex items-center gap-3.5">
                   <Shield size={20} className="shrink-0" />
                   {!isCollapsed && <span className="text-[15px] font-bold">Console</span>}
                 </div>
-                {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${adminDropdownOpen ? '' : '-rotate-90'}`} />}
+                {!isCollapsed && !isManagerOnlyConsole && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${adminDropdownOpen ? '' : '-rotate-90'}`} />}
               </button>
               {isCollapsed && <NavTooltip label="Console" />}
-              {adminDropdownOpen && !isCollapsed && (
+              {((adminDropdownOpen && !isCollapsed) || isManagerOnlyConsole) && (
                 <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
                   {[
                       { href: "/admin/dashboard/analytics", label: "Analytics", icon: BarChart3 },
-                      { href: "/admin/dashboard/employees", label: "Assign Sprints", icon: Users },
-                      { href: "/admin/dashboard/uploads", label: "Sprint Manager", icon: Upload },
-                      { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
+                      ...(isManagerOnlyConsole ? [] : [
+                        { href: "/admin/dashboard/employees", label: "Assign Sprints", icon: Users },
+                        { href: "/admin/dashboard/uploads", label: "Sprint Manager", icon: Upload },
+                        { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
+                        { href: "/admin/career-journeys", label: "+SprintVerse", icon: Briefcase },
+                      ]),
                   ].map((item) => (
                       <button
                           key={item.label}

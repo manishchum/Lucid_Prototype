@@ -25,6 +25,7 @@ interface AuthContextType {
   isAdmin: boolean
   isSuperAdmin: boolean
   isDeveloper: boolean
+  isManager: boolean
   userId: string | null
   employeeData: any | null
   login: (userData: any) => Promise<void>
@@ -39,6 +40,7 @@ const AuthContext = createContext<AuthContextType>({
   isAdmin: false,
   isSuperAdmin: false,
   isDeveloper: false,
+  isManager: false,
   userId: null,
   employeeData: null,
   login: async () => {},
@@ -67,10 +69,64 @@ const fetchUserByEmail = async (email: string | undefined | null) => {
   return u || null
 }
 
+const normalizeRoleName = (value: string) => value.toLowerCase().replace(/[-_\s]/g, '')
+
 const fetchUserRoles = async (userId: string) => {
   const normalizedUserId = (userId || '').toString().trim()
   if (!normalizedUserId || normalizedUserId === 'undefined' || normalizedUserId === 'null') {
-    return { roles: [], isAdmin: false, isSuperAdmin: false, isDeveloper: false }
+    return { roles: [], isAdmin: false, isSuperAdmin: false, isDeveloper: false, isManager: false }
+  }
+  try {
+    const rolesRes = await fetchWithAuth(`${API_BASE}/api/roles/users/${userId}`, {
+      headers: { 'X-User-ID': userId }
+    })
+
+    if (!rolesRes.ok) {
+      console.error('[auth-context] Failed to fetch user roles:', rolesRes.status)
+      return { roles: [], isAdmin: false, isSuperAdmin: false, isDeveloper: false, isManager: false }
+    }
+
+    const payload = await rolesRes.json().catch(() => null)
+    const assignments = payload?.assignments ?? payload?.data ?? payload ?? []
+
+    // normalize and extract role objects
+    const normalizedRoles = (assignments || []).map((ra: any) => {
+      const r = ra.role ?? ra.roles ?? ra
+      return {
+        name: (r?.name ?? '').toString(),
+        level: Number(r?.level ?? -1),
+        id: r?.role_id ?? r?.id ?? null
+      }
+    }).filter((r: any) => r.name || r.level >= 0)
+
+    const roleNames = normalizedRoles.map((r: any) => r.name)
+
+    // admin detection: role.level >= 3 OR known admin names
+    const hasAdminRole = normalizedRoles.some((r: any) => {
+      const name = normalizeRoleName(r.name || '')
+      return r.level >= 3 || ['admin','superadmin','super_admin','ceo'].includes(name)
+    })
+
+    // super_admin detection: role.level >= 4 OR known super_admin names
+    const hasSuperAdminRole = normalizedRoles.some((r: any) => {
+      const name = normalizeRoleName(r.name || '')
+      return r.level >= 4 || ['superadmin','super_admin','ceo'].includes(name)
+    })
+
+    const hasManagerRole = normalizedRoles.some((r: any) => {
+      const name = normalizeRoleName(r.name || '')
+      return r.level === 2 || name.includes('manager')
+    })
+
+    const hasDeveloperRole = normalizedRoles.some((r: any) => {
+      const name = normalizeRoleName(r.name || '')
+      return r.level >= 6 || ['developer'].includes(name)
+    })
+
+    return { roles: roleNames, isAdmin: hasAdminRole, isSuperAdmin: hasSuperAdminRole, isDeveloper: hasDeveloperRole, isManager: hasManagerRole }
+  } catch (e) {
+    console.error('[auth-context] Error fetching user roles:', e)
+    return { roles: [], isAdmin: false, isSuperAdmin: false, isDeveloper: false, isManager: false }
   }
 
   const rolesRes = await fetchWithAuth(`${API_BASE}/api/roles/users/${encodeURIComponent(normalizedUserId)}`, {
@@ -260,6 +316,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(Boolean(cachedProfile?.isAdmin))
   const [isSuperAdmin, setIsSuperAdmin] = useState(Boolean(cachedProfile?.isSuperAdmin))
   const [isDeveloper, setIsDeveloper] = useState(Boolean(cachedProfile?.isDeveloper))
+  const [isManager, setIsManager] = useState(Boolean(cachedProfile?.isManager))
   const [userId, setUserId] = useState<string | null>(cachedProfile?.userId || null)
   const [employeeData, setEmployeeData] = useState<any | null>(cachedProfile?.employeeData || null)
 
@@ -280,6 +337,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsAdmin(profile.isAdmin)
             setIsSuperAdmin(profile.isSuperAdmin)
             setIsDeveloper(Boolean(profile.isDeveloper))
+            setIsManager(Boolean(profile.isManager))
           } else {
             setEmployeeData(null)
             setUserId(null)
@@ -287,6 +345,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsAdmin(false)
             setIsSuperAdmin(false)
             setIsDeveloper(false)
+            setIsManager(false)
           }
         }
 
@@ -303,6 +362,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsAdmin(false)
         setIsSuperAdmin(false)
         setIsDeveloper(false)
+        setIsManager(false)
       }
       
       setLoading(false)
@@ -359,6 +419,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsAdmin(profile.isAdmin)
             setIsSuperAdmin(profile.isSuperAdmin)
             setIsDeveloper(Boolean(profile.isDeveloper))
+            setIsManager(Boolean(profile.isManager))
           } else {
             setEmployeeData(null)
             setUserId(null)
@@ -389,6 +450,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsAdmin(false)
     setIsSuperAdmin(false)
     setIsDeveloper(false)
+    setIsManager(false)
   }
 
   const refreshProfile = async () => {
@@ -411,6 +473,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsAdmin(profile.isAdmin)
             setIsSuperAdmin(profile.isSuperAdmin)
             setIsDeveloper(Boolean(profile.isDeveloper))
+            setIsManager(Boolean(profile.isManager))
           } else {
             setEmployeeData(null)
             setUserId(null)
@@ -418,6 +481,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsAdmin(false)
             setIsSuperAdmin(false)
             setIsDeveloper(false)
+            setIsManager(false)
           }
         }
       }
@@ -433,6 +497,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAdmin, 
         isSuperAdmin,
         isDeveloper,
+        isManager,
         userId, 
         employeeData, 
         login, 
