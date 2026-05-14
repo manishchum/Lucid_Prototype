@@ -703,6 +703,15 @@ const handleGenerateCertificate = (sprintId: string) => {
         
         
         
+        console.log("Fetched dashboard data:", {
+          plans: plansRes,
+          modules: modulesRes,
+          progress: progressRes,
+          company: companyRes,
+          learningStyle: learningStyleRes,
+           dashboard_summary:dashboard_summary.json(),
+        });
+
         const dashBoardData = await dashboard_summary.json();
         
      

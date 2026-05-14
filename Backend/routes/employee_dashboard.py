@@ -23,8 +23,10 @@ async def get_dashboard_summary(
 
     try:
         # 1. Fetch Company details
-        company_res = supabase.table("companies").select("*").eq("company_id", x_company_id).single().execute()
-        company_data = company_res.data if company_res.data else {}
+        company_res = supabase.table("companies").select("*").eq("company_id", x_company_id).execute()
+        if not company_res.data or len(company_res.data) == 0:
+            raise HTTPException(status_code=404, detail=f"Company not found with ID: {x_company_id}")
+        company_data = company_res.data[0] if company_res.data else {}
 
         # 2. Fetch User details & Count total users in company
         users_res = supabase.table("users").select("user_id").eq("company_id", x_company_id).execute()

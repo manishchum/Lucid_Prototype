@@ -99,41 +99,14 @@ def _verify_firebase_token(token: str) -> Dict[str, Any]:
 		raise HTTPException(status_code=401, detail="Invalid or expired bearer token") from exc
 
 
-def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> str:
-	if not email:
-		
-		return fallback_user_id
+def _resolve_internal_user_context(
+	email: Optional[str],
+	fallback_user_id: str,
+	claims: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, Optional[str]]:
+	context = None
 
-	try:
-		# print(f"[auth] Attempting to resolve user by email: {email}")
-		res = (
-			supabase
-			.table("users")
-			.select("user_id")
-			.eq("email", email)
-			.maybe_single()
-			.execute()
-		)
-		data = getattr(res, "data", None)
-		# print(f"[auth] Email lookup result: {data}")
-		if isinstance(data, dict) and data.get("user_id"):
-			resolved_id = str(data.get("user_id"))
-			# print(f"[auth] Successfully resolved email {email} to user_id={resolved_id}")
-			return resolved_id
-		else:
-			# print(f"[auth] Email {email} not found in users table")
-			pass
-
-	except Exception as exc:
-		# print(f"[auth] Failed to resolve internal user_id by email: {exc}")
-		pass
-
-	# Always return fallback_user_id even if email lookup failed
-	# This preserves Firebase-verified identity
-	if fallback_user_id:
-		# print(f"[auth] Using fallback_user_id from Firebase token: {fallback_user_id}")
-		return fallback_user_id
-
+	# Preferred path: resolve app user via auth bridge from verified token claims.
 	if claims:
 		try:
 			context = resolve_user_context_from_claims(claims, fail_fast=True)
@@ -145,12 +118,34 @@ def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> st
 		try:
 			context = resolve_user_context_from_claims({"email": email}, fail_fast=False)
 		except Exception as exc:
-			print(f"[auth] Failed to resolve internal user_id by email: {exc}")
+			print(f"[auth] Bridge user resolution by email failed: {exc}")
 
 	if context and context.user_id:
-		return context.user_id, context.company_id
+		return str(context.user_id), str(context.company_id) if context.company_id else None
 
-	return fallback_user_id, None
+	# Legacy fallback: direct lookup by email in users table.
+	if email:
+		try:
+			res = (
+				supabase
+				.table("users")
+				.select("user_id, company_id")
+				.eq("email", email)
+				.maybe_single()
+				.execute()
+			)
+			data = getattr(res, "data", None)
+			if isinstance(data, dict) and data.get("user_id"):
+				return str(data.get("user_id")), str(data.get("company_id")) if data.get("company_id") else None
+		except Exception as exc:
+			print(f"[auth] Fallback lookup by email failed: {exc}")
+
+	return str(fallback_user_id or ""), None
+
+
+def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> str:
+	user_id, _ = _resolve_internal_user_context(email, fallback_user_id)
+	return user_id
 
 
 def get_request_auth_optional(
