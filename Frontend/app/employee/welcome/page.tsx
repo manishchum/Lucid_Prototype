@@ -704,6 +704,7 @@ const handleGenerateCertificate = (sprintId: string) => {
         const data = await res.json();
         
         return {
+          user: data.user || null,
           plans: data.plans || [],
           modules: data.modules || [],
           progress: data.progress || [],
@@ -735,17 +736,20 @@ const handleGenerateCertificate = (sprintId: string) => {
         return;
       }
 
-      setEmployee(emp);
-
       const selectedCompanyId =
         isDeveloperMode && activeCompanyId ? activeCompanyId : emp.company_id;
 
       if (!selectedCompanyId) {
+        setEmployee(emp);
         setLoading(false);
         return;
       }
 
       const data = await fetchDashboardData(emp, selectedCompanyId);
+      
+      // Prioritize user data from dashboard summary, fallback to emp from email lookup
+      setEmployee(data?.user || emp);
+      
       const plans = data?.plans || [];
       const modules = data?.modules || [];
       const progress = Array.isArray(data?.progress) ? data.progress : [];

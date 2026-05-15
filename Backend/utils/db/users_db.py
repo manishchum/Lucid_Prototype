@@ -15,7 +15,7 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str) -> Di
     try:
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
         resp = supabase.table('users').select(
-            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, profile_picture, created_at, password"
+            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, created_at, password"
         ).eq('email', email).eq('is_active', True).limit(1).execute()
         rows = resp.data if hasattr(resp, 'data') else []
         user = rows[0] if rows else None
@@ -43,7 +43,7 @@ async def get_user_by_phone(requesting_user_id: Optional[str], phone: str) -> Di
     try:
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
         resp = supabase.table('users').select(
-            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, profile_picture, created_at, password"
+            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, created_at, password"
         ).eq('phone', phone).eq('is_active', True).limit(1).execute()
         rows = resp.data if hasattr(resp, 'data') else []
         user = rows[0] if rows else None
@@ -69,7 +69,7 @@ async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[s
     """
     try:
         resp = supabase.table('users').select(
-            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, profile_picture, created_at"
+            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, created_at"
         ).eq('user_id', target_user_id).single().execute()
         if not resp.data:
             return {"data": None, "error": "User not found"}
@@ -105,7 +105,7 @@ async def get_users_by_company(
     
     try:
         response = supabase.table('users').select(
-            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, profile_picture, created_at"
+            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, created_at"
         ).eq('company_id', company_id).eq('is_active', True).order('name').execute()
         
         return {"data": response.data, "error": None}
@@ -272,11 +272,11 @@ async def update_user(
     
     if is_self_update and not is_admin:
         # Non-admin users can only update certain fields for themselves
-        allowed_fields = {'name', 'email', 'phone', 'profile_picture'}
+        allowed_fields = {'name', 'email', 'phone'}
         if not set(updates.keys()).issubset(allowed_fields):
             return {
                 "data": None,
-                "error": "Can only update name, email, phone, profile_picture for yourself"
+                "error": "Can only update name, email, phone for yourself"
             }
     elif not is_self_update:
         # Updating someone else - must be company_admin in same company
@@ -343,7 +343,7 @@ async def delete_user(
 async def get_users_by_filter(filters: dict):
     try:
         query = supabase.table("users").select(
-            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, profile_picture, created_at, function_id, sub_function_id, title_id"
+            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, created_at, function_id, sub_function_id, title_id"
         )
 
         if "function_id" in filters:

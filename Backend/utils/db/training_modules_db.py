@@ -145,7 +145,7 @@ async def get_training_module_by_id(
     """
     try:
         response = supabase.table('training_modules').select(
-            "module_id, title, description, content, gpt_summary, company_id, uploaded_by, processing_status, review_stage, reviewer_id, content_url, source_files, created_at"
+            "module_id, title, description, gpt_summary, company_id, uploaded_by, processing_status, review_stage, reviewer_id, content_url, source_files, created_at"
         ).eq(
             'module_id', module_id
         ).maybe_single().execute()

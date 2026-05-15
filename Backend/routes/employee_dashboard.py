@@ -24,13 +24,18 @@ async def get_dashboard_summary(
     try:
         # 1. Fetch Company details
         company_res = supabase.table("companies").select(
-            "company_id, name, domain, logo_url, website, learning_style"
+            "company_id, name, domain, learning_style, company_logo"
         ).eq("company_id", x_company_id).single().execute()
         company_data = company_res.data if company_res.data else {}
 
         # 2. Fetch User details & Count total users in company
-        users_res = supabase.table("users").select("user_id").eq("company_id", x_company_id).execute()
-        total_users = len(users_res.data) if users_res.data else 0
+        user_res = supabase.table("users").select(
+            "user_id, name, email, company_id, department_id"
+        ).eq("user_id", user_id).single().execute()
+        user_data = user_res.data if user_res.data else {}
+
+        users_in_company_res = supabase.table("users").select("user_id").eq("company_id", x_company_id).execute()
+        total_users = len(users_in_company_res.data) if users_in_company_res.data else 0
 
         # 3. Fetch Learning Style
         learning_style_res = supabase.table("employee_learning_style").select("learning_style").eq("user_id", user_id).execute()
@@ -38,7 +43,7 @@ async def get_dashboard_summary(
 
         # 4. Fetch Learning Plans
         plans_res = supabase.table("learning_plan").select(
-            "learning_plan_id, user_id, plan_json, status, reasoning, created_at"
+            "learning_plan_id, user_id, module_id, plan_json, status, reasoning, assigned_on, overall_status, completed_at, baseline_assessment, processed_module_ids"
         ).eq("user_id", user_id).execute()
         plans = plans_res.data if plans_res.data else []
         
@@ -50,7 +55,7 @@ async def get_dashboard_summary(
 
         # 6. Fetch Module Progress
         progress_res = supabase.table("module_progress").select(
-            "progress_id, user_id, processed_module_id, status, last_accessed, completed_at, score"
+            "module_progress_id, user_id, processed_module_id, completed_at, quiz_score, pass_status, started_at"
         ).eq("user_id", user_id).execute()
         progress = progress_res.data if progress_res.data else []
 
@@ -130,10 +135,14 @@ async def get_dashboard_summary(
 
         # Build response payload
         return {
+            "user": user_data,
             "plans": plans,
             "modules": modules,
             "progress": progress,
-            "company": company_data,
+            "company": {
+                **company_data,
+                "learning_style_enabled": company_data.get("learning_style", False)
+            },
             "total_users": total_users,
             "learning_style": learning_style,
             "assessment_evidence_by_module_id": assessment_evidence_by_module_id,
