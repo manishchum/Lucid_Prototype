@@ -27,3 +27,4 @@ ffmpeg
 static-ffmpeg
 bcrypt
 pydantic[email]
+firebase-admin

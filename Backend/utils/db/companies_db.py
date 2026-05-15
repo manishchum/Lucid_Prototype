@@ -10,7 +10,9 @@ async def get_company_by_id(requesting_user_id: Optional[str], company_id: str) 
     Permission: Any authenticated user can view any company (basic info).
     """
     try:
-        resp = supabase.table('companies').select('*').eq('company_id', company_id).single().execute()
+        resp = supabase.table('companies').select(
+            "company_id, name, domain, logo_url, website, created_at, rate_limit_content_generation, learning_style, rate_limit_role_play, rate_limit_role_play_retries"
+        ).eq('company_id', company_id).single().execute()
         if not resp.data:
             return {"data": None, "error": "Company not found"}
         return {"data": resp.data, "error": None}
@@ -24,7 +26,9 @@ async def get_company_by_name(requesting_user_id: Optional[str], company_name: s
     Permission: Public access (for signup validation).
     """
     try:
-        resp = supabase.table('companies').select('*').ilike('name', company_name).maybe_single().execute()
+        resp = supabase.table('companies').select(
+            "company_id, name, domain, logo_url, website, created_at, rate_limit_content_generation, learning_style, rate_limit_role_play, rate_limit_role_play_retries"
+        ).ilike('name', company_name).maybe_single().execute()
         return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -36,7 +40,9 @@ async def get_company_by_domain(requesting_user_id: Optional[str], domain: str) 
     Permission: Public access (for signup/email domain validation).
     """
     try:
-        resp = supabase.table('companies').select('*').eq('domain', domain).single().execute()
+        resp = supabase.table('companies').select(
+            "company_id, name, domain, logo_url, website, created_at, rate_limit_content_generation, learning_style, rate_limit_role_play, rate_limit_role_play_retries"
+        ).eq('domain', domain).single().execute()
         if not resp.data:
             return {"data": None, "error": "Company not found"}
         return {"data": resp.data, "error": None}
@@ -54,7 +60,9 @@ async def list_all_companies(requesting_user_id: str) -> Dict[str, Any]:
         return {"data": None, "error": "Permission denied: Super admin access required"}
     
     try:
-        resp = supabase.table('companies').select('*').order('name').execute()
+        resp = supabase.table('companies').select(
+            "company_id, name, domain, logo_url, website, created_at, rate_limit_content_generation, learning_style, rate_limit_role_play, rate_limit_role_play_retries"
+        ).order('name').execute()
         return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}

@@ -118,7 +118,9 @@ async def get_training_modules_by_company(
         }
     
     try:
-        query = supabase.table('training_modules').select('*').eq('company_id', company_id)
+        query = supabase.table('training_modules').select(
+            "module_id, title, gpt_summary, company_id, uploaded_by, processing_status, review_stage, reviewer_id, created_at"
+        ).eq('company_id', company_id)
         
         if processing_status:
             query = query.eq('processing_status', processing_status)
@@ -142,7 +144,9 @@ async def get_training_module_by_id(
     Permission: Any user in the company can view modules.
     """
     try:
-        response = supabase.table('training_modules').select('*').eq(
+        response = supabase.table('training_modules').select(
+            "module_id, title, description, content, gpt_summary, company_id, uploaded_by, processing_status, review_stage, reviewer_id, content_url, source_files, created_at"
+        ).eq(
             'module_id', module_id
         ).maybe_single().execute()
         
@@ -409,7 +413,9 @@ async def get_training_modules_by_uploader(
         }
     
     try:
-        response = supabase.table('training_modules').select('*').eq(
+        response = supabase.table('training_modules').select(
+            "module_id, title, gpt_summary, company_id, uploaded_by, processing_status, review_stage, reviewer_id, created_at"
+        ).eq(
             'company_id', company_id
         ).eq('uploaded_by', uploader_id).order('created_at', desc=True).execute()
         

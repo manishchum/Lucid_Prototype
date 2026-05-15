@@ -95,7 +95,9 @@ async def list_career_journeys(request: Request, status: str = None):
         # Check if user is authenticated (optional for public published journeys)
         user_id = request.headers.get("X-User-ID")
 
-        query = supabase.table("career_journeys").select("*")
+        query = supabase.table("career_journeys").select(
+            "id, title, description, category, tags, skills, connections, thumbnail, status, created_by, created_at, updated_at"
+        )
 
         # Filter by status if provided
         if status:

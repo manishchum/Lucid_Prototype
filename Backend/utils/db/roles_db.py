@@ -10,7 +10,7 @@ async def get_all_roles(requesting_user_id: str) -> Dict[str, Any]:
     Permission: Any authenticated user (for dropdowns).
     """
     try:
-        response = supabase.table('roles').select('*').order('level').execute()
+        response = supabase.table('roles').select('role_id, name, level, description').order('level').execute()
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -147,7 +147,7 @@ async def get_user_roles(
         
         # Fetch active role assignments with role details
         resp = supabase.table('user_role_assignments').select(
-            '*, role:roles(*)'
+            'user_role_assignment_id, user_id, role_id, scope_type, scope_id, is_active, created_at, role:roles(role_id, name, level)'
         ).eq('user_id', target_user_id).execute()
 
         # Backward compatibility: treat NULL is_active as active for legacy rows.
@@ -185,7 +185,7 @@ async def get_all_role_assignments(
         
         # Build query - get assignments for users in this company
         query = supabase.table('user_role_assignments').select(
-            '*, role:roles(*), user:users!user_id(user_id, name, email, company_id)'
+            'user_role_assignment_id, user_id, role_id, scope_type, scope_id, is_active, created_at, role:roles(role_id, name, level), user:users!user_id(user_id, name, email, company_id)'
         )
         
         resp = query.execute()
@@ -221,7 +221,7 @@ async def update_role_assignment(
     try:
         # Get the assignment to find the target user_id
         assignment_resp = supabase.table('user_role_assignments').select(
-            '*'
+            'user_role_assignment_id, user_id, role_id, scope_id, scope_type'
         ).eq('user_role_assignment_id', assignment_id).single().execute()
         
         if not assignment_resp.data:
@@ -273,7 +273,7 @@ async def revoke_role_assignment(
     try:
         # Get the assignment to find the target user_id
         assignment_resp = supabase.table('user_role_assignments').select(
-            '*'
+            'user_role_assignment_id, user_id, role_id, scope_id, scope_type'
         ).eq('user_role_assignment_id', assignment_id).single().execute()
         
         if not assignment_resp.data:

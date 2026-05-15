@@ -88,7 +88,7 @@ async def get_users_by_company(
     
     try:
         response = supabase.table('users').select(
-            '*'
+            'user_id, name, email, phone, profile_picture, company_id, department_id, is_active, created_at'
         ).eq('company_id', company_id).order('name').execute()
         
         return {"data": response.data, "error": None}
@@ -229,7 +229,7 @@ async def get_departments_by_company(
         }
     
     try:
-        response = supabase.table('departments').select('*').eq(
+        response = supabase.table('departments').select('department_id, name, company_id, created_at').eq(
             'company_id', company_id
         ).order('name').execute()
         
@@ -285,7 +285,9 @@ async def get_training_modules(
     
     try:
         # Get modules
-        modules_response = supabase.table('training_modules').select('*').eq(
+        modules_response = supabase.table('training_modules').select(
+            'module_id, title, gpt_summary, company_id, created_at'
+        ).eq(
             'company_id', company_id
         ).order('created_at', desc=True).execute()
         
@@ -359,7 +361,9 @@ async def get_completed_modules(
         completed_ids = [job['module_id'] for job in jobs_response.data]
         
         # Get modules
-        modules_response = supabase.table('training_modules').select('*').eq(
+        modules_response = supabase.table('training_modules').select(
+            'module_id, title, gpt_summary, company_id, created_at'
+        ).eq(
             'company_id', company_id
         ).in_('module_id', completed_ids).order('title').execute()
         
@@ -444,7 +448,7 @@ async def get_all_roles(requesting_user_id: str) -> Dict[str, Any]:
     Permission: Any authenticated user (for dropdowns).
     """
     try:
-        response = supabase.table('roles').select('*').order('level').execute()
+        response = supabase.table('roles').select('role_id, name, level, description').order('level').execute()
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -455,7 +459,9 @@ async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[s
     Return single user. Permission: self OR manager+ in same company.
     """
     try:
-        resp = supabase.table('users').select('*').eq('user_id', target_user_id).single().execute()
+        resp = supabase.table('users').select(
+            'user_id, name, email, phone, profile_picture, company_id, department_id, is_active, created_at'
+        ).eq('user_id', target_user_id).single().execute()
         if not resp.data:
             return {"data": None, "error": "User not found"}
         user = resp.data
@@ -533,7 +539,9 @@ async def get_user_roles(requesting_user_id: str, target_user_id: str) -> Dict[s
             has_access = await check_company_access(requesting_user_id, target_resp.data['company_id'])
             if not has_perm or not has_access:
                 return {"data": None, "error": "Permission denied"}
-        resp = supabase.table('user_role_assignments').select('*, role:roles(*)').eq('user_id', target_user_id).eq('is_active', True).execute()
+        resp = supabase.table('user_role_assignments').select(
+            'id, user_id, role_id, scope_type, scope_id, is_active, created_at, role:roles(role_id, name, level)'
+        ).eq('user_id', target_user_id).eq('is_active', True).execute()
         return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -543,7 +551,9 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str) -> Di
     Return user by email. If requesting_user_id is None, allow lookup for auth bootstrap.
     """
     try:
-        resp = supabase.table('users').select('*').eq('email', email).eq('is_active', True).single().execute()
+        resp = supabase.table('users').select(
+            'user_id, name, email, phone, profile_picture, company_id, department_id, is_active, created_at, password'
+        ).eq('email', email).eq('is_active', True).single().execute()
         user = resp.data if hasattr(resp, 'data') else None
         if not user:
             return {"data": None, "error": "User not found"}
