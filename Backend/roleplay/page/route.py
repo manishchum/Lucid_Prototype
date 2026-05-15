@@ -4,10 +4,11 @@ Handles scenario fetching, deletion, and assignment operations
 Backend proxy for secure database access
 """
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 from typing import Optional, List, Literal
 from utils.supabase_client import supabase
+from utils.auth import get_request_auth_optional
 
 router = APIRouter(prefix="/roleplay/page", tags=["roleplay-page"])
 
@@ -87,7 +88,9 @@ def normalize_scenario(db_scenario: dict) -> dict:
 def fetch_all_scenarios() -> tuple[list, dict | None]:
     """Fetch all scenarios from database"""
     try:
-        result = supabase.table("scenarios").select("*").order('created_at', {'ascending': False}).execute()
+        result = supabase.table("scenarios").select(
+            "scenario_id, title, description, role, difficulty, initialPrompt, userRole, tone, learnerBrief, aiObjective, maxDuration, minTurns, endConditions, evaluationParams, passingScore, created_at"
+        ).order('created_at', desc=True).execute()
         return result.data, None
     except Exception as e:
         return [], {'code': 'DB_ERROR', 'message': str(e)}
@@ -109,7 +112,7 @@ def get_assigned_scenario_ids_for_user(user_id: str) -> tuple[list, dict | None]
         
         if role_result.data and len(role_result.data) > 1:
             # User has multiple roles - likely admin
-            all_scenarios = supabase.table("scenarios").select("scenario_id").order('created_at', {'ascending': False}).execute()
+            all_scenarios = supabase.table("scenarios").select("scenario_id").order('created_at', desc=True).execute()
             scenario_ids = [s.get('scenario_id') for s in (all_scenarios.data or [])]
             return scenario_ids, None
         
@@ -195,17 +198,23 @@ def get_distinct_assigned_scenario_ids_for_user(
 
 @router.get("/scenarios")
 async def fetch_scenarios_for_user(
-    user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    request: Request,
     is_admin: bool = Query(False)
 ):
     """
     Fetch scenarios for a user (admin gets all, regular users get assigned)
-    Headers: X-User-ID (required)
+    Supports Authorization Bearer token or X-User-ID header
     Query: is_admin (boolean)
     """
     try:
+        auth_ctx = get_request_auth_optional(
+            authorization=request.headers.get("Authorization"),
+            x_user_id=request.headers.get("X-User-ID")
+        )
+        user_id = auth_ctx.user_id
+        
         if not user_id:
-            raise HTTPException(status_code=401, detail="User ID required")
+            raise HTTPException(status_code=401, detail="Authentication required")
         
         # Admin gets all scenarios
         if is_admin:
@@ -236,9 +245,11 @@ async def fetch_scenarios_for_user(
             }
         
         # Fetch assigned scenarios
-        result = supabase.table("scenarios").select("*").in_(
+        result = supabase.table("scenarios").select(
+            "scenario_id, title, description, role, difficulty, initialPrompt, userRole, tone, learnerBrief, aiObjective, maxDuration, minTurns, endConditions, evaluationParams, passingScore, created_at"
+        ).in_(
             "scenario_id", assigned_ids
-        ).order('created_at', {'ascending': False}).execute()
+        ).order('created_at', desc=True).execute()
         
         assigned_scenarios = result.data or []
         normalized = [normalize_scenario(s) for s in assigned_scenarios]

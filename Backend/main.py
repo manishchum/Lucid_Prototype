@@ -76,6 +76,11 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    from fastapi import Response
+    return Response(status_code=204)
+
 @app.get("/debug/user/{user_id}")
 async def debug_user(user_id: str):
     """Debug endpoint to check user permissions"""
