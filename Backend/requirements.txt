@@ -16,6 +16,7 @@ pytesseract
 unstructured
 websockets
 playwright
+# playwright install
 # optional dev dependencies
 pytest
 google-genai

@@ -862,8 +862,14 @@ const handleGenerateCertificate = (sprintId: string) => {
                     ? `Welcome, ${employee.name.split(" ")[0]}`
                     : "Learner Dashboard"}
                 </h1>
-                <p className="text-xs sm:text-sm text-slate-500 font-medium break-all sm:break-normal">
-                  {employee?.email || "Personalized learning hub"}
+                <p className="text-xs sm:text-sm text-slate-500 font-medium break-all sm:break-normal flex items-center gap-2">
+                  <span>{employee?.email || "Personalized learning hub"}</span>
+                  {(employee?.company_name || activeCompanyId) && (
+                    <>
+                      <span className="w-1 h-1 rounded-full bg-slate-300"></span>
+                      <span className="font-bold text-slate-700">{employee?.company_name || "Company"}</span>
+                    </>
+                  )}
                 </p>
               </div>
             </div>

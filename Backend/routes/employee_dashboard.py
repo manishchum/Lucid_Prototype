@@ -30,9 +30,12 @@ async def get_dashboard_summary(
 
         # 2. Fetch User details & Count total users in company
         user_res = supabase.table("users").select(
-            "user_id, name, email, company_id, department_id"
+            "user_id, name, email, company_id, department_id, company:companies(name)"
         ).eq("user_id", user_id).execute()
         user_data = user_res.data[0] if user_res.data else {}
+        if user_data and 'company' in user_data and user_data['company']:
+            user_data['company_name'] = user_data['company'].get('name')
+            user_data.pop('company', None)
 
         users_in_company_res = supabase.table("users").select("user_id").eq("company_id", x_company_id).execute()
         total_users = len(users_in_company_res.data) if users_in_company_res.data else 0

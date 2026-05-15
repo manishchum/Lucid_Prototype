@@ -188,6 +188,9 @@ const EmployeeNavigation = ({
               <div className="overflow-hidden">
                 <p className="text-[14px] font-bold text-[#1E293B] leading-tight truncate">{displayUser?.name || 'User'}</p>
                 <p className="text-[11px] text-slate-500 truncate font-medium mt-0.5">{displayUser?.email}</p>
+                {userRoles && userRoles.length > 0 && (
+                  <p className="text-[10px] text-blue-600 font-bold truncate uppercase tracking-wider mt-0.5">{userRoles[0]}</p>
+                )}
               </div>
             </div>
 

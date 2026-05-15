@@ -15,13 +15,17 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str) -> Di
     try:
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
         resp = supabase.table('users').select(
-            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, created_at, password"
+            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, created_at, password, company:companies(name)"
         ).eq('email', email).eq('is_active', True).limit(1).execute()
         rows = resp.data if hasattr(resp, 'data') else []
         user = rows[0] if rows else None
         if not user:
             print(f"[get_user_by_email] No active user found for email: {email}")
             return {"data": None, "error": "User not found"}
+            
+        if user and 'company' in user and user['company']:
+            user['company_name'] = user['company'].get('name')
+            user.pop('company', None)
         # If a requesting user is provided, perform a permission check; otherwise allow lookup.
         if requesting_user_id:
             has_permission = await check_user_permission(requesting_user_id, 'user')
@@ -43,13 +47,17 @@ async def get_user_by_phone(requesting_user_id: Optional[str], phone: str) -> Di
     try:
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
         resp = supabase.table('users').select(
-            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, created_at, password"
+            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, created_at, password, company:companies(name)"
         ).eq('phone', phone).eq('is_active', True).limit(1).execute()
         rows = resp.data if hasattr(resp, 'data') else []
         user = rows[0] if rows else None
         if not user:
             print(f"[get_user_by_phone] No active user found for phone: {phone}")
             return {"data": None, "error": "User not found"}
+            
+        if user and 'company' in user and user['company']:
+            user['company_name'] = user['company'].get('name')
+            user.pop('company', None)
         # If a requesting user is provided, perform a permission check; otherwise allow lookup.
         if requesting_user_id:
             has_permission = await check_user_permission(requesting_user_id, 'user')
@@ -69,13 +77,16 @@ async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[s
     """
     try:
         resp = supabase.table('users').select(
-            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, created_at"
+            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, created_at, company:companies(name)"
         ).eq('user_id', target_user_id).execute()
         
         if not resp.data:
             return {"data": None, "error": "User not found"}
         
         user = resp.data[0] if resp.data else None
+        if user and 'company' in user and user['company']:
+            user['company_name'] = user['company'].get('name')
+            user.pop('company', None)
         is_self = requesting_user_id == target_user_id
         if not is_self:
             has_perm = await check_user_permission(requesting_user_id, 'manager')
@@ -107,10 +118,16 @@ async def get_users_by_company(
     
     try:
         response = supabase.table('users').select(
-            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, created_at"
+            "user_id, email, name, phone, company_id, department_id, is_active, employment_status, created_at, company:companies(name)"
         ).eq('company_id', company_id).eq('is_active', True).order('name').execute()
         
-        return {"data": response.data, "error": None}
+        users = response.data or []
+        for user in users:
+            if user and 'company' in user and user['company']:
+                user['company_name'] = user['company'].get('name')
+                user.pop('company', None)
+        
+        return {"data": users, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 

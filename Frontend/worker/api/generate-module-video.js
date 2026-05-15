@@ -72,7 +72,7 @@ function hasNonEmptyString(value) {
 }
 
 function needsVideo(row) {
-  return !hasNonEmptyString(row.video_url);
+  return !hasNonEmptyString(row.video_url_bengali);
 }
 
 function isEligible(row) {
@@ -83,12 +83,12 @@ function isEligible(row) {
 async function fetchVideoUrlFromDb(processedModuleId) {
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('video_url')
+    .select('video_url_bengali')
     .eq('processed_module_id', processedModuleId)
     .single();
 
   if (error || !data) return null;
-  return hasNonEmptyString(data.video_url) ? data.video_url : null;
+  return hasNonEmptyString(data.video_url_bengali) ? data.video_url_bengali : null;
 }
 
 async function waitForVideoUrlInDb(processedModuleId, waitMs = VIDEO_RECOVERY_WAIT_MS, pollMs = VIDEO_RECOVERY_POLL_MS) {
@@ -140,7 +140,7 @@ async function callVideoGeneration(processedModuleId) {
         throw new Error(`HTTP ${response.status}: ${message}`);
       }
 
-      const responseVideoUrl = payload?.videoUrl || payload?.video_url || null;
+      const responseVideoUrl = payload?.videoUrl || payload?.video_url_bengali || null;
       if (hasNonEmptyString(responseVideoUrl)) {
         console.log(`[VIDEO WORKER] Video done for ${processedModuleId} via ${baseUrl}`);
         return { ok: true, videoUrl: responseVideoUrl };
@@ -179,7 +179,7 @@ async function processProcessedModuleRow(row) {
 async function fetchRowByProcessedId(processedModuleId) {
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('processed_module_id, content, video_url')
+    .select('processed_module_id, content, video_url_bengali')
     .eq('processed_module_id', processedModuleId)
     .maybeSingle();
 
@@ -218,11 +218,11 @@ async function fetchNextPendingRow() {
 
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('processed_module_id, content, video_url')
+    .select('processed_module_id, content, video_url_bengali')
     .in('original_module_id', activeModuleIds)
     .not('content', 'is', null)
     .neq('content', '')
-    .or('video_url.is.null,video_url.eq.""')
+    .or('video_url_bengali.is.null,video_url_bengali.eq.""')
     .order('created_at', { ascending: true })
     .limit(1);
 
@@ -252,7 +252,7 @@ async function generateModuleVideo({ moduleId = null, processedModuleId = null }
   if (moduleId) {
     const { data, error } = await supabase
       .from('processed_modules')
-      .select('processed_module_id, content, video_url')
+      .select('processed_module_id, content, video_url_bengali')
       .eq('original_module_id', moduleId)
       .order('created_at', { ascending: true });
 
