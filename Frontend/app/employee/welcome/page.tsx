@@ -692,16 +692,17 @@ const handleGenerateCertificate = (sprintId: string) => {
           "X-Company-ID": effectiveCompanyId,
         };
 
-        const [plansRes, modulesRes, progressRes, companyRes, learningStyleRes,dashboard_summary]: any[] = await Promise.all([
+        const [plansRes, modulesRes, progressRes, companyRes, learningStyleRes, dashboard_summary]: any[] = await Promise.all([
           fetchWithAuth(`${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(`${API_BASE}/api/training-modules/company/${employeeData.company_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(`${API_BASE}/api/module-progress/user/${employeeData.user_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
           fetchWithAuth(`${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+        
         ]);
         
-        
+        // const dashboard_summary = await fetchWithAuth(`${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`, { headers });
         
         console.log("Fetched dashboard data:", {
           plans: plansRes,
@@ -709,7 +710,7 @@ const handleGenerateCertificate = (sprintId: string) => {
           progress: progressRes,
           company: companyRes,
           learningStyle: learningStyleRes,
-           dashboard_summary:dashboard_summary.json(),
+           dashboard_summary:dashboard_summary,
         });
 
         const dashBoardData = await dashboard_summary.json();
