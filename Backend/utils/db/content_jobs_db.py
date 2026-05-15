@@ -11,9 +11,11 @@ async def get_module_company_id(module_id: str) -> Optional[str]:
     try:
         resp = supabase.table('training_modules').select('company_id').eq(
             'module_id', module_id
-        ).single().execute()
+        ).execute()
+        
         if resp.data:
-            return resp.data.get('company_id')
+            module_row = resp.data[0] if resp.data else None
+            return module_row.get('company_id') if module_row else None
         return None
     except Exception:
         return None
@@ -30,12 +32,14 @@ async def get_content_job_by_id(
         # Get the content job with module info
         resp = supabase.table('content_jobs').select(
             '*, training_modules(module_id, title, company_id)'
-        ).eq('id', job_id).single().execute()
+        ).eq('id', job_id).execute()
         
         if not resp.data:
             return {"data": None, "error": "Content job not found"}
         
-        job = resp.data
+        job = resp.data[0] if resp.data else None
+        if not job:
+            return {"data": None, "error": "Content job not found"}
         
         # Get the company_id from the related module
         module = job.get('training_modules', {})
@@ -80,12 +84,16 @@ async def list_content_jobs(
         # Get user's company_id
         user_resp = supabase.table('users').select('company_id').eq(
             'user_id', requesting_user_id
-        ).single().execute()
+        ).execute()
         
         if not user_resp.data:
             return {"data": None, "error": "User not found"}
         
-        user_company_id = user_resp.data.get('company_id')
+        user_row = user_resp.data[0] if user_resp.data else None
+        if not user_row:
+             return {"data": None, "error": "User not found"}
+        
+        user_company_id = user_row.get('company_id')
         
         # Build query with module join to filter by company
         query = supabase.table('content_jobs').select(
@@ -201,12 +209,16 @@ async def update_content_job(
         # Get the existing job to check permissions
         existing_job_resp = supabase.table('content_jobs').select(
             'module_id'
-        ).eq('id', job_id).single().execute()
+        ).eq('id', job_id).execute()
         
         if not existing_job_resp.data:
             return {"data": None, "error": "Content job not found"}
+            
+        existing_job_data = existing_job_resp.data[0] if existing_job_resp.data else None
+        if not existing_job_data:
+             return {"data": None, "error": "Content job not found"}
         
-        module_id = existing_job_resp.data.get('module_id')
+        module_id = existing_job_data.get('module_id')
         
         # Get module's company
         company_id = await get_module_company_id(module_id)
@@ -247,12 +259,16 @@ async def delete_content_job(
         # Get the existing job to check permissions
         existing_job_resp = supabase.table('content_jobs').select(
             'module_id'
-        ).eq('id', job_id).single().execute()
+        ).eq('id', job_id).execute()
         
         if not existing_job_resp.data:
             return {"data": None, "error": "Content job not found"}
+            
+        existing_job_data = existing_job_resp.data[0] if existing_job_resp.data else None
+        if not existing_job_data:
+             return {"data": None, "error": "Content job not found"}
         
-        module_id = existing_job_resp.data.get('module_id')
+        module_id = existing_job_data.get('module_id')
         
         # Get module's company
         company_id = await get_module_company_id(module_id)
@@ -297,12 +313,16 @@ async def get_content_jobs_stats(
         if not company_id:
             user_resp = supabase.table('users').select('company_id').eq(
                 'user_id', requesting_user_id
-            ).single().execute()
+            ).execute()
             
             if not user_resp.data:
                 return {"data": None, "error": "User not found"}
             
-            company_id = user_resp.data.get('company_id')
+            user_row = user_resp.data[0] if user_resp.data else None
+            if not user_row:
+                 return {"data": None, "error": "User not found"}
+            
+            company_id = user_row.get('company_id')
         else:
             # Verify user has access to the requested company
             has_access = await check_company_access(requesting_user_id, company_id)

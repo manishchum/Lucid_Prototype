@@ -37,8 +37,22 @@ export async function createCareerJourney(
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP ${response.status}`);
+      // Try to parse JSON error response first, otherwise fall back to text
+      let errorMessage = `HTTP ${response.status}`;
+      try {
+        const errorData = await response.json();
+        if (errorData && (errorData.error || errorData.message)) {
+          errorMessage = errorData.error || errorData.message;
+        }
+      } catch (e) {
+        try {
+          const text = await response.text();
+          if (text) errorMessage = text;
+        } catch (e2) {
+          // ignore
+        }
+      }
+      throw new Error(errorMessage);
     }
 
     const result: ApiResponse<CareerJourneyDB> = await response.json();

@@ -8,7 +8,7 @@ interface Goal {
   id: string;
   description: string;
   timeInDays: number;
-  timeUnit?: 'days' | 'hours';
+  timeUnit?: 'days' | 'hours' | 'weeks' | 'months';
 }
 
 interface Level {
@@ -314,6 +314,8 @@ export default function CareerJourneyBuilder({
                               >
                                 <option value="days">Days</option>
                                 <option value="hours">Hours</option>
+                                <option value="weeks">Weeks</option>
+                                <option value="months">Months</option>
                               </select>
                             </div>
                             <button

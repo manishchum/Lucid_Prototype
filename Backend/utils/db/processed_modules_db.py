@@ -12,8 +12,8 @@ async def get_user_company_id(user_id: str) -> Optional[str]:
     try:
         resp = supabase.table('users').select('company_id').eq(
             'user_id', user_id
-        ).single().execute()
-        return resp.data.get('company_id') if resp.data else None
+        ).execute()
+        return resp.data[0].get('company_id') if resp.data else None
     except Exception:
         return None
 
@@ -24,12 +24,12 @@ async def check_module_access(requesting_user_id: str, original_module_id: str) 
         # Get the training module's company
         module_resp = supabase.table('training_modules').select('company_id').eq(
             'module_id', original_module_id
-        ).single().execute()
+        ).execute()
         
         if not module_resp.data:
             return False
         
-        module_company_id = module_resp.data.get('company_id')
+        module_company_id = module_resp.data[0].get('company_id') if module_resp.data else None
         if not module_company_id:
             return False
         
@@ -87,12 +87,13 @@ async def get_processed_module_by_id(
         # Get the processed module with original_module_id
         response = supabase.table('processed_modules').select('*').eq(
             'processed_module_id', processed_module_id
-        ).maybe_single().execute()
+        ).execute()
         
         if not response.data:
             return {"data": None, "error": "Processed module not found"}
         
-        original_module_id = response.data.get('original_module_id')
+        module_row = response.data[0] if response.data else None
+        original_module_id = module_row.get('original_module_id') if module_row else None
         if not original_module_id:
             return {"data": None, "error": "No original module reference found"}
         
@@ -107,13 +108,13 @@ async def get_processed_module_by_id(
         # Fetch sprint (training module) info
         sprint_response = supabase.table('training_modules').select('module_id, title').eq(
             'module_id', original_module_id
-        ).maybe_single().execute()
+        ).execute()
         
-        sprint_data = sprint_response.data if sprint_response.data else {}
+        sprint_data = sprint_response.data[0] if sprint_response.data else {}
         sprint_name = sprint_data.get('title', '')
         
         # Add sprint information to the response
-        module_data = response.data.copy()
+        module_data = module_row.copy()
         module_data['sprint_name'] = sprint_name
         module_data['sprint_id'] = original_module_id
         
@@ -164,12 +165,12 @@ async def update_processed_module(
         # Get the processed module to check access
         module_resp = supabase.table('processed_modules').select(
             'original_module_id'
-        ).eq('processed_module_id', processed_module_id).maybe_single().execute()
+        ).eq('processed_module_id', processed_module_id).execute()
         
         if not module_resp.data:
             return {"data": None, "error": "Processed module not found"}
         
-        original_module_id = module_resp.data.get('original_module_id')
+        original_module_id = module_resp.data[0].get('original_module_id') if module_resp.data else None
         if not original_module_id:
             return {"data": None, "error": "No original module reference found"}
         
@@ -211,12 +212,12 @@ async def delete_processed_module(
         # Get the processed module to check access
         module_resp = supabase.table('processed_modules').select(
             'original_module_id'
-        ).eq('processed_module_id', processed_module_id).maybe_single().execute()
+        ).eq('processed_module_id', processed_module_id).execute()
         
         if not module_resp.data:
             return {"data": None, "error": "Processed module not found"}
         
-        original_module_id = module_resp.data.get('original_module_id')
+        original_module_id = module_resp.data[0].get('original_module_id') if module_resp.data else None
         if original_module_id:
             has_access = await check_module_access(requesting_user_id, original_module_id)
             if not has_access:
@@ -250,12 +251,12 @@ async def update_audio_data(
         # Get the processed module to check access
         module_resp = supabase.table('processed_modules').select(
             'original_module_id'
-        ).eq('processed_module_id', processed_module_id).maybe_single().execute()
+        ).eq('processed_module_id', processed_module_id).execute()
         
         if not module_resp.data:
             return {"data": None, "error": "Processed module not found"}
         
-        original_module_id = module_resp.data.get('original_module_id')
+        original_module_id = module_resp.data[0].get('original_module_id') if module_resp.data else None
         if original_module_id:
             has_access = await check_module_access(requesting_user_id, original_module_id)
             if not has_access:
@@ -301,7 +302,7 @@ async def update_video_data(
         # Get the processed module to check access
         module_resp = supabase.table('processed_modules').select(
             'original_module_id, video_attempts'
-        ).eq('processed_module_id', processed_module_id).maybe_single().execute()
+        ).eq('processed_module_id', processed_module_id).execute()
         
         if not module_resp.data:
             return {"data": None, "error": "Processed module not found"}
@@ -330,7 +331,7 @@ async def update_video_data(
                 updates['video_started_at'] = 'now()'
             elif video_status == 'failed':
                 # Increment attempts
-                current_attempts = module_resp.data.get('video_attempts', 0)
+                current_attempts = module_row.get('video_attempts', 0)
                 updates['video_attempts'] = current_attempts + 1
         
         if video_error is not None:
@@ -362,14 +363,14 @@ async def update_content_generation_data(
         # Get the processed module to check access
         module_resp = supabase.table('processed_modules').select(
             'original_module_id'
-        ).eq('processed_module_id', processed_module_id).maybe_single().execute()
+        ).eq('processed_module_id', processed_module_id).execute()
         
 
         print(f"Fetched module for update_content_generation_data: {module_resp.data}")
         if not module_resp.data:
             return {"data": None, "error": "Processed module not found"}
         
-        original_module_id = module_resp.data.get('original_module_id')
+        original_module_id = module_resp.data[0].get('original_module_id') if module_resp.data else None
         if original_module_id:
             has_access = await check_module_access(requesting_user_id, original_module_id)
             if not has_access:
@@ -419,12 +420,12 @@ async def update_podcast_data(
         # Get the processed module to check access
         module_resp = supabase.table('processed_modules').select(
             'original_module_id'
-        ).eq('processed_module_id', processed_module_id).maybe_single().execute()
+        ).eq('processed_module_id', processed_module_id).execute()
         
         if not module_resp.data:
             return {"data": None, "error": "Processed module not found"}
         
-        original_module_id = module_resp.data.get('original_module_id')
+        original_module_id = module_resp.data[0].get('original_module_id') if module_resp.data else None
         if original_module_id:
             has_access = await check_module_access(requesting_user_id, original_module_id)
             if not has_access:

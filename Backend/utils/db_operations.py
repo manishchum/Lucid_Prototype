@@ -58,10 +58,15 @@ async def check_company_access(user_id: str, company_id: str) -> bool:
     Ensure the user belongs to the given company_id.
     """
     try:
-        resp = supabase.table('users').select('company_id').eq('user_id', user_id).single().execute()
+        resp = supabase.table('users').select('company_id').eq('user_id', user_id).execute()
         if not resp.data:
             return False
-        return str(resp.data.get('company_id')) == str(company_id)
+        
+        user_row = resp.data[0] if resp.data else None
+        if not user_row:
+             return False
+             
+        return str(user_row.get('company_id')) == str(company_id)
     except Exception as e:
         print(f"[check_company_access] exception: {e}")
         return False
@@ -88,7 +93,7 @@ async def get_users_by_company(
     
     try:
         response = supabase.table('users').select(
-            '*'
+            'user_id, name, email, phone, company_id, department_id, is_active, created_at'
         ).eq('company_id', company_id).order('name').execute()
         
         return {"data": response.data, "error": None}
@@ -150,11 +155,11 @@ async def update_user(
     
     if is_self_update and not is_admin:
         # Non-admin users can only update certain fields for themselves
-        allowed_fields = {'name', 'email', 'phone', 'profile_picture'}
+        allowed_fields = {'name', 'email', 'phone'}
         if not set(updates.keys()).issubset(allowed_fields):
             return {
                 "data": None,
-                "error": "Can only update name, email, phone, profile_picture for yourself"
+                "error": "Can only update name, email, phone for yourself"
             }
     elif not is_self_update:
         # Updating someone else - must be company_admin in same company
@@ -229,7 +234,7 @@ async def get_departments_by_company(
         }
     
     try:
-        response = supabase.table('departments').select('*').eq(
+        response = supabase.table('departments').select('department_id, name, company_id, created_at').eq(
             'company_id', company_id
         ).order('name').execute()
         
@@ -285,7 +290,9 @@ async def get_training_modules(
     
     try:
         # Get modules
-        modules_response = supabase.table('training_modules').select('*').eq(
+        modules_response = supabase.table('training_modules').select(
+            'module_id, title, gpt_summary, company_id, created_at'
+        ).eq(
             'company_id', company_id
         ).order('created_at', desc=True).execute()
         
@@ -298,27 +305,28 @@ async def get_training_modules(
         # Enrich with status
         enriched_modules = []
         for module in modules_response.data:
-            # Get job status
             job_response = supabase.table('content_jobs').select('status').eq(
                 'module_id', module['module_id']
-            ).maybe_single().execute()
+            ).execute()
             
-            if not job_response.data:
+            job_data = job_response.data[0] if job_response.data else None
+            
+            if not job_data:
                 processing_status = 'not_started'
-            elif job_response.data.get('status') == 'completed':
+            elif job_data.get('status') == 'completed':
                 processing_status = 'completed'
-            elif job_response.data.get('status') == 'failed':
+            elif job_data.get('status') == 'failed':
                 processing_status = 'failed'
             else:
                 processing_status = 'processing'
             
             # If not manager, only show assigned modules
             if not is_manager:
-                assignment = supabase.table('assignments').select('assignment_id').eq(
+                assignment_resp = supabase.table('assignments').select('assignment_id').eq(
                     'user_id', requesting_user_id
-                ).eq('module_id', module['module_id']).maybe_single().execute()
+                ).eq('module_id', module['module_id']).execute()
                 
-                if not assignment.data:
+                if not assignment_resp.data:
                     continue  # Skip this module
             
             enriched_modules.append({
@@ -359,7 +367,9 @@ async def get_completed_modules(
         completed_ids = [job['module_id'] for job in jobs_response.data]
         
         # Get modules
-        modules_response = supabase.table('training_modules').select('*').eq(
+        modules_response = supabase.table('training_modules').select(
+            'module_id, title, gpt_summary, company_id, created_at'
+        ).eq(
             'company_id', company_id
         ).in_('module_id', completed_ids).order('title').execute()
         
@@ -409,14 +419,18 @@ async def get_user_assignments(
     
     if not is_self:
         # Get target user's company
-        target_user = supabase.table('users').select('company_id').eq(
+        target_user_resp = supabase.table('users').select('company_id').eq(
             'user_id', target_user_id
-        ).single().execute()
+        ).execute()
         
-        if not target_user.data:
+        if not target_user_resp.data:
             return {"data": None, "error": "User not found"}
         
-        target_company = target_user.data['company_id']
+        target_user_data = target_user_resp.data[0] if target_user_resp.data else None
+        if not target_user_data:
+             return {"data": None, "error": "User not found"}
+             
+        target_company = target_user_data['company_id']
         
         has_permission = await check_user_permission(requesting_user_id, 'manager')
         has_access = await check_company_access(requesting_user_id, target_company)
@@ -444,7 +458,7 @@ async def get_all_roles(requesting_user_id: str) -> Dict[str, Any]:
     Permission: Any authenticated user (for dropdowns).
     """
     try:
-        response = supabase.table('roles').select('*').order('level').execute()
+        response = supabase.table('roles').select('role_id, name, level, description').order('level').execute()
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -455,10 +469,16 @@ async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[s
     Return single user. Permission: self OR manager+ in same company.
     """
     try:
-        resp = supabase.table('users').select('*').eq('user_id', target_user_id).single().execute()
+        resp = supabase.table('users').select(
+            'user_id, name, email, phone, company_id, department_id, is_active, created_at'
+        ).eq('user_id', target_user_id).execute()
+        
         if not resp.data:
             return {"data": None, "error": "User not found"}
-        user = resp.data
+            
+        user = resp.data[0] if resp.data else None
+        if not user:
+            return {"data": None, "error": "User not found"}
         is_self = requesting_user_id == target_user_id
         if not is_self:
             has_perm = await check_user_permission(requesting_user_id, 'manager')
@@ -479,10 +499,15 @@ async def assign_user_role(requesting_user_id: str, target_user_id: str, role_da
     """
     try:
         # fetch target user's company
-        target_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).single().execute()
+        target_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).execute()
         if not target_resp.data:
             return {"data": None, "error": "Target user not found"}
-        target_company = target_resp.data['company_id']
+            
+        target_user_row = target_resp.data[0] if target_resp.data else None
+        if not target_user_row:
+             return {"data": None, "error": "Target user not found"}
+             
+        target_company = target_user_row['company_id']
 
         # normalize role_data keys
         scope_type = (role_data.get('scope_type') or '').upper()
@@ -526,14 +551,21 @@ async def get_user_roles(requesting_user_id: str, target_user_id: str) -> Dict[s
     try:
         is_self = requesting_user_id == target_user_id
         if not is_self:
-            target_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).single().execute()
+            target_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).execute()
             if not target_resp.data:
                 return {"data": None, "error": "User not found"}
+            
+            target_user_row = target_resp.data[0] if target_resp.data else None
+            if not target_user_row:
+                 return {"data": None, "error": "User not found"}
+                 
             has_perm = await check_user_permission(requesting_user_id, 'manager')
-            has_access = await check_company_access(requesting_user_id, target_resp.data['company_id'])
+            has_access = await check_company_access(requesting_user_id, target_user_row['company_id'])
             if not has_perm or not has_access:
                 return {"data": None, "error": "Permission denied"}
-        resp = supabase.table('user_role_assignments').select('*, role:roles(*)').eq('user_id', target_user_id).eq('is_active', True).execute()
+        resp = supabase.table('user_role_assignments').select(
+            'id, user_id, role_id, scope_type, scope_id, is_active, created_at, role:roles(role_id, name, level)'
+        ).eq('user_id', target_user_id).eq('is_active', True).execute()
         return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -543,8 +575,11 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str) -> Di
     Return user by email. If requesting_user_id is None, allow lookup for auth bootstrap.
     """
     try:
-        resp = supabase.table('users').select('*').eq('email', email).eq('is_active', True).single().execute()
-        user = resp.data if hasattr(resp, 'data') else None
+        resp = supabase.table('users').select(
+            'user_id, name, email, phone, company_id, department_id, is_active, created_at, password'
+        ).eq('email', email).eq('is_active', True).execute()
+        
+        user = resp.data[0] if (hasattr(resp, 'data') and resp.data) else None
         if not user:
             return {"data": None, "error": "User not found"}
         # If a requesting user is provided, perform a permission check; otherwise allow lookup.

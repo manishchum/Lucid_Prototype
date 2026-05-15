@@ -170,12 +170,16 @@ async def get_user_rank(
         # Verify user belongs to the company
         user_resp = supabase.table('users').select(
             'user_id, name, avatar_url, email, company_id'
-        ).eq('user_id', user_id).single().execute()
+        ).eq('user_id', user_id).execute()
         
         if not user_resp.data:
             return {"data": None, "error": "User not found"}
         
-        user_company = user_resp.data.get('company_id')
+        user_row = user_resp.data[0] if user_resp.data else None
+        if not user_row:
+             return {"data": None, "error": "User not found"}
+        
+        user_company = user_row.get('company_id')
         if user_company != company_id:
             return {"data": None, "error": "User does not belong to this company"}
         

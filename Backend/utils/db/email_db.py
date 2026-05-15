@@ -264,15 +264,18 @@ async def increment_retry_count(
             supabase.table("scheduled_emails")
             .select("retry_count, max_retries")
             .eq("scheduled_email_id", scheduled_email_id)
-            .single()
             .execute()
         )
         
         if not get_response.data:
             return {"data": None, "error": "Record not found"}
         
-        current_retry = get_response.data.get("retry_count", 0)
-        max_retries = get_response.data.get("max_retries", 3)
+        email_data = get_response.data[0] if get_response.data else None
+        if not email_data:
+             return {"data": None, "error": "Record not found"}
+        
+        current_retry = email_data.get("retry_count", 0)
+        max_retries = email_data.get("max_retries", 3)
         new_retry_count = current_retry + 1
         
         payload = {
@@ -401,11 +404,11 @@ async def get_scheduled_email_by_id(
             supabase.table("scheduled_emails")
             .select("*")
             .eq("scheduled_email_id", scheduled_email_id)
-            .single()
             .execute()
         )
         
-        return {"data": response.data, "error": None}
+        data = response.data[0] if response.data else None
+        return {"data": data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
