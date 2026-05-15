@@ -125,7 +125,7 @@ async def update_scenario(
             raise HTTPException(status_code=401, detail="User ID and Company ID required")
 
         # Verify ownership
-        existing = supabase.table("scenarios").select("*").eq("scenario_id", scenario_id).eq("company_id", company_id).execute()
+        existing = supabase.table("scenarios").select("scenario_id").eq("scenario_id", scenario_id).eq("company_id", company_id).execute()
         
         if not existing.data:
             raise HTTPException(status_code=404, detail="Scenario not found or access denied")
@@ -205,7 +205,7 @@ async def delete_scenario(
             raise HTTPException(status_code=401, detail="User ID and Company ID required")
 
         # Verify ownership
-        existing = supabase.table("scenarios").select("*").eq("scenario_id", scenario_id).eq("company_id", company_id).execute()
+        existing = supabase.table("scenarios").select("scenario_id").eq("scenario_id", scenario_id).eq("company_id", company_id).execute()
         
         if not existing.data:
             raise HTTPException(status_code=404, detail="Scenario not found or access denied")
