@@ -63,10 +63,11 @@ async def check_company_access(user_id: str, company_id: str) -> bool:
         if await check_user_permission(user_id, 'developer'):
             return True
 
-        resp = supabase.table('users').select('company_id').eq('user_id', user_id).single().execute()
+        resp = supabase.table('users').select('company_id').eq('user_id', user_id).execute()
         if not resp.data:
             return False
-        return str(resp.data.get('company_id')) == str(company_id)
+        user_company_data = resp.data[0] if resp.data else {}
+        return str(user_company_data.get('company_id')) == str(company_id)
     except Exception as e:
         print(f"[check_company_access] exception: {e}")
         return False

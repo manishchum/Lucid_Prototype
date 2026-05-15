@@ -70,10 +70,12 @@ async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[s
     try:
         resp = supabase.table('users').select(
             "user_id, email, name, phone, company_id, department_id, is_active, employment_status, created_at"
-        ).eq('user_id', target_user_id).single().execute()
+        ).eq('user_id', target_user_id).execute()
+        
         if not resp.data:
             return {"data": None, "error": "User not found"}
-        user = resp.data
+        
+        user = resp.data[0] if resp.data else None
         is_self = requesting_user_id == target_user_id
         if not is_self:
             has_perm = await check_user_permission(requesting_user_id, 'manager')
@@ -203,7 +205,7 @@ async def create_user_signup(
         if email:
             existing_resp = supabase.table('users').select('user_id').ilike('email', email).eq(
                 'company_id', company_id
-            ).eq('is_active', False).maybe_single().execute()
+            ).eq('is_active', False).execute()
             # existing_data = existing_resp.data[0] if existing_resp.data else None
 
             # if existing_data:
@@ -255,14 +257,14 @@ async def update_user(
     Permission: company_admin+ OR the user updating themselves (limited fields).
     """
     # Get target user's company
-    target_user = supabase.table('users').select('company_id').eq(
+    target_user_resp = supabase.table('users').select('company_id').eq(
         'user_id', target_user_id
-    ).single().execute()
+    ).execute()
     
-    if not target_user.data:
+    if not target_user_resp.data:
         return {"data": None, "error": "User not found"}
     
-    target_company = target_user.data['company_id']
+    target_company = target_user_resp.data[0]['company_id'] if target_user_resp.data else None
     
     # Check if user is updating themselves
     is_self_update = requesting_user_id == target_user_id
@@ -306,14 +308,14 @@ async def delete_user(
     Permission: Must be company_admin+ in the same company.
     """
     # Get target user's company
-    target_user = supabase.table('users').select('company_id').eq(
+    target_user_resp = supabase.table('users').select('company_id').eq(
         'user_id', target_user_id
-    ).single().execute()
+    ).execute()
     
-    if not target_user.data:
+    if not target_user_resp.data:
         return {"data": None, "error": "User not found"}
     
-    target_company = target_user.data['company_id']
+    target_company = target_user_resp.data[0]['company_id'] if target_user_resp.data else None
     
     has_permission = await check_user_permission(requesting_user_id, 'company_admin')
     has_access = await check_company_access(requesting_user_id, target_company)

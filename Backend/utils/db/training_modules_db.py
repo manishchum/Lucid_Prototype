@@ -148,12 +148,12 @@ async def get_training_module_by_id(
             "module_id, title, description, gpt_summary, company_id, uploaded_by, processing_status, review_stage, reviewer_id, content_url, source_files, created_at"
         ).eq(
             'module_id', module_id
-        ).maybe_single().execute()
+        ).execute()
         
         if not response.data:
             return {"data": None, "error": "Training module not found"}
         
-        module = response.data
+        module = response.data[0] if response.data else None
         company_id = module.get('company_id')
         
         # Check if user has access to this company
@@ -204,10 +204,9 @@ async def create_training_module(
             .table('companies')
             .select('rate_limit_content_generation')
             .eq('company_id', company_id)
-            .maybe_single()
             .execute()
         )
-        company_limit_data = getattr(company_limit_resp, 'data', None) or {}
+        company_limit_data = (company_limit_resp.data[0] if company_limit_resp.data else {}) if hasattr(company_limit_resp, 'data') else {}
         company_limit_value = company_limit_data.get('rate_limit_content_generation')
         company_limit = int(company_limit_value) if company_limit_value is not None else 5
 
@@ -257,9 +256,13 @@ async def update_training_module(
     try:
         module_response = supabase.table('training_modules').select('company_id, uploaded_by').eq(
             'module_id', module_id
-        ).maybe_single().execute()
+        ).execute()
         
         if not module_response.data:
+            return {"data": None, "error": "Training module not found"}
+            
+        module = module_response.data[0] if module_response.data else None
+        if not module:
             return {"data": None, "error": "Training module not found"}
     except Exception as e:
         return {"data": None, "error": "Training module not found"}
@@ -314,15 +317,19 @@ async def delete_training_module(
             'company_id, content_url, source_files'
         ).eq(
             'module_id', module_id
-        ).maybe_single().execute()
+        ).execute()
         
         if not module_response.data:
             return {"data": None, "error": "Training module not found"}
+            
+        module_data = module_response.data[0] if module_response.data else None
     except Exception as e:
+        return {"data": None, "error": f"Error fetching module: {str(e)}"}
+        
+    if not module_data:
         return {"data": None, "error": "Training module not found"}
-    
-    module_data = module_response.data
-    company_id = module_data['company_id']
+        
+    company_id = module_data.get('company_id')
     
     # Check permissions
     has_permission = await check_user_permission(requesting_user_id, 'company_admin')
@@ -439,14 +446,14 @@ async def update_module_processing_status(
     try:
         module_response = supabase.table('training_modules').select('company_id').eq(
             'module_id', module_id
-        ).single().execute()
+        ).execute()
         
         if not module_response.data:
             return {"data": None, "error": "Training module not found"}
+            
+        company_id = module_response.data[0]['company_id'] if module_response.data else None
     except Exception as e:
         return {"data": None, "error": "Training module not found"}
-    
-    company_id = module_response.data['company_id']
     
     # Check permissions
     has_permission = await check_user_permission(requesting_user_id, 'manager')
@@ -486,14 +493,14 @@ async def update_module_review_stage(
     try:
         module_response = supabase.table('training_modules').select('company_id').eq(
             'module_id', module_id
-        ).single().execute()
+        ).execute()
         
         if not module_response.data:
             return {"data": None, "error": "Training module not found"}
+            
+        company_id = module_response.data[0]['company_id'] if module_response.data else None
     except Exception as e:
         return {"data": None, "error": "Training module not found"}
-    
-    company_id = module_response.data['company_id']
     
     # Check permissions
     has_permission = await check_user_permission(requesting_user_id, 'manager')

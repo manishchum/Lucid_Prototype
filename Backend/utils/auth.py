@@ -104,13 +104,12 @@ def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> st
 			.table("users")
 			.select("user_id")
 			.eq("email", email)
-			.maybe_single()
 			.execute()
 		)
-		data = getattr(res, "data", None)
+		data = getattr(res, "data", [])
 		# print(f"[auth] Email lookup result: {data}")
-		if isinstance(data, dict) and data.get("user_id"):
-			resolved_id = str(data.get("user_id"))
+		if isinstance(data, list) and len(data) > 0 and data[0].get("user_id"):
+			resolved_id = str(data[0].get("user_id"))
 			# print(f"[auth] Successfully resolved email {email} to user_id={resolved_id}")
 			return resolved_id
 		else:

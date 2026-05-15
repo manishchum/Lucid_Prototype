@@ -12,10 +12,13 @@ async def get_company_by_id(requesting_user_id: Optional[str], company_id: str) 
     try:
         resp = supabase.table('companies').select(
             "company_id, name, domain, logo_url, website, created_at, rate_limit_content_generation, learning_style, rate_limit_role_play, rate_limit_role_play_retries"
-        ).eq('company_id', company_id).single().execute()
+        ).eq('company_id', company_id).execute()
+        
         if not resp.data:
             return {"data": None, "error": "Company not found"}
-        return {"data": resp.data, "error": None}
+            
+        company_data = resp.data[0] if resp.data else None
+        return {"data": company_data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -28,8 +31,10 @@ async def get_company_by_name(requesting_user_id: Optional[str], company_name: s
     try:
         resp = supabase.table('companies').select(
             "company_id, name, domain, logo_url, website, created_at, rate_limit_content_generation, learning_style, rate_limit_role_play, rate_limit_role_play_retries"
-        ).ilike('name', company_name).maybe_single().execute()
-        return {"data": resp.data, "error": None}
+        ).ilike('name', company_name).execute()
+        
+        company_data = resp.data[0] if resp.data else None
+        return {"data": company_data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -42,10 +47,13 @@ async def get_company_by_domain(requesting_user_id: Optional[str], domain: str) 
     try:
         resp = supabase.table('companies').select(
             "company_id, name, domain, logo_url, website, created_at, rate_limit_content_generation, learning_style, rate_limit_role_play, rate_limit_role_play_retries"
-        ).eq('domain', domain).single().execute()
+        ).eq('domain', domain).execute()
+        
         if not resp.data:
             return {"data": None, "error": "Company not found"}
-        return {"data": resp.data, "error": None}
+            
+        company_data = resp.data[0] if resp.data else None
+        return {"data": company_data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -207,7 +215,6 @@ async def provision_company_functions(
             .table('companies')
             .select('company_id')
             .eq('company_id', company_id)
-            .single()
             .execute()
         )
         if not company_resp.data:
