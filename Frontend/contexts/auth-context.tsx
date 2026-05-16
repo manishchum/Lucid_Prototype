@@ -93,6 +93,7 @@ const fetchUserRoles = async (userId: string) => {
     const normalizedRoles = (assignments || []).map((ra: any) => {
       const r = ra.role ?? ra.roles ?? ra
       return {
+        ...r,
         name: (r?.name ?? '').toString(),
         level: Number(r?.level ?? -1),
         id: r?.role_id ?? r?.id ?? null

@@ -155,7 +155,7 @@ async def get_user_roles(
         
         # Fetch active role assignments with role details
         resp = supabase.table('user_role_assignments').select(
-            'user_role_assignment_id, user_id, role_id, scope_type, scope_id, is_active, created_at, role:roles(role_id, name, level)'
+            'user_role_assignment_id, user_id, role_id, scope_type, scope_id, is_active, assigned_at, role:roles(*)'
         ).eq('user_id', target_user_id).execute()
 
         # Backward compatibility: treat NULL is_active as active for legacy rows.
@@ -193,7 +193,7 @@ async def get_all_role_assignments(
         
         # Build query - get assignments for users in this company
         query = supabase.table('user_role_assignments').select(
-            'user_role_assignment_id, user_id, role_id, scope_type, scope_id, is_active, created_at, role:roles(role_id, name, level), user:users!user_id(user_id, name, email, company_id)'
+            'user_role_assignment_id, user_id, role_id, scope_type, scope_id, is_active, created_at, role:roles(*), user:users!user_id(user_id, name, email, company_id)'
         )
         
         resp = query.execute()
