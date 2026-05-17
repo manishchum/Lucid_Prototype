@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from supabase import create_client, Client
 from utils.auth import get_request_auth_required_from_request
+from utils.welcome_notifications import send_sprint_completion_email
 
 router = APIRouter()
 
@@ -253,6 +254,42 @@ async def POST(request: Request):
                                 }) \
                                 .eq("learning_plan_id", plan["learning_plan_id"]) \
                                 .execute()
+                            
+                            # Trigger sprint completion email
+                            try:
+                                # Fetch user data (email, name)
+                                user_res = supabase.table("users").select("email, name, company_id").eq("user_id", user_id).single().execute()
+                                user_data = user_res.data or {}
+                                user_email = user_data.get("email")
+                                user_name = user_data.get("name") or "Learner"
+                                company_id = user_data.get("company_id")
+                                
+                                # Fetch learning plan data (title from module)
+                                module_res = supabase.table("training_modules").select("title").eq("module_id", actualModuleId).single().execute()
+                                module_data = module_res.data or {}
+                                sprint_title = module_data.get("title") or "Your Learning Sprint"
+                                
+                                # Fetch company data (name)
+                                company_name = "your organization"
+                                if company_id:
+                                    company_res = supabase.table("companies").select("name").eq("company_id", company_id).single().execute()
+                                    company_data = company_res.data or {}
+                                    company_name = company_data.get("name") or company_name
+                                
+                                if user_email:
+                                    # Send email in background (don't block the response)
+                                    try:
+                                        await send_sprint_completion_email(
+                                            recipient_email=user_email,
+                                            recipient_name=user_name,
+                                            sprint_title=sprint_title,
+                                            company_name=company_name,
+                                        )
+                                        print(f"[module-progress] Sprint completion email sent to {user_email}")
+                                    except Exception as email_err:
+                                        print(f"[module-progress] Warning: Failed to send sprint completion email to {user_email}: {email_err}")
+                            except Exception as email_fetch_err:
+                                print(f"[module-progress] Warning: Error fetching data for sprint completion email: {email_fetch_err}")
         except Exception as e_lp:
             print("[module-progress] Error updating learning plan overall_status:", e_lp)
         # END: Update overall_status in learning_plan
