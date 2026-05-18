@@ -27,11 +27,9 @@ async def generate_assessment(request: Request):
         scenario_role = body.get("scenarioRole")
         user_role = body.get("userRole")
 
-        if not messages or len(messages) == 0:
-            return JSONResponse(
-                content={"error": "Conversation messages are required"},
-                status_code=400
-            )
+        # ✅ Handle both missing and empty messages array
+        if messages is None:
+            messages = []
 
         logging.info("Assessment request received with %d messages", len(messages))
         
@@ -39,7 +37,7 @@ async def generate_assessment(request: Request):
         user_messages = [m for m in messages if m.get("sender") == "user"]
         ai_messages = [m for m in messages if m.get("sender") == "avatar"]
         
-        logging.info("Filtered messages - users: %d, ai: %d", len(user_messages), len(ai_messages))
+        logging.info("Filtered messages - users: %d, ai: %d, total: %d", len(user_messages), len(ai_messages), len(messages))
 
         min_exchanges = 3
         min_user_messages = 2

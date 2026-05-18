@@ -204,12 +204,15 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
             if (typeof session.conversation_transcript === 'string') {
               try {
                 transcript = JSON.parse(session.conversation_transcript);
-              } catch {
+              } catch (e) {
+                console.error(`[RolePlayReports] Failed to parse transcript for session ${session.id}:`, e);
                 transcript = [];
               }
             } else if (Array.isArray(session.conversation_transcript)) {
               transcript = session.conversation_transcript;
             }
+          } else {
+            console.warn(`[RolePlayReports] No transcript found for session ${session.id}. message_count: ${session.message_count}`);
           }
 
           return (

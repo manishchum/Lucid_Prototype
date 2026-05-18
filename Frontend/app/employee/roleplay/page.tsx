@@ -394,8 +394,10 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         hasScenario: !!selectedScenario
       });
 
-      if (messages.length === 0) {
-        throw new Error('No conversation messages available for assessment');
+      // ✅ ALLOW EMPTY MESSAGES - backend will return zero-score assessment
+      // This handles abrupt session endings gracefully
+      if (!selectedScenario) {
+        throw new Error('Scenario information not available');
       }
 
       const response = await fetchWithAuth(`${API_URL}/api/roleplay/assessment`, {
@@ -407,7 +409,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         },
         cache: 'no-store',
         body: JSON.stringify({
-          messages,
+          messages: messages.length > 0 ? messages : [], // ✅ Send empty array if no messages
           scenarioTitle: selectedScenario?.title,
           scenarioRole: selectedScenario?.role,
           userRole: selectedScenario?.userRole
@@ -430,8 +432,8 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       const assessment = await response.json();
       console.log('[Assessment] Success, score:', assessment?.overallScore);
       
-      // Validate assessment structure
-      if (!assessment.overallScore || !assessment.summary || !assessment.parameters) {
+      // ✅ Validate assessment structure - zero score is valid!
+      if (assessment.overallScore === undefined || !assessment.summary || !assessment.parameters) {
         console.error('[Assessment] Invalid structure:', Object.keys(assessment));
         throw new Error('Assessment response missing required fields');
       }
@@ -443,6 +445,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       if (sessionId && employeeId) {
         try {
           //console.log('💾 Saving assessment to database...', {
+
           //   sessionId,
           //   employeeId,
           //   assessment
