@@ -8,7 +8,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Scenario, Message } from "@/lib/roleplay/types";
 import { createRolePlaySession, updateRolePlaySession } from "@/lib/roleplayDatabase";
-import { callGemini } from "@/lib/gemini-helper";
 
 interface RolePlayConversationProps {
   scenario: Scenario;
@@ -20,6 +19,16 @@ interface RolePlayConversationProps {
 }
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+// ✅ Safe base64 encoding for large buffers (avoids stack overflow from spread operator)
+function encodePcmToBase64(pcm16: Int16Array): string {
+  const bytes = new Uint8Array(pcm16.buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
 
 export default function RolePlayConversation({
   scenario,
@@ -38,21 +47,21 @@ export default function RolePlayConversation({
   const [isCameraOn, setIsCameraOn]       = useState(true);
   const [isMicOn, setIsMicOn]             = useState(true);
 
-  const videoRef        = useRef<HTMLVideoElement>(null);
-  const containerRef    = useRef<HTMLDivElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordedChunksRef = useRef<Blob[]>([]);
-  const wsRef           = useRef<WebSocket | null>(null);
-  const audioInputRef   = useRef<AudioContext | null>(null);   // mic → OpenAI
-  const audioOutputRef  = useRef<AudioContext | null>(null);   // OpenAI → speaker
-  const sessionIdRef    = useRef<string | null>(null);
+  const videoRef                  = useRef<HTMLVideoElement>(null);
+  const containerRef              = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef          = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef         = useRef<Blob[]>([]);
+  const wsRef                     = useRef<WebSocket | null>(null);
+  const audioInputRef             = useRef<AudioContext | null>(null);
+  const audioOutputRef            = useRef<AudioContext | null>(null);
+  const sessionIdRef              = useRef<string | null>(null);
   const conversationTranscriptRef = useRef<Array<{ role: string; text: string }>>([]);
-  const processorRef    = useRef<ScriptProcessorNode | null>(null);
-  const nextPlayTimeRef = useRef<number>(0);  // Track playback time to queue audio sequentially
-  const isBotSpeakingRef = useRef<boolean>(false);  // Gate mic audio send while bot is speaking
-  const sessionEndedRef = useRef<boolean>(false);  // Flag to track if session_ended was received
+  const processorRef              = useRef<ScriptProcessorNode | AudioWorkletNode | null>(null);
+  const nextPlayTimeRef           = useRef<number>(0);
+  const isBotSpeakingRef          = useRef<boolean>(false);
+  const sessionEndedRef           = useRef<boolean>(false);
+  const sessionEndedResolverRef   = useRef<(() => void) | null>(null);
 
-  // Helper to update both state and ref for bot speaking status
   const setBotSpeaking = (val: boolean) => {
     isBotSpeakingRef.current = val;
     setIsBotSpeaking(val);
@@ -61,30 +70,46 @@ export default function RolePlayConversation({
   useEffect(() => { return () => stopAllMedia(); }, []);
 
   const stopAllMedia = () => {
-    processorRef.current?.disconnect();
-    processorRef.current = null;
+    if (processorRef.current) {
+      try { (processorRef.current as any).disconnect(); } catch {}
+      processorRef.current = null;
+    }
 
     if (mediaRecorderRef.current?.state !== "inactive") {
       try { mediaRecorderRef.current?.stop(); } catch {}
     }
     mediaRecorderRef.current = null;
 
-    if (videoStream) {
-      videoStream.getTracks().forEach(t => t.stop());
-      setVideoStream(null);
+    setVideoStream((prev) => {
+      if (prev) prev.getTracks().forEach(t => t.stop());
+      return null;
+    });
+
+    if (wsRef.current) {
+      try { wsRef.current.close(); } catch {}
+      wsRef.current = null;
     }
 
-    wsRef.current?.close();
-    wsRef.current = null;
+    if (audioInputRef.current) {
+      try { audioInputRef.current.close(); } catch {}
+      audioInputRef.current = null;
+    }
 
-    audioInputRef.current?.close();
-    audioInputRef.current = null;
-
-    audioOutputRef.current?.close();
-    audioOutputRef.current = null;
+    if (audioOutputRef.current) {
+      try { audioOutputRef.current.close(); } catch {}
+      audioOutputRef.current = null;
+    }
   };
 
-  // ✅ FIX 2 — Correct PCM16 bot audio playback with sequential queueing
+  // ✅ Reset audio output context cleanly when bot is interrupted
+  const resetAudioOutput = () => {
+    if (audioOutputRef.current) {
+      try { audioOutputRef.current.close(); } catch {}
+      audioOutputRef.current = null;
+    }
+    nextPlayTimeRef.current = 0;
+  };
+
   const handleBotAudio = async (audioData: string) => {
     try {
       setBotSpeaking(true);
@@ -95,7 +120,12 @@ export default function RolePlayConversation({
       }
 
       const ctx = audioOutputRef.current;
-      
+
+      // Resume context if suspended by browser autoplay policy
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
+
       // Anchor queue to real time on first chunk
       if (nextPlayTimeRef.current === 0) {
         nextPlayTimeRef.current = ctx.currentTime;
@@ -105,7 +135,6 @@ export default function RolePlayConversation({
       const bytes  = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-      // PCM16 → Float32
       const pcm16   = new Int16Array(bytes.buffer);
       const float32 = new Float32Array(pcm16.length);
       for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768.0;
@@ -113,22 +142,18 @@ export default function RolePlayConversation({
       const buf = ctx.createBuffer(1, float32.length, 24000);
       buf.copyToChannel(float32, 0);
 
-      // Calculate start time to queue chunks sequentially
       const startTime = Math.max(ctx.currentTime, nextPlayTimeRef.current);
-      
+
       const source = ctx.createBufferSource();
       source.buffer = buf;
       source.connect(ctx.destination);
       source.start(startTime);
-      
-      // Update next play time for sequential queueing
+
       nextPlayTimeRef.current = startTime + buf.duration;
-      
-      // Only set speaking to false after ALL chunks finish playing
+
       source.onended = () => {
-        if (Math.abs(ctx.currentTime - nextPlayTimeRef.current) < 0.1) {
+        if (ctx.currentTime >= nextPlayTimeRef.current - 0.1) {
           setBotSpeaking(false);
-          // Reset queue for next response
           nextPlayTimeRef.current = 0;
         }
       };
@@ -139,31 +164,18 @@ export default function RolePlayConversation({
     }
   };
 
-  // ✅ FIX 3 — Connect audio processor only after WebSocket is open
   const connectToRealtime = (stream: MediaStream) => {
-    // const wsUrl = `${API_URL?.replace("http", "ws") || "ws://localhost:8000"}/roleplay/realtime`;
-    // const ws = new WebSocket(wsUrl);
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const apiHost    = API_URL?.replace(/^https?:\/\//, "").replace(/\/$/, "") || "localhost:8000";
+    const wsUrl      = `${wsProtocol}//${apiHost}/roleplay/realtime`;
 
+    console.log("[RolePlay] Connecting to WebSocket:", wsUrl);
 
-
-
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    
-    // ✅ FIXED: Extract host from API_URL and remove protocol
-    const apiHost = API_URL?.replace(/^https?:\/\//, '').replace(/\/$/, '') || 'localhost:8000';
-    
-    // ✅ FIXED: Build correct WebSocket URL without duplicate session ID in path
-    const wsUrl = `${wsProtocol}//${apiHost}/roleplay/realtime`;
-    
-    console.log("Connecting to WebSocket at:", wsUrl);
     const ws = new WebSocket(wsUrl);
 
-
-    console.log("Connecting to WebSocket at:", wsUrl);
     ws.onopen = async () => {
-      console.log("✅ Connected to Realtime WS");
+      console.log("[RolePlay] ✅ WebSocket connected");
 
-      // Send init config
       ws.send(JSON.stringify({
         scenarioTitle: scenario.title,
         scenarioRole:  scenario.role,
@@ -175,126 +187,137 @@ export default function RolePlayConversation({
         voiceGender,
       }));
 
-      // ✅ Start mic → OpenAI pipeline only after WS is confirmed open
       const audioCtx = new (window.AudioContext ||
         (window as any).webkitAudioContext)({ sampleRate: 24000 });
       audioInputRef.current = audioCtx;
 
       const source = audioCtx.createMediaStreamSource(stream);
 
-      // ✅ Migrate to AudioWorkletNode (replaces deprecated ScriptProcessorNode)
+      // ✅ Shared PCM16 encoding with safe base64 (no spread on large arrays)
+      const sendPcm16Audio = (audioData: Float32Array) => {
+        if (isBotSpeakingRef.current) return;
+        if (ws.readyState !== WebSocket.OPEN) return;
+
+        const pcm16 = new Int16Array(audioData.length);
+        for (let i = 0; i < audioData.length; i++) {
+          const s = Math.max(-1, Math.min(1, audioData[i]));
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+
+        const audioB64 = encodePcmToBase64(pcm16);
+        ws.send(JSON.stringify({ type: "audio", audio: audioB64 }));
+      };
+
       try {
-        // Load the audio worklet processor
         await audioCtx.audioWorklet.addModule("/audio-processor.js");
         const workletNode = new AudioWorkletNode(audioCtx, "audio-processor");
         processorRef.current = workletNode as any;
 
-        // Handle audio chunks from the worklet
         workletNode.port.onmessage = (event) => {
-          // Gate mic audio while bot is speaking to prevent double voice
-          if (isBotSpeakingRef.current) return;
-          if (ws.readyState !== WebSocket.OPEN) return;
-
-          const audioData = event.data.data as Float32Array;
-
-          // ✅ FIX 1 — Correct PCM16 little-endian encoding (identical to ScriptProcessorNode version)
-          const pcm16 = new Int16Array(audioData.length);
-          for (let i = 0; i < audioData.length; i++) {
-            const s = Math.max(-1, Math.min(1, audioData[i]));
-            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-          }
-          const audioB64 = btoa(
-            String.fromCharCode(...new Uint8Array(pcm16.buffer))
-          );
-
-          ws.send(JSON.stringify({ type: "audio", audio: audioB64 }));
+          sendPcm16Audio(event.data.data as Float32Array);
         };
 
         source.connect(workletNode);
         workletNode.connect(audioCtx.destination);
-        
-        // ✅ FIX 5 — Lock mic immediately to prevent VAD false positives during startup
-        setBotSpeaking(true);
-        setTimeout(() => {
-          if (!isBotSpeakingRef.current) {
-            setBotSpeaking(false);
-          }
-        }, 2000);
+        console.log("[RolePlay] ✅ AudioWorklet initialized");
+
       } catch (err) {
-        console.error("❌ AudioWorklet initialization failed, falling back to ScriptProcessorNode:", err);
-        // Fallback to ScriptProcessorNode if AudioWorklet is not supported
-        const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+        console.warn("[RolePlay] AudioWorklet failed, falling back to ScriptProcessorNode:", err);
+
+        // ✅ 2048 buffer size (was 4096) — smoother streaming at 24000hz
+        const processor = audioCtx.createScriptProcessor(2048, 1, 1);
         processorRef.current = processor;
 
         processor.onaudioprocess = (e) => {
-          // Gate mic audio while bot is speaking to prevent double voice
-          if (isBotSpeakingRef.current) return;
-          if (ws.readyState !== WebSocket.OPEN) return;
-
-          const audioData = e.inputBuffer.getChannelData(0);
-
-          // ✅ FIX 1 — Correct PCM16 little-endian encoding
-          const pcm16 = new Int16Array(audioData.length);
-          for (let i = 0; i < audioData.length; i++) {
-            const s = Math.max(-1, Math.min(1, audioData[i]));
-            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-          }
-          const audioB64 = btoa(
-            String.fromCharCode(...new Uint8Array(pcm16.buffer))
-          );
-
-          ws.send(JSON.stringify({ type: "audio", audio: audioB64 }));
+          sendPcm16Audio(e.inputBuffer.getChannelData(0));
         };
 
         source.connect(processor);
         processor.connect(audioCtx.destination);
-        
-        // ✅ FIX 5 — Lock mic immediately to prevent VAD false positives during startup
-        setBotSpeaking(true);
-        setTimeout(() => {
-          if (!isBotSpeakingRef.current) {
-            setBotSpeaking(false);
-          }
-        }, 2000);
+        console.log("[RolePlay] ✅ ScriptProcessorNode initialized (fallback)");
       }
+
+      // Lock mic on startup to prevent VAD false positives during greeting
+      setBotSpeaking(true);
+      setTimeout(() => {
+        if (isBotSpeakingRef.current) {
+          setBotSpeaking(false);
+        }
+      }, 2000);
     };
 
     ws.onmessage = async (event) => {
-      const data = JSON.parse(event.data);
+      let data: any;
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        console.error("[RolePlay] Failed to parse WS message:", event.data);
+        return;
+      }
 
-      if (data.type === "audio") {
-        await handleBotAudio(data.audio);
-      } else if (data.type === "speech_started") {
-        // Bot detected user speaking — show listening state
-        // Reset audio queue to discard remaining buffered audio
-        nextPlayTimeRef.current = 0;
-        setIsRecording(true);
-        setBotSpeaking(false);
-      } else if (data.type === "user_transcription") {
-        conversationTranscriptRef.current.push({ role: "user", text: data.text });
-      } else if (data.type === "transcript_chunk") {
-        // Optional: show live bot transcript
-      } else if (data.type === "response.done") {
-        // Bot response complete — reset queue for next response
-        nextPlayTimeRef.current = 0;
-      } else if (data.type === "session_ended") {
-        // ✅ FIX 7 — Backend sent complete transcript after end_session request
-        console.log('[ws.onmessage] Received session_ended event');
-        console.log('[ws.onmessage] Backend transcript length:', data.transcript?.length || 0);
-        conversationTranscriptRef.current = data.transcript || [];
-        sessionEndedRef.current = true;
-      } else if (data.type === "error") {
-        console.error("Backend error:", data.message);
-        setLimitPopup({ open: true, message: data.message });
+      switch (data.type) {
+        case "audio":
+          await handleBotAudio(data.audio);
+          break;
+
+        case "speech_started":
+          // ✅ Reset output context fully — clears buffered/interrupted bot audio
+          resetAudioOutput();
+          setIsRecording(true);
+          setBotSpeaking(false);
+          break;
+
+        case "user_transcription":
+          if (data.text) {
+            conversationTranscriptRef.current.push({ role: "user", text: data.text });
+          }
+          break;
+
+        case "transcript_chunk":
+          break;
+
+        case "response.done":
+          nextPlayTimeRef.current = 0;
+          setIsRecording(false);
+          break;
+
+        case "session_ended":
+          console.log("[RolePlay] session_ended received, transcript length:", data.transcript?.length ?? 0);
+          console.log("[RolePlay] Current transcript before merge:", conversationTranscriptRef.current.length);
+          
+          // ✅ MERGE transcripts instead of replacing - backend might have updated transcripts
+          if (data.transcript && Array.isArray(data.transcript) && data.transcript.length > 0) {
+            console.log("[RolePlay] Using backend transcript with", data.transcript.length, "messages");
+            conversationTranscriptRef.current = data.transcript;
+          } else {
+            console.log("[RolePlay] Backend transcript empty, keeping local transcript with", conversationTranscriptRef.current.length, "messages");
+          }
+          
+          sessionEndedRef.current = true;
+          sessionEndedResolverRef.current?.();
+          sessionEndedResolverRef.current = null;
+          break;
+
+        case "error":
+          console.error("[RolePlay] Backend error:", data.message);
+          setLimitPopup({ open: true, message: data.message || "An error occurred." });
+          break;
+
+        default:
+          break;
       }
     };
 
     ws.onerror = (err) => {
-      console.error("❌ WebSocket error:", err);
+      console.error("[RolePlay] ❌ WebSocket error:", err);
       setLimitPopup({ open: true, message: "Connection error. Please try again." });
     };
 
-    ws.onclose = () => console.log("🔌 Disconnected from Realtime WS");
+    ws.onclose = (event) => {
+      console.log(`[RolePlay] 🔌 WebSocket closed — code: ${event.code}, reason: ${event.reason}, clean: ${event.wasClean}`);
+      sessionEndedResolverRef.current?.();
+      sessionEndedResolverRef.current = null;
+    };
 
     wsRef.current = ws;
   };
@@ -327,7 +350,6 @@ export default function RolePlayConversation({
         videoRef.current.play().catch(() => {});
       }
 
-      // Start video recorder
       const videoRecorder = new MediaRecorder(stream);
       recordedChunksRef.current = [];
       videoRecorder.ondataavailable = (e) => {
@@ -336,81 +358,81 @@ export default function RolePlayConversation({
       videoRecorder.start();
       mediaRecorderRef.current = videoRecorder;
 
-      // ✅ FIX 3 — pass stream to connectToRealtime, audio starts inside onopen
       connectToRealtime(stream);
       setConversationActive(true);
       setIsProcessing(true);
 
     } catch (err) {
-      console.error("Error starting conversation:", err);
-      alert("Microphone/Camera permission required");
+      console.error("[RolePlay] Error starting conversation:", err);
+      alert("Microphone/Camera permission is required to start.");
     }
   };
 
-  // ✅ FIX 7 — Wait for backend session_ended response before processing transcript
   const handleEndSession = async () => {
-    console.log('[handleEndSession] Starting session end process...');
-
-    // Reset the flag that tracks if session_ended was received
+    console.log("[handleEndSession] Ending session...");
     sessionEndedRef.current = false;
 
-    // Step 1: Send end_session signal to backend
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      console.log('[handleEndSession] Sending end_session to backend');
       wsRef.current.send(JSON.stringify({ type: "end_session" }));
+      console.log("[handleEndSession] Sent end_session, waiting for session_ended...");
 
-      // Step 2: Wait for backend to send session_ended with complete transcript (with 3 second timeout)
-      let timeoutId: NodeJS.Timeout | null = null;
-      try {
-        await new Promise<void>((resolve) => {
-          timeoutId = setTimeout(() => {
-            console.warn('[handleEndSession] ⏱️ Timeout waiting for session_ended (3s) - using local transcript');
+      await new Promise<void>((resolve) => {
+        sessionEndedResolverRef.current = resolve;
+        setTimeout(() => {
+          if (sessionEndedResolverRef.current) {
+            console.warn("[handleEndSession] ⏱️ Timeout — using local transcript");
+            sessionEndedResolverRef.current = null;
             resolve();
-          }, 3000);
-        });
-      } catch (err) {
-        console.error('[handleEndSession] Error waiting for session_ended:', err);
-      } finally {
-        if (timeoutId) clearTimeout(timeoutId);
-      }
+          }
+        }, 3000);
+      });
     } else {
-      console.warn('[handleEndSession] WebSocket not open, using local transcript');
+      console.warn("[handleEndSession] WebSocket not open, using local transcript");
     }
 
-    // Wait a bit more to ensure any pending messages are processed
     await new Promise(resolve => setTimeout(resolve, 200));
 
-    // Step 3: Stop all media and reset state
     stopAllMedia();
     setConversationActive(false);
     setIsRecording(false);
     setIsProcessing(false);
     setBotSpeaking(false);
 
-    // Step 4: Build messages array from the complete transcript
-    const messages: Message[] = conversationTranscriptRef.current.map((item, idx) => ({
+    const transcript = conversationTranscriptRef.current;
+    console.log("[handleEndSession] 📝 Transcript ready:", {
+      count: transcript.length,
+      items: transcript.map(t => `${t.role}: ${t.text.substring(0, 30)}...`)
+    });
+
+    const messages: Message[] = transcript.map((item, idx) => ({
       text:      item.text,
       sender:    item.role === "user" ? "user" : "avatar",
       timestamp: new Date(
-        Date.now() - (conversationTranscriptRef.current.length - idx) * 1000
+        Date.now() - (transcript.length - idx) * 1000
       ).toISOString(),
     }));
 
-    console.log('[handleEndSession] ✅ Transcript received:', {
-      sessionEnded: sessionEndedRef.current,
-      transcriptLength: conversationTranscriptRef.current.length,
-      messagesArrayLength: messages.length
+    console.log("[handleEndSession] ✅ Final transcript:", {
+      sessionEndedReceived: sessionEndedRef.current,
+      transcriptLength:     transcript.length,
+      messagesCount:        messages.length,
     });
 
-    // Step 5: Save transcript and trigger callback
+    // ✅ SAVE TRANSCRIPT FIRST - before generating assessment
     if (sessionIdRef.current && messages.length > 0) {
       try {
-        console.log('[handleEndSession] Saving session transcript...');
+        console.log("[handleEndSession] 💾 Saving transcript to DB...");
         await updateRolePlaySession(sessionIdRef.current, messages, true);
-        console.log('[handleEndSession] ✅ Transcript saved to database');
+        console.log("[handleEndSession] ✅ Transcript saved to DB");
       } catch (e) {
-        console.error("❌ Failed to save transcript:", e);
+        console.error("[handleEndSession] ❌ Failed to save transcript:", e);
+        // Continue anyway - assessment generation is still important
       }
+    } else {
+      console.warn("[handleEndSession] ⚠️ Cannot save transcript:", {
+        hasSessionId: !!sessionIdRef.current,
+        messagesCount: messages.length
+      });
     }
 
     onEndSession(messages, sessionIdRef.current || undefined);
@@ -432,7 +454,6 @@ export default function RolePlayConversation({
     setIsMicOn(track.enabled);
   };
 
-  // ---------- JSX (unchanged) ----------
   return (
     <div ref={containerRef} className="fixed inset-0 bg-gray-900 flex flex-col z-50">
       {/* Header */}
@@ -452,8 +473,12 @@ export default function RolePlayConversation({
             className={`p-1.5 sm:p-2 rounded-lg transition-all ${isMicOn ? "bg-gray-700 hover:bg-gray-600 text-white" : "bg-red-500 hover:bg-red-600 text-white"}`}>
             {isMicOn ? <Mic className="w-4 sm:w-5 h-4 sm:h-5" /> : <MicOff className="w-4 sm:w-5 h-4 sm:h-5" />}
           </button>
-          <Button onClick={handleEndSession} className="bg-red-500 hover:bg-red-600 text-white flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-4 py-1 sm:py-2 h-auto">
-            <Phone className="w-3 sm:w-4 h-3 sm:h-4 flex-shrink-0" /> <span className="hidden xs:inline">End Meeting</span>
+          <Button
+            onClick={handleEndSession}
+            className="bg-red-500 hover:bg-red-600 text-white flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-4 py-1 sm:py-2 h-auto"
+          >
+            <Phone className="w-3 sm:w-4 h-3 sm:h-4 flex-shrink-0" />
+            <span className="hidden xs:inline">End Meeting</span>
           </Button>
         </div>
       </div>
@@ -474,15 +499,24 @@ export default function RolePlayConversation({
               <h2 className="text-base sm:text-lg md:text-2xl lg:text-4xl font-bold mb-1 sm:mb-2">{scenario.role}</h2>
               <div className="flex items-center justify-center gap-1 sm:gap-2 md:gap-3 mb-1 sm:mb-2 md:mb-3 flex-wrap">
                 {isBotSpeaking ? (
-                  <><div className="flex gap-1">
-                    <div className="w-1 sm:w-1.5 md:w-2 h-3 sm:h-4 md:h-6 bg-white rounded-full animate-pulse" style={{ animationDelay: "0ms" }} />
-                    <div className="w-1 sm:w-1.5 md:w-2 h-4 sm:h-6 md:h-8 bg-white rounded-full animate-pulse" style={{ animationDelay: "150ms" }} />
-                    <div className="w-1 sm:w-1.5 md:w-2 h-3 sm:h-4 md:h-6 bg-white rounded-full animate-pulse" style={{ animationDelay: "300ms" }} />
-                  </div><span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Speaking...</span></>
+                  <>
+                    <div className="flex gap-1">
+                      <div className="w-1 sm:w-1.5 md:w-2 h-3 sm:h-4 md:h-6 bg-white rounded-full animate-pulse" style={{ animationDelay: "0ms" }} />
+                      <div className="w-1 sm:w-1.5 md:w-2 h-4 sm:h-6 md:h-8 bg-white rounded-full animate-pulse" style={{ animationDelay: "150ms" }} />
+                      <div className="w-1 sm:w-1.5 md:w-2 h-3 sm:h-4 md:h-6 bg-white rounded-full animate-pulse" style={{ animationDelay: "300ms" }} />
+                    </div>
+                    <span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Speaking...</span>
+                  </>
                 ) : isProcessing ? (
-                  <><Loader2 className="w-3 sm:w-4 md:w-5 h-3 sm:h-4 md:h-5 animate-spin" /><span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Processing...</span></>
+                  <>
+                    <Loader2 className="w-3 sm:w-4 md:w-5 h-3 sm:h-4 md:h-5 animate-spin" />
+                    <span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Processing...</span>
+                  </>
                 ) : isRecording ? (
-                  <><div className="w-1.5 sm:w-2 md:w-3 h-1.5 sm:h-2 md:h-3 bg-red-500 rounded-full animate-pulse" /><span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Listening...</span></>
+                  <>
+                    <div className="w-1.5 sm:w-2 md:w-3 h-1.5 sm:h-2 md:h-3 bg-red-500 rounded-full animate-pulse" />
+                    <span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Listening...</span>
+                  </>
                 ) : conversationActive ? (
                   <span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Ready</span>
                 ) : (
@@ -500,9 +534,14 @@ export default function RolePlayConversation({
         <div className="flex-1 bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-600 flex items-center justify-center p-4 sm:p-6 md:p-8 relative overflow-hidden">
           <div className="relative z-10 w-full h-full max-w-full">
             <div className="relative w-full h-full overflow-hidden shadow-2xl border-2 sm:border-4 border-white/30 bg-black">
-              <video ref={videoRef} autoPlay muted playsInline
+              <video
+                ref={videoRef}
+                autoPlay
+                muted
+                playsInline
                 className="w-full h-full object-cover transform scale-x-[-1]"
-                onLoadedMetadata={() => videoRef.current?.play().catch(() => {})} />
+                onLoadedMetadata={() => videoRef.current?.play().catch(() => {})}
+              />
               {!videoStream && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
                   <Camera className="w-8 sm:w-10 md:w-14 lg:w-16 h-8 sm:h-10 md:h-14 lg:h-16 mb-2 sm:mb-3 md:mb-4 opacity-50" />
@@ -519,7 +558,8 @@ export default function RolePlayConversation({
             {isRecording && (
               <div className="absolute bottom-2 sm:bottom-3 md:bottom-6 lg:bottom-8 right-2 sm:right-3 md:right-6 lg:right-8 bg-red-900/80 backdrop-blur-sm px-2 sm:px-3 md:px-6 py-1 sm:py-2 md:py-3 rounded-full animate-pulse">
                 <div className="text-white font-medium text-xs sm:text-xs md:text-base lg:text-lg flex items-center gap-1 sm:gap-1 md:gap-2">
-                  <div className="w-1 sm:w-1.5 md:w-2 h-1 sm:h-1.5 md:h-2 bg-red-500 rounded-full" /> <span className="hidden xs:inline">Recording</span>
+                  <div className="w-1 sm:w-1.5 md:w-2 h-1 sm:h-1.5 md:h-2 bg-red-500 rounded-full" />
+                  <span className="hidden xs:inline">Recording</span>
                 </div>
               </div>
             )}
@@ -543,13 +583,21 @@ export default function RolePlayConversation({
             <p className="text-slate-600 mb-6 sm:mb-8 text-sm sm:text-base lg:text-lg">
               Click the button to begin your speech-to-speech role-play. The bot will speak first, then listen to you!
             </p>
-            <Button onClick={startConversation}
+            <Button
+              onClick={startConversation}
               className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-sm sm:text-base lg:text-lg px-4 sm:px-8 py-2 sm:py-3 lg:py-6 w-full sm:w-auto h-auto"
-              disabled={isProcessing}>
+              disabled={isProcessing}
+            >
               {isProcessing ? (
-                <><Loader2 className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-2 sm:mr-3 animate-spin" /><span className="hidden xs:inline">Starting...</span></>
+                <>
+                  <Loader2 className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-2 sm:mr-3 animate-spin" />
+                  <span className="hidden xs:inline">Starting...</span>
+                </>
               ) : (
-                <><Mic className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-2 sm:mr-3" /><span className="hidden xs:inline">Start Conversation</span></>
+                <>
+                  <Mic className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-2 sm:mr-3" />
+                  <span className="hidden xs:inline">Start Conversation</span>
+                </>
               )}
             </Button>
           </div>
@@ -563,8 +611,19 @@ export default function RolePlayConversation({
             <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-slate-900 mb-2 sm:mb-3">Error</h3>
             <p className="text-slate-600 mb-4 sm:mb-6 text-sm sm:text-base">{limitPopup.message}</p>
             <div className="flex items-center justify-center gap-2 sm:gap-3 flex-col sm:flex-row">
-              <Button onClick={() => { setLimitPopup({ open: false, message: "" }); onBack?.(); }} variant="outline" className="px-4 sm:px-6 w-full sm:w-auto text-sm sm:text-base h-auto py-2 sm:py-2">Back</Button>
-              <Button onClick={() => setLimitPopup({ open: false, message: "" })} className="px-4 sm:px-6 bg-blue-600 hover:bg-blue-700 w-full sm:w-auto text-sm sm:text-base h-auto py-2 sm:py-2">Retry</Button>
+              <Button
+                onClick={() => { setLimitPopup({ open: false, message: "" }); onBack?.(); }}
+                variant="outline"
+                className="px-4 sm:px-6 w-full sm:w-auto text-sm sm:text-base h-auto py-2 sm:py-2"
+              >
+                Back
+              </Button>
+              <Button
+                onClick={() => setLimitPopup({ open: false, message: "" })}
+                className="px-4 sm:px-6 bg-blue-600 hover:bg-blue-700 w-full sm:w-auto text-sm sm:text-base h-auto py-2 sm:py-2"
+              >
+                Retry
+              </Button>
             </div>
           </div>
         </div>

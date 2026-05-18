@@ -33,9 +33,13 @@ async def generate_assessment(request: Request):
                 status_code=400
             )
 
+        logging.info("Assessment request received with %d messages", len(messages))
+        
         # Filter messages
         user_messages = [m for m in messages if m.get("sender") == "user"]
         ai_messages = [m for m in messages if m.get("sender") == "avatar"]
+        
+        logging.info("Filtered messages - users: %d, ai: %d", len(user_messages), len(ai_messages))
 
         min_exchanges = 3
         min_user_messages = 2
@@ -165,31 +169,51 @@ Provide ONLY the JSON object with these exact keys: overallScore, summary, param
 """
 
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/"
-                f"gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}",
-                headers={"Content-Type": "application/json"},
-                json={
-                    "contents": [
-                        {
-                            "role": "user",
-                            "parts": [{"text": assessment_prompt}],
-                        }
-                    ],
-                    "generationConfig": {
-                        "temperature": 0.4,
-                        "topK": 40,
-                        "topP": 0.95,
-                        "maxOutputTokens": 2048,
+            try:
+                response = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/"
+                    f"gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "contents": [
+                            {
+                                "role": "user",
+                                "parts": [{"text": assessment_prompt}],
+                            }
+                        ],
+                        "generationConfig": {
+                            "temperature": 0.4,
+                            "topK": 40,
+                            "topP": 0.95,
+                            "maxOutputTokens": 2048,
+                        },
                     },
-                },
-            )
+                    timeout=30.0
+                )
+            except httpx.TimeoutException:
+                logging.error("Gemini API timeout after 30 seconds")
+                raise HTTPException(status_code=503, detail="Gemini API timeout - please try again")
+            except Exception as e:
+                logging.error("Gemini API connection error: %s", str(e))
+                raise HTTPException(status_code=503, detail="Failed to connect to Gemini API")
 
         if response.status_code != 200:
-            logging.error("Gemini API error: %s", response.text)
-            raise HTTPException(status_code=500, detail="Gemini API request failed")
+            error_detail = response.text
+            logging.error("Gemini API error (status %d): %s", response.status_code, error_detail)
+            
+            # Check for rate limit or quota issues
+            if response.status_code == 429:
+                raise HTTPException(status_code=429, detail="Gemini API rate limited - please try again later")
+            elif response.status_code == 403:
+                raise HTTPException(status_code=503, detail="Gemini API access denied - check API key")
+            else:
+                raise HTTPException(status_code=500, detail=f"Gemini API error: {error_detail[:100]}")
 
-        data = response.json()
+        try:
+            data = response.json()
+        except json.JSONDecodeError:
+            logging.error("Failed to parse Gemini response: %s", response.text[:500])
+            raise HTTPException(status_code=500, detail="Invalid response from Gemini API")
 
         assessment_text = (
             data.get("candidates", [{}])[0]
@@ -199,6 +223,7 @@ Provide ONLY the JSON object with these exact keys: overallScore, summary, param
         )
 
         if not assessment_text:
+            logging.error("No assessment text in Gemini response: %s", json.dumps(data, indent=2)[:500])
             raise HTTPException(status_code=500, detail="No response from Gemini API")
 
         # Remove markdown fences
@@ -221,8 +246,16 @@ Provide ONLY the JSON object with these exact keys: overallScore, summary, param
 
         return JSONResponse(content=assessment)
 
+    except json.JSONDecodeError as e:
+        logging.error("JSON decode error: %s", str(e))
+        logging.error("Raw assessment text: %s", assessment_text if 'assessment_text' in locals() else "N/A")
+        return JSONResponse(
+            content={"error": "Failed to parse assessment - invalid JSON format"},
+            status_code=500
+        )
     except Exception as e:
         logging.exception("Assessment generation error")
+        logging.error("Exception details: %s", str(e))
         return JSONResponse(
             content={"error": str(e) or "Failed to generate assessment"},
             status_code=500
