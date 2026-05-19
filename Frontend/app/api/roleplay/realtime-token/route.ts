@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-4-realtime-preview-20250115",
+          model: "gpt-4o-realtime-preview",
           voice: "alloy",
         }),
       }
