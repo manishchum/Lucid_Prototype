@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from typing import Optional, Dict, Any, List
 import asyncio
 from datetime import datetime
-
+from utils.auth_bridge import get_service_supabase_client
 from utils.supabase_client import supabase
 from utils.auth import RequestAuth, get_request_auth_required
 
@@ -13,6 +13,7 @@ async def get_dashboard_summary(
     user_id: str,
     x_company_id: Optional[str] = Header(None, alias="X-Company-ID")
 ):
+    supabase = get_service_supabase_client()
     if not x_company_id:
         # Fallback to fetching company_id from user if not provided in header
         user_res = supabase.table("users").select("company_id").eq("user_id", user_id).execute()
@@ -23,12 +24,15 @@ async def get_dashboard_summary(
 
     try:
         # 1. Fetch Company details
-        company_res = supabase.table("companies").select("*").eq("company_id", x_company_id).execute()
-        if not company_res.data or len(company_res.data) == 0:
+        print(f"[Dashboard Summary] Fetching dashboard summary for user {user_id} in company {x_company_id}")
+        resp = supabase.table('companies').select('*').eq('company_id', x_company_id).maybe_single().execute()
+        print(f"[Dashboard Summary] Company query result: {resp}")
+        if not resp.data or len(resp.data) == 0:
             raise HTTPException(status_code=404, detail=f"Company not found with ID: {x_company_id}")
-        company_data = company_res.data[0] if company_res.data else {}
+        company_data = resp.data if resp.data else {}
 
         # 2. Fetch User details & Count total users in company
+        print(f"[Dashboard Summary] Fetching user details for {user_id}")
         users_res = supabase.table("users").select("user_id").eq("company_id", x_company_id).execute()
         total_users = len(users_res.data) if users_res.data else 0
 
@@ -115,6 +119,8 @@ async def get_dashboard_summary(
             "modules_completed": modules_completed,
             "total_score": 0
         }
+
+        print(f"[Dashboard Summary] User {user_id} has completed {modules_completed} modules.")
 
         # Build response payload
         return {

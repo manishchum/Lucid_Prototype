@@ -713,7 +713,7 @@ const handleGenerateCertificate = (sprintId: string) => {
            dashboard_summary:dashboard_summary,
         });
 
-        const dashBoardData = await dashboard_summary.json();
+        const dashBoardData = dashboard_summary.json();
         
      
         return {
