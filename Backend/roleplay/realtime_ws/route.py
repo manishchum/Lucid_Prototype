@@ -7,8 +7,9 @@ from websockets.asyncio.client import connect
 
 router = APIRouter()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
+from config import OPENAI_API_KEY
+OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL")
+OPENAI_REALTIME_URL = f"wss://api.openai.com/v1/realtime?model={OPENAI_REALTIME_MODEL}"
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -150,19 +151,19 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
 
                         elif msg_type == "end_session":
                             logger.info(f"[Realtime] 📞 Session end requested - transcript contains {len(conversation_transcript)} messages")
-                            
+
                             # Log the transcript structure for verification
                             user_msgs = [m for m in conversation_transcript if m.get("role") == "user"]
                             bot_msgs = [m for m in conversation_transcript if m.get("role") == "bot"]
                             logger.info(f"[Realtime] 📊 Transcript breakdown: {len(user_msgs)} user messages, {len(bot_msgs)} bot messages")
-                            
+
                             # Send complete transcript back to frontend
                             await websocket.send_json({
                                 "type": "session_ended",
                                 "transcript": conversation_transcript,
                                 "session_id": scenario_context["session_id"]
                             })
-                            
+
                             logger.info(f"[Realtime] ✅ session_ended payload sent to frontend with {len(conversation_transcript)} messages")
                             break
 
@@ -248,4 +249,3 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
 
     finally:
         sid = scenario_context.get("session_id") if scenario_context else "unknown"
-        logger.info(f"🔌 [Realtime] Session {sid} disconnected")

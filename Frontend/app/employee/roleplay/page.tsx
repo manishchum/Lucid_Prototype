@@ -376,7 +376,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
   const handleEndSession = async (messages: Message[], sessionId?: string) => {
     //console.log('🏁 Ending session with messages:', messages.length);
-    //console.log('📝 Last 3 messages:', messages.slice(-3));
+    console.log('[handleEndSession] Ending with', messages.length, 'messages, sessionId:', sessionId);
     
     setConversationHistory(messages);
 
@@ -388,6 +388,18 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
     try {
       //console.log('📊 Generating fresh assessment...');
+      console.log('[Assessment] Sending request with:', {
+        messagesCount: messages.length,
+        scenarioTitle: selectedScenario?.title,
+        hasScenario: !!selectedScenario
+      });
+
+      // ✅ ALLOW EMPTY MESSAGES - backend will return zero-score assessment
+      // This handles abrupt session endings gracefully
+      if (!selectedScenario) {
+        throw new Error('Scenario information not available');
+      }
+
       const response = await fetchWithAuth(`${API_URL}/api/roleplay/assessment`, {
         method: 'POST',
         headers: {
@@ -397,21 +409,35 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         },
         cache: 'no-store',
         body: JSON.stringify({
-          messages,
+          messages: messages.length > 0 ? messages : [], // ✅ Send empty array if no messages
           scenarioTitle: selectedScenario?.title,
           scenarioRole: selectedScenario?.role,
           userRole: selectedScenario?.userRole
         }),
       });
 
+      console.log('[Assessment] Response status:', response.status);
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate assessment');
+        let errorData: any = {};
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = { error: `HTTP ${response.status}` };
+        }
+        console.error('[Assessment] Error response:', errorData);
+        throw new Error(errorData.error || `Failed to generate assessment (HTTP ${response.status})`);
       }
 
       const assessment = await response.json();
-      //console.log('📊 Assessment response:', response);
-      //console.log('✅ Assessment received:', assessment.overallScore);
+      console.log('[Assessment] Success, score:', assessment?.overallScore);
+      
+      // ✅ Validate assessment structure - zero score is valid!
+      if (assessment.overallScore === undefined || !assessment.summary || !assessment.parameters) {
+        console.error('[Assessment] Invalid structure:', Object.keys(assessment));
+        throw new Error('Assessment response missing required fields');
+      }
+
       setAssessmentReport(assessment);
       setCurrentScreen('assessmentReport');
 
@@ -419,13 +445,15 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       if (sessionId && employeeId) {
         try {
           //console.log('💾 Saving assessment to database...', {
+
           //   sessionId,
           //   employeeId,
           //   assessment
           // });
           
+          console.log('[Assessment] Saving to DB with sessionId:', sessionId);
           await createRolePlayAssessment(sessionId, employeeId, assessment);
-          //console.log('✅ Assessment saved to database successfully');
+          console.log('[Assessment] ✅ Saved to database');
         } catch (dbError) {
           console.error('❌ Error saving assessment to database:', dbError);
           console.error('Error details:', JSON.stringify(dbError, null, 2));
@@ -440,6 +468,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
     } catch (err: any) {
       console.error('Assessment error:', err);
+      console.error('Error message:', err.message);
       setError(err.message || 'Failed to generate assessment report');
     } finally {
       setIsGeneratingAssessment(false);
