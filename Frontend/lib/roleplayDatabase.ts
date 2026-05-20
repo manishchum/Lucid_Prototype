@@ -844,7 +844,8 @@ export async function updateRolePlaySession(
   console.log('[updateRolePlaySession] Saving session:', {
     sessionId,
     messagesCount: messages.length,
-    isCompleted
+    isCompleted,
+    messagePreview: messages.slice(0, 2).map(m => `${m.sender}: ${m.text.substring(0, 30)}...`)
   });
 
   const updateData: any = {
@@ -867,13 +868,17 @@ export async function updateRolePlaySession(
     .from('roleplay_sessions')
     .update(updateData)
     .eq('id', sessionId)
-    .select('id, completed_at, duration_seconds, message_count')
+    .select('id, completed_at, duration_seconds, message_count, conversation_transcript')
     .single();
 
   if (error) {
-    console.error('[updateRolePlaySession] Error:', error);
+    console.error('[updateRolePlaySession] ❌ Error:', error);
   } else {
-    console.log('[updateRolePlaySession] Success:', { id: data?.id });
+    console.log('[updateRolePlaySession] ✅ Success:', { 
+      id: data?.id,
+      savedMessageCount: data?.message_count,
+      hasTranscript: !!data?.conversation_transcript
+    });
   }
 
   return { data, error };
@@ -930,10 +935,19 @@ export async function getEmployeeRolePlaySessions(
 ): Promise<{ data: any[] | null; error: any }> {
   const { data, error } = await supabase
     .from('roleplay_sessions')
-    .select('id, employee_id, module_id, scenario_id, scenario_title, scenario_role, scenario_difficulty, started_at, completed_at, duration_seconds, message_count, roleplay_assessments(id, overall_score, summary, parameters, recommendations, created_at)')
+    .select('id, employee_id, module_id, scenario_id, scenario_title, scenario_role, scenario_difficulty, conversation_transcript, started_at, completed_at, duration_seconds, message_count, roleplay_assessments(id, overall_score, summary, parameters, recommendations, created_at)')
     .eq('employee_id', employeeId)
     .order('completed_at', { ascending: false, nullsFirst: false })
     .limit(limit);
+
+  if (data && Array.isArray(data)) {
+    console.log(`[getEmployeeRolePlaySessions] Fetched ${data.length} sessions:`, data.map(s => ({
+      id: s.id,
+      hasTranscript: !!s.conversation_transcript,
+      messageCount: s.message_count,
+      transcriptLength: Array.isArray(s.conversation_transcript) ? s.conversation_transcript.length : 'N/A'
+    })));
+  }
 
   return { data, error };
 }
