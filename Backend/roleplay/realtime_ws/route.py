@@ -7,10 +7,11 @@ from websockets.asyncio.client import connect
 
 router = APIRouter()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
+from config import OPENAI_API_KEY
+OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL")
+OPENAI_REALTIME_URL = f"wss://api.openai.com/v1/realtime?model={OPENAI_REALTIME_MODEL}"
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
@@ -75,37 +76,36 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
             "OpenAI-Beta": "realtime=v1",
         }
 
-        # ✅ FIXED: extra_headers (not additional_headers)
-        async with connect(
-    OPENAI_REALTIME_URL,
-    additional_headers=[
-        ("Authorization", f"Bearer {OPENAI_API_KEY}"),
-        ("OpenAI-Beta", "realtime=v1"),
-    ]
-) as openai_ws:
+        # ✅ FIX 1: extra_headers instead of additional_headers
+        async with connect(OPENAI_REALTIME_URL, additional_headers=headers) as openai_ws:
             logger.info("[Realtime] ✅ Connected to OpenAI Realtime API")
 
+            # ✅ FIX 8: Map voice gender to OpenAI voice options
             voice_map = {
-                "female": "alloy",
-                "male": "echo",
+                "female": "alloy",  # Female: alloy, shimmer, nova
+                "male": "echo",     # Male: echo, onyx, fable
             }
             voice = voice_map.get(scenario_context.get("voice_gender", "female"), "alloy")
             logger.info(f"[Realtime] 🎙️ Voice gender: {scenario_context.get('voice_gender')}, selected voice: {voice}")
 
+            # ✅ FIX 3: Added turn_detection (VAD) to session.update
+            # ✅ FIX 4: Improved voice clarity - use selected voice
+            # ✅ FIX 5: Temperature must be >= 0.6, use 0.6 for consistent speech
+            # ✅ FIX 6: Added input_audio_transcription with Whisper-1 for user speech transcription
             await openai_ws.send(json.dumps({
                 "type": "session.update",
                 "session": {
                     "instructions": build_system_prompt(scenario_context),
                     "modalities": ["text", "audio"],
-                    "voice": voice,
+                    "voice": voice,  # Dynamic voice selection based on gender
                     "input_audio_format": "pcm16",
                     "output_audio_format": "pcm16",
-                    "temperature": 0.6,
+                    "temperature": 0.6,  # Minimum allowed value (consistent, predictable speech)
                     "turn_detection": {
                         "type": "server_vad",
-                        "threshold": 0.6,
-                        "silence_duration_ms": 800,
-                        "prefix_padding_ms": 500
+                        "threshold": 0.6,  # Higher threshold to avoid interruptions
+                        "silence_duration_ms": 800,  # Longer silence required before turn ends (slower speech)
+                        "prefix_padding_ms": 500  # More prefix padding for clarity
                     },
                     "input_audio_transcription": {
                         "model": "whisper-1"
@@ -114,7 +114,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
             }))
             logger.info(f"[Realtime] ✅ Session configured — voice: {voice}")
 
-            # Trigger opening greeting
+            # ✅ FIX 2: Correct way to trigger opening greeting
             if scenario_context.get("initial_prompt"):
                 await openai_ws.send(json.dumps({
                     "type": "conversation.item.create",
@@ -150,19 +150,21 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                             }))
 
                         elif msg_type == "end_session":
-                            logger.info(f"[Realtime] 📞 Session end requested — transcript has {len(conversation_transcript)} messages")
+                            logger.info(f"[Realtime] 📞 Session end requested - transcript contains {len(conversation_transcript)} messages")
 
+                            # Log the transcript structure for verification
                             user_msgs = [m for m in conversation_transcript if m.get("role") == "user"]
-                            bot_msgs  = [m for m in conversation_transcript if m.get("role") == "bot"]
-                            logger.info(f"[Realtime] 📊 Breakdown: {len(user_msgs)} user, {len(bot_msgs)} bot messages")
+                            bot_msgs = [m for m in conversation_transcript if m.get("role") == "bot"]
+                            logger.info(f"[Realtime] 📊 Transcript breakdown: {len(user_msgs)} user messages, {len(bot_msgs)} bot messages")
 
+                            # Send complete transcript back to frontend
                             await websocket.send_json({
                                 "type": "session_ended",
                                 "transcript": conversation_transcript,
                                 "session_id": scenario_context["session_id"]
                             })
 
-                            logger.info(f"[Realtime] ✅ session_ended sent with {len(conversation_transcript)} messages")
+                            logger.info(f"[Realtime] ✅ session_ended payload sent to frontend with {len(conversation_transcript)} messages")
                             break
 
                 except Exception as e:
@@ -181,6 +183,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                             })
 
                         elif response_type == "response.audio_transcript.delta":
+                            # ✅ Correct event for bot speech transcript
                             await websocket.send_json({
                                 "type": "transcript_chunk",
                                 "text": response.get("delta", ""),
@@ -192,14 +195,15 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                             if text:
                                 conversation_transcript.append({"role": "bot", "text": text})
                                 logger.info(f"[Realtime] 💬 Bot: {text[:60]}...")
-                                logger.info(f"[Realtime] 📝 Transcript count: {len(conversation_transcript)}")
+                                logger.info(f"[Realtime] 📝 Transcript count: {len(conversation_transcript)} messages")
 
                         elif response_type == "conversation.item.input_audio_transcription.completed":
+                            # ✅ Correct event for user speech transcript
                             text = response.get("transcript", "")
                             if text:
                                 conversation_transcript.append({"role": "user", "text": text})
                                 logger.info(f"[Realtime] 👤 User: {text[:60]}...")
-                                logger.info(f"[Realtime] 📝 Transcript count: {len(conversation_transcript)}")
+                                logger.info(f"[Realtime] 📝 Transcript count: {len(conversation_transcript)} messages")
                                 await websocket.send_json({
                                     "type": "user_transcription",
                                     "text": text
@@ -211,7 +215,6 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
 
                         elif response_type == "response.done":
                             logger.info("[Realtime] ✅ Response complete")
-                            await websocket.send_json({"type": "response.done"})
 
                         elif response_type == "error":
                             logger.error(f"[Realtime] ❌ OpenAI error: {response}")
@@ -238,12 +241,11 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                     pass
 
     except Exception as e:
-        logger.error(f"[Realtime] ❌ WebSocket error: {str(e)}", exc_info=True)
+        logger.error(f"[Realtime] ❌ WebSocket error: {str(e)}")
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
-        except Exception:
+        except:
             pass
 
     finally:
         sid = scenario_context.get("session_id") if scenario_context else "unknown"
-        logger.info(f"🔌 [Realtime] Session {sid} disconnected")
