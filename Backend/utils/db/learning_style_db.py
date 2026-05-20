@@ -20,16 +20,12 @@ async def get_learning_style_by_user_id(
             # Get target user's company for permission check
             user_resp = supabase.table('users').select('company_id').eq(
                 'user_id', target_user_id
-            ).execute()
+            ).single().execute()
             
             if not user_resp.data:
                 return {"data": None, "error": "User not found"}
             
-            user_row = user_resp.data[0] if user_resp.data else None
-            if not user_row:
-                 return {"data": None, "error": "User not found"}
-            
-            target_company = user_row['company_id']
+            target_company = user_resp.data['company_id']
             has_perm = await check_user_permission(requesting_user_id, 'manager')
             has_access = await check_company_access(requesting_user_id, target_company)
             
@@ -39,10 +35,9 @@ async def get_learning_style_by_user_id(
         # Fetch learning style
         resp = supabase.table('employee_learning_style').select('*').eq(
             'user_id', target_user_id
-        ).execute()
+        ).maybeSingle().execute()
         
-        learning_style_data = resp.data[0] if resp.data else None
-        return {"data": learning_style_data, "error": None}
+        return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -95,16 +90,12 @@ async def create_learning_style(
         # Get target user's company for permission check
         user_resp = supabase.table('users').select('company_id').eq(
             'user_id', user_id
-        ).execute()
+        ).single().execute()
         
         if not user_resp.data:
             return {"data": None, "error": "User not found"}
         
-        user_row = user_resp.data[0] if user_resp.data else None
-        if not user_row:
-             return {"data": None, "error": "User not found"}
-        
-        target_company = user_row['company_id']
+        target_company = user_resp.data['company_id']
         has_permission = await check_user_permission(requesting_user_id, 'company_admin')
         has_access = await check_company_access(requesting_user_id, target_company)
         
@@ -118,11 +109,9 @@ async def create_learning_style(
         # Check if learning style already exists for this user
         existing_resp = supabase.table('employee_learning_style').select('*').eq(
             'user_id', user_id
-        ).execute()
+        ).maybeSingle().execute()
         
-        existing_data = existing_resp.data[0] if existing_resp.data else None
-        
-        if existing_data:
+        if existing_resp.data:
             return {
                 "data": None,
                 "error": "Learning style already exists for this user. Use update instead."
@@ -153,16 +142,12 @@ async def update_learning_style(
             # Get target user's company for permission check
             user_resp = supabase.table('users').select('company_id').eq(
                 'user_id', target_user_id
-            ).execute()
+            ).single().execute()
             
             if not user_resp.data:
                 return {"data": None, "error": "User not found"}
             
-            user_row = user_resp.data[0] if user_resp.data else None
-            if not user_row:
-                 return {"data": None, "error": "User not found"}
-            
-            target_company = user_row['company_id']
+            target_company = user_resp.data['company_id']
             has_permission = await check_user_permission(requesting_user_id, 'company_admin')
             has_access = await check_company_access(requesting_user_id, target_company)
             
@@ -207,16 +192,12 @@ async def upsert_learning_style(
         # Get target user's company for permission check
         user_resp = supabase.table('users').select('company_id').eq(
             'user_id', user_id
-        ).execute()
+        ).single().execute()
         
         if not user_resp.data:
             return {"data": None, "error": "User not found"}
         
-        user_row = user_resp.data[0] if user_resp.data else None
-        if not user_row:
-             return {"data": None, "error": "User not found"}
-        
-        target_company = user_row['company_id']
+        target_company = user_resp.data['company_id']
         has_permission = await check_user_permission(requesting_user_id, 'company_admin')
         has_access = await check_company_access(requesting_user_id, target_company)
         
@@ -248,16 +229,12 @@ async def delete_learning_style(
         # Get target user's company for permission check
         user_resp = supabase.table('users').select('company_id').eq(
             'user_id', target_user_id
-        ).execute()
+        ).single().execute()
         
         if not user_resp.data:
             return {"data": None, "error": "User not found"}
         
-        user_row = user_resp.data[0] if user_resp.data else None
-        if not user_row:
-             return {"data": None, "error": "User not found"}
-        
-        target_company = user_row['company_id']
+        target_company = user_resp.data['company_id']
         has_permission = await check_user_permission(requesting_user_id, 'company_admin')
         has_access = await check_company_access(requesting_user_id, target_company)
         

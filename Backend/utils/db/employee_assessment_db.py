@@ -13,8 +13,8 @@ async def get_user_company_id(user_id: str) -> Optional[str]:
     try:
         resp = supabase.table('users').select('company_id').eq(
             'user_id', user_id
-        ).execute()
-        return resp.data[0].get('company_id') if resp.data else None
+        ).single().execute()
+        return resp.data.get('company_id') if resp.data else None
     except Exception:
         return None
 
@@ -32,14 +32,12 @@ async def get_employee_assessment_by_id(
     try:
         resp = supabase.table('employee_assessments').select(
             '*, users!inner(company_id, name, email), assessments(assessment_id, type, questions, processed_module_id, learning_style)'
-        ).eq('employee_assessment_id', employee_assessment_id).execute()
+        ).eq('employee_assessment_id', employee_assessment_id).single().execute()
         
         if not resp.data:
             return {"data": None, "error": "Employee assessment not found"}
         
-        assessment = resp.data[0] if resp.data else None
-        if not assessment:
-             return {"data": None, "error": "Employee assessment not found"}
+        assessment = resp.data
         user_company = assessment.get('users', {}).get('company_id')
         assessment_user_id = assessment.get('user_id')
         
@@ -74,16 +72,12 @@ async def get_employee_assessments_by_user(
         # Get target user's company to check permissions
         user_resp = supabase.table('users').select('company_id').eq(
             'user_id', target_user_id
-        ).execute()
+        ).single().execute()
         
         if not user_resp.data:
             return {"data": None, "error": "User not found"}
         
-        user_row = user_resp.data[0] if user_resp.data else None
-        if not user_row:
-             return {"data": None, "error": "User not found"}
-        
-        target_company = user_row.get('company_id')
+        target_company = user_resp.data.get('company_id')
         is_self = requesting_user_id == target_user_id
         
         if not is_self:
@@ -120,13 +114,12 @@ async def get_employee_assessments_by_assessment(
         # Get assessment's company
         assessment_resp = supabase.table('assessments').select('company_id').eq(
             'assessment_id', assessment_id
-        ).execute()
+        ).single().execute()
         
         if not assessment_resp.data:
             return {"data": None, "error": "Assessment not found"}
         
-        assessment_row = assessment_resp.data[0] if assessment_resp.data else None
-        assessment_company = assessment_row.get('company_id') if assessment_row else None
+        assessment_company = assessment_resp.data.get('company_id')
         
         # Check permissions
         has_permission = await check_user_permission(requesting_user_id, 'manager')
@@ -229,18 +222,14 @@ async def create_employee_assessment(
     try:
         assessment_resp = supabase.table('assessments').select('company_id').eq(
             'assessment_id', assessment_id
-        ).execute()
+        ).single().execute()
         
         if not assessment_resp.data:
             return {"data": None, "error": "Assessment not found"}
         
-        assessment_row = assessment_resp.data[0] if assessment_resp.data else None
-        if not assessment_row:
-             return {"data": None, "error": "Assessment not found"}
-        
         # Verify user belongs to same company as assessment
         user_company = await get_user_company_id(user_id)
-        assessment_company = assessment_row.get('company_id')
+        assessment_company = assessment_resp.data.get('company_id')
         
         if user_company != assessment_company:
             return {
@@ -341,13 +330,12 @@ async def get_assessment_statistics(
         # Get assessment's company
         assessment_resp = supabase.table('assessments').select('company_id').eq(
             'assessment_id', assessment_id
-        ).execute()
+        ).single().execute()
         
         if not assessment_resp.data:
             return {"data": None, "error": "Assessment not found"}
         
-        assessment_row = assessment_resp.data[0] if assessment_resp.data else None
-        assessment_company = assessment_row.get('company_id') if assessment_row else None
+        assessment_company = assessment_resp.data.get('company_id')
         
         # Check permissions
         has_permission = await check_user_permission(requesting_user_id, 'manager')

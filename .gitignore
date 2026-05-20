@@ -3,4 +3,3 @@
 /secrets
 node_modules
 /.venv
-/Frontend/package-lock.json

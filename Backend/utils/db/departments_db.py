@@ -21,7 +21,7 @@ async def get_departments_by_company(
         }
     
     try:
-        response = supabase.table('departments').select('department_id, name, company_id, created_at').eq(
+        response = supabase.table('departments').select('*').eq(
             'company_id', company_id
         ).order('name').execute()
         

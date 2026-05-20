@@ -41,9 +41,7 @@ async def get_assessment_by_id(
     Permission: User must have access to the company.
     """
     try:
-        resp = supabase.table('assessments').select(
-            'assessment_id, type, company_id, processed_module_id, original_module_id, learning_style, questions, created_at'
-        ).eq('assessment_id', assessment_id).single().execute()
+        resp = supabase.table('assessments').select('*').eq('assessment_id', assessment_id).single().execute()
         if not resp.data:
             return {"data": None, "error": "Assessment not found"}
         
@@ -80,9 +78,7 @@ async def get_assessments_by_company(
         }
     
     try:
-        query = supabase.table('assessments').select(
-            'assessment_id, type, company_id, processed_module_id, original_module_id, learning_style, questions, created_at'
-        ).eq('company_id', company_id)
+        query = supabase.table('assessments').select('*').eq('company_id', company_id)
         
         if assessment_type:
             query = query.eq('type', assessment_type)
@@ -112,9 +108,7 @@ async def get_assessment_by_filters(
             return {"data": None, "error": "Permission denied"}
     
     try:
-        query = supabase.table('assessments').select(
-            'assessment_id, type, company_id, processed_module_id, original_module_id, learning_style, questions, created_at'
-        )
+        query = supabase.table('assessments').select('*')
         
         if company_id:
             query = query.eq('company_id', company_id)
@@ -164,9 +158,7 @@ async def get_baseline_assessment(
         return {"data": None, "error": "Permission denied"}
     
     try:
-        response = supabase.table('assessments').select(
-            'assessment_id, type, company_id, processed_module_id, original_module_id, learning_style, questions, created_at'
-        ).eq(
+        response = supabase.table('assessments').select('*').eq(
             'type', 'baseline'
         ).eq('company_id', company_id).eq(
             'original_module_id', original_module_id
@@ -203,9 +195,7 @@ async def get_module_assessment(
             return {"data": None, "error": "Processed module not found for this user"}
         
         # Now fetch the assessment
-        response = supabase.table('assessments').select(
-            'assessment_id, type, company_id, processed_module_id, original_module_id, learning_style, questions, created_at'
-        ).eq(
+        response = supabase.table('assessments').select('*').eq(
             'type', 'module'
         ).eq('processed_module_id', processed_module_id).eq(
             'learning_style', learning_style

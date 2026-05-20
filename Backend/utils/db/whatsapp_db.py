@@ -167,10 +167,10 @@ async def get_scheduled_whatsapp_by_id(
             supabase.table("scheduled_whatsapp")
             .select("*")
             .eq("scheduled_whatsapp_id", scheduled_whatsapp_id)
+            .single()
             .execute()
         )
-        data = response.data[0] if response.data else None
-        return {"data": data, "error": None}
+        return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -186,10 +186,10 @@ async def get_dispatch_record_by_id(
             supabase.table("whatsapp_dispatch")
             .select("*")
             .eq("whatsapp_dispatch_id", whatsapp_dispatch_id)
+            .single()
             .execute()
         )
-        data = response.data[0] if response.data else None
-        return {"data": data, "error": None}
+        return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -381,11 +381,12 @@ async def get_module_content(module_id: str) -> Dict[str, Any]:
                 "processed_module_id, original_module_id, title, flashcard_data, audio_url, video_url, mindmap_data, infographic_data"
             )
             .eq("processed_module_id", module_id)
+            .single()
             .execute()
         )
 
-        data = response.data[0] if response.data else None
+
         print(f"[get_module_content DEBUG] Supabase response: {response}")
-        return {"data": data, "error": None}
+        return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}

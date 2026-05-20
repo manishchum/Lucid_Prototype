@@ -21,7 +21,6 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 # OpenAI configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
-OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL")
 
 # CloudConvert configuration
 CLOUDCONVERT_API_KEY = os.getenv("CLOUDCONVERT_API_KEY")

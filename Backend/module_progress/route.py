@@ -97,9 +97,10 @@ async def POST(request: Request):
                 pm_res = supabase.table("processed_modules") \
                     .select("original_module_id") \
                     .eq("processed_module_id", processed_module_id) \
+                    .single() \
                     .execute()
 
-                processedModule = pm_res.data[0] if pm_res.data else None
+                processedModule = pm_res.data
                 pmError = getattr(pm_res, "error", None)
 
                 if pmError:
@@ -173,9 +174,10 @@ async def POST(request: Request):
                 pm_res = supabase.table("processed_modules") \
                     .select("original_module_id") \
                     .eq("processed_module_id", processed_module_id) \
+                    .single() \
                     .execute()
 
-                processedModule = pm_res.data[0] if pm_res.data else None
+                processedModule = pm_res.data
                 pmError = getattr(pm_res, "error", None)
                 if pmError:
                     print("[module-progress] Error fetching original_module_id from processed_modules:", pmError)
@@ -202,9 +204,11 @@ async def POST(request: Request):
 
             create_res = supabase.table("module_progress") \
                 .insert(progressData) \
+                .select() \
+                .single() \
                 .execute()
 
-            data = create_res.data[0] if create_res.data else create_res.data
+            data = create_res.data
             error = getattr(create_res, "error", None)
 
             if error:

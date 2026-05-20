@@ -47,12 +47,12 @@ async def get_learning_plan_by_id(
         # Fetch the learning plan
         resp = supabase.table('learning_plan').select(
             '*, users(user_id, name, email, company_id), training_modules(module_id, title, company_id)'
-        ).eq('learning_plan_id', learning_plan_id).execute()
+        ).eq('learning_plan_id', learning_plan_id).single().execute()
         
         if not resp.data:
             return {"data": None, "error": "Learning plan not found"}
         
-        plan = resp.data[0] if resp.data else None
+        plan = resp.data
         plan_user_id = plan.get('user_id')
         
         # Check if user is viewing their own plan
@@ -196,13 +196,13 @@ async def create_learning_plan(
         # Verify module exists and belongs to same company
         module_resp = supabase.table('training_modules').select('company_id').eq(
             'module_id', module_id
-        ).execute()
+        ).single().execute()
         
         if not module_resp.data:
             return {"data": None, "error": "Training module not found"}
-            
+        
         user_company_id = await get_user_company_id(requesting_user_id)
-        module_company_id = module_resp.data[0].get('company_id') if module_resp.data else None
+        module_company_id = module_resp.data.get('company_id')
         
         if module_company_id != user_company_id:
             return {"data": None, "error": "Module belongs to different company"}
@@ -237,17 +237,17 @@ async def create_learning_plan(
         try:
             user_resp = supabase.table('users').select('user_id, email, name').eq(
                 'user_id', user_id
-            ).execute()
+            ).single().execute()
             module_title_resp = supabase.table('training_modules').select('title').eq(
                 'module_id', module_id
-            ).execute()
+            ).single().execute()
             company_resp = supabase.table('companies').select('name').eq(
                 'company_id', user_company_id
-            ).execute()
+            ).single().execute()
 
-            user_row = user_resp.data[0] if user_resp.data else None
-            module_row = module_title_resp.data[0] if module_title_resp.data else None
-            company_row = company_resp.data[0] if company_resp.data else None
+            user_row = user_resp.data if user_resp.data else None
+            module_row = module_title_resp.data if module_title_resp.data else None
+            company_row = company_resp.data if company_resp.data else None
 
             if user_row and module_row and company_row:
                 notification_result = await send_assignment_notification_email(
@@ -277,14 +277,15 @@ async def update_learning_plan(
     Permission: User can update their own plan (limited fields), manager+ can update plans in their company.
     """
     try:
+        # Fetch the learning plan to check ownership
         plan_resp = supabase.table('learning_plan').select('user_id').eq(
             'learning_plan_id', learning_plan_id
-        ).execute()
+        ).single().execute()
         
         if not plan_resp.data:
             return {"data": None, "error": "Learning plan not found"}
         
-        plan_user_id = plan_resp.data[0].get('user_id') if plan_resp.data else None
+        plan_user_id = plan_resp.data.get('user_id')
         
         # Check if user is updating their own plan
         if requesting_user_id == plan_user_id:
@@ -341,12 +342,12 @@ async def delete_learning_plan(
         # Fetch the learning plan to check company
         plan_resp = supabase.table('learning_plan').select('user_id').eq(
             'learning_plan_id', learning_plan_id
-        ).execute()
+        ).single().execute()
         
         if not plan_resp.data:
             return {"data": None, "error": "Learning plan not found"}
         
-        plan_user_id = plan_resp.data[0].get('user_id') if plan_resp.data else None
+        plan_user_id = plan_resp.data.get('user_id')
         
         # Check company access
         has_access = await check_company_access(requesting_user_id, plan_user_id)
