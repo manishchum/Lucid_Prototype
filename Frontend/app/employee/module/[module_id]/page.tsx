@@ -303,13 +303,14 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       };
                     });
                   }}
-                  onVideoGenerated={(url: string, hinglishUrl?: string) => {
+                  onVideoGenerated={(url: string, hinglishUrl?: string, bengaliUrl?: string) => {
                     setModule((prev: any) => {
                       if (!prev) return prev;
                       return {
                         ...prev,
                         video_url: url,
-                        ...(hinglishUrl ? { video_url_hinglish: hinglishUrl } : {})
+                        ...(hinglishUrl ? { video_url_hinglish: hinglishUrl } : {}),
+                        ...(bengaliUrl ? { video_url_bengali: bengaliUrl } : {})
                       };
                     });
                   }}
@@ -1536,7 +1537,7 @@ function ContentTransformer({
                       if (!video) return;
                       const currentTime = video.currentTime;
                       const isPaused = video.paused;
-                      video.src = e.target.value === 'hinglish' ? module.video_url_hinglish : module.video_url;
+                      video.src = e.target.value === 'hinglish' ? module.video_url_hinglish : (e.target.value === 'bengali' ? module.video_url_bengali : module.video_url);
                       video.onloadedmetadata = () => {
                         video.currentTime = currentTime;
                         if (!isPaused) video.play();
@@ -1549,6 +1550,9 @@ function ContentTransformer({
                     <option value="en">English</option>
                     {module.video_url_hinglish && (
                       <option value="hinglish">हिंदी</option>
+                    )}
+                    {module.video_url_bengali && (
+                      <option value="bengali">Bengali</option>
                     )}
                   </select>
                 </div>
@@ -1564,8 +1568,8 @@ function ContentTransformer({
                 <div>Video is not available yet.</div>
                 <GenerateVideoButton
                   moduleId={module.processed_module_id}
-                  onVideoGenerated={(url, hinglishUrl) => {
-                    if (onVideoGenerated) onVideoGenerated(url, hinglishUrl);
+                  onVideoGenerated={(url, hinglishUrl, bengaliUrl) => {
+                    if (onVideoGenerated) onVideoGenerated(url, hinglishUrl, bengaliUrl);
                   }}
                 />
               </div>
@@ -2286,7 +2290,7 @@ function GenerateVideoButton({
   onVideoGenerated,
 }: {
   moduleId: string;
-  onVideoGenerated: (url: string, hinglishUrl?: string) => void;
+  onVideoGenerated: (url: string, hinglishUrl?: string, bengaliUrl?: string) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2302,7 +2306,7 @@ function GenerateVideoButton({
       });
       const data = await res.json();
       if (res.ok && data.videoUrl) {
-        onVideoGenerated(data.videoUrl, data.videoUrlHinglish);
+        onVideoGenerated(data.videoUrl, data.videoUrlHinglish, data.videoUrlBengali);
       } else {
         setError(data.error || 'Failed to generate video');
       }

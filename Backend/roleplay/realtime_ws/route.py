@@ -7,8 +7,9 @@ from websockets.asyncio.client import connect
 
 router = APIRouter()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
+from config import OPENAI_API_KEY
+OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL")
+OPENAI_REALTIME_URL = f"wss://api.openai.com/v1/realtime?model={OPENAI_REALTIME_MODEL}"
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)

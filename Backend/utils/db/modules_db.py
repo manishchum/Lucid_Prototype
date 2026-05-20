@@ -38,24 +38,26 @@ async def get_training_modules(
             # Get job status
             job_response = supabase.table('content_jobs').select('status').eq(
                 'module_id', module['module_id']
-            ).maybe_single().execute()
+            ).execute()
             
-            if not job_response.data:
+            job_data = job_response.data[0] if job_response.data else None
+            
+            if not job_data:
                 processing_status = 'not_started'
-            elif job_response.data.get('status') == 'completed':
+            elif job_data.get('status') == 'completed':
                 processing_status = 'completed'
-            elif job_response.data.get('status') == 'failed':
+            elif job_data.get('status') == 'failed':
                 processing_status = 'failed'
             else:
                 processing_status = 'processing'
             
             # If not manager, only show assigned modules
             if not is_manager:
-                assignment = supabase.table('assignments').select('assignment_id').eq(
+                assignment_resp = supabase.table('assignments').select('assignment_id').eq(
                     'user_id', requesting_user_id
-                ).eq('module_id', module['module_id']).maybe_single().execute()
+                ).eq('module_id', module['module_id']).execute()
                 
-                if not assignment.data:
+                if not assignment_resp.data:
                     continue  # Skip this module
             
             enriched_modules.append({

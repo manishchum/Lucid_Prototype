@@ -16,6 +16,7 @@ pytesseract
 unstructured
 websockets
 playwright
+# playwright install
 # optional dev dependencies
 pytest
 google-genai
@@ -27,3 +28,4 @@ ffmpeg
 static-ffmpeg
 bcrypt
 pydantic[email]
+firebase-admin

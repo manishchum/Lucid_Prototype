@@ -10,7 +10,7 @@ async def get_all_roles(requesting_user_id: str) -> Dict[str, Any]:
     Permission: Any authenticated user (for dropdowns).
     """
     try:
-        response = supabase.table('roles').select('*').order('level').execute()
+        response = supabase.table('roles').select('role_id, name, level, description').order('level').execute()
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -42,12 +42,16 @@ async def assign_user_role(
         # Fetch target user's company
         target_resp = supabase.table('users').select('company_id').eq(
             'user_id', target_user_id
-        ).single().execute()
+        ).execute()
         
         if not target_resp.data:
             return {"data": None, "error": "Target user not found"}
         
-        target_company = target_resp.data['company_id']
+        user_row = target_resp.data[0] if target_resp.data else None
+        if not user_row:
+             return {"data": None, "error": "Target user not found"}
+             
+        target_company = user_row['company_id']
         
         # Normalize and validate scope_type
         scope_type = (role_data.get('scope_type') or '').upper()
@@ -130,16 +134,20 @@ async def get_user_roles(
             # Get target user's company
             target_resp = supabase.table('users').select('company_id').eq(
                 'user_id', target_user_id
-            ).single().execute()
+            ).execute()
             
             if not target_resp.data:
                 return {"data": None, "error": "User not found"}
+            
+            user_row = target_resp.data[0] if target_resp.data else None
+            if not user_row:
+                 return {"data": None, "error": "User not found"}
             
             # Permission check
             has_perm = await check_user_permission(requesting_user_id, 'manager')
             has_access = await check_company_access(
                 requesting_user_id,
-                target_resp.data['company_id']
+                user_row['company_id']
             )
             
             if not has_perm or not has_access:
@@ -147,7 +155,7 @@ async def get_user_roles(
         
         # Fetch active role assignments with role details
         resp = supabase.table('user_role_assignments').select(
-            '*, role:roles(*)'
+            'user_role_assignment_id, user_id, role_id, scope_type, scope_id, is_active, assigned_at, role:roles(*)'
         ).eq('user_id', target_user_id).execute()
 
         # Backward compatibility: treat NULL is_active as active for legacy rows.
@@ -185,7 +193,7 @@ async def get_all_role_assignments(
         
         # Build query - get assignments for users in this company
         query = supabase.table('user_role_assignments').select(
-            '*, role:roles(*), user:users!user_id(user_id, name, email, company_id)'
+            'user_role_assignment_id, user_id, role_id, scope_type, scope_id, is_active, created_at, role:roles(*), user:users!user_id(user_id, name, email, company_id)'
         )
         
         resp = query.execute()
@@ -221,16 +229,21 @@ async def update_role_assignment(
     try:
         # Get the assignment to find the target user_id
         assignment_resp = supabase.table('user_role_assignments').select(
-            '*'
-        ).eq('user_role_assignment_id', assignment_id).single().execute()
+            'user_role_assignment_id, user_id, role_id, scope_id, scope_type'
+        ).eq('user_role_assignment_id', assignment_id).execute()
         
         if not assignment_resp.data:
             return {"data": None, "error": "Role assignment not found"}
         
+        assignment_data = assignment_resp.data[0] if assignment_resp.data else None
+        if not assignment_data:
+             return {"data": None, "error": "Role assignment not found"}
+        
         # Look up the user's company directly (avoids fragile join format)
-        target_user_id = assignment_resp.data.get('user_id')
-        user_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).single().execute()
-        user_company = user_resp.data.get('company_id') if user_resp.data else None
+        target_user_id = assignment_data.get('user_id')
+        user_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).execute()
+        user_row = user_resp.data[0] if user_resp.data else None
+        user_company = user_row.get('company_id') if user_row else None
         
         # Permission check
         has_perm = await check_user_permission(requesting_user_id, 'company_admin')
@@ -273,16 +286,21 @@ async def revoke_role_assignment(
     try:
         # Get the assignment to find the target user_id
         assignment_resp = supabase.table('user_role_assignments').select(
-            '*'
-        ).eq('user_role_assignment_id', assignment_id).single().execute()
+            'user_role_assignment_id, user_id, role_id, scope_id, scope_type'
+        ).eq('user_role_assignment_id', assignment_id).execute()
         
         if not assignment_resp.data:
             return {"data": None, "error": "Role assignment not found"}
+            
+        assignment_data = assignment_resp.data[0] if assignment_resp.data else None
+        if not assignment_data:
+             return {"data": None, "error": "Role assignment not found"}
         
         # Look up the user's company directly (avoids fragile join format)
-        target_user_id = assignment_resp.data.get('user_id')
-        user_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).single().execute()
-        user_company = user_resp.data.get('company_id') if user_resp.data else None
+        target_user_id = assignment_data.get('user_id')
+        user_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).execute()
+        user_row = user_resp.data[0] if user_resp.data else None
+        user_company = user_row.get('company_id') if user_row else None
         
         # Permission check
         has_perm = await check_user_permission(requesting_user_id, 'company_admin')

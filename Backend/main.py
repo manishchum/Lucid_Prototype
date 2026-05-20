@@ -91,7 +91,7 @@ async def debug_user(user_id: str):
     user = supabase.table('users').select('company_id, name').eq('user_id', user_id).single().execute()
     
     # Get role assignments
-    roles = supabase.table('user_role_assignments').select(', role:roles()').eq('user_id', user_id).eq('is_active', True).execute()
+    roles = supabase.table('user_role_assignments').select('*, role:roles(*)').eq('user_id', user_id).eq('is_active', True).execute()
     
     # Check permissions
     has_manager = await check_user_permission(user_id, 'manager')
