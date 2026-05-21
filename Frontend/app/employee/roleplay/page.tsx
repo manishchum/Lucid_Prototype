@@ -78,7 +78,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       
       const { data, error } = await fetchScenariosForUserAPI(userId, isAdmin || false);
 
-      //console.log('Fetched scenarios:', data);
+      console.log('Fetched scenarios:', data);
       if (data) {
         setAllScenarios(data);
       }

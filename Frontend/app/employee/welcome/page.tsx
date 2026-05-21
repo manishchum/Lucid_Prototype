@@ -713,7 +713,7 @@ const handleGenerateCertificate = (sprintId: string) => {
            dashboard_summary:dashboard_summary,
         });
 
-        const dashBoardData = dashboard_summary.json();
+        const dashBoardData = dashboard_summary;
         
      
         return {
@@ -771,7 +771,7 @@ const handleGenerateCertificate = (sprintId: string) => {
         progress,
         assessmentEvidenceByModuleId,
       );
-
+      console.log("Mapped assigned modules:", mappedAssigned);
       setAssignedModules(mappedAssigned);
       setModuleProgress(progress);
       setLearningStyle(data?.learningStyle || null);

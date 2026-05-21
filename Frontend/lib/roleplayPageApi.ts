@@ -4,6 +4,7 @@
  * This replaces direct Supabase calls with secure backend proxy
  */
 
+import { callGemini } from './gemini-helper';
 import { Scenario } from './roleplay/types';
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
@@ -79,6 +80,8 @@ export async function fetchScenariosForUserAPI(
       };
     }
 
+    console.log('API fetchScenariosForUserAPI result:', result.data);
+    console.log('API fetchScenariosForUserAPI raw response:', response);
     return {
       data: result.data,
       error: null,
