@@ -1,18 +1,30 @@
-import os
 import json
 import logging
 import asyncio
 from fastapi import APIRouter, WebSocket
 from websockets.asyncio.client import connect
 
-router = APIRouter()
+from config import OPENAI_API_KEY, OPENAI_REALTIME_MODEL
 
-from config import OPENAI_API_KEY
-OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL")
-OPENAI_REALTIME_URL = f"wss://api.openai.com/v1/realtime?model={OPENAI_REALTIME_MODEL}"
+router = APIRouter()
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+_OPENAI_API_KEY = OPENAI_API_KEY
+
+if not _OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY not loaded")
+
+if not _OPENAI_API_KEY.startswith("sk-"):
+    raise ValueError(f"OPENAI_API_KEY has invalid prefix: {_OPENAI_API_KEY[:10]}")
+
+logger.warning("[Realtime] Key loaded: yes")
+logger.warning(f"[Realtime] Key prefix: {_OPENAI_API_KEY[:8]}")
+logger.warning(f"[Realtime] Key length: {len(_OPENAI_API_KEY)}")
+logger.warning(f"[Realtime] Model: {OPENAI_REALTIME_MODEL}")
+
+OPENAI_REALTIME_URL = f"wss://api.openai.com/v1/realtime?model={OPENAI_REALTIME_MODEL}"
 
 
 def build_system_prompt(scenario_context: dict) -> str:
@@ -24,11 +36,16 @@ def build_system_prompt(scenario_context: dict) -> str:
     tone = scenario_context.get("tone", "Neutral")
     tone_instruction = tone_instructions.get(tone, tone_instructions["Neutral"])
 
+    scenario_role = scenario_context.get("scenario_role") or "role-play character"
+    user_role = scenario_context.get("user_role") or "learner"
+
     return f"""You are an expert role-play simulation engine.
-You are roleplaying as a {scenario_context.get('scenario_role')} in a "{scenario_context.get('scenario_title')}" scenario.
+You are roleplaying as the AI character: {scenario_role}.
+The human learner is roleplaying as: {user_role}.
+Scenario: "{scenario_context.get('scenario_title')}".
 
 CRITICAL RULES FOR CLARITY AND SPEED:
-1. STAY IN CHARACTER as the {scenario_context.get('scenario_role')} at all times
+1. STAY IN CHARACTER as the {scenario_role} at all times
 2. NEVER break character or acknowledge you are an AI
 3. NEVER provide coaching or advice to the user
 4. KEEP RESPONSES EXTREMELY SHORT - 1-2 sentences ONLY. Be concise and direct.
@@ -36,9 +53,11 @@ CRITICAL RULES FOR CLARITY AND SPEED:
 6. Speak in natural pauses. One thought per sentence.
 7. Raise realistic objections and concerns
 8. Show realistic emotions based on what the user says
+9. DO NOT roleplay as the {user_role}. That is the human learner's role.
+10. DO NOT answer for the learner or tell the learner what to say.
 
 CHARACTER TONE: {tone_instruction}
-Your character background: {scenario_context.get('initial_prompt')}
+Your opening situation or first line: {scenario_context.get('initial_prompt')}
 
 IMPORTANT: Quality over quantity. Each sentence should be clear and easy to understand when spoken aloud."""
 
@@ -71,12 +90,17 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
         if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY not set")
 
+        if not _OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY is empty after stripping")
+
+        logger.info(f"[Realtime] 🔑 API Key: {_OPENAI_API_KEY[:15]}...{_OPENAI_API_KEY[-5:]}")
+        logger.info(f"[Realtime] 🌐 URL: {OPENAI_REALTIME_URL}")
+
         headers = {
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "OpenAI-Beta": "realtime=v1",
+            "Authorization": f"Bearer {_OPENAI_API_KEY}",
         }
 
-        # ✅ FIX 1: extra_headers instead of additional_headers
+        # ✅ FIX: Use additional_headers parameter with websockets library
         async with connect(OPENAI_REALTIME_URL, additional_headers=headers) as openai_ws:
             logger.info("[Realtime] ✅ Connected to OpenAI Realtime API")
 
@@ -95,20 +119,33 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
             await openai_ws.send(json.dumps({
                 "type": "session.update",
                 "session": {
+                    "type": "realtime",
+                    "model": OPENAI_REALTIME_MODEL,
                     "instructions": build_system_prompt(scenario_context),
-                    "modalities": ["text", "audio"],
-                    "voice": voice,  # Dynamic voice selection based on gender
-                    "input_audio_format": "pcm16",
-                    "output_audio_format": "pcm16",
-                    "temperature": 0.6,  # Minimum allowed value (consistent, predictable speech)
-                    "turn_detection": {
-                        "type": "server_vad",
-                        "threshold": 0.6,  # Higher threshold to avoid interruptions
-                        "silence_duration_ms": 800,  # Longer silence required before turn ends (slower speech)
-                        "prefix_padding_ms": 500  # More prefix padding for clarity
-                    },
-                    "input_audio_transcription": {
-                        "model": "whisper-1"
+                    "output_modalities": ["audio"],
+                    "audio": {
+                        "input": {
+                            "format": {
+                                "type": "audio/pcm",
+                                "rate": 24000,
+                            },
+                            "turn_detection": {
+                                "type": "server_vad",
+                                "threshold": 0.6,  # Higher threshold to avoid interruptions
+                                "silence_duration_ms": 800,  # Longer silence required before turn ends (slower speech)
+                                "prefix_padding_ms": 500,  # More prefix padding for clarity
+                            },
+                            "transcription": {
+                                "model": "whisper-1",
+                            },
+                        },
+                        "output": {
+                            "format": {
+                                "type": "audio/pcm",
+                                "rate": 24000,
+                            },
+                            "voice": voice,  # Dynamic voice selection based on gender
+                        },
                     }
                 }
             }))
@@ -117,20 +154,13 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
             # ✅ FIX 2: Correct way to trigger opening greeting
             if scenario_context.get("initial_prompt"):
                 await openai_ws.send(json.dumps({
-                    "type": "conversation.item.create",
-                    "item": {
-                        "type": "message",
-                        "role": "user",
-                        "content": [{
-                            "type": "input_text",
-                            "text": f"Start with a brief greeting as {scenario_context['scenario_role']}. Context: {scenario_context['initial_prompt']}"
-                        }]
-                    }
-                }))
-                await openai_ws.send(json.dumps({
                     "type": "response.create",
                     "response": {
-                        "modalities": ["text", "audio"]
+                        "output_modalities": ["audio"],
+                        "instructions": (
+                            f"Start the roleplay now as {scenario_context['scenario_role']}. "
+                            f"Use this as your opening line or situation: {scenario_context['initial_prompt']}"
+                        ),
                     }
                 }))
                 logger.info("[Realtime] 🎤 Requested opening greeting")
@@ -176,13 +206,13 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                         response = json.loads(await openai_ws.recv())
                         response_type = response.get("type")
 
-                        if response_type == "response.audio.delta":
+                        if response_type in ("response.output_audio.delta", "response.audio.delta"):
                             await websocket.send_json({
                                 "type": "audio",
                                 "audio": response.get("delta")
                             })
 
-                        elif response_type == "response.audio_transcript.delta":
+                        elif response_type in ("response.output_audio_transcript.delta", "response.audio_transcript.delta"):
                             # ✅ Correct event for bot speech transcript
                             await websocket.send_json({
                                 "type": "transcript_chunk",
@@ -190,7 +220,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                                 "role": "bot"
                             })
 
-                        elif response_type == "response.audio_transcript.done":
+                        elif response_type in ("response.output_audio_transcript.done", "response.audio_transcript.done"):
                             text = response.get("transcript", "")
                             if text:
                                 conversation_transcript.append({"role": "bot", "text": text})
@@ -217,10 +247,25 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                             logger.info("[Realtime] ✅ Response complete")
 
                         elif response_type == "error":
-                            logger.error(f"[Realtime] ❌ OpenAI error: {response}")
+                            error_detail = response.get("error", {})
+                            error_code = error_detail.get("code")
+                            error_message = error_detail.get("message")
+                            error_type = error_detail.get("type")
+                            
+                            logger.error(f"[Realtime] ❌ OpenAI API Error")
+                            logger.error(f"   Type: {error_type}")
+                            logger.error(f"   Code: {error_code}")
+                            logger.error(f"   Message: {error_message}")
+                            
+                            if error_code == "invalid_api_key":
+                                logger.error(f"[Realtime] 🔑 API Key Issue!")
+                                logger.error(f"   - Check that your OpenAI API key is active")
+                                logger.error(f"   - Verify the key has Realtime API access")
+                                logger.error(f"   - Visit: https://platform.openai.com/account/api-keys")
+                            
                             await websocket.send_json({
                                 "type": "error",
-                                "message": response.get("error", {}).get("message", "Unknown error")
+                                "message": f"{error_code}: {error_message}" if error_code else error_message or "Unknown OpenAI error"
                             })
 
                 except Exception as e:
@@ -241,7 +286,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                     pass
 
     except Exception as e:
-        logger.error(f"[Realtime] ❌ WebSocket error: {str(e)}")
+        logger.error(f"[Realtime] ❌ WebSocket error: {str(e)}", exc_info=True)
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
         except:
