@@ -179,7 +179,7 @@ export default function RolePlayConversation({
       ws.send(JSON.stringify({
         scenarioTitle: scenario.title,
         scenarioRole:  scenario.role,
-        userRole:      employeeId ? "User" : "Guest",
+        userRole:      scenario.userRole || "Learner",
         initialPrompt: scenario.initialPrompt,
         tone:          scenario.tone || "Neutral",
         employeeId,

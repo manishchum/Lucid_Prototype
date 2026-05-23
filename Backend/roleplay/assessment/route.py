@@ -5,10 +5,9 @@ import logging
 import httpx
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
+from config import GEMINI_API_KEY
 
 router = APIRouter()
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 
 @router.post("/roleplay/assessment")
@@ -200,12 +199,17 @@ Provide ONLY the JSON object with these exact keys: overallScore, summary, param
         if response.status_code != 200:
             error_detail = response.text
             logging.error("Gemini API error (status %d): %s", response.status_code, error_detail)
+            try:
+                gemini_error = response.json().get("error", {})
+                gemini_message = gemini_error.get("message") or error_detail[:200]
+            except Exception:
+                gemini_message = error_detail[:200]
             
             # Check for rate limit or quota issues
             if response.status_code == 429:
                 raise HTTPException(status_code=429, detail="Gemini API rate limited - please try again later")
             elif response.status_code == 403:
-                raise HTTPException(status_code=503, detail="Gemini API access denied - check API key")
+                raise HTTPException(status_code=503, detail=f"Gemini API access denied: {gemini_message}")
             else:
                 raise HTTPException(status_code=500, detail=f"Gemini API error: {error_detail[:100]}")
 

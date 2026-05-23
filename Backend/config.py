@@ -1,8 +1,19 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+ENV_PATH = BASE_DIR / ".env"
+
+load_dotenv(dotenv_path=ENV_PATH, override=True)
+
+
+def clean_env_value(name: str, default: str = "") -> str:
+    value = os.getenv(name, default) or ""
+    value = value.strip().strip('"').strip("'")
+    if value.lower().startswith("bearer "):
+        value = value[7:].strip()
+    return value
 
 # Server configuration
 HOST = os.getenv("HOST", "127.0.0.1")
@@ -19,7 +30,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 # OpenAI configuration
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = clean_env_value("OPENAI_API_KEY")
+OPENAI_REALTIME_MODEL = clean_env_value("OPENAI_REALTIME_MODEL", "gpt-realtime-mini")
 OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
 OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL")
 
@@ -39,4 +51,3 @@ WHATSAPP_WEBHOOK_VERIFY_TOKEN = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "veri
 EMBEDDING_MODEL_NAME = "BAAI/bge-large-en-v1.5"
 DEVICE = "cuda" if os.getenv("USE_CUDA", "false").lower() == "true" else "cpu"
 TOP_K = 5
-

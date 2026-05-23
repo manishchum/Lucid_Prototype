@@ -11,6 +11,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const realtimeModel = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime-mini";
+
     // Get ephemeral token from OpenAI
     const response = await fetch(
       "https://api.openai.com/v1/realtime/sessions",
@@ -21,7 +23,7 @@ export async function GET(request: NextRequest) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-4-realtime-preview-20250115",
+          model: realtimeModel,
           voice: "alloy",
         }),
       }
