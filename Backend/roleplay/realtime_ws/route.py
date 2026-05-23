@@ -8,13 +8,6 @@ from config import OPENAI_API_KEY, OPENAI_REALTIME_MODEL
 
 router = APIRouter()
 
-<<<<<<< HEAD
-from config import OPENAI_API_KEY
-OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL")
-OPENAI_REALTIME_URL = f"wss://api.openai.com/v1/realtime?model={OPENAI_REALTIME_MODEL}"
-
-=======
->>>>>>> 0364200fe040e70964c09766a484560501b66ec0
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
@@ -45,11 +38,21 @@ def build_system_prompt(scenario_context: dict) -> str:
 
     scenario_role = scenario_context.get("scenario_role") or "role-play character"
     user_role = scenario_context.get("user_role") or "learner"
+    initial_prompt = scenario_context.get("initial_prompt") or ""
+    ai_personality = scenario_context.get("ai_personality") or ""
+    ai_objectives = scenario_context.get("ai_objectives") or ""
 
     return f"""You are an expert role-play simulation engine.
 You are roleplaying as the AI character: {scenario_role}.
 The human learner is roleplaying as: {user_role}.
 Scenario: "{scenario_context.get('scenario_title')}".
+
+ROLE ASSIGNMENT - THIS IS NON-NEGOTIABLE:
+- You speak ONLY as: {scenario_role}
+- The human speaks as: {user_role}
+- Never introduce yourself as the {user_role}
+- Never say lines that belong to the {user_role}
+- Never evaluate, coach, or explain the scenario during the live roleplay
 
 CRITICAL RULES FOR CLARITY AND SPEED:
 1. STAY IN CHARACTER as the {scenario_role} at all times
@@ -64,7 +67,9 @@ CRITICAL RULES FOR CLARITY AND SPEED:
 10. DO NOT answer for the learner or tell the learner what to say.
 
 CHARACTER TONE: {tone_instruction}
-Your opening situation or first line: {scenario_context.get('initial_prompt')}
+AI character personality/context: {ai_personality}
+AI character objective: {ai_objectives}
+Opening line or situation for the AI character ({scenario_role}) to express: {initial_prompt}
 
 IMPORTANT: Quality over quantity. Each sentence should be clear and easy to understand when spoken aloud."""
 
@@ -85,6 +90,9 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
             "scenario_role":  init_data.get("scenarioRole"),
             "user_role":      init_data.get("userRole", "User"),
             "initial_prompt": init_data.get("initialPrompt"),
+            "ai_personality": init_data.get("aiPersonality"),
+            "ai_objectives": init_data.get("aiObjectives"),
+            "learner_brief": init_data.get("learnerBrief"),
             "tone":           init_data.get("tone", "Neutral"),
             "employee_id":    init_data.get("employeeId"),
             "session_id":     init_data.get("sessionId"),
@@ -93,6 +101,12 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
 
         logger.info(f"✅ [Realtime] Session started: {scenario_context['session_id']}")
         logger.info(f"   Role: {scenario_context['scenario_role']}, Tone: {scenario_context['tone']}")
+        logger.warning(
+            "[Realtime] Role assignment: AI=%s | Learner=%s | Scenario=%s",
+            scenario_context["scenario_role"],
+            scenario_context["user_role"],
+            scenario_context["scenario_title"],
+        )
 
         if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY not set")
@@ -107,11 +121,10 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
             "Authorization": f"Bearer {_OPENAI_API_KEY}",
         }
 
-<<<<<<< HEAD
-        # ✅ FIX 1: extra_headers instead of additional_headers
-=======
+
+
         # ✅ FIX: Use additional_headers parameter with websockets library
->>>>>>> 0364200fe040e70964c09766a484560501b66ec0
+
         async with connect(OPENAI_REALTIME_URL, additional_headers=headers) as openai_ws:
             logger.info("[Realtime] ✅ Connected to OpenAI Realtime API")
 
@@ -133,21 +146,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                     "type": "realtime",
                     "model": OPENAI_REALTIME_MODEL,
                     "instructions": build_system_prompt(scenario_context),
-<<<<<<< HEAD
-                    "modalities": ["text", "audio"],
-                    "voice": voice,  # Dynamic voice selection based on gender
-                    "input_audio_format": "pcm16",
-                    "output_audio_format": "pcm16",
-                    "temperature": 0.6,  # Minimum allowed value (consistent, predictable speech)
-                    "turn_detection": {
-                        "type": "server_vad",
-                        "threshold": 0.6,  # Higher threshold to avoid interruptions
-                        "silence_duration_ms": 800,  # Longer silence required before turn ends (slower speech)
-                        "prefix_padding_ms": 500  # More prefix padding for clarity
-                    },
-                    "input_audio_transcription": {
-                        "model": "whisper-1"
-=======
+
                     "output_modalities": ["audio"],
                     "audio": {
                         "input": {
@@ -172,7 +171,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                             },
                             "voice": voice,  # Dynamic voice selection based on gender
                         },
->>>>>>> 0364200fe040e70964c09766a484560501b66ec0
+
                     }
                 }
             }))
@@ -185,8 +184,10 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                     "response": {
                         "output_modalities": ["audio"],
                         "instructions": (
-                            f"Start the roleplay now as {scenario_context['scenario_role']}. "
-                            f"Use this as your opening line or situation: {scenario_context['initial_prompt']}"
+                            f"Start the roleplay now. Speak only as {scenario_context['scenario_role']}. "
+                            f"The human learner is {scenario_context['user_role']}; do not speak as them. "
+                            f"Say a short opening line from the perspective of {scenario_context['scenario_role']} "
+                            f"using this situation: {scenario_context['initial_prompt']}"
                         ),
                     }
                 }))
@@ -239,11 +240,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                                 "audio": response.get("delta")
                             })
 
-<<<<<<< HEAD
-                        elif response_type == "response.audio_transcript.delta":
-=======
                         elif response_type in ("response.output_audio_transcript.delta", "response.audio_transcript.delta"):
->>>>>>> 0364200fe040e70964c09766a484560501b66ec0
                             # ✅ Correct event for bot speech transcript
                             await websocket.send_json({
                                 "type": "transcript_chunk",
@@ -324,8 +321,4 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
             pass
 
     finally:
-<<<<<<< HEAD
         sid = scenario_context.get("session_id") if scenario_context else "unknown"
-=======
-        sid = scenario_context.get("session_id") if scenario_context else "unknown"
->>>>>>> 0364200fe040e70964c09766a484560501b66ec0
