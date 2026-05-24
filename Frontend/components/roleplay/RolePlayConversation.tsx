@@ -175,12 +175,20 @@ export default function RolePlayConversation({
 
     ws.onopen = async () => {
       console.log("[RolePlay] ✅ WebSocket connected");
+      console.log("[RolePlay] Starting roles:", {
+        aiRole: scenario.role,
+        learnerRole: scenario.userRole || "Learner",
+        title: scenario.title,
+      });
 
       ws.send(JSON.stringify({
         scenarioTitle: scenario.title,
         scenarioRole:  scenario.role,
-        userRole:      employeeId ? "User" : "Guest",
+        userRole:      scenario.userRole || "Learner",
         initialPrompt: scenario.initialPrompt,
+        aiPersonality: scenario.aiPersonality,
+        aiObjectives:  scenario.aiObjectives,
+        learnerBrief:  scenario.learnerBrief,
         tone:          scenario.tone || "Neutral",
         employeeId,
         sessionId:     sessionIdRef.current,

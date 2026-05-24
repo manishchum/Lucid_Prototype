@@ -5,10 +5,35 @@ import logging
 import httpx
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
+from config import GEMINI_API_KEY
 
 router = APIRouter()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+def fallback_assessment(summary: str) -> JSONResponse:
+    return JSONResponse(
+        content={
+            "overallScore": 50,
+            "summary": summary,
+            "parameters": [
+                {"name": "Communication Clarity", "score": 50, "feedback": "Assessment pending"},
+                {"name": "Eye Contact & Engagement", "score": 50, "feedback": "Assessment pending"},
+                {"name": "Hand Gestures & Body Language", "score": 50, "feedback": "Assessment pending"},
+                {"name": "Facial Expressions", "score": 50, "feedback": "Assessment pending"},
+                {"name": "Objection Handling", "score": 50, "feedback": "Assessment pending"},
+                {"name": "Value Proposition", "score": 50, "feedback": "Assessment pending"},
+                {"name": "Active Listening", "score": 50, "feedback": "Assessment pending"},
+                {"name": "Confidence & Professionalism", "score": 50, "feedback": "Assessment pending"},
+            ],
+            "recommendations": [
+                "Your practice session was recorded successfully.",
+                "Try again later to get a detailed assessment.",
+                "Contact support if the issue persists.",
+                "Your progress is being tracked.",
+            ],
+        },
+        status_code=200,
+    )
 
 
 @router.post("/roleplay/assessment")
@@ -200,14 +225,26 @@ Provide ONLY the JSON object with these exact keys: overallScore, summary, param
         if response.status_code != 200:
             error_detail = response.text
             logging.error("Gemini API error (status %d): %s", response.status_code, error_detail)
+            try:
+                gemini_error = response.json().get("error", {})
+                gemini_message = gemini_error.get("message") or error_detail[:200]
+            except Exception:
+                gemini_message = error_detail[:200]
             
             # Check for rate limit or quota issues
             if response.status_code == 429:
-                raise HTTPException(status_code=429, detail="Gemini API rate limited - please try again later")
+                return fallback_assessment(
+                    "Assessment could not be generated because Gemini is rate limited. "
+                    "Your conversation has been saved and can be assessed again later."
+                )
             elif response.status_code == 403:
-                raise HTTPException(status_code=503, detail="Gemini API access denied - check API key")
+                return fallback_assessment(
+                    f"Assessment could not be generated because Gemini denied access: {gemini_message}"
+                )
             else:
-                raise HTTPException(status_code=500, detail=f"Gemini API error: {error_detail[:100]}")
+                return fallback_assessment(
+                    f"Assessment could not be generated because Gemini returned an error: {error_detail[:100]}"
+                )
 
         try:
             data = response.json()
@@ -254,9 +291,10 @@ Provide ONLY the JSON object with these exact keys: overallScore, summary, param
             status_code=500
         )
     except HTTPException as he:
-        # Re-raise HTTP exceptions (timeouts, rate limits, etc.)
         logging.error("❌ HTTP Exception: %s", he.detail)
-        raise
+        return fallback_assessment(
+            f"Assessment could not be generated at this moment: {he.detail}"
+        )
     except Exception as e:
         logging.exception("❌ Assessment generation error")
         logging.error("Exception details: %s", str(e))
