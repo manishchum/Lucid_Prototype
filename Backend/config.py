@@ -31,7 +31,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 # OpenAI configuration
 OPENAI_API_KEY = clean_env_value("OPENAI_API_KEY")
-
+OPENAI_REALTIME_MODEL = clean_env_value("OPENAI_REALTIME_MODEL", "gpt-realtime-mini")
 OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
 OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL")
 
