@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
-import { fetchScenariosForUser, deleteCustomScenario, assignScenario, getScenarioAssignments } from '@/lib/roleplayDatabase';
+import { fetchScenariosForUserAPI, deleteCustomScenarioAPI, assignScenarioAPI, getScenarioAssignmentsAPI } from '@/lib/roleplayPageApi';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import RolePlayConversation from '@/components/roleplay/RolePlayConversation';
@@ -74,11 +74,11 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       if (!userId) return;
       
       setLoadingScenarios(true);
-      console.log('Fetching Scenarios for user id:', userId, 'isAdmin:', isAdmin);
+      // console.log('Fetching Scenarios for user id:', userId, 'isAdmin:', isAdmin);
       
-      const { data, error } = await fetchScenariosForUser(userId, isAdmin);
+      const { data, error } = await fetchScenariosForUserAPI(userId, isAdmin || false);
 
-      console.log('Fetched scenarios:', data);
+      //console.log('Fetched scenarios:', data);
       if (data) {
         setAllScenarios(data);
       }
@@ -119,7 +119,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       const customScenarioData = sessionStorage.getItem('customScenario');
 
 
-      console.log(customScenarioData)
+      //console.log(customScenarioData)
       if (customScenarioData) {
         try {
           const scenario = JSON.parse(customScenarioData);
@@ -129,7 +129,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
             scenario.scenario_id = `custom-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
           }
           
-          console.log('Loaded custom scenario from sessionStorage:', scenario);
+          //console.log('Loaded custom scenario from sessionStorage:', scenario);
           setSelectedScenario(scenario);
           setCurrentScreen('config'); // Show config page first
           // Clear the sessionStorage after loading
@@ -207,7 +207,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
             return roleLevel >= 3 || ['admin', 'companyadmin', 'superadmin', 'ceo'].includes(roleName);
           });
 
-          console.log('User is admin:', hasAdminRole);
+          //console.log('User is admin:', hasAdminRole);
           setIsAdmin(hasAdminRole);
         } catch (error) {
           console.error('Error in fetchUserDataAndCheckAdmin:', error);
@@ -220,7 +220,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   }, [user]);
 
   const handleScenarioSelect = (scenario: Scenario) => {
-          console.log('Loaded custom scenario from sessionStorage:', scenario);
+          //console.log('Loaded custom scenario from sessionStorage:', scenario);
 
     setSelectedScenario(scenario);
     setCurrentScreen('config');
@@ -243,7 +243,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     }
 
     try {
-      const { error } = await deleteCustomScenario(scenario.scenario_id);
+      const { error } = await deleteCustomScenarioAPI(scenario.scenario_id, userId, companyId);
       
       if (error) {
         console.error('Error deleting scenario:', error);
@@ -252,7 +252,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       }
 
       // Refresh scenarios list
-      const { data, error: fetchError } = await fetchScenariosForUser(userId, isAdmin);
+      const { data, error: fetchError } = await fetchScenariosForUserAPI(userId, isAdmin || false);
       console.log('scenarios for the admins',data);
       if (data) {
         setAllScenarios(data);
@@ -275,7 +275,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     e.stopPropagation(); // Prevent card click
 
 
-    console.log('Assigning scenario:', scenario);
+    //console.log('Assigning scenario:', scenario);
     setAssigningScenario(scenario);
     setShowAssignModal(true);
     
@@ -322,14 +322,15 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     }
 
     try {
-      console.log("Inside the save assignment");
-      console.log(selectedTargets);
+      //console.log("Inside the save assignment");
+      //console.log(selectedTargets);
       
-      const { error } = await assignScenario(
+      const { error } = await assignScenarioAPI(
         assigningScenario.scenario_id,
         assignmentType,
         selectedTargets,
-        companyId
+        companyId,
+        userId
       );
 
       if (error) {
@@ -338,32 +339,6 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         setError(assignmentErrorMessage);
         alert(assignmentErrorMessage);
         return;
-      }
-
-      if (userId) {
-        try {
-          const notificationResponse = await fetchWithAuth(`${API_URL}/api/notifications/assignment`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-User-ID': userId,
-            },
-            body: JSON.stringify({
-              assignment_type: 'roleplay',
-              assignment_title: assigningScenario.title,
-              company_id: companyId,
-              target_type: assignmentType,
-              target_ids: selectedTargets,
-              frontend_url: typeof window !== 'undefined' ? window.location.origin : undefined,
-            }),
-          });
-
-          if (!notificationResponse.ok) {
-            console.warn('Roleplay assignment notification failed:', await notificationResponse.text());
-          }
-        } catch (notificationError) {
-          console.warn('Failed to send roleplay assignment notification:', notificationError);
-        }
       }
 
       // Close modal and reset
@@ -387,7 +362,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         tone: config.tone as 'Neutral' | 'Friendly' | 'Aggressive',
         userRole: config.userRole || selectedScenario.userRole,
       };
-          console.log('Loaded custom scenario from sessionStorage:', updatedScenario);
+          //console.log('Loaded custom scenario from sessionStorage:', updatedScenario);
 
       setSelectedScenario(updatedScenario);
     }
@@ -409,19 +384,31 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   };
 
   const handleEndSession = async (messages: Message[], sessionId?: string) => {
-    console.log('🏁 Ending session with messages:', messages.length);
-    console.log('📝 Last 3 messages:', messages.slice(-3));
+    //console.log('🏁 Ending session with messages:', messages.length);
+    console.log('[handleEndSession] Ending with', messages.length, 'messages, sessionId:', sessionId);
     
     setConversationHistory(messages);
 
-    // console.log()
-    console.log(sessionId)
+    // //console.log()
+    //console.log(sessionId)
     setCurrentSessionId(sessionId || null);
     setIsGeneratingAssessment(true);
     setError(null);
 
     try {
-      console.log('📊 Generating fresh assessment...');
+      //console.log('📊 Generating fresh assessment...');
+      console.log('[Assessment] Sending request with:', {
+        messagesCount: messages.length,
+        scenarioTitle: selectedScenario?.title,
+        hasScenario: !!selectedScenario
+      });
+
+      // ✅ ALLOW EMPTY MESSAGES - backend will return zero-score assessment
+      // This handles abrupt session endings gracefully
+      if (!selectedScenario) {
+        throw new Error('Scenario information not available');
+      }
+
       const response = await fetchWithAuth(`${API_URL}/api/roleplay/assessment`, {
         method: 'POST',
         headers: {
@@ -431,35 +418,51 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         },
         cache: 'no-store',
         body: JSON.stringify({
-          messages,
+          messages: messages.length > 0 ? messages : [], // ✅ Send empty array if no messages
           scenarioTitle: selectedScenario?.title,
           scenarioRole: selectedScenario?.role,
           userRole: selectedScenario?.userRole
         }),
       });
 
+      console.log('[Assessment] Response status:', response.status);
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate assessment');
+        let errorData: any = {};
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = { error: `HTTP ${response.status}` };
+        }
+        console.error('[Assessment] Error response:', errorData);
+        throw new Error(errorData.error || `Failed to generate assessment (HTTP ${response.status})`);
       }
 
       const assessment = await response.json();
-      console.log('📊 Assessment response:', response);
-      console.log('✅ Assessment received:', assessment.overallScore);
+      console.log('[Assessment] Success, score:', assessment?.overallScore);
+      
+      // ✅ Validate assessment structure - zero score is valid!
+      if (assessment.overallScore === undefined || !assessment.summary || !assessment.parameters) {
+        console.error('[Assessment] Invalid structure:', Object.keys(assessment));
+        throw new Error('Assessment response missing required fields');
+      }
+
       setAssessmentReport(assessment);
       setCurrentScreen('assessmentReport');
 
       // Save assessment to database if we have a session ID
       if (sessionId && employeeId) {
         try {
-          console.log('💾 Saving assessment to database...', {
-            sessionId,
-            employeeId,
-            assessment
-          });
+          //console.log('💾 Saving assessment to database...', {
+
+          //   sessionId,
+          //   employeeId,
+          //   assessment
+          // });
           
+          console.log('[Assessment] Saving to DB with sessionId:', sessionId);
           await createRolePlayAssessment(sessionId, employeeId, assessment);
-          console.log('✅ Assessment saved to database successfully');
+          console.log('[Assessment] ✅ Saved to database');
         } catch (dbError) {
           console.error('❌ Error saving assessment to database:', dbError);
           console.error('Error details:', JSON.stringify(dbError, null, 2));
@@ -474,6 +477,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
 
     } catch (err: any) {
       console.error('Assessment error:', err);
+      console.error('Error message:', err.message);
       setError(err.message || 'Failed to generate assessment report');
     } finally {
       setIsGeneratingAssessment(false);
@@ -481,8 +485,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
   };
 
   const handleStartNew = () => {
-          console.log('scenario set to null');
-
+          //console.log('scenario set to null');
     setSelectedScenario(null);
     setConversationHistory([]);
     setAssessmentReport(null);
@@ -512,7 +515,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     };
 
     // Set it as selected and start the roleplay
-          console.log('Loaded custom scenario from new scenario sessionStorage:', newScenario);
+          //console.log('Loaded custom scenario from new scenario sessionStorage:', newScenario);
 
     setSelectedScenario(newScenario);
     setShowCustomModal(false);
@@ -675,11 +678,11 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
               )}
             </div>
 
-            <div className="flex justify-center">
+            <div className="flex justify-center mt-8">
               <Button
                 onClick={() => selectedScenario && handleScenarioSelect(selectedScenario)}
                 disabled={!selectedScenario}
-                className="px-8 py-3 text-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-12 py-4 text-lg font-semibold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transition-all"
               >
                 Start Role-Play
               </Button>
@@ -702,10 +705,13 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
               onStartNew={handleStartNew}
             />
           ) : (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
-              <p className="text-yellow-800">No assessment data available.</p>
-              <Button onClick={handleStartNew} className="mt-4">
-                Start New Role-Play
+            <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-8 text-center">
+              <p className="text-blue-800 font-medium mb-4">No assessment data available.</p>
+              <Button
+                onClick={handleCreateCustomRoleplay}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                Start New Role-play
               </Button>
             </div>
           )

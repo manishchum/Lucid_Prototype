@@ -8,6 +8,35 @@ interface CompanyRoleplayLimits {
   retryLimit: number;
 }
 
+const SCENARIO_SELECT_COLUMNS = [
+  'scenario_id',
+  'title',
+  'description',
+  'role',
+  'difficulty',
+  'initialPrompt',
+  'userRole',
+  'tone',
+  'learnerBrief',
+  'aiObjective',
+  'maxDuration',
+  'minTurns',
+  'endConditions',
+  'evaluationParams',
+  'passingScore',
+  'created_at',
+].join(', ');
+
+const ASSIGNMENT_SELECT_COLUMNS = [
+  'assignment_id',
+  'scenario_id',
+  'assignment_type',
+  'user_id',
+  'department_id',
+  'company_id',
+  'assigned_at',
+].join(', ');
+
 function normalizeLimit(value: any, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
@@ -207,7 +236,7 @@ export async function insertCustomScenario(scenario: Scenario, companyId:string)
     const { data, error } = await supabase
       .from('scenarios')
       .insert(payload)
-      .select()
+      .select(SCENARIO_SELECT_COLUMNS)
       .single();
 
     return { data, error };
@@ -242,7 +271,7 @@ export async function fetchAllScenarios(): Promise<{ data: Scenario[] | null; er
     // Fetch custom scenarios from database
     const { data: dbScenarios, error: dbError } = await supabase
       .from('scenarios')
-      .select('*')
+      .select(SCENARIO_SELECT_COLUMNS)
       .order('created_at', { ascending: false });
 
     if (dbError) {
@@ -355,7 +384,7 @@ export async function fetchScenariosForUser(userId: string, isAdmin: boolean): P
 
       const { data: assignedScenarios, error: scenError } = await supabase
       .from('scenarios')
-      .select('*')
+      .select(SCENARIO_SELECT_COLUMNS)
       .in('scenario_id', assignedScenarioIds)
       .order('created_at', { ascending: false });
       if (scenError) {
@@ -453,7 +482,7 @@ export async function updateCustomScenario(scenarioId: string, scenario: Scenari
       .from('scenarios')
       .update(payload)
       .eq('scenario_id', scenarioId)
-      .select()
+      .select(SCENARIO_SELECT_COLUMNS)
       .single();
 
     return { data, error };
@@ -600,7 +629,7 @@ export async function assignScenario(
     const { data, error } = await supabase
       .from('scenario_assignments')
       .insert(assignments)
-      .select();
+      .select(ASSIGNMENT_SELECT_COLUMNS);
 
     return { data, error };
   } catch (error) {
@@ -615,7 +644,7 @@ export async function getScenarioAssignments(scenarioId: string) {
   try {
     const { data, error } = await supabase
       .from('scenario_assignments')
-      .select('*')
+      .select(ASSIGNMENT_SELECT_COLUMNS)
       .eq('scenario_id', scenarioId);
 
     return { data, error };
@@ -798,7 +827,7 @@ export async function createRolePlaySession(
       message_count: 0,
       started_at: new Date().toISOString(),
     })
-    .select()
+    .select('id, employee_id, module_id, scenario_id, scenario_title, scenario_role, scenario_difficulty, started_at, message_count')
     .single();
 
   return { data, error };
@@ -815,7 +844,8 @@ export async function updateRolePlaySession(
   console.log('[updateRolePlaySession] Saving session:', {
     sessionId,
     messagesCount: messages.length,
-    isCompleted
+    isCompleted,
+    messagePreview: messages.slice(0, 2).map(m => `${m.sender}: ${m.text.substring(0, 30)}...`)
   });
 
   const updateData: any = {
@@ -838,13 +868,17 @@ export async function updateRolePlaySession(
     .from('roleplay_sessions')
     .update(updateData)
     .eq('id', sessionId)
-    .select()
+    .select('id, completed_at, duration_seconds, message_count, conversation_transcript')
     .single();
 
   if (error) {
-    console.error('[updateRolePlaySession] Error:', error);
+    console.error('[updateRolePlaySession] ❌ Error:', error);
   } else {
-    console.log('[updateRolePlaySession] Success:', { id: data?.id });
+    console.log('[updateRolePlaySession] ✅ Success:', { 
+      id: data?.id,
+      savedMessageCount: data?.message_count,
+      hasTranscript: !!data?.conversation_transcript
+    });
   }
 
   return { data, error };
@@ -880,7 +914,7 @@ export async function createRolePlayAssessment(
       parameters: assessmentData.parameters,
       recommendations: assessmentData.recommendations,
     })
-    .select()
+    .select('id, session_id, employee_id, overall_score, created_at')
     .single();
 
   if (error) {
@@ -901,10 +935,19 @@ export async function getEmployeeRolePlaySessions(
 ): Promise<{ data: any[] | null; error: any }> {
   const { data, error } = await supabase
     .from('roleplay_sessions')
-    .select('*, roleplay_assessments(*)')
+    .select('id, employee_id, module_id, scenario_id, scenario_title, scenario_role, scenario_difficulty, conversation_transcript, started_at, completed_at, duration_seconds, message_count, roleplay_assessments(id, overall_score, summary, parameters, recommendations, created_at)')
     .eq('employee_id', employeeId)
     .order('completed_at', { ascending: false, nullsFirst: false })
     .limit(limit);
+
+  if (data && Array.isArray(data)) {
+    console.log(`[getEmployeeRolePlaySessions] Fetched ${data.length} sessions:`, data.map(s => ({
+      id: s.id,
+      hasTranscript: !!s.conversation_transcript,
+      messageCount: s.message_count,
+      transcriptLength: Array.isArray(s.conversation_transcript) ? s.conversation_transcript.length : 'N/A'
+    })));
+  }
 
   return { data, error };
 }
@@ -917,7 +960,7 @@ export async function getRolePlaySessionWithAssessment(
 ): Promise<{ data: any; error: any }> {
   const { data, error } = await supabase
     .from('roleplay_sessions')
-    .select('*, roleplay_assessments(*)')
+    .select('id, employee_id, module_id, scenario_id, scenario_title, scenario_role, scenario_difficulty, conversation_transcript, started_at, completed_at, duration_seconds, message_count, roleplay_assessments(id, overall_score, summary, parameters, recommendations, created_at)')
     .eq('id', sessionId)
     .single();
 

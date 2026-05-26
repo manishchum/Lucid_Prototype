@@ -11,9 +11,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get ephemeral token from OpenAI
+    const realtimeModel = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime-mini";
+
     const response = await fetch(
-      "https://api.openai.com/v1/realtime/sessions",
+      "https://api.openai.com/v1/realtime/client_secrets",
       {
         method: "POST",
         headers: {
@@ -21,8 +22,30 @@ export async function GET(request: NextRequest) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-4-realtime-preview-20250115",
-          voice: "alloy",
+          expires_after: {
+            anchor: "created_at",
+            seconds: 600,
+          },
+          session: {
+            type: "realtime",
+            model: realtimeModel,
+            output_modalities: ["audio"],
+            audio: {
+              input: {
+                format: {
+                  type: "audio/pcm",
+                  rate: 24000,
+                },
+              },
+              output: {
+                format: {
+                  type: "audio/pcm",
+                  rate: 24000,
+                },
+                voice: "alloy",
+              },
+            },
+          },
         }),
       }
     );
@@ -31,7 +54,7 @@ export async function GET(request: NextRequest) {
       const error = await response.text();
       console.error("OpenAI token error:", error);
       return NextResponse.json(
-        { error: "Failed to get ephemeral token" },
+        { error: "Failed to get Realtime client secret" },
         { status: response.status }
       );
     }
@@ -39,7 +62,8 @@ export async function GET(request: NextRequest) {
     const data = await response.json();
 
     return NextResponse.json({
-      token: data.client_secret.value,
+      token: data.value,
+      expires_at: data.expires_at,
     });
   } catch (error) {
     console.error("Realtime token error:", error);

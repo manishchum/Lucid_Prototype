@@ -135,9 +135,9 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const handleSendChat = async (e: FormEvent<HTMLFormElement>, overrideInput?: string) => {
     e.preventDefault();
     const inputToSend = overrideInput !== undefined ? overrideInput : chatInput;
-    console.log('[ModuleChat] handleSendChat called. inputToSend:', inputToSend, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
+    // //console.log('[ModuleChat] handleSendChat called. inputToSend:', inputToSend, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
     if (!inputToSend.trim() || chatLoading || !module?.processed_module_id) {
-      console.log('[ModuleChat] handleSendChat aborted: missing input, loading, or module');
+      // //console.log('[ModuleChat] handleSendChat aborted: missing input, loading, or module');
       return;
     }
 
@@ -212,21 +212,21 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
  
   if (shouldExit) {
     setVoiceLoopActive(false);
-    console.log('[ModuleChat] Voice loop stopped - exit phrase detected:', text);
+    //console.log('[ModuleChat] Voice loop stopped - exit phrase detected:', text);
     return; // Don't auto-send, let user decide
   }
  
   setVoiceLoopActive(true);
-    console.log('[ModuleChat] handleVoiceTranscription called. text:', text, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
+    //console.log('[ModuleChat] handleVoiceTranscription called. text:', text, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
     // Auto-send after transcription
     setTimeout(() => {
       if (text && text.trim() && !chatLoading && module?.processed_module_id) {
-        console.log('[ModuleChat] Auto-sending after transcription:', text);
+        //console.log('[ModuleChat] Auto-sending after transcription:', text);
         // Create a synthetic event for form submission
         const fakeEvent = { preventDefault: () => {} } as FormEvent<HTMLFormElement>;
         handleSendChat(fakeEvent, text);
       } else {
-        console.log('[ModuleChat] Auto-send conditions not met:', {text, chatLoading, module: module?.processed_module_id});
+        //console.log('[ModuleChat] Auto-send conditions not met:', {text, chatLoading, module: module?.processed_module_id});
       }
     }, 100);
   };
@@ -303,8 +303,15 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                       };
                     });
                   }}
-                  onVideoGenerated={(url: string) => {
-                    setModule((prev: any) => (prev ? { ...prev, video_url: url } : prev));
+                  onVideoGenerated={(url: string, hinglishUrl?: string) => {
+                    setModule((prev: any) => {
+                      if (!prev) return prev;
+                      return {
+                        ...prev,
+                        video_url: url,
+                        ...(hinglishUrl ? { video_url_hinglish: hinglishUrl } : {})
+                      };
+                    });
                   }}
                 />
 
@@ -401,7 +408,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                         disabled={chatLoading}
                         autoStart={autoStartMic}
                         onManualStop={() => {
-                          console.log('[ModuleChat] Voice loop stopped - manual stop by user');
+                          //console.log('[ModuleChat] Voice loop stopped - manual stop by user');
                           setVoiceLoopActive(false);
                         }}
                       />
@@ -605,7 +612,7 @@ function parseContentIntoSections(content: string) {
   const isHTML = /<[^>]+>/.test(content);
 
   if (isHTML) {
-    console.log("This is returning html content");
+    //console.log("This is returning html content");
     // Split HTML content into sections based on <section> tags
     return splitHTMLIntoSections(content);
   } else {
@@ -1010,7 +1017,7 @@ function ContentTransformer({
     const timelineData = language === 'hinglish' ? module?.podcast_timeline_hinglish : module?.podcast_timeline;
    
     if (!timelineData) {
-      console.log(`[ContentTransformer] No ${timelineField} in module data`);
+      //console.log(`[ContentTransformer] No ${timelineField} in module data`);
       return;
     }
 
@@ -1042,7 +1049,7 @@ function ContentTransformer({
       }
 
       setPodcastTimeline(timeline);
-      // console.log(`[ContentTransformer] ${timelineField} loaded from module:`, {
+      // //console.log(`[ContentTransformer] ${timelineField} loaded from module:`, {
       //   segmentCount: timeline.length,
       //   totalDuration: timeline.length > 0 ? timeline[timeline.length - 1].endSec : 0,
       // });
@@ -1085,7 +1092,7 @@ function ContentTransformer({
     if (active !== activeSegmentIndex) {
       setActiveSegmentIndex(active);
       if (active >= 0 && active < podcastTimeline.length) {
-        // console.log('[ContentTransformer] Active segment:', {
+        // //console.log('[ContentTransformer] Active segment:', {
         //   index: active,
         //   speaker: podcastTimeline[active].speaker,
         //   currentTime: current,
@@ -1522,7 +1529,30 @@ function ContentTransformer({
           <div className="space-y-3 flex flex-col">
             {module.video_url && (
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <video controls className="w-full rounded-lg">
+                <div className="flex justify-start gap-2 mb-2">
+                  <select 
+                    onChange={(e) => {
+                      const video = document.getElementById('module-video') as HTMLVideoElement;
+                      if (!video) return;
+                      const currentTime = video.currentTime;
+                      const isPaused = video.paused;
+                      video.src = e.target.value === 'hinglish' ? module.video_url_hinglish : module.video_url;
+                      video.onloadedmetadata = () => {
+                        video.currentTime = currentTime;
+                        if (!isPaused) video.play();
+                        video.onloadedmetadata = null;
+                      };
+                    }}
+                    className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold cursor-pointer outline-none w-28 appearance-none text-center shadow-sm"
+                    defaultValue="en"
+                  >
+                    <option value="en">English</option>
+                    {module.video_url_hinglish && (
+                      <option value="hinglish">हिंदी</option>
+                    )}
+                  </select>
+                </div>
+                <video id="module-video" controls className="w-full rounded-lg">
                   <source src={module.video_url} type="video/mp4" />
                   Your browser does not support video playback.
                 </video>
@@ -1534,8 +1564,8 @@ function ContentTransformer({
                 <div>Video is not available yet.</div>
                 <GenerateVideoButton
                   moduleId={module.processed_module_id}
-                  onVideoGenerated={(url) => {
-                    if (onVideoGenerated) onVideoGenerated(url);
+                  onVideoGenerated={(url, hinglishUrl) => {
+                    if (onVideoGenerated) onVideoGenerated(url, hinglishUrl);
                   }}
                 />
               </div>
@@ -1998,7 +2028,7 @@ function formatContent(content: string) {
     return styleHTMLContent(content);
   }
 
-  console.log("This is not a html content")
+  //console.log("This is not a html content")
 
   // Legacy markdown-to-HTML conversion for backward compatibility
   return styleMarkdownContent(content);
@@ -2006,10 +2036,10 @@ function formatContent(content: string) {
 
 function styleHTMLContent(content: string): string {
 
-  console.log("Style the html content is called")
+  //console.log("Style the html content is called")
   // Create a temporary container to work with HTML
   if (typeof window === 'undefined') {
-    console.log("Inside this if")
+    //console.log("Inside this if")
     // Server-side fallback
     return sanitizeHTML(content);
   }
@@ -2021,8 +2051,8 @@ function styleHTMLContent(content: string): string {
     // Style tables with Tailwind classes
     const tables = container.querySelectorAll('table');
     tables.forEach((table) => {
-      table.className = 'w-full  border-2 border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
-      table.setAttribute('style', 'border-collapse: collapse; border: 2px solid rgb(0, 0, 0);');
+      table.className = 'w-full border-2 border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
+      table.setAttribute('style', 'border-collapse: collapse; border: 2px solid rgb(0, 0, 0); table-layout: fixed; word-wrap: break-word;');
      
       // Style table headers
       const headers = table.querySelectorAll('thead th, thead td');
@@ -2034,7 +2064,7 @@ function styleHTMLContent(content: string): string {
       // Style table rows
       const rows = table.querySelectorAll('tr');
       rows.forEach((row) => {
-        (row as HTMLElement).style.cssText = 'border-bottom: 2px solidrgb(21, 22, 22);';
+        (row as HTMLElement).style.cssText = 'border-bottom: 2px solid rgb(21, 22, 22);';
       });
 
       // Style table body
@@ -2042,13 +2072,13 @@ function styleHTMLContent(content: string): string {
       cells.forEach((cell, idx) => {
         const isEvenRow = Math.floor(idx / (table.querySelectorAll('tbody tr')[0]?.children.length || 1)) % 2;
         cell.className = `border border-gray-300 px-4 py-3 text-gray-800 text-sm ${isEvenRow ? 'bg-white' : 'bg-gray-50'}`;
-        (cell as HTMLElement).style.cssText = `border: 1px solidrgb(11, 12, 12); padding: 12px 16px; ${isEvenRow ? 'background-color: #ffffff;' : 'background-color: #f9fafb;'}`;
+        (cell as HTMLElement).style.cssText = `border: 1px solid rgb(11, 12, 12); padding: 12px 16px; ${isEvenRow ? 'background-color: #ffffff;' : 'background-color: #f9fafb;'}`;
       });
 
 
 
-      console.log("THis is the edited table")
-      console.log(table.querySelectorAll)
+      //console.log("THis is the edited table")
+      //console.log(table.querySelectorAll)
     });
 
     // Style headings
@@ -2200,7 +2230,7 @@ function styleMarkdownContent(content: string): string {
   formatted = formatted.replace(/\b(CS|CR|AS|AR)\b(?=\W|$)/g, '');
 
 
-  console.log("This is getting called",formatted)
+  //console.log("This is getting called",formatted)
   return formatted;
 }
 
@@ -2256,7 +2286,7 @@ function GenerateVideoButton({
   onVideoGenerated,
 }: {
   moduleId: string;
-  onVideoGenerated: (url: string) => void;
+  onVideoGenerated: (url: string, hinglishUrl?: string) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2272,7 +2302,7 @@ function GenerateVideoButton({
       });
       const data = await res.json();
       if (res.ok && data.videoUrl) {
-        onVideoGenerated(data.videoUrl);
+        onVideoGenerated(data.videoUrl, data.videoUrlHinglish);
       } else {
         setError(data.error || 'Failed to generate video');
       }

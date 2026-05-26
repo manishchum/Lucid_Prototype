@@ -4,6 +4,7 @@ from typing import Optional, List
 
 from utils.db.users_db import (
     get_user_by_email,
+    get_user_by_phone,
     get_users_by_company,
     get_user_by_id,
     create_user,
@@ -13,6 +14,7 @@ from utils.db.users_db import (
     get_users_by_filter,
     DEFAULT_PASSWORD,
 )
+from utils.db.companies_db import get_company_by_id
 
 from utils.db.roles_db import (
     assign_user_role,
@@ -25,6 +27,7 @@ from utils.auth import (
     get_effective_company_id,
 )
 from utils.firebase_provisioning import ensure_firebase_user
+from utils.welcome_notifications import send_welcome_email
 from utils.supabase_client import supabase
 from utils.auth_bridge import get_service_supabase_client
 
@@ -67,11 +70,41 @@ def _ensure_firebase_and_persist_uid(created_payload, request_password: Optional
         if isinstance(updated_data, list) and updated_data:
             return updated_data
     except Exception as exc:
-        raise HTTPException(status_code=500, detail="Failed to persist firebase_uid on user") from exc
+        print(f"[users] Failed to persist firebase_uid for {email}: {exc}")
+        created_user["firebase_uid"] = firebase_uid
+        return [created_user]
 
     # If update response does not return row data, preserve previous payload and enrich it for response consistency.
     created_user["firebase_uid"] = firebase_uid
     return [created_user]
+
+
+async def _send_welcome_email(created_payload) -> None:
+    try:
+        created_user = _extract_created_user_row(created_payload)
+        if not created_user:
+            return
+
+        email = (created_user.get("email") or "").strip()
+        if not email:
+            return
+
+        company_id = created_user.get("company_id")
+        company_name = "your organization"
+        if company_id:
+            company_result = await get_company_by_id(None, company_id)
+            company_data = company_result.get("data") or {}
+            company_name = company_data.get("name") or company_name
+
+        send_result = await send_welcome_email(
+            recipient_email=email,
+            recipient_name=created_user.get("name") or "",
+            company_name=company_name,
+        )
+        if not send_result.get("success"):
+            print(f"[users] Welcome email failed for {email}: {send_result.get('error')}")
+    except Exception as exc:
+        print(f"[users] Exception while sending welcome email: {exc}")
 
 
 class CreateUserRequest(BaseModel):
@@ -191,6 +224,8 @@ async def signup_endpoint(
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     result["data"] = _ensure_firebase_and_persist_uid(result.get("data"), request.password)
+    if not result.get("reactivated", False):
+        await _send_welcome_email(result.get("data"))
     reactivated = result.get("reactivated", False)
     return {
         "success": True,
@@ -215,6 +250,11 @@ async def create_user_endpoint(
         raise HTTPException(status_code=403, detail=result["error"])
     result["data"] = _ensure_firebase_and_persist_uid(result.get("data"), request.password)
     reactivated = result.get("reactivated", False)
+    if not reactivated:
+        try:
+            await _send_welcome_email(result.get("data"))
+        except Exception as exc:
+            print(f"[users create] Warning: Failed to send welcome email: {exc}")
     return {
         "success": True,
         "data": {

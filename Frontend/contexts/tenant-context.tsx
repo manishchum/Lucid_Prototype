@@ -12,6 +12,7 @@ type Company = {
   company_id: string
   name?: string
   domain?: string
+  company_logo?: string
 }
 
 type TenantContextType = {
@@ -72,11 +73,28 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       const fallbackCompany: Company = {
         company_id: String(employeeData.company_id),
         name: employeeData.company_name || "My Company",
+        company_logo: employeeData.company_logo || undefined,
       }
 
       if (!isDeveloperMode) {
-        setAvailableCompanies([fallbackCompany])
-        setActiveCompanyIdState(fallbackCompany.company_id)
+        try {
+          const companyRes = await fetch(
+            `${API_BASE}/api/companies/${encodeURIComponent(fallbackCompany.company_id)}`,
+            {
+              headers: userId ? { "X-User-ID": userId } : undefined,
+            }
+          )
+          const companyPayload = companyRes.ok ? await companyRes.json() : null
+          const resolvedCompany = companyPayload?.data?.company_id
+            ? companyPayload.data
+            : fallbackCompany
+
+          setAvailableCompanies([resolvedCompany])
+          setActiveCompanyIdState(resolvedCompany.company_id)
+        } catch {
+          setAvailableCompanies([fallbackCompany])
+          setActiveCompanyIdState(fallbackCompany.company_id)
+        }
         return
       }
 
@@ -84,8 +102,8 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       try {
         const res = await fetchWithAuth(`${API_BASE}/api/companies`)
         const payload = res.ok ? await res.json() : null
-        const companiesList = payload?.data?.companies || payload?.companies || []
-        const companies = companiesList.filter((c: Company) => c?.company_id)
+        console.log(payload)
+        const companies = (payload?.companies ||payload?.data.companies|| []).filter((c: Company) => c?.company_id)
         const resolvedCompanies: Company[] = companies.length > 0 ? companies : [fallbackCompany]
 
         if (ignore) return

@@ -270,14 +270,14 @@ export default function SignupPage() {
       const userData = Array.isArray(createPayload.user) 
         ? createPayload.user[0] 
         : createPayload.user;
-      console.log("These are the payloads")
-      console.log(createPayload);
-      console.log(createRes);
+      //console.log("These are the payloads")
+      //console.log(createPayload);
+      //console.log(createRes);
       const newUser = (userData && (userData.user || userData)) || null
 
 
-      console.log("new user payload")
-      console.log(userData)
+      //console.log("new user payload")
+      //console.log(userData)
       if (!userData.user_id) {
         throw new Error("User created but response is missing user_id")
       }
@@ -548,7 +548,7 @@ export default function SignupPage() {
         {/* Footer */}
         <div className="text-center mt-8">
           <p className="text-sm text-gray-500">
-            Secure signup powered by Lucid Learning Platform
+            Secure Signup Powered By Lucid Platform
           </p>
         </div>
       </div>

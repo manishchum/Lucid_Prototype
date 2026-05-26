@@ -25,6 +25,7 @@ interface AuthContextType {
   isAdmin: boolean
   isSuperAdmin: boolean
   isDeveloper: boolean
+  isManager: boolean
   userId: string | null
   employeeData: any | null
   login: (userData: any) => Promise<void>
@@ -39,6 +40,7 @@ const AuthContext = createContext<AuthContextType>({
   isAdmin: false,
   isSuperAdmin: false,
   isDeveloper: false,
+  isManager: false,
   userId: null,
   employeeData: null,
   login: async () => {},
@@ -67,6 +69,8 @@ const fetchUserByEmail = async (email: string | undefined | null) => {
   return u || null
 }
 
+const normalizeRoleName = (value: string) => value.toLowerCase().replace(/[-_\s]/g, '')
+
 const fetchUserRoles = async (userId: string) => {
   const normalizedUserId = (userId || '').toString().trim()
   if (!normalizedUserId || normalizedUserId === 'undefined' || normalizedUserId === 'null') {
@@ -77,9 +81,10 @@ const fetchUserRoles = async (userId: string) => {
     headers: { 'X-User-ID': normalizedUserId }
   })
 
-  if (!rolesRes.ok) {
-    throw new Error(`Failed to fetch user roles: ${rolesRes.status}`)
-  }
+    if (!rolesRes.ok) {
+      console.error('[auth-context] Failed to fetch user roles:', rolesRes.status)
+      return { roles: [], isAdmin: false, isSuperAdmin: false, isDeveloper: false, isManager: false }
+    }
 
   const payload = await rolesRes.json().catch(() => null)
   let assignments = payload?.assignments ?? payload?.data ?? payload ?? []
@@ -132,24 +137,33 @@ const fetchUserRoles = async (userId: string) => {
 
   const roleNames = normalizedRoles.map((r: any) => r.name)
 
-  // admin detection: role.level >= 3 OR known admin names
-  const hasAdminRole = normalizedRoles.some((r: any) => {
-    const name = (r.name || '').toLowerCase().replace(/[-_\s]/g, '')
-    return r.level >= 3 || ['admin','companyadmin','superadmin','ceo'].includes(name)
-  })
+    // admin detection: role.level >= 3 OR known admin names
+    const hasAdminRole = normalizedRoles.some((r: any) => {
+      const name = normalizeRoleName(r.name || '')
+      return r.level >= 3 || ['admin','superadmin','super_admin','ceo'].includes(name)
+    })
 
-  // super_admin detection: role.level >= 4 OR known super_admin names
-  const hasSuperAdminRole = normalizedRoles.some((r: any) => {
-    const name = (r.name || '').toLowerCase().replace(/[-_\s]/g, '')
-    return r.level >= 4 || ['superadmin','ceo'].includes(name)
-  })
+    // super_admin detection: role.level >= 4 OR known super_admin names
+    const hasSuperAdminRole = normalizedRoles.some((r: any) => {
+      const name = normalizeRoleName(r.name || '')
+      return r.level >= 4 || ['superadmin','super_admin','ceo'].includes(name)
+    })
 
-  const hasDeveloperRole = normalizedRoles.some((r: any) => {
-    const name = (r.name || '').toLowerCase().replace(/[-_\s]/g, '')
-    return r.level >= 6 || ['developer'].includes(name)
-  })
+    const hasManagerRole = normalizedRoles.some((r: any) => {
+      const name = normalizeRoleName(r.name || '')
+      return r.level === 2 || name.includes('manager')
+    })
 
-  return { roles: roleNames, isAdmin: hasAdminRole, isSuperAdmin: hasSuperAdminRole, isDeveloper: hasDeveloperRole }
+    const hasDeveloperRole = normalizedRoles.some((r: any) => {
+      const name = normalizeRoleName(r.name || '')
+      return r.level >= 6 || ['developer'].includes(name)
+    })
+
+    return { roles: roleNames, isAdmin: hasAdminRole, isSuperAdmin: hasSuperAdminRole, isDeveloper: hasDeveloperRole, isManager: hasManagerRole }
+  } catch (e) {
+    console.error('[auth-context] Error fetching user roles:', e)
+    return { roles: [], isAdmin: false, isSuperAdmin: false, isDeveloper: false, isManager: false }
+  }
 }
 
 const loadCachedFullProfile = async (authUser: AuthUserLike) => {
@@ -176,21 +190,22 @@ const loadCachedFullProfile = async (authUser: AuthUserLike) => {
 
         const rolesData = await fetchUserRoles(resolvedUserId)
 
-        return {
-          employeeData: empData,
-          userId: resolvedUserId,
-          userRoles: rolesData.roles,
-          isAdmin: rolesData.isAdmin,
-          isSuperAdmin: rolesData.isSuperAdmin,
-          isDeveloper: rolesData.isDeveloper
-        }
-      },
-      {
-        ttlMs: 2 * 60 * 1000,
-        swr: true,
-        swrMs: 5 * 60 * 1000
+      return {
+        employeeData: empData,
+        userId: empData.user_id,
+        userRoles: rolesData.roles,
+        isAdmin: rolesData.isAdmin,
+        isSuperAdmin: rolesData.isSuperAdmin,
+        isDeveloper: rolesData.isDeveloper,
+        isManager: rolesData.isManager
       }
-    )
+    },
+    {
+      ttlMs: 2 * 60 * 1000,
+      swr: true,
+      swrMs: 5 * 60 * 1000
+    }
+  )
 
     return result.data
   } catch (error) {
@@ -256,12 +271,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
-  const [userRoles, setUserRoles] = useState<string[]>(cachedProfile?.userRoles || [])
-  const [isAdmin, setIsAdmin] = useState(Boolean(cachedProfile?.isAdmin))
-  const [isSuperAdmin, setIsSuperAdmin] = useState(Boolean(cachedProfile?.isSuperAdmin))
-  const [isDeveloper, setIsDeveloper] = useState(Boolean(cachedProfile?.isDeveloper))
-  const [userId, setUserId] = useState<string | null>(cachedProfile?.userId || null)
-  const [employeeData, setEmployeeData] = useState<any | null>(cachedProfile?.employeeData || null)
+  const [userRoles, setUserRoles] = useState<string[]>([])
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [isDeveloper, setIsDeveloper] = useState(false)
+  const [isManager, setIsManager] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [employeeData, setEmployeeData] = useState<any | null>(null)
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -271,23 +287,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (effectiveUser?.email) {
         const profile = await loadCachedFullProfile(effectiveUser)
 
-        if (profile !== undefined) {
-          if (profile) {
-            writeCachedProfile(profile)
-            setEmployeeData(profile.employeeData)
-            setUserId(profile.userId)
-            setUserRoles(profile.userRoles)
-            setIsAdmin(profile.isAdmin)
-            setIsSuperAdmin(profile.isSuperAdmin)
-            setIsDeveloper(Boolean(profile.isDeveloper))
-          } else {
-            setEmployeeData(null)
-            setUserId(null)
-            setUserRoles([])
-            setIsAdmin(false)
-            setIsSuperAdmin(false)
-            setIsDeveloper(false)
-          }
+        if (profile) {
+          setEmployeeData(profile.employeeData)
+          setUserId(profile.userId)
+          setUserRoles(profile.userRoles)
+          setIsAdmin(profile.isAdmin)
+          setIsSuperAdmin(profile.isSuperAdmin)
+          setIsDeveloper(Boolean(profile.isDeveloper))
+          setIsManager(Boolean(profile.isManager))
+        } else {
+          setEmployeeData(null)
+          setUserId(null)
+          setUserRoles([])
+          setIsAdmin(false)
+          setIsSuperAdmin(false)
+          setIsDeveloper(false)
+          setIsManager(false)
         }
 
         if (!firebaseUser) {
@@ -303,6 +318,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsAdmin(false)
         setIsSuperAdmin(false)
         setIsDeveloper(false)
+        setIsManager(false)
       }
       
       setLoading(false)
@@ -350,23 +366,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           name: userData.name ?? userData.displayName ?? null,
         })
 
-        if (profile !== undefined) {
-          if (profile) {
-            writeCachedProfile(profile)
-            setEmployeeData(profile.employeeData)
-            setUserId(profile.userId)
-            setUserRoles(profile.userRoles)
-            setIsAdmin(profile.isAdmin)
-            setIsSuperAdmin(profile.isSuperAdmin)
-            setIsDeveloper(Boolean(profile.isDeveloper))
-          } else {
-            setEmployeeData(null)
-            setUserId(null)
-            setUserRoles([])
-            setIsAdmin(false)
-            setIsSuperAdmin(false)
-            setIsDeveloper(false)
-          }
+        if (profile) {
+          setEmployeeData(profile.employeeData)
+          setUserId(profile.userId)
+          setUserRoles(profile.userRoles)
+          setIsAdmin(profile.isAdmin)
+          setIsSuperAdmin(profile.isSuperAdmin)
+          setIsDeveloper(Boolean(profile.isDeveloper))
+          setIsManager(Boolean(profile.isManager))
+        } else {
+          setEmployeeData(null)
+          setUserId(null)
+          setUserRoles([])
+          setIsAdmin(false)
+          setIsSuperAdmin(false)
+          setIsDeveloper(false)
+          setIsManager(false)
         }
       }
       
@@ -389,6 +404,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsAdmin(false)
     setIsSuperAdmin(false)
     setIsDeveloper(false)
+    setIsManager(false)
   }
 
   const refreshProfile = async () => {
@@ -401,24 +417,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       if (effectiveUser && effectiveUser.email) {
         const profile = await loadCachedFullProfile(effectiveUser)
-        
-        if (profile !== undefined) {
-          if (profile) {
-            writeCachedProfile(profile)
-            setEmployeeData(profile.employeeData)
-            setUserId(profile.userId)
-            setUserRoles(profile.userRoles)
-            setIsAdmin(profile.isAdmin)
-            setIsSuperAdmin(profile.isSuperAdmin)
-            setIsDeveloper(Boolean(profile.isDeveloper))
-          } else {
-            setEmployeeData(null)
-            setUserId(null)
-            setUserRoles([])
-            setIsAdmin(false)
-            setIsSuperAdmin(false)
-            setIsDeveloper(false)
-          }
+        if (profile) {
+          setEmployeeData(profile.employeeData)
+          setUserId(profile.userId)
+          setUserRoles(profile.userRoles)
+          setIsAdmin(profile.isAdmin)
+          setIsSuperAdmin(profile.isSuperAdmin)
+          setIsDeveloper(Boolean(profile.isDeveloper))
+          setIsManager(Boolean(profile.isManager))
         }
       }
     }
@@ -433,6 +439,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAdmin, 
         isSuperAdmin,
         isDeveloper,
+        isManager,
         userId, 
         employeeData, 
         login, 

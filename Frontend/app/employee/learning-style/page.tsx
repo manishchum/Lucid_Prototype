@@ -436,9 +436,9 @@ export default function LearningStyleSurvey() {
       } else {
         // Parse GPT result from backend response
         const gptResult = data.gpt || {}
-        console.log('[Learning Style Submit] Full response data:', data)
-        console.log('[Learning Style Submit] gptResult:', gptResult)
-        console.log('[Learning Style Submit] gptResult.report:', gptResult.report)
+        //console.log('[Learning Style Submit] Full response data:', data)
+        //console.log('[Learning Style Submit] gptResult:', gptResult)
+        //console.log('[Learning Style Submit] gptResult.report:', gptResult.report)
         
         const learningStyleMap = {
           'CS': { code: 'CS', label: 'Concrete Sequential', description: 'The Planner - Prefers structure, clear steps, and hands-on practice.' },
@@ -631,17 +631,17 @@ export default function LearningStyleSurvey() {
   // Summary page
   if (page === 'summary' && learningStyleResult) {
     const rawAnalysis = learningStyleResult.gptAnalysis || learningStyleResult.description
-    console.log('[Learning Style] Raw Analysis:', rawAnalysis)
+    //console.log('[Learning Style] Raw Analysis:', rawAnalysis)
     const reportText = extractReportFromJson(rawAnalysis) || rawAnalysis
-    console.log('[Learning Style] Extracted Report Text:', reportText)
+    //console.log('[Learning Style] Extracted Report Text:', reportText)
     const accordionSections = buildAccordionSections(reportText, learningStyleResult.description)
-    console.log('[Learning Style] Accordion Sections:', accordionSections)
+    //console.log('[Learning Style] Accordion Sections:', accordionSections)
     
     return (
       <div className="min-h-screen py-10">
         <div className="max-w-4xl mx-auto px-4">
         
-        {/* Header Section */}}
+        {/* Header Section */}
         <div className="text-center mb-8">
           {/* <CheckCircle className="w-20 h-20 text-green-500 mx-auto mb-4" /> */}
           <h1 className="text-3xl font-bold mb-2">Survey Complete!</h1>
