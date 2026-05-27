@@ -128,7 +128,7 @@ def verify_table_structure():
         print("\n🔍 Verifying table structure...")
         
         # Try to query the table
-        result = supabase.table("career_journeys").select("*").limit(1).execute()
+        result = supabase.table("career_journeys").select().limit(1).execute()
         
         print("✅ Table exists and is accessible!")
         print(f"   - Table: career_journeys")

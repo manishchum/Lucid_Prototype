@@ -14,7 +14,7 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str) -> Di
     """
     try:
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
-        resp = supabase.table('users').select('*').eq('email', email).eq('is_active', True).limit(1).execute()
+        resp = supabase.table('users').select().eq('email', email).eq('is_active', True).limit(1).execute()
         rows = resp.data if hasattr(resp, 'data') else []
         user = rows[0] if rows else None
         if not user:
@@ -40,7 +40,7 @@ async def get_user_by_phone(requesting_user_id: Optional[str], phone: str) -> Di
     """
     try:
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
-        resp = supabase.table('users').select('*').eq('phone', phone).eq('is_active', True).limit(1).execute()
+        resp = supabase.table('users').select().eq('phone', phone).eq('is_active', True).limit(1).execute()
         rows = resp.data if hasattr(resp, 'data') else []
         user = rows[0] if rows else None
         if not user:
@@ -64,7 +64,7 @@ async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[s
     Return single user. Permission: self OR manager+ in same company.
     """
     try:
-        resp = supabase.table('users').select('*').eq('user_id', target_user_id).single().execute()
+        resp = supabase.table('users').select().eq('user_id', target_user_id).single().execute()
         if not resp.data:
             return {"data": None, "error": "User not found"}
         user = resp.data
@@ -98,9 +98,7 @@ async def get_users_by_company(
         }
     
     try:
-        response = supabase.table('users').select(
-            '*'
-        ).eq('company_id', company_id).eq('is_active', True).order('name').execute()
+        response = supabase.table('users').select().eq('company_id', company_id).eq('is_active', True).order('name').execute()
         
         return {"data": response.data, "error": None}
     except Exception as e:
@@ -133,7 +131,7 @@ async def create_user(
 
         # Check for an existing inactive user with the same email in this company
         if email:
-            existing_resp = supabase.table('users').select('*').ilike('email', email).eq(
+            existing_resp = supabase.table('users').select().ilike('email', email).eq(
                 'company_id', company_id
             ).eq('is_active', False).execute()
             existing_data = existing_resp.data[0] if existing_resp.data else None
@@ -195,7 +193,7 @@ async def create_user_signup(
 
         # Check for an existing inactive user with the same email in this company
         if email:
-            existing_resp = supabase.table('users').select('*').ilike('email', email).eq(
+            existing_resp = supabase.table('users').select().ilike('email', email).eq(
                 'company_id', company_id
             ).eq('is_active', False).maybe_single().execute()
             # existing_data = existing_resp.data[0] if existing_resp.data else None
@@ -249,7 +247,7 @@ async def update_user(
     Permission: company_admin+ OR the user updating themselves (limited fields).
     """
     # Get target user's company
-    target_user = supabase.table('users').select('company_id').eq(
+    target_user = supabase.table('users').select().eq(
         'user_id', target_user_id
     ).single().execute()
     
@@ -300,7 +298,7 @@ async def delete_user(
     Permission: Must be company_admin+ in the same company.
     """
     # Get target user's company
-    target_user = supabase.table('users').select('company_id').eq(
+    target_user = supabase.table('users').select().eq(
         'user_id', target_user_id
     ).single().execute()
     
@@ -336,7 +334,7 @@ async def delete_user(
 
 async def get_users_by_filter(filters: dict):
     try:
-        query = supabase.table("users").select("*")
+        query = supabase.table("users").select()
 
         if "function_id" in filters:
             query = query.eq("function_id", filters["function_id"])
