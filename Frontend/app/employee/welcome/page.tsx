@@ -772,20 +772,17 @@ const handleGenerateCertificate = (sprintId: string) => {
       );
       setBaselineRequired(baselineNeeded);
 
-      const completedCount = data?.userRank?.modules_completed ?? 0;
-         const totalAssigned = mappedAssigned.length;
-      const progressValue = totalAssigned > 0 ? (completedCount / totalAssigned) * 100 : 0;
+      const completedCount = mappedAssigned.filter(
+        (p) => p.status === "completed",
+      ).length;
+      const totalAssigned = mappedAssigned.length;
+      const progressValue =
+        totalAssigned > 0
+          ? Math.round((completedCount / totalAssigned) * 100)
+          : 0;
       setProgressPercentage(progressValue);
-      
+
       const totalUsers = data?.totalUsers ?? 0;
-      // const completedCount = mappedAssigned.filter(
-      //   (p) => p.status === "completed",
-      // ).length;
-      // const progressValue =
-      //   mappedAssigned.length > 0
-      //     ? Math.round((completedCount / mappedAssigned.length) * 100)
-      //     : 0;
-      // setProgressPercentage(progressValue);
       setCompanyStats({
         totalEmployees: totalUsers,
         completedEmployees: completedCount,
@@ -834,6 +831,12 @@ const handleGenerateCertificate = (sprintId: string) => {
   return (
     <div>
       <main className="min-h-screen pt-4 md:pt-8 pb-8 md:pb-12 px-4 sm:px-6 lg:px-8 relative">
+        <LeaderboardModal
+          open={showLeaderboard}
+          onOpenChange={setShowLeaderboard}
+          employee={employee}
+        />
+
         {/* Fixed Leaderboard Button (Positioned directly below the company logo pill for responsiveness) */}
         <Button
           onClick={() => setShowLeaderboard(true)}
@@ -1035,14 +1038,7 @@ const handleGenerateCertificate = (sprintId: string) => {
          </div>
        </main>
 
-      {/* Leaderboard Modal */}
-      {employee && (
-        <LeaderboardModal
-          open={showLeaderboard}
-          onOpenChange={setShowLeaderboard}
-          employee={employee}
-        />
-      )}
+      
 
       {/* Certificate Modal */}
             {selectedCertificateSprint && (
