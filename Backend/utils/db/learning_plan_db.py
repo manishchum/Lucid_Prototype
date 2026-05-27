@@ -5,17 +5,50 @@ Handles CRUD operations with permission checks.
 
 from typing import Dict, Any, List, Optional
 from utils.supabase_client import supabase
+import uuid
 from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission
 from utils.assignment_notifications import send_assignment_notification_email
+
+
+def _resolve_app_user_id(service_supabase, user_id: Optional[str]) -> Optional[str]:
+    if not user_id:
+        return None
+
+    try:
+        uuid.UUID(str(user_id))
+        return str(user_id)
+    except Exception:
+        pass
+
+    try:
+        resp = (
+            service_supabase
+            .table('users')
+            .select('user_id')
+            .eq('firebase_uid', str(user_id))
+            .maybe_single()
+            .execute()
+        )
+        data = getattr(resp, 'data', None)
+        if isinstance(data, dict) and data.get('user_id'):
+            return str(data.get('user_id'))
+    except Exception:
+        return None
+
+    return None
 
 
 async def get_user_company_id(user_id: str) -> Optional[str]:
     """Helper function to get user's company_id"""
     try:
         db = get_service_supabase_client()
+        resolved_user_id = _resolve_app_user_id(db, user_id)
+        if not resolved_user_id:
+            return None
+
         resp = db.table('users').select('company_id').eq(
-            'user_id', user_id
+            'user_id', resolved_user_id
         ).maybe_single().execute()
         
         return resp.data.get('company_id') if resp.data else None
@@ -47,6 +80,7 @@ async def get_learning_plan_by_id(
     """
     try:
         db = get_service_supabase_client()
+        resolved_requesting_user_id = _resolve_app_user_id(db, requesting_user_id) or requesting_user_id
         # Fetch the learning plan
         resp = db.table('learning_plan').select(
             '*, users(user_id, name, email, company_id), training_modules(module_id, title, company_id)'
@@ -59,15 +93,15 @@ async def get_learning_plan_by_id(
         plan_user_id = plan.get('user_id')
         
         # Check if user is viewing their own plan
-        if requesting_user_id == plan_user_id:
+        if resolved_requesting_user_id == plan_user_id:
             return {"data": plan, "error": None}
         
         # Check if user has manager+ permission and same company
-        has_permission = await check_user_permission(requesting_user_id, 'manager')
+        has_permission = await check_user_permission(resolved_requesting_user_id, 'manager')
         if not has_permission:
             return {"data": None, "error": "Permission denied: Manager role required"}
         
-        has_access = await check_company_access(requesting_user_id, plan_user_id)
+        has_access = await check_company_access(resolved_requesting_user_id, plan_user_id)
         if not has_access:
             return {"data": None, "error": "Access denied: Different company"}
         
@@ -90,28 +124,29 @@ async def list_learning_plans(
     """
     try:
         db = get_service_supabase_client()
+        resolved_requesting_user_id = _resolve_app_user_id(db, requesting_user_id) or requesting_user_id
         # Build query
         query = db.table('learning_plan').select(
             '*, users(user_id, name, email, company_id), training_modules(module_id, title, company_id)'
         )
         
         # Check if user has manager+ permission
-        has_permission = await check_user_permission(requesting_user_id, 'manager')
+        has_permission = await check_user_permission(resolved_requesting_user_id, 'manager')
         
         if not has_permission:
             # Regular user can only see their own plans
-            query = query.eq('user_id', requesting_user_id)
+            query = query.eq('user_id', resolved_requesting_user_id)
         else:
             # Manager+ can filter by user_id or see all in their company
             if user_id:
                 # Check company access
-                has_access = await check_company_access(requesting_user_id, user_id)
+                has_access = await check_company_access(resolved_requesting_user_id, user_id)
                 if not has_access:
                     return {"data": None, "error": "Access denied: Different company"}
                 query = query.eq('user_id', user_id)
             else:
                 # Filter by company
-                user_company_id = await get_user_company_id(requesting_user_id)
+                user_company_id = await get_user_company_id(resolved_requesting_user_id)
                 if not user_company_id:
                     return {"data": None, "error": "User company not found"}
         
@@ -134,7 +169,7 @@ async def list_learning_plans(
         # Filter by company if manager+
         plans = resp.data or []
         if has_permission:
-            user_company_id = await get_user_company_id(requesting_user_id)
+            user_company_id = await get_user_company_id(resolved_requesting_user_id)
             filtered_plans = []
             for plan in plans:
                 user_data = plan.get('users', {})
@@ -157,18 +192,25 @@ async def get_user_learning_plans(
     Permission: User can view their own plans, manager+ can view plans in their company.
     """
     # Check if user is viewing their own plans
-    if requesting_user_id != target_user_id:
+    resolved_requesting_user_id = requesting_user_id
+    try:
+        db = get_service_supabase_client()
+        resolved_requesting_user_id = _resolve_app_user_id(db, requesting_user_id) or requesting_user_id
+    except Exception:
+        pass
+
+    if resolved_requesting_user_id != target_user_id:
         # Check if user has manager+ permission
-        has_permission = await check_user_permission(requesting_user_id, 'manager')
+        has_permission = await check_user_permission(resolved_requesting_user_id, 'manager')
         if not has_permission:
             return {"data": None, "error": "Permission denied: Manager role required"}
         
         # Check company access
-        has_access = await check_company_access(requesting_user_id, target_user_id)
+        has_access = await check_company_access(resolved_requesting_user_id, target_user_id)
         if not has_access:
             return {"data": None, "error": "Access denied: Different company"}
     
-    return await list_learning_plans(requesting_user_id, user_id=target_user_id)
+    return await list_learning_plans(resolved_requesting_user_id, user_id=target_user_id)
 
 
 async def create_learning_plan(
@@ -290,9 +332,15 @@ async def update_learning_plan(
             return {"data": None, "error": "Learning plan not found"}
         
         plan_user_id = plan_resp.data.get('user_id')
+        resolved_requesting_user_id = requesting_user_id
+        try:
+            db = get_service_supabase_client()
+            resolved_requesting_user_id = _resolve_app_user_id(db, requesting_user_id) or requesting_user_id
+        except Exception:
+            pass
         
         # Check if user is updating their own plan
-        if requesting_user_id == plan_user_id:
+        if resolved_requesting_user_id == plan_user_id:
             # Users can only update certain fields (status, started_at, completed_at, processed_module_ids)
             allowed_fields = ['status', 'started_at', 'completed_at', 'overall_status', 'processed_module_ids']
             filtered_updates = {k: v for k, v in updates.items() if k in allowed_fields}
@@ -303,12 +351,12 @@ async def update_learning_plan(
             updates = filtered_updates
         else:
             # Check if user has manager+ permission
-            has_permission = await check_user_permission(requesting_user_id, 'manager')
+            has_permission = await check_user_permission(resolved_requesting_user_id, 'manager')
             if not has_permission:
                 return {"data": None, "error": "Permission denied: Manager role required"}
             
             # Check company access
-            has_access = await check_company_access(requesting_user_id, plan_user_id)
+            has_access = await check_company_access(resolved_requesting_user_id, plan_user_id)
             if not has_access:
                 return {"data": None, "error": "Access denied: Different company"}
         
@@ -339,7 +387,14 @@ async def delete_learning_plan(
     """
     try:
         # Check if user has manager+ permission
-        has_permission = await check_user_permission(requesting_user_id, 'manager')
+        resolved_requesting_user_id = requesting_user_id
+        try:
+            db = get_service_supabase_client()
+            resolved_requesting_user_id = _resolve_app_user_id(db, requesting_user_id) or requesting_user_id
+        except Exception:
+            pass
+
+        has_permission = await check_user_permission(resolved_requesting_user_id, 'manager')
         if not has_permission:
             return {"data": None, "error": "Permission denied: Manager role required"}
         
@@ -354,7 +409,7 @@ async def delete_learning_plan(
         plan_user_id = plan_resp.data.get('user_id')
         
         # Check company access
-        has_access = await check_company_access(requesting_user_id, plan_user_id)
+        has_access = await check_company_access(resolved_requesting_user_id, plan_user_id)
         if not has_access:
             return {"data": None, "error": "Access denied: Different company"}
         
@@ -378,20 +433,27 @@ async def get_learning_plan_stats(
     """
     try:
         # Determine which user's stats to get
-        target_user_id = user_id if user_id else requesting_user_id
+        resolved_requesting_user_id = requesting_user_id
+        try:
+            db = get_service_supabase_client()
+            resolved_requesting_user_id = _resolve_app_user_id(db, requesting_user_id) or requesting_user_id
+        except Exception:
+            pass
+
+        target_user_id = user_id if user_id else resolved_requesting_user_id
         
         # Check permissions
-        if requesting_user_id != target_user_id:
-            has_permission = await check_user_permission(requesting_user_id, 'manager')
+        if resolved_requesting_user_id != target_user_id:
+            has_permission = await check_user_permission(resolved_requesting_user_id, 'manager')
             if not has_permission:
                 return {"data": None, "error": "Permission denied: Manager role required"}
             
-            has_access = await check_company_access(requesting_user_id, target_user_id)
+            has_access = await check_company_access(resolved_requesting_user_id, target_user_id)
             if not has_access:
                 return {"data": None, "error": "Access denied: Different company"}
         
         # Get all plans for the user
-        plans_result = await list_learning_plans(requesting_user_id, user_id=target_user_id)
+        plans_result = await list_learning_plans(resolved_requesting_user_id, user_id=target_user_id)
         
         if plans_result.get('error'):
             return plans_result

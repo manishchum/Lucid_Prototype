@@ -4,51 +4,72 @@ import asyncio
 from datetime import datetime
 
 from utils.supabase_client import supabase
-from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
+from utils.auth_bridge import get_service_supabase_client
+from utils.db.permissions import check_user_permission
 
 router = APIRouter(prefix="/api/employee", tags=["employee-dashboard"])
 
 @router.get("/dashboard_summary/{user_id}")
 async def get_dashboard_summary(
     user_id: str,
-    x_company_id: Optional[str] = Header(None, alias="X-Company-ID")
+    x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id),
 ):
-    if not x_company_id:
-        # Fallback to fetching company_id from user if not provided in header
-        user_res = supabase.table("users").select("company_id").eq("user_id", user_id).execute()
-        if user_res.data and len(user_res.data) > 0:
-            x_company_id = user_res.data[0].get("company_id")
-        else:
-            raise HTTPException(status_code=400, detail="Company ID is required")
+    service_supabase = get_service_supabase_client()
+
+    if auth_ctx.user_id != user_id:
+        is_manager = await check_user_permission(auth_ctx.user_id, "manager")
+        if not is_manager:
+            raise HTTPException(status_code=403, detail="Permission denied")
+
+    def _get_data(response):
+        return getattr(response, "data", None)
+
+    user_company_res = service_supabase.table("users").select("company_id").eq("user_id", user_id).maybe_single().execute()
+    user_company_data = _get_data(user_company_res)
+    if not isinstance(user_company_data, dict) or not user_company_data.get("company_id"):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_company_id = str(user_company_data.get("company_id"))
+    if str(effective_company_id) != user_company_id:
+        raise HTTPException(status_code=403, detail="User does not belong to this company")
+
+    x_company_id = str(effective_company_id)
 
     try:
         # 1. Fetch Company details
-        company_res = supabase.table("companies").select("*").eq("company_id", x_company_id).single().execute()
-        company_data = company_res.data if company_res.data else {}
-
+        company_res = service_supabase.table("companies").select("*").eq("company_id", x_company_id).maybe_single().execute()
+        company_data = _get_data(company_res) or {}
+        print(f"Company Data: {company_data}")
         # 2. Fetch User details & Count total users in company
-        users_res = supabase.table("users").select("user_id").eq("company_id", x_company_id).execute()
-        total_users = len(users_res.data) if users_res.data else 0
+        users_res = service_supabase.table("users").select("user_id").eq("company_id", x_company_id).execute()
+        users_data = _get_data(users_res)
+        total_users = len(users_data) if users_data else 0
 
         # 3. Fetch Learning Style
-        learning_style_res = supabase.table("employee_learning_style").select("learning_style").eq("user_id", user_id).execute()
-        learning_style = learning_style_res.data[0].get("learning_style") if learning_style_res.data else None
-
+        learning_style_res = service_supabase.table("employee_learning_style").select("learning_style").eq("user_id", user_id).maybe_single().execute()
+        learning_style_data = _get_data(learning_style_res)
+        learning_style = learning_style_data.get("learning_style") if isinstance(learning_style_data, dict) else None
+        print(f"Learning Style: {learning_style}")
         # 4. Fetch Learning Plans
-        plans_res = supabase.table("learning_plan").select("*").eq("user_id", user_id).execute()
-        plans = plans_res.data if plans_res.data else []
+        plans_res = service_supabase.table("learning_plan").select("*").eq("user_id", user_id).execute()
+        plans = _get_data(plans_res) or []
         
         # 5. Fetch Training Modules for Company
-        modules_res = supabase.table("training_modules").select("*").eq("company_id", x_company_id).execute()
-        modules = modules_res.data if modules_res.data else []
+        modules_res = service_supabase.table("training_modules").select("*").eq("company_id", x_company_id).execute()
+        modules = _get_data(modules_res) or []
 
         # 6. Fetch Module Progress
-        progress_res = supabase.table("module_progress").select("*").eq("user_id", user_id).execute()
-        progress = progress_res.data if progress_res.data else []
+        progress_res = service_supabase.table("module_progress").select("*").eq("user_id", user_id).execute()
+        progress = _get_data(progress_res) or []
+        print(f"Module Progress: {progress}")
 
         # 7. Fetch Employee Assessments
-        assessments_res = supabase.table("employee_assessments").select("*").eq("user_id", user_id).execute()
-        employee_assessments = assessments_res.data if assessments_res.data else []
+        assessments_res = service_supabase.table("employee_assessments").select("*").eq("user_id", user_id).execute()
+        employee_assessments = _get_data(assessments_res) or []
+        print(f"Employee Assessments: {employee_assessments}")
 
         # 8. Fetch Assessment Details mapped from Employee Assessments
         assessment_ids = list(set([str(ea.get("assessment_id")) for ea in employee_assessments if ea.get("assessment_id")]))
@@ -56,15 +77,15 @@ async def get_dashboard_summary(
         assessment_details = []
         if assessment_ids:
             # We can use .in_() operator
-            assessment_details_res = supabase.table("assessments").select("*").in_("assessment_id", assessment_ids).execute()
-            assessment_details = assessment_details_res.data if assessment_details_res.data else []
+            assessment_details_res = service_supabase.table("assessments").select("*").in_("assessment_id", assessment_ids).execute()
+            assessment_details = _get_data(assessment_details_res) or []
 
         # Process mapping assessment to processed_module_ids
         processed_module_ids = list(set([str(d.get("processed_module_id")) for d in assessment_details if d.get("processed_module_id")]))
         processed_modules = []
         if processed_module_ids:
-            pm_res = supabase.table("processed_modules").select("*").in_("processed_module_id", processed_module_ids).execute()
-            processed_modules = pm_res.data if pm_res.data else []
+            pm_res = service_supabase.table("processed_modules").select("*").in_("processed_module_id", processed_module_ids).execute()
+            processed_modules = _get_data(pm_res) or []
 
         # We construct the assessmentEvidenceByModuleId here in backend to save bandwidth
         assessment_evidence_by_module_id = {}
@@ -104,8 +125,9 @@ async def get_dashboard_summary(
 
         # 9. Fake or real user rank for now. Usually needs a separate leaderboard query, doing basic for now
         # Fetch completed modules for user_id to compute rank
-        completed_modules_res = supabase.table("learning_plan").select("learning_plan_id").eq("user_id", user_id).in_("status", ["COMPLETED"]).execute()
-        modules_completed = len(completed_modules_res.data) if completed_modules_res.data else 0
+        completed_modules_res = service_supabase.table("learning_plan").select("learning_plan_id").eq("user_id", user_id).in_("status", ["COMPLETED"]).execute()
+        completed_modules_data = _get_data(completed_modules_res)
+        modules_completed = len(completed_modules_data) if completed_modules_data else 0
         
         user_rank_data = {
             "rank": 1, # Placeholder, true rank calculation usually heavier

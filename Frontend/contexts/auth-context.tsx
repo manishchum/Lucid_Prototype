@@ -77,7 +77,8 @@ const fetchUserRoles = async (userId: string) => {
     return { roles: [], isAdmin: false, isSuperAdmin: false, isDeveloper: false }
   }
 
-  const rolesRes = await fetchWithAuth(`${API_BASE}/api/roles/users/${encodeURIComponent(normalizedUserId)}`, {
+  try {
+    const rolesRes = await fetchWithAuth(`${API_BASE}/api/roles/users/${encodeURIComponent(normalizedUserId)}`, {
     headers: { 'X-User-ID': normalizedUserId }
   })
 

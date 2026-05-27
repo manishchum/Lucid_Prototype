@@ -71,16 +71,15 @@ async def list_learning_plans(
 
 @router.get("/stats")
 async def get_learning_plan_stats(
-    x_auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     user_id: Optional[str] = None
 ):
-    user_id = auth_ctx.user_id
     """
     Get statistics about learning plans.
     - Users see their own stats
     - Managers+ can see stats for users in their company
     """
-    result = await learning_plan_db.get_learning_plan_stats(x_user_id, user_id)
+    result = await learning_plan_db.get_learning_plan_stats(auth_ctx.user_id, user_id)
     
     if result.get("error"):
         raise HTTPException(status_code=403, detail=result["error"])
@@ -91,15 +90,14 @@ async def get_learning_plan_stats(
 @router.get("/{learning_plan_id}")
 async def get_learning_plan(
     learning_plan_id: str,
-    x_auth_ctx: RequestAuth = Depends(get_request_auth_required)
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
-    user_id = auth_ctx.user_id
     """
     Get a single learning plan by ID.
     - Users can view their own plan
     - Managers+ can view plans from their company
     """
-    result = await learning_plan_db.get_learning_plan_by_id(x_user_id, learning_plan_id)
+    result = await learning_plan_db.get_learning_plan_by_id(auth_ctx.user_id, learning_plan_id)
     
     if result.get("error"):
         status_code = 404 if "not found" in result["error"].lower() else 403
@@ -111,15 +109,14 @@ async def get_learning_plan(
 @router.get("/user/{user_id}")
 async def get_user_learning_plans(
     user_id: str,
-    x_auth_ctx: RequestAuth = Depends(get_request_auth_required)
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
-    user_id = auth_ctx.user_id
     """
     Get all learning plans for a specific user.
     - Users can view their own plans
     - Managers+ can view plans for users in their company
     """
-    result = await learning_plan_db.get_user_learning_plans(x_user_id, user_id)
+    result = await learning_plan_db.get_user_learning_plans(auth_ctx.user_id, user_id)
     
     if result.get("error"):
         raise HTTPException(status_code=403, detail=result["error"])
@@ -133,16 +130,15 @@ async def get_user_learning_plans(
 @router.post("/")
 async def create_learning_plan(
     request: CreateLearningPlanRequest,
-    x_auth_ctx: RequestAuth = Depends(get_request_auth_required)
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
-    user_id = auth_ctx.user_id
     """
     Create a new learning plan.
     Permission: Manager+ role required.
     """
     plan_data = request.dict(exclude_none=True)
-    
-    result = await learning_plan_db.create_learning_plan(x_user_id, plan_data)
+
+    result = await learning_plan_db.create_learning_plan(auth_ctx.user_id, plan_data)
     
     if result.get("error"):
         status_code = 400 if "required" in result["error"].lower() else 403
@@ -159,9 +155,8 @@ async def create_learning_plan(
 async def update_learning_plan(
     learning_plan_id: str,
     request: UpdateLearningPlanRequest,
-    x_auth_ctx: RequestAuth = Depends(get_request_auth_required)
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
-    user_id = auth_ctx.user_id
     """
     Update a learning plan.
     - Users can update their own plan (limited fields)
@@ -172,7 +167,7 @@ async def update_learning_plan(
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     
-    result = await learning_plan_db.update_learning_plan(x_user_id, learning_plan_id, updates)
+    result = await learning_plan_db.update_learning_plan(auth_ctx.user_id, learning_plan_id, updates)
     
     if result.get("error"):
         status_code = 404 if "not found" in result["error"].lower() else 403
@@ -189,16 +184,15 @@ async def update_learning_plan(
 async def update_learning_plan_status(
     learning_plan_id: str,
     request: UpdateStatusRequest,
-    x_auth_ctx: RequestAuth = Depends(get_request_auth_required)
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
-    user_id = auth_ctx.user_id
     """
     Convenient endpoint to update only the status of a learning plan.
     - Users can update their own plan status
     - Managers+ can update status of plans in their company
     """
     result = await learning_plan_db.update_learning_plan(
-        x_user_id, 
+        auth_ctx.user_id, 
         learning_plan_id, 
         {"status": request.status}
     )
@@ -217,14 +211,13 @@ async def update_learning_plan_status(
 @router.delete("/{learning_plan_id}")
 async def delete_learning_plan(
     learning_plan_id: str,
-    x_auth_ctx: RequestAuth = Depends(get_request_auth_required)
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
-    user_id = auth_ctx.user_id
     """
     Delete a learning plan.
     Permission: Manager+ role required.
     """
-    result = await learning_plan_db.delete_learning_plan(x_user_id, learning_plan_id)
+    result = await learning_plan_db.delete_learning_plan(auth_ctx.user_id, learning_plan_id)
     
     if result.get("error"):
         status_code = 404 if "not found" in result["error"].lower() else 403

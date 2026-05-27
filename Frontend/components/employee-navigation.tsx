@@ -244,7 +244,8 @@ const EmployeeNavigation = ({
                     <span className="truncate">{item.label}</span>
                   </button>
                 ))}
-              </div> */}
+              </div> 
+              )}
             
           {/* </div> */}
 
@@ -349,7 +350,7 @@ const EmployeeNavigation = ({
           )}
 
           {/* KPI Panel - visible only for Super Admin */}
-          {mounted && hasSuperAdminAccess && (
+          {mounted && isSuperAdmin && (
             <div className="relative group">
               <button 
                 onClick={() => isCollapsed ? handleNavigate('/kpi/intelligence') : setKpiDropdownOpen(!kpiDropdownOpen)} 

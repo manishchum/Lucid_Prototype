@@ -12,6 +12,7 @@ from utils.auth_bridge import (
 	resolve_user_context_from_claims,
 )
 from utils.supabase_client import supabase
+from utils.auth_bridge import get_service_supabase_client
 
 
 @dataclass
@@ -101,7 +102,22 @@ def _verify_firebase_token(token: str) -> Dict[str, Any]:
 
 def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> str:
 	if not email:
-		
+		try:
+			service_supabase = get_service_supabase_client()
+			res = (
+				service_supabase
+				.table("users")
+				.select("user_id")
+				.eq("firebase_uid", fallback_user_id)
+				.maybe_single()
+				.execute()
+			)
+			data = getattr(res, "data", None)
+			if isinstance(data, dict) and data.get("user_id"):
+				return str(data.get("user_id"))
+		except Exception:
+			pass
+
 		return fallback_user_id
 
 	try:
@@ -131,6 +147,22 @@ def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> st
 	# Always return fallback_user_id even if email lookup failed
 	# This preserves Firebase-verified identity
 	if fallback_user_id:
+		try:
+			service_supabase = get_service_supabase_client()
+			res = (
+				service_supabase
+				.table("users")
+				.select("user_id")
+				.eq("firebase_uid", fallback_user_id)
+				.maybe_single()
+				.execute()
+			)
+			data = getattr(res, "data", None)
+			if isinstance(data, dict) and data.get("user_id"):
+				return str(data.get("user_id"))
+		except Exception:
+			pass
+
 		# print(f"[auth] Using fallback_user_id from Firebase token: {fallback_user_id}")
 		return fallback_user_id
 
