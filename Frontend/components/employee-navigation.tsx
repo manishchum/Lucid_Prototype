@@ -201,7 +201,7 @@ const EmployeeNavigation = ({
           </div>
         )}
 
-        <nav className="flex-1 px-3 overflow-y-visible overflow-x-visible space-y-1 custom-scrollbar pt-2">
+        <nav className="flex-1 px-3 min-h-0 overflow-y-auto overflow-x-visible space-y-1 custom-scrollbar pt-2">
           {/* Home */}
           <div className="relative group">
             <button 
