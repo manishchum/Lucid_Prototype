@@ -503,11 +503,7 @@ const handleGenerateCertificate = (sprintId: string) => {
         hasModules &&
         sprintModules.every((mod) => mod.completed === true);
 
-      // Certificate ONLY when:
-      // - ALL modules are complete
-      // - OR backend explicitly marked as COMPLETED
-      const certificateEarned =
-        allModulesComplete || isBackendCompleted;
+      const certificateEarned = allModulesComplete;
 
       // ── Sprint-level completion date ──────────────────────────────────
       //   Use the latest completedAt among modules; fall back to plan date.
