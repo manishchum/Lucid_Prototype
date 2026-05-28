@@ -81,12 +81,12 @@ export function AssignedSprintsSection({
           const plan = plansByModuleId[module.id];
           const dueDate = plan?.due_date;
 
-          const totalQuizzes = module.modules?.length || 1;
-          const quizzesAttempted = moduleProgress.filter(p => {
-            // Find the processed module in the sprint's modules list
-            const processedModule = module.modules.find(m => m.id === p.processed_module_id);
-            return processedModule && p.quiz_score !== null && p.quiz_score !== undefined;
-          }).length;
+          const totalQuizzes = module.modules?.length > 0 ? module.modules.length : 1;
+
+                    const processedModuleIdsInSprint = new Set(module.modules.map(m => m.id));
+          const attemptedProcessedModuleIds = new Set(moduleProgress.map(p => p.processed_module_id));
+          
+          const quizzesAttempted = [...processedModuleIdsInSprint].filter(id => attemptedProcessedModuleIds.has(id)).length;
 
           // Determine status based on quiz attempts
           let status: Sprint["status"] = "Not Started";
@@ -109,8 +109,8 @@ export function AssignedSprintsSection({
             title: module.title,
             moduleName: module.moduleName,
             dueDate,
-            status : module.certificateEarned ? "Completed" : status, // Override to Completed if certificate is earned
-            completionPercentage : module.certificateEarned ? 100 : completionPercentage, // Override to 100% if certificate is earned
+            status,
+            completionPercentage,
             quizzesAttempted,
             totalQuizzes,
             hasBaseline: module.hasBaseline,
