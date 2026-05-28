@@ -31,6 +31,7 @@ import { toast as shadcnToast } from '@/hooks/use-toast';
 import { formatContentType } from '@/lib/contentType';
 import { useRouter } from 'next/navigation';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
+import { supabase } from '@/lib/supabase';
 
 // Types
 interface Admin {

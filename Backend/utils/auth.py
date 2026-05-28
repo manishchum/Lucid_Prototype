@@ -100,76 +100,53 @@ def _verify_firebase_token(token: str) -> Dict[str, Any]:
 		raise HTTPException(status_code=401, detail="Invalid or expired bearer token") from exc
 
 
-def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> str:
-	if not email:
+def _resolve_internal_user_context(
+	email: Optional[str],
+	fallback_user_id: str,
+	claims: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, Optional[str]]:
+	context = None
+
+	# Preferred path: resolve app user via auth bridge from verified token claims.
+	if claims:
 		try:
-			service_supabase = get_service_supabase_client()
-			res = (
-				service_supabase
-				.table("users")
-				.select("user_id")
-				.eq("firebase_uid", fallback_user_id)
-				.maybe_single()
-				.execute()
-			)
-			data = getattr(res, "data", None)
-			if isinstance(data, dict) and data.get("user_id"):
-				return str(data.get("user_id"))
-		except Exception:
-			pass
-
-		return fallback_user_id
-
-	try:
-		# print(f"[auth] Attempting to resolve user by email: {email}")
-		res = (
-			supabase
-			.table("users")
-			.select("user_id")
-			.eq("email", email)
-			.maybe_single()
-			.execute()
-		)
-		data = getattr(res, "data", None)
-		# print(f"[auth] Email lookup result: {data}")
-		if isinstance(data, dict) and data.get("user_id"):
-			resolved_id = str(data.get("user_id"))
-			# print(f"[auth] Successfully resolved email {email} to user_id={resolved_id}")
-			return resolved_id
-		else:
-			# print(f"[auth] Email {email} not found in users table")
-			pass
-
-	except Exception as exc:
-		# print(f"[auth] Failed to resolve internal user_id by email: {exc}")
-		pass
-
-	# Always return fallback_user_id even if email lookup failed
-	# This preserves Firebase-verified identity
-	if fallback_user_id:
+			context = resolve_user_context_from_claims(claims, fail_fast=True)
+		except BridgeConfigurationError as exc:
+			raise HTTPException(status_code=500, detail=f"Bridge configuration failure: {exc}") from exc
+		except BridgeResolutionError as exc:
+			raise HTTPException(status_code=401, detail=f"Bridge user resolution failed: {exc}") from exc
+	elif email:
 		try:
-			service_supabase = get_service_supabase_client()
-			res = (
-				service_supabase
-				.table("users")
-				.select("user_id")
-				.eq("firebase_uid", fallback_user_id)
-				.maybe_single()
-				.execute()
-			)
-			data = getattr(res, "data", None)
-			if isinstance(data, dict) and data.get("user_id"):
-				return str(data.get("user_id"))
-		except Exception:
-			pass
-
-		# print(f"[auth] Using fallback_user_id from Firebase token: {fallback_user_id}")
-		return fallback_user_id
+			context = resolve_user_context_from_claims({"email": email}, fail_fast=False)
+		except Exception as exc:
+			print(f"[auth] Bridge user resolution by email failed: {exc}")
 
 	if context and context.user_id:
-		return context.user_id, context.company_id
+		return str(context.user_id), str(context.company_id) if context.company_id else None
 
-	return fallback_user_id, None
+	# Legacy fallback: direct lookup by email in users table.
+	if email:
+		try:
+			res = (
+				supabase
+				.table("users")
+				.select("user_id, company_id")
+				.eq("email", email)
+				.maybe_single()
+				.execute()
+			)
+			data = getattr(res, "data", None)
+			if isinstance(data, dict) and data.get("user_id"):
+				return str(data.get("user_id")), str(data.get("company_id")) if data.get("company_id") else None
+		except Exception as exc:
+			print(f"[auth] Fallback lookup by email failed: {exc}")
+
+	return str(fallback_user_id or ""), None
+
+
+def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> str:
+	user_id, _ = _resolve_internal_user_context(email, fallback_user_id)
+	return user_id
 
 
 def get_request_auth_optional(
@@ -183,22 +160,31 @@ def get_request_auth_optional(
 			claims = _verify_firebase_token(token)
 			token_user_id = claims.get("uid") or claims.get("user_id") or claims.get("sub")
 			email = claims.get("email")
-			
-			# Ensure we have some identifier from the verified token
-			if not token_user_id:
-				print(f"[auth optional] Firebase token verified but missing uid/user_id/sub claims; email={email}; claims_keys={list(claims.keys())}")
-				# Fall through to X-User-ID header
-			else:
-				user_id = _resolve_internal_user_id(str(email) if email else None, str(token_user_id))
+			user_id, company_id = _resolve_internal_user_context(
+				str(email) if email else None,
+				str(token_user_id) if token_user_id else "",
+				claims,
+			)
+			if not user_id or (token_user_id and str(user_id) == str(token_user_id)):
+				raise HTTPException(status_code=401, detail="Authenticated Firebase user is not linked to an app user")
 
-				if user_id:
-					print(f"[auth optional] Bearer verified successfully; uid={token_user_id}; resolved_user_id={user_id}")
-					return RequestAuth(
-						user_id=str(user_id),
-						email=str(email) if email else None,
-						source="firebase",
-						claims=claims,
-					)
+			if user_id:
+				log_bridge_event(
+					"auth_context_resolved",
+					firebase_uid=str(token_user_id) if token_user_id else None,
+					app_user_id=str(user_id),
+					company_id=company_id,
+					token_exp=claims.get("exp"),
+					source="firebase",
+				)
+				print(f"[auth optional] Bearer verified successfully; uid={token_user_id}; resolved_user_id={user_id}")
+				return RequestAuth(
+					user_id=str(user_id),
+					email=str(email) if email else None,
+					source="firebase",
+					claims=claims,
+					company_id=str(company_id) if company_id else None,
+				)
 		except HTTPException as exc:
 			if exc.detail == "Authenticated Firebase user is not linked to an app user":
 				raise

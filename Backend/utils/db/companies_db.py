@@ -1,5 +1,6 @@
-from typing import Dict, Any, Optional, List
 from ..auth_bridge import get_service_supabase_client
+from typing import Dict, Any, Optional, List
+from ..supabase_client import supabase
 from .permissions import check_user_permission, check_company_access
 from ..supabase_client import supabase
 

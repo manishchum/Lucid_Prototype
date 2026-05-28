@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { LayoutGrid, List, ChevronDown, Search } from "lucide-react";
+import { callGemini } from "@/lib/gemini-helper";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -104,6 +105,7 @@ export function AssignedSprintsSection({
               ? Math.round((quizzesAttempted / totalQuizzes) * 100)
               : 0;
 
+          console.log(`Module: ${module.title}, Quizzes Attempted: ${quizzesAttempted}, Total Quizzes: ${totalQuizzes}, Status: ${status}, Completion: ${completionPercentage}%`);
           return {
             id: module.id,
             title: module.title,
@@ -119,7 +121,7 @@ export function AssignedSprintsSection({
           };
         })
       );
-
+      console.log("Enriched sprints data:", enrichedSprints);
       setSprints(enrichedSprints);
     } catch (error) {
       console.error("Error enriching sprints data:", error);
@@ -136,6 +138,7 @@ export function AssignedSprintsSection({
         hasBaseline: module.hasBaseline,
         certificateEarned: module.certificateEarned,
       }));
+      console.log("Basic sprints data:", basicSprints);
       setSprints(basicSprints);
     } finally {
       setLoading(false);

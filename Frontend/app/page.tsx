@@ -66,10 +66,11 @@ export default function LandingPage() {
         
         <div className="hidden md:flex items-center gap-4">
           {/* <Link href="/login" className="text-sm font-bold text-slate-600 hover:text-blue-600 px-3 py-2">Log In</Link> */}
-          <Link href="/login">
-            <button className="px-5 py-2.5 bg-[#2563EB] text-white rounded-full font-bold text-sm hover:bg-blue-700 transition-all shadow-md shadow-blue-100">
-              Log In
-            </button>
+          <Link
+            href="/login"
+            className="inline-flex items-center justify-center px-5 py-2.5 bg-[#2563EB] text-white rounded-full font-bold text-sm hover:bg-blue-700 transition-all shadow-md shadow-blue-100"
+          >
+            Log In
           </Link>
         </div>
 
@@ -188,8 +189,11 @@ export default function LandingPage() {
             <a href="#features" className="text-lg font-black text-[#0F172A]">Features</a>
             <a href="#pricing" className="text-lg font-black text-[#0F172A]">Pricing</a>
             <Link href="/login" className="text-lg font-black text-[#0F172A]">Log In</Link>
-            <Link href="/signup" className="w-full max-w-xs">
-              <button className="w-full px-6 py-3 bg-[#2563EB] text-white rounded-full font-black text-base shadow-lg">Sign up</button>
+            <Link
+              href="/signup"
+              className="w-full max-w-xs block px-6 py-3 bg-[#2563EB] text-white rounded-full font-black text-base shadow-lg text-center"
+            >
+              Sign up
             </Link>
           </nav>
         </div>

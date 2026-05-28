@@ -692,27 +692,40 @@ const handleGenerateCertificate = (sprintId: string) => {
           "X-Company-ID": effectiveCompanyId,
         };
 
-        const res = await fetchWithAuth(
-          `${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`,
-          { headers }
-        );
+        const [plansRes, modulesRes, progressRes, companyRes, learningStyleRes, dashboard_summary]: any[] = await Promise.all([
+          fetchWithAuth(`${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+          fetchWithAuth(`${API_BASE}/api/training-modules/company/${employeeData.company_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+          fetchWithAuth(`${API_BASE}/api/module-progress/user/${employeeData.user_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+          fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+          fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+          fetchWithAuth(`${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
         
-        if (!res.ok) {
-          throw new Error("Failed to fetch dashboard summary");
-        }
+        ]);
         
-        const data = await res.json();
+        // const dashboard_summary = await fetchWithAuth(`${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`, { headers });
         
+        console.log("Fetched dashboard data:", {
+          plans: plansRes,
+          modules: modulesRes,
+          progress: progressRes,
+          company: companyRes,
+          learningStyle: learningStyleRes,
+           dashboard_summary:dashboard_summary,
+        });
+
+        const dashBoardData = dashboard_summary;
+        
+     
         return {
-          plans: data.plans || [],
-          modules: data.modules || [],
-          progress: data.progress || [],
-          users: [], // No longer fetching all users, using total_users instead
-          company: data.company || null,
-          learningStyle: data.learning_style || null,
-          assessmentEvidenceByModuleId: data.assessment_evidence_by_module_id || {},
-          userRank: data.user_rank || null,
-          totalUsers: data.total_users || 0,
+          plans: plansRes?.plans || [],
+          modules: modulesRes?.modules || [],
+          progress: progressRes?.progress || [],
+          users: [], // Intentionally empty to avoid 403 Permission Denied for employees
+          company: companyRes?.company || companyRes || null,
+          learningStyle: learningStyleRes?.data?.learning_style || null,
+          assessmentEvidenceByModuleId: dashBoardData.assessment_evidence_by_module_id || {},
+          userRank: dashBoardData.user_rank || null,
+          totalUsers: dashBoardData.total_users || 0,
         };
       },
       {
@@ -758,7 +771,7 @@ const handleGenerateCertificate = (sprintId: string) => {
         progress,
         assessmentEvidenceByModuleId,
       );
-
+      console.log("Mapped assigned modules:", mappedAssigned);
       setAssignedModules(mappedAssigned);
       setModuleProgress(progress);
       setLearningStyle(data?.learningStyle || null);
