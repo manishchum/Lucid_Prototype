@@ -226,7 +226,7 @@ async def POST(req: Request):
                 raise Exception("GEMINI_API_KEY is missing")
 
             genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-            model = genai.GenerativeModel("gemini-3-pro-preview")
+            model = genai.GenerativeModel("gemini-3.1-pro-preview")
 
             # List of 48 learning style questions
             questions = [
