@@ -78,24 +78,59 @@ const fetchUserRoles = async (userId: string) => {
   }
   try {
     const rolesRes = await fetchWithAuth(`${API_BASE}/api/roles/users/${encodeURIComponent(normalizedUserId)}`, {
-    headers: { 'X-User-ID': normalizedUserId }
-  })
+      headers: { 'X-User-ID': normalizedUserId }
+    })
 
     if (!rolesRes.ok) {
-      console.error('[auth-context] Failed to fetch user roles:', rolesRes.status)
-      return { roles: [], isAdmin: false, isSuperAdmin: false, isDeveloper: false, isManager: false }
+      throw new Error(`Failed to fetch user roles: ${rolesRes.status}`)
     }
 
     const payload = await rolesRes.json().catch(() => null)
-    const assignments = payload?.assignments ?? payload?.data ?? payload ?? []
+    let assignments = payload?.assignments ?? payload?.data ?? payload ?? []
 
-    // normalize and extract role objects
+    if (!Array.isArray(assignments) || assignments.length === 0) {
+      const fallbackRes = await fetchWithAuth(
+        `${API_BASE}/api/users/${encodeURIComponent(normalizedUserId)}/roles`,
+        { headers: { 'X-User-ID': normalizedUserId } }
+      )
+      if (fallbackRes.ok) {
+        const fallbackPayload = await fallbackRes.json().catch(() => null)
+        const fallbackAssignments =
+          fallbackPayload?.roles ??
+          fallbackPayload?.assignments ??
+          fallbackPayload?.data ??
+          []
+        if (Array.isArray(fallbackAssignments) && fallbackAssignments.length > 0) {
+          assignments = fallbackAssignments
+        }
+      }
+    }
+
+    // normalize and extract role objects from multiple payload shapes
     const normalizedRoles = (assignments || []).map((ra: any) => {
-      const r = ra.role ?? ra.roles ?? ra
+      const roleNode = ra?.role ?? ra?.roles ?? ra
+      const r = Array.isArray(roleNode) ? (roleNode[0] ?? {}) : (roleNode ?? {})
+
+      const rawName =
+        r?.name ??
+        r?.role_name ??
+        ra?.role_name ??
+        ra?.name ??
+        ''
+
+      const rawLevel =
+        r?.level ??
+        r?.role_level ??
+        ra?.level ??
+        ra?.role_level ??
+        -1
+
+      const parsedLevel = Number(rawLevel)
+
       return {
-        name: (r?.name ?? '').toString(),
-        level: Number(r?.level ?? -1),
-        id: r?.role_id ?? r?.id ?? null
+        name: String(rawName || '').trim(),
+        level: Number.isFinite(parsedLevel) ? parsedLevel : -1,
+        id: r?.role_id ?? r?.id ?? ra?.role_id ?? null
       }
     }).filter((r: any) => r.name || r.level >= 0)
 
@@ -123,94 +158,13 @@ const fetchUserRoles = async (userId: string) => {
       return r.level >= 6 || ['developer'].includes(name)
     })
 
-    return { roles: roleNames, isAdmin: hasAdminRole, isSuperAdmin: hasSuperAdminRole, isDeveloper: hasDeveloperRole, isManager: hasManagerRole }
-  } catch (e) {
-    console.error('[auth-context] Error fetching user roles:', e)
-    return { roles: [], isAdmin: false, isSuperAdmin: false, isDeveloper: false, isManager: false }
-  }
-
-  const rolesRes = await fetchWithAuth(`${API_BASE}/api/roles/users/${encodeURIComponent(normalizedUserId)}`, {
-    headers: { 'X-User-ID': normalizedUserId }
-  })
-
-  if (!rolesRes.ok) {
-    throw new Error(`Failed to fetch user roles: ${rolesRes.status}`)
-  }
-
-  const payload = await rolesRes.json().catch(() => null)
-  let assignments = payload?.assignments ?? payload?.data ?? payload ?? []
-
-  if (!Array.isArray(assignments) || assignments.length === 0) {
-    const fallbackRes = await fetchWithAuth(
-      `${API_BASE}/api/users/${encodeURIComponent(normalizedUserId)}/roles`,
-      { headers: { 'X-User-ID': normalizedUserId } }
-    )
-    if (fallbackRes.ok) {
-      const fallbackPayload = await fallbackRes.json().catch(() => null)
-      const fallbackAssignments =
-        fallbackPayload?.roles ??
-        fallbackPayload?.assignments ??
-        fallbackPayload?.data ??
-        []
-      if (Array.isArray(fallbackAssignments) && fallbackAssignments.length > 0) {
-        assignments = fallbackAssignments
-      }
-    }
-  }
-
-  // normalize and extract role objects from multiple payload shapes
-  const normalizedRoles = (assignments || []).map((ra: any) => {
-    const roleNode = ra?.role ?? ra?.roles ?? ra
-    const r = Array.isArray(roleNode) ? (roleNode[0] ?? {}) : (roleNode ?? {})
-
-    const rawName =
-      r?.name ??
-      r?.role_name ??
-      ra?.role_name ??
-      ra?.name ??
-      ''
-
-    const rawLevel =
-      r?.level ??
-      r?.role_level ??
-      ra?.level ??
-      ra?.role_level ??
-      -1
-
-    const parsedLevel = Number(rawLevel)
-
     return {
-      name: String(rawName || '').trim(),
-      level: Number.isFinite(parsedLevel) ? parsedLevel : -1,
-      id: r?.role_id ?? r?.id ?? ra?.role_id ?? null
+      roles: roleNames,
+      isAdmin: hasAdminRole,
+      isSuperAdmin: hasSuperAdminRole,
+      isDeveloper: hasDeveloperRole,
+      isManager: hasManagerRole
     }
-  }).filter((r: any) => r.name || r.level >= 0)
-
-  const roleNames = normalizedRoles.map((r: any) => r.name)
-
-    // admin detection: role.level >= 3 OR known admin names
-    const hasAdminRole = normalizedRoles.some((r: any) => {
-      const name = normalizeRoleName(r.name || '')
-      return r.level >= 3 || ['admin','superadmin','super_admin','ceo'].includes(name)
-    })
-
-    // super_admin detection: role.level >= 4 OR known super_admin names
-    const hasSuperAdminRole = normalizedRoles.some((r: any) => {
-      const name = normalizeRoleName(r.name || '')
-      return r.level >= 4 || ['superadmin','super_admin','ceo'].includes(name)
-    })
-
-    const hasManagerRole = normalizedRoles.some((r: any) => {
-      const name = normalizeRoleName(r.name || '')
-      return r.level === 2 || name.includes('manager')
-    })
-
-    const hasDeveloperRole = normalizedRoles.some((r: any) => {
-      const name = normalizeRoleName(r.name || '')
-      return r.level >= 6 || ['developer'].includes(name)
-    })
-
-    return { roles: roleNames, isAdmin: hasAdminRole, isSuperAdmin: hasSuperAdminRole, isDeveloper: hasDeveloperRole, isManager: hasManagerRole }
   } catch (e) {
     console.error('[auth-context] Error fetching user roles:', e)
     return { roles: [], isAdmin: false, isSuperAdmin: false, isDeveloper: false, isManager: false }

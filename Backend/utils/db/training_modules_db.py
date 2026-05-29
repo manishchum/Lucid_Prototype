@@ -2,7 +2,6 @@ from typing import Dict, Any, Optional, List
 from urllib.parse import urlparse, unquote
 import re
 from ..supabase_client import supabase
-from ..auth_bridge import create_user_scoped_supabase_client_from_claims, get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
 
@@ -103,8 +102,7 @@ async def get_training_modules_by_company(
     requesting_user_id: str,
     company_id: str,
     processing_status: Optional[str] = None,
-    review_stage: Optional[str] = None,
-    auth_claims: Optional[Dict[str, Any]] = None,
+    review_stage: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Fetch all training modules for a company.
@@ -120,15 +118,8 @@ async def get_training_modules_by_company(
         }
     
     try:
-        query_client = supabase
-        if auth_claims:
-            try:
-                query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_claims)
-            except Exception:
-                query_client = supabase
-
-        query = query_client.table('training_modules').select('*, reviewer:users!training_modules_reviewer_id_fkey(name), uploader:users!training_modules_uploaded_by_fkey(name)').eq('company_id', company_id)
-
+        query = supabase.table('training_modules').select('*').eq('company_id', company_id)
+        
         if processing_status:
             query = query.eq('processing_status', processing_status)
         
@@ -144,33 +135,22 @@ async def get_training_modules_by_company(
 
 async def get_training_module_by_id(
     requesting_user_id: str,
-    module_id: str,
-    auth_claims: Optional[Dict[str, Any]] = None,
+    module_id: str
 ) -> Dict[str, Any]:
     """
     Fetch a specific training module by ID.
     Permission: Any user in the company can view modules.
     """
     try:
-        query_client = get_service_supabase_client()
-        if auth_claims:
-            try:
-                query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_claims)
-            except Exception:
-                # Fall back to backend-authoritative client when bridge resolution fails.
-                query_client = get_service_supabase_client()
-
-        response = query_client.table('training_modules').select('*').eq(
+        response = supabase.table('training_modules').select('*').eq(
             'module_id', module_id
         ).maybe_single().execute()
         
         if not response.data:
             return {"data": None, "error": "Training module not found"}
         
-        module = response.data or {}
+        module = response.data
         company_id = module.get('company_id')
-        if not company_id:
-            return {"data": None, "error": "Training module has no company mapping"}
         
         # Check if user has access to this company
         has_access = await check_company_access(requesting_user_id, company_id)
@@ -188,8 +168,7 @@ async def get_training_module_by_id(
 
 async def create_training_module(
     requesting_user_id: str,
-    module_data: Dict[str, Any],
-    auth_claims: Optional[Dict[str, Any]] = None
+    module_data: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
     Create a new training module.
@@ -214,17 +193,10 @@ async def create_training_module(
     if not module_data.get('title'):
         return {"data": None, "error": "title is required"}
 
-    query_client = supabase
-    if auth_claims:
-        try:
-            query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_claims)
-        except Exception:
-            query_client = supabase
-
     # Enforce company content-generation rate limit before creating a new module.
     try:
         company_limit_resp = (
-            query_client
+            supabase
             .table('companies')
             .select('rate_limit_content_generation')
             .eq('company_id', company_id)
@@ -236,7 +208,7 @@ async def create_training_module(
         company_limit = int(company_limit_value) if company_limit_value is not None else 5
 
         company_modules_resp = (
-            query_client
+            supabase
             .table('training_modules')
             .select('module_id')
             .eq('company_id', company_id)
@@ -262,7 +234,7 @@ async def create_training_module(
         module_data['uploaded_by'] = requesting_user_id
     
     try:
-        response = query_client.table('training_modules').insert(module_data).execute()
+        response = supabase.table('training_modules').insert(module_data).execute()
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -333,9 +305,8 @@ async def delete_training_module(
     3. uploads/{timestamp}_{index}_{filename} - original frontend uploads
     """
     # Get the module with content_url and source_files for storage cleanup
-    service_client = get_service_supabase_client()
     try:
-        module_response = service_client.table('training_modules').select(
+        module_response = supabase.table('training_modules').select(
             'company_id, content_url, source_files'
         ).eq(
             'module_id', module_id
@@ -343,13 +314,11 @@ async def delete_training_module(
         
         if not module_response.data:
             return {"data": None, "error": "Training module not found"}
-            
-        module_data = module_response.data
-        company_id = module_data['company_id']
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return {"data": None, "error": f"Error fetching training module: {str(e)}"}
+        return {"data": None, "error": "Training module not found"}
+    
+    module_data = module_response.data
+    company_id = module_data['company_id']
     
     # Check permissions
     has_permission = await check_user_permission(requesting_user_id, 'company_admin')
@@ -406,7 +375,7 @@ async def delete_training_module(
     if storage_paths_to_delete:
         try:
             # Remove files from 'content library' bucket
-            service_client.storage.from_("content library").remove(storage_paths_to_delete)
+            supabase.storage.from_("content library").remove(storage_paths_to_delete)
             print(f"[DELETE] Removed {len(storage_paths_to_delete)} files from storage: {storage_paths_to_delete}")
         except Exception as storage_error:
             # Log but don't fail the entire operation if storage deletion fails
@@ -414,7 +383,7 @@ async def delete_training_module(
     
     # Delete the module from database
     try:
-        response = service_client.table('training_modules').delete().eq(
+        response = supabase.table('training_modules').delete().eq(
             'module_id', module_id
         ).execute()
         return {"data": response.data, "error": None}
@@ -461,36 +430,35 @@ async def update_module_processing_status(
     Can also update AI-generated fields like gpt_summary, transcription, etc.
     """
     # Get the module to check company
-    service_client = get_service_supabase_client()
     try:
-        module_response = service_client.table('training_modules').select('company_id').eq(
+        module_response = supabase.table('training_modules').select('company_id').eq(
             'module_id', module_id
-        ).maybe_single().execute()
-
+        ).single().execute()
+        
         if not module_response.data:
             return {"data": None, "error": "Training module not found"}
     except Exception as e:
         return {"data": None, "error": "Training module not found"}
-
+    
     company_id = module_response.data['company_id']
-
+    
     # Check permissions
     has_permission = await check_user_permission(requesting_user_id, 'manager')
     has_access = await check_company_access(requesting_user_id, company_id)
-
+    
     if not has_permission or not has_access:
         return {
             "data": None,
             "error": "Permission denied: Manager access required"
         }
-
+    
     updates = {'processing_status': processing_status}
-
+    
     if additional_updates:
         updates.update(additional_updates)
-
+    
     try:
-        response = service_client.table('training_modules').update(updates).eq(
+        response = supabase.table('training_modules').update(updates).eq(
             'module_id', module_id
         ).execute()
         return {"data": response.data, "error": None}

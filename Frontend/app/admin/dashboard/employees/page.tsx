@@ -1864,7 +1864,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
     const response = await fetchWithAuth(`${API_URL}/api/companies/org-templates`, {
       headers: {
         'X-User-ID': adminId,
-      },
+      },  
     });
 
     const payload = await response.json().catch(() => null);
