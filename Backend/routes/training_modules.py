@@ -10,7 +10,8 @@ from utils.db.training_modules_db import (
     delete_training_module,
     get_training_modules_by_uploader,
     update_module_processing_status,
-    update_module_review_stage
+    update_module_review_stage,
+    get_module_assignment_count
 )
 
 router = APIRouter(prefix="/api/training-modules", tags=["training_modules"])
@@ -124,6 +125,25 @@ async def get_module(
     
     return {"module": result["data"]}
 
+@router.get("/{module_id}/assignment-count")
+async def get_assignment_count(
+    module_id: str,
+    x_user_id: str = Header(...)
+):
+    try:
+        count = get_module_assignment_count(module_id)
+
+        return {
+            "success": True,
+            "module_id": module_id,
+            "count": count
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get assignment count: {str(e)}"
+        )
 
 @router.post("/")
 async def create_module(
