@@ -271,17 +271,15 @@ const readCachedProfile = (): any | null => {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const cachedProfile = readCachedProfile()
-
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
-  const [userRoles, setUserRoles] = useState<string[]>(cachedProfile?.userRoles || [])
-  const [isAdmin, setIsAdmin] = useState(Boolean(cachedProfile?.isAdmin))
-  const [isSuperAdmin, setIsSuperAdmin] = useState(Boolean(cachedProfile?.isSuperAdmin))
-  const [isDeveloper, setIsDeveloper] = useState(Boolean(cachedProfile?.isDeveloper))
-  const [isManager, setIsManager] = useState(Boolean(cachedProfile?.isManager))
-  const [userId, setUserId] = useState<string | null>(cachedProfile?.userId || null)
-  const [employeeData, setEmployeeData] = useState<any | null>(cachedProfile?.employeeData || null)
+  const [userRoles, setUserRoles] = useState<string[]>([])
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [isDeveloper, setIsDeveloper] = useState(false)
+  const [isManager, setIsManager] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [employeeData, setEmployeeData] = useState<any | null>(null)
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {

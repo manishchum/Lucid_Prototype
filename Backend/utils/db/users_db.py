@@ -1,7 +1,7 @@
 from typing import Dict, Any, Optional
 import bcrypt
 from ..supabase_client import supabase
-from ..auth_bridge import create_user_scoped_supabase_client_from_claims, get_service_supabase_client
+from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
 # Default password for new users
@@ -16,7 +16,11 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str, auth_
     try:
         query_client = supabase
         if auth_claims:
-            query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_claims)
+            token_email = (auth_claims.get("email") or "").strip().lower()
+            requested_email = (email or "").strip().lower()
+            if token_email and requested_email and token_email != requested_email:
+                return {"data": None, "error": "Permission denied"}
+            query_client = get_service_supabase_client()
 
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
         resp = query_client.table('users').select('*').eq('email', email).eq('is_active', True).limit(1).execute()
@@ -40,12 +44,14 @@ async def get_user_by_phone(requesting_user_id: Optional[str], phone: str, auth_
     try:
         query_client = supabase
         if auth_claims:
-            query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_claims)
+            query_client = get_service_supabase_client()
 
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
         resp = query_client.table('users').select('*').eq('phone', phone).eq('is_active', True).limit(1).execute()
         rows = resp.data if hasattr(resp, 'data') else []
         user = rows[0] if rows else None
+        if auth_claims and user and requesting_user_id and str(user.get("user_id")) != str(requesting_user_id):
+            return {"data": None, "error": "Permission denied"}
         if not user:
             print(f"[get_user_by_phone] No active user found for phone: {phone}")
             return {"data": None, "error": "User not found"}
@@ -98,7 +104,7 @@ async def get_users_by_company(
     try:
         query_client = supabase
         if auth_claims:
-            query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_claims)
+            query_client = get_service_supabase_client()
 
         response = query_client.table('users').select(
             '*'

@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
 from utils.auth import RequestAuth, get_request_auth_required
-from utils.auth_bridge import create_user_scoped_supabase_client_from_claims
+from utils.auth_bridge import get_service_supabase_client
 
 import google.generativeai as genai
 
@@ -53,7 +53,7 @@ async def POST(req: Request, auth_ctx: RequestAuth = Depends(get_request_auth_re
     try:
         query_client = supabase
         if auth_ctx.claims:
-            query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_ctx.claims)
+            query_client = get_service_supabase_client()
 
         stage = "read_body"
         body = await req.json()
@@ -430,7 +430,7 @@ async def GET(req: Request, auth_ctx: RequestAuth = Depends(get_request_auth_req
     try:
         query_client = supabase
         if auth_ctx.claims:
-            query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_ctx.claims)
+            query_client = get_service_supabase_client()
 
         user_id = req.query_params.get("user_id")
 

@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
 from utils.auth import RequestAuth, get_request_auth_required
-from utils.auth_bridge import create_user_scoped_supabase_client_from_claims
+from utils.auth_bridge import get_service_supabase_client
 
 import google.generativeai as genai
 
@@ -165,7 +165,7 @@ async def POST(request: Request, auth_ctx: RequestAuth = Depends(get_request_aut
 
     query_client = supabase
     if auth_ctx.claims:
-        query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_ctx.claims)
+        query_client = get_service_supabase_client()
 
     # Derive learning style from provided user_id when available
     reqUserId = body.get("userId") or body.get("user_id") or None

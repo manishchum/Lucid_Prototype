@@ -1,7 +1,6 @@
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from ..auth_bridge import get_service_supabase_client
-from ..auth_bridge import create_user_scoped_supabase_client_from_claims
 from .permissions import check_user_permission, check_company_access
 
 # ==================== MODULE PROGRESS OPERATIONS ====================
@@ -50,8 +49,6 @@ async def get_progress_by_user(requesting_user_id: str, target_user_id: str,
     """
     try:
         query_client = supabase
-        if auth_claims:
-            query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_claims)
 
         is_self = requesting_user_id == target_user_id
 

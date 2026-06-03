@@ -77,7 +77,7 @@ async def get_dashboard_summary(
         # 6. Fetch Module Progress
         progress_res = service_supabase.table("module_progress").select("*").eq("user_id", user_id).execute()
         progress = _get_data(progress_res) or []
-        print(f"Module Progress: {progress}")
+        # print(f"Module Progress: {progress}")
 
         # 7. Fetch Employee Assessments
         assessments_res = service_supabase.table("employee_assessments").select("*").eq("user_id", user_id).execute()

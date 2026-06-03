@@ -4,7 +4,7 @@ Handles CRUD operations with permission checks.
 """
 from typing import Dict, Any, Optional, List
 from ..supabase_client import supabase
-from ..auth_bridge import create_user_scoped_supabase_client_from_claims, get_service_supabase_client
+from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
 
@@ -97,9 +97,7 @@ async def get_processed_modules_by_original_module(
         }
     
     try:
-        query_client = supabase
-        if auth_claims:
-            query_client, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_claims)
+        query_client = get_service_supabase_client()
 
         query = query_client.table('processed_modules').select('*').eq(
             'original_module_id', resolved_original_module_id

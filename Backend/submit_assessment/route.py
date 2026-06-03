@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from utils.auth import get_request_auth_required_from_request
-from utils.auth_bridge import create_user_scoped_supabase_client_from_claims
+from utils.auth_bridge import get_service_supabase_client
 
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
@@ -39,7 +39,7 @@ async def POST(request: Request):
         auth_ctx = get_request_auth_required_from_request(request)
         user_supabase = supabase
         if auth_ctx.claims:
-            user_supabase, _, _, _, _ = create_user_scoped_supabase_client_from_claims(auth_ctx.claims)
+            user_supabase = get_service_supabase_client()
         body = await request.json()
 
         user_id = body.get("user_id")

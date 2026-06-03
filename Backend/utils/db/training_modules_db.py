@@ -2,6 +2,7 @@ from typing import Dict, Any, Optional, List
 from urllib.parse import urlparse, unquote
 import re
 from ..supabase_client import supabase
+from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
 
@@ -102,7 +103,8 @@ async def get_training_modules_by_company(
     requesting_user_id: str,
     company_id: str,
     processing_status: Optional[str] = None,
-    review_stage: Optional[str] = None
+    review_stage: Optional[str] = None,
+    auth_claims: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Fetch all training modules for a company.
@@ -118,7 +120,8 @@ async def get_training_modules_by_company(
         }
     
     try:
-        query = supabase.table('training_modules').select('*').eq('company_id', company_id)
+        query_client = get_service_supabase_client() if auth_claims else supabase
+        query = query_client.table('training_modules').select('*').eq('company_id', company_id)
         
         if processing_status:
             query = query.eq('processing_status', processing_status)
@@ -135,14 +138,16 @@ async def get_training_modules_by_company(
 
 async def get_training_module_by_id(
     requesting_user_id: str,
-    module_id: str
+    module_id: str,
+    auth_claims: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Fetch a specific training module by ID.
     Permission: Any user in the company can view modules.
     """
     try:
-        response = supabase.table('training_modules').select('*').eq(
+        query_client = get_service_supabase_client() if auth_claims else supabase
+        response = query_client.table('training_modules').select('*').eq(
             'module_id', module_id
         ).maybe_single().execute()
         
@@ -168,7 +173,8 @@ async def get_training_module_by_id(
 
 async def create_training_module(
     requesting_user_id: str,
-    module_data: Dict[str, Any]
+    module_data: Dict[str, Any],
+    auth_claims: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Create a new training module.
@@ -234,7 +240,8 @@ async def create_training_module(
         module_data['uploaded_by'] = requesting_user_id
     
     try:
-        response = supabase.table('training_modules').insert(module_data).execute()
+        query_client = get_service_supabase_client() if auth_claims else supabase
+        response = query_client.table('training_modules').insert(module_data).execute()
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
