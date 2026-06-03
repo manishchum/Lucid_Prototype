@@ -2,7 +2,7 @@ from ingestion.parser import parse_pdf
 from ingestion.supabase_store import (
     insert_chunks_to_supabase,
     insert_image_to_supabase,
-    fetch_module_details
+    fetch_document_details
 )
 from ingestion.embedder import embed_chunks
 from ingestion.chunker import chunk_text
@@ -10,9 +10,9 @@ from ingestion.company_config import get_company_rag_config
 import os
 
 
-def ingest_pdf_for_rag(pdf_path: str, doc_id: str):
+def ingest_pdf_for_rag(pdf_path: str, doc_id: str, source_type="training"):
     # Fetch module details to get company_id
-    module_details = fetch_module_details(doc_id)
+    module_details = fetch_document_details(doc_id, source_type)
     company_id = module_details.get("company_id")
     
     # Get company-specific RAG configuration
@@ -45,10 +45,11 @@ def ingest_pdf_for_rag(pdf_path: str, doc_id: str):
     embeddings = embed_chunks(chunks)
 
     response = insert_chunks_to_supabase(
-        module_id=doc_id,
+        doc_id=doc_id,
         chunks=chunks,
         embeddings=embeddings,
-        source_file=os.path.basename(pdf_path)
+        source_file=os.path.basename(pdf_path),
+        source_type=source_type
     )
 
     inserted_rows = response.data
@@ -73,10 +74,11 @@ def ingest_pdf_for_rag(pdf_path: str, doc_id: str):
             pil_image = Image.open(io.BytesIO(img["bytes"]))
 
             insert_image_to_supabase(
-                module_id=doc_id,
+                doc_id=doc_id,
                 chunk_id=chunk_id,
                 image=pil_image,
-                ocr_text=chunk_text_content
+                ocr_text=chunk_text_content,
+                source_type=source_type
             )
 
     return {
