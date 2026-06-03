@@ -1,11 +1,12 @@
 import os
 import tempfile
+from unittest import result
 import httpx
 
 from utils.supabase_client import supabase
 from ingestion.pipeline import ingest_pdf_for_rag
 
-
+from utils.trigger_lucid_jobs import trigger_lucid_jobs
 def ingest_by_document_id(document_id: str):
 
     res = (
@@ -38,11 +39,14 @@ def ingest_by_document_id(document_id: str):
         f.write(pdf_bytes)
 
     try:
-        ingest_pdf_for_rag(
+        result = ingest_pdf_for_rag(
             pdf_path=temp_pdf_path,
             doc_id=document_id,
             source_type="sales_tool"
         )
+        trigger_lucid_jobs(document_id)
+
+        return result
 
     finally:
         if os.path.exists(temp_pdf_path):

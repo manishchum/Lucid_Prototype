@@ -12,7 +12,7 @@ from PyPDF2 import PdfMerger, PdfReader
 import io
 from fastapi import BackgroundTasks
 from fastapi import Header
-
+import tempfile
 from lucid_tools.stage_one import create_tool_generation_jobs
 # ... (rest of your existing imports)
 import httpx
