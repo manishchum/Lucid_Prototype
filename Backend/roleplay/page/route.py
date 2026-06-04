@@ -215,7 +215,7 @@ async def fetch_scenarios_for_user(
             x_user_id=request.headers.get("X-User-ID")
         )
         user_id = auth_ctx.user_id
-        print("Auth context for scenario fetch:", auth_ctx)
+        # print("Auth context for scenario fetch:", auth_ctx)
         if not user_id:
             raise HTTPException(status_code=401, detail="Authentication required")
         
@@ -235,7 +235,7 @@ async def fetch_scenarios_for_user(
         
         # Regular user gets assigned scenarios
         assigned_ids, error = get_assigned_scenario_ids_for_user(user_id)
-        print("Assigned scenario IDs for user:", assigned_ids)
+        # print("Assigned scenario IDs for user:", assigned_ids)
         
         if error:
             # Fall back to returning no custom scenarios

@@ -365,6 +365,16 @@ export default function ScoreHistoryPage() {
     const assessments = assessmentsPayload?.data?.assessments ?? assessmentsPayload?.assessments ?? 
       (Array.isArray((assessmentsPayload as any)?.data) ? (assessmentsPayload as any).data : []);
 
+    // console.log("[score-history] assessments payload", assessmentsPayload);
+    // console.log(
+    //   "[score-history] assessments sample",
+    //   (assessments || []).slice(0, 5).map((ea: any) => ({
+    //     assessment_id: ea?.assessment_id,
+    //     type: ea?.assessments?.type,
+    //     processed_module_id: ea?.assessments?.processed_module_id,
+    //   })),
+    // );
+
     const assessmentIds: string[] = Array.from(
       new Set<string>(
         assessments
@@ -407,16 +417,30 @@ export default function ScoreHistoryPage() {
       }
     });
 
-    return assessments.map((ea: any) => ({
-      ...ea,
-      assessments: assessmentMap.get(String(ea.assessment_id)) || null,
-    }));
+    return assessments.map((ea: any) => {
+      const mapped = assessmentMap.get(String(ea.assessment_id));
+      return {
+        ...ea,
+        assessments: mapped || ea?.assessments || null,
+      };
+    });
   };
 
   const getModules = async (employee: any, assessments: any[]) => {
+    // console.log("[score-history] getModules input", {
+    //   count: Array.isArray(assessments) ? assessments.length : "not-array",
+    //   sample: (Array.isArray(assessments) ? assessments : []).slice(0, 5).map((ea: any) => ({
+    //     assessment_id: ea?.assessment_id,
+    //     type: ea?.assessments?.type,
+    //     processed_module_id: ea?.assessments?.processed_module_id,
+    //   })),
+    // });
+
     const moduleIds = (assessments || [])
       .filter((a: any) => a?.assessments?.type === "module" && a.assessments?.processed_module_id)
       .map((a: any) => String(a.assessments.processed_module_id));
+
+    // console.log("[score-history] module IDs for title lookup", moduleIds);
 
     if (!moduleIds.length) {
       return assessments;
@@ -450,6 +474,8 @@ export default function ScoreHistoryPage() {
       },
     );
 
+    // console.log("[score-history] processed-modules response", modulesPayload);
+
     const mods = modulesPayload?.data?.modules ?? modulesPayload?.data ?? modulesPayload?.modules ?? modulesPayload ?? [];
     const titleMap = new Map<string, string>();
     (Array.isArray(mods) ? mods : []).forEach((m: any) => {
@@ -458,6 +484,8 @@ export default function ScoreHistoryPage() {
       }
     });
 
+    // console.log("[score-history] processed-modules title map", Array.from(titleMap.entries()));
+
     return assessments.map((a: any) => {
       if (a?.assessments?.type !== "module") {
         return a;
@@ -465,6 +493,11 @@ export default function ScoreHistoryPage() {
 
       const pid = String(a.assessments?.processed_module_id || "");
       const title = pid ? titleMap.get(pid) : undefined;
+      // console.log("[score-history] module title resolved", {
+      //   processed_module_id: pid,
+      //   title,
+      //   assessment_id: a?.assessment_id,
+      // });
       return { ...a, assessments: { ...a.assessments, module_title: title } };
     });
   };
@@ -511,6 +544,9 @@ export default function ScoreHistoryPage() {
 
       const company = await getCompany(employee);
       const assessments = await getAssessments(employee);
+      // console.log("[score-history] fetchAllData assessments", {
+      //   count: Array.isArray(assessments) ? assessments.length : "not-array",
+      // });
       const assessmentsWithModules = await getModules(employee, assessments);
       const learningStyle = await getLearningStyle(employee);
 

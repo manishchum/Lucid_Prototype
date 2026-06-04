@@ -121,7 +121,7 @@ export function AssignedSprintsSection({
           };
         })
       );
-      console.log("Enriched sprints data:", enrichedSprints);
+      // console.log("Enriched sprints data:", enrichedSprints);
       setSprints(enrichedSprints);
     } catch (error) {
       console.error("Error enriching sprints data:", error);

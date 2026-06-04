@@ -82,7 +82,7 @@ async def get_dashboard_summary(
         # 7. Fetch Employee Assessments
         assessments_res = service_supabase.table("employee_assessments").select("*").eq("user_id", user_id).execute()
         employee_assessments = _get_data(assessments_res) or []
-        print(f"Employee Assessments: {employee_assessments}")
+        # print(f"Employee Assessments: {employee_assessments}")
 
         # 8. Fetch Assessment Details mapped from Employee Assessments
         assessment_ids = list(set([str(ea.get("assessment_id")) for ea in employee_assessments if ea.get("assessment_id")]))

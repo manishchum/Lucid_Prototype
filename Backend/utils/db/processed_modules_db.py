@@ -3,7 +3,6 @@ Database operations for processed_modules table.
 Handles CRUD operations with permission checks.
 """
 from typing import Dict, Any, Optional, List
-from ..supabase_client import supabase
 from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
@@ -195,7 +194,8 @@ async def create_processed_module(
         }
     
     try:
-        response = supabase.table('processed_modules').insert(module_data).execute()
+        db = get_service_supabase_client()
+        response = db.table('processed_modules').insert(module_data).execute()
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -211,8 +211,10 @@ async def update_processed_module(
     Permission: User must have access to the original training module.
     """
     try:
+        db = get_service_supabase_client()
+
         # Get the processed module to check access
-        module_resp = supabase.table('processed_modules').select(
+        module_resp = db.table('processed_modules').select(
             'original_module_id'
         ).eq('processed_module_id', processed_module_id).maybe_single().execute()
         
@@ -232,7 +234,7 @@ async def update_processed_module(
             }
         
         # Update the module
-        response = supabase.table('processed_modules').update(updates).eq(
+        response = db.table('processed_modules').update(updates).eq(
             'processed_module_id', processed_module_id
         ).execute()
         
@@ -258,8 +260,10 @@ async def delete_processed_module(
         }
     
     try:
+        db = get_service_supabase_client()
+
         # Get the processed module to check access
-        module_resp = supabase.table('processed_modules').select(
+        module_resp = db.table('processed_modules').select(
             'original_module_id'
         ).eq('processed_module_id', processed_module_id).maybe_single().execute()
         
@@ -276,7 +280,7 @@ async def delete_processed_module(
                 }
         
         # Delete the module
-        response = supabase.table('processed_modules').delete().eq(
+        response = db.table('processed_modules').delete().eq(
             'processed_module_id', processed_module_id
         ).execute()
         
@@ -297,8 +301,10 @@ async def update_audio_data(
     Permission: User must have access to the original training module.
     """
     try:
+        db = get_service_supabase_client()
+
         # Get the processed module to check access
-        module_resp = supabase.table('processed_modules').select(
+        module_resp = db.table('processed_modules').select(
             'original_module_id'
         ).eq('processed_module_id', processed_module_id).maybe_single().execute()
         
@@ -327,7 +333,7 @@ async def update_audio_data(
                 updates['audio_duration'] = audio_duration
         
         # Update the module
-        response = supabase.table('processed_modules').update(updates).eq(
+        response = db.table('processed_modules').update(updates).eq(
             'processed_module_id', processed_module_id
         ).execute()
         
@@ -348,8 +354,10 @@ async def update_video_data(
     Permission: User must have access to the original training module.
     """
     try:
+        db = get_service_supabase_client()
+
         # Get the processed module to check access
-        module_resp = supabase.table('processed_modules').select(
+        module_resp = db.table('processed_modules').select(
             'original_module_id, video_attempts'
         ).eq('processed_module_id', processed_module_id).maybe_single().execute()
         
@@ -387,7 +395,7 @@ async def update_video_data(
             updates['video_error'] = video_error
         
         # Update the module
-        response = supabase.table('processed_modules').update(updates).eq(
+        response = db.table('processed_modules').update(updates).eq(
             'processed_module_id', processed_module_id
         ).execute()
         
@@ -408,9 +416,11 @@ async def update_content_generation_data(
     Permission: User must have access to the original training module.
     """
     try:
+        db = get_service_supabase_client()
+
         print(f"Starting update_content_generation_data for processed_module_id: {processed_module_id} by user: {requesting_user_id}")
         # Get the processed module to check access
-        module_resp = supabase.table('processed_modules').select(
+        module_resp = db.table('processed_modules').select(
             'original_module_id'
         ).eq('processed_module_id', processed_module_id).maybe_single().execute()
         
@@ -445,7 +455,7 @@ async def update_content_generation_data(
         
         print(f"Updating processed_module_id {processed_module_id} with data: {updates}")
         # Update the module
-        response = supabase.table('processed_modules').update(updates).eq(
+        response = db.table('processed_modules').update(updates).eq(
             'processed_module_id', processed_module_id
         ).execute()
         
@@ -466,8 +476,10 @@ async def update_podcast_data(
     Permission: User must have access to the original training module.
     """
     try:
+        db = get_service_supabase_client()
+
         # Get the processed module to check access
-        module_resp = supabase.table('processed_modules').select(
+        module_resp = db.table('processed_modules').select(
             'original_module_id'
         ).eq('processed_module_id', processed_module_id).maybe_single().execute()
         
@@ -501,7 +513,7 @@ async def update_podcast_data(
             return {"data": None, "error": "No data provided for update"}
         
         # Update the module
-        response = supabase.table('processed_modules').update(updates).eq(
+        response = db.table('processed_modules').update(updates).eq(
             'processed_module_id', processed_module_id
         ).execute()
         
@@ -523,8 +535,10 @@ async def get_processed_modules_by_ids(
         return {"data": [], "error": None}
     
     try:
+        db = get_service_supabase_client()
+
         # Get all processed modules
-        response = supabase.table('processed_modules').select('*').in_(
+        response = db.table('processed_modules').select('*').in_(
             'processed_module_id', processed_module_ids
         ).execute()
         

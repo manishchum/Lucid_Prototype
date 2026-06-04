@@ -66,16 +66,16 @@ const EmployeeNavigation = ({
 
   useEffect(() => {
     // Print payloads to help debug why components are hidden
-    console.log("[EmployeeNavigation] Current Auth State Payload:", {
-      mounted,
-      user_email: authUser?.email,
-      isAdmin,
-      isSuperAdmin,
-      userRoles,
-      normalizedRoleSet: Array.from(normalizedRoleSet),
-      computed_hasAdminAccess: hasAdminAccess,
-      computed_hasSuperAdminAccess: hasSuperAdminAccess
-    });
+    // console.log("[EmployeeNavigation] Current Auth State Payload:", {
+    //   mounted,
+    //   user_email: authUser?.email,
+    //   isAdmin,
+    //   isSuperAdmin,
+    //   userRoles,
+    //   normalizedRoleSet: Array.from(normalizedRoleSet),
+    //   computed_hasAdminAccess: hasAdminAccess,
+    //   computed_hasSuperAdminAccess: hasSuperAdminAccess
+    // });
   }, [mounted, authUser, isAdmin, isSuperAdmin, userRoles, hasAdminAccess, hasSuperAdminAccess]);
   const companyDisplayName = activeCompany?.name || displayUser?.company_name || 'Company';
   const companyLogo = activeCompany?.company_logo;

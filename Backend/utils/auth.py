@@ -149,6 +149,36 @@ def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> st
 	return user_id
 
 
+def _build_request_auth_from_verified_claims(claims: Dict[str, Any]) -> RequestAuth:
+	token_user_id = claims.get("uid") or claims.get("user_id") or claims.get("sub")
+	email = claims.get("email")
+	user_id, company_id = _resolve_internal_user_context(
+		str(email) if email else None,
+		str(token_user_id) if token_user_id else "",
+		claims,
+	)
+
+	if not user_id or (token_user_id and str(user_id) == str(token_user_id)):
+		raise HTTPException(status_code=401, detail="Authenticated Firebase user is not linked to an app user")
+
+	log_bridge_event(
+		"auth_context_resolved",
+		firebase_uid=str(token_user_id) if token_user_id else None,
+		app_user_id=str(user_id),
+		company_id=company_id,
+		token_exp=claims.get("exp"),
+		source="firebase",
+	)
+
+	return RequestAuth(
+		user_id=str(user_id),
+		email=str(email) if email else None,
+		source="firebase",
+		claims=claims,
+		company_id=str(company_id) if company_id else None,
+	)
+
+
 def get_request_auth_optional(
 	authorization: Optional[str] = Header(None, alias="Authorization"),
 	x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
@@ -158,33 +188,13 @@ def get_request_auth_optional(
 	if token:
 		try:
 			claims = _verify_firebase_token(token)
-			token_user_id = claims.get("uid") or claims.get("user_id") or claims.get("sub")
-			email = claims.get("email")
-			user_id, company_id = _resolve_internal_user_context(
-				str(email) if email else None,
-				str(token_user_id) if token_user_id else "",
-				claims,
+			auth_ctx = _build_request_auth_from_verified_claims(claims)
+			print(
+				f"[auth optional] Bearer verified successfully; "
+				f"uid={claims.get('uid') or claims.get('user_id') or claims.get('sub')}; "
+				f"resolved_user_id={auth_ctx.user_id}"
 			)
-			if not user_id or (token_user_id and str(user_id) == str(token_user_id)):
-				raise HTTPException(status_code=401, detail="Authenticated Firebase user is not linked to an app user")
-
-			if user_id:
-				log_bridge_event(
-					"auth_context_resolved",
-					firebase_uid=str(token_user_id) if token_user_id else None,
-					app_user_id=str(user_id),
-					company_id=company_id,
-					token_exp=claims.get("exp"),
-					source="firebase",
-				)
-				print(f"[auth optional] Bearer verified successfully; uid={token_user_id}; resolved_user_id={user_id}")
-				return RequestAuth(
-					user_id=str(user_id),
-					email=str(email) if email else None,
-					source="firebase",
-					claims=claims,
-					company_id=str(company_id) if company_id else None,
-				)
+			return auth_ctx
 		except HTTPException as exc:
 			if exc.detail == "Authenticated Firebase user is not linked to an app user":
 				raise
@@ -211,12 +221,13 @@ def get_request_auth_optional(
 
 def get_request_auth_required(
 	authorization: Optional[str] = Header(None, alias="Authorization"),
-	x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
 ) -> RequestAuth:
-	auth_ctx = get_request_auth_optional(authorization=authorization, x_user_id=x_user_id)
-	if not auth_ctx.user_id:
-		raise HTTPException(status_code=401, detail="Missing authentication context")
-	return auth_ctx
+	token = _extract_bearer_token(authorization)
+	if not token:
+		raise HTTPException(status_code=401, detail="Missing bearer token")
+
+	claims = _verify_firebase_token(token)
+	return _build_request_auth_from_verified_claims(claims)
 
 
 def get_request_auth_jwt_required(
@@ -263,11 +274,7 @@ def get_request_auth_jwt_required_from_request(request: Request) -> RequestAuth:
 
 def get_request_auth_required_from_request(request: Request) -> RequestAuth:
 	authorization = request.headers.get("Authorization")
-	x_user_id = request.headers.get("X-User-ID")
-	auth_ctx = get_request_auth_optional(authorization=authorization, x_user_id=x_user_id)
-	if not auth_ctx.user_id:
-		raise HTTPException(status_code=401, detail="Missing authentication context")
-	return auth_ctx
+	return get_request_auth_required(authorization=authorization)
 
 from fastapi import Depends
 

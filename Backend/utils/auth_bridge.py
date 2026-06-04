@@ -162,33 +162,25 @@ def _normalize_email(email: Optional[str]) -> str:
     return (email or "").strip().lower()
 
 
-def resolve_user_context_from_claims(
-    claims: Dict[str, Any],
-    *,
-    fail_fast: bool = True,
-) -> Optional[BridgeUserContext]:
+def _extract_firebase_identity(claims: Dict[str, Any]) -> Tuple[str, str, Optional[Any]]:
     email = _normalize_email(claims.get("email"))
     firebase_uid = str(claims.get("uid") or claims.get("user_id") or claims.get("sub") or "").strip()
     token_exp = claims.get("exp")
+    return email, firebase_uid, token_exp
 
-    if not email and not firebase_uid:
-        reason = "Bridge claims missing both email and firebase_uid"
-        log_bridge_event(
-            "bridge_resolution_failed",
-            level="error",
-            firebase_uid=None,
-            app_user_id=None,
-            company_id=None,
-            token_exp=token_exp,
-            reason=reason,
-        )
-        if fail_fast:
-            raise BridgeResolutionError(reason)
-        return None
 
-    client = get_service_supabase_client()
-    query = client.table("users").select("user_id,email,company_id,firebase_uid,is_active")
+def _build_user_lookup_query(client: Client):
+    return client.table("users").select("user_id,email,company_id,firebase_uid,is_active")
 
+
+def _resolve_user_context_by_identity(
+    client: Client,
+    *,
+    email: str,
+    firebase_uid: str,
+    claims: Dict[str, Any],
+    token_exp: Optional[Any],
+) -> Optional[BridgeUserContext]:
     search_order = []
     if firebase_uid:
         search_order.append(("firebase_uid", firebase_uid))
@@ -199,6 +191,7 @@ def resolve_user_context_from_claims(
 
     for column, value in search_order:
         try:
+            query = _build_user_lookup_query(client)
             if column == "email":
                 response = query.ilike("email", value).eq("is_active", True).limit(1).execute()
             else:
@@ -244,7 +237,7 @@ def resolve_user_context_from_claims(
                 reason=str(exc),
             )
 
-    reason: Optional[str] = None
+    reason: Optional[str]
     if lookup_errors:
         reason = (
             f"Bridge lookup failed for firebase_uid={firebase_uid or 'n/a'}, "
@@ -256,17 +249,57 @@ def resolve_user_context_from_claims(
             f"email={email or 'n/a'}"
         )
 
-    if fail_fast:
+    log_bridge_event(
+        "bridge_resolution_failed",
+        level="error",
+        firebase_uid=firebase_uid or None,
+        app_user_id=None,
+        company_id=None,
+        token_exp=token_exp,
+        reason=reason,
+    )
+    return None
+
+
+def resolve_user_context_from_claims(
+    claims: Dict[str, Any],
+    *,
+    fail_fast: bool = True,
+) -> Optional[BridgeUserContext]:
+    email, firebase_uid, token_exp = _extract_firebase_identity(claims)
+
+    if not email and not firebase_uid:
+        reason = "Bridge claims missing both email and firebase_uid"
         log_bridge_event(
             "bridge_resolution_failed",
             level="error",
-            firebase_uid=firebase_uid or None,
+            firebase_uid=None,
             app_user_id=None,
             company_id=None,
             token_exp=token_exp,
             reason=reason,
         )
-        raise BridgeResolutionError(reason)
+        if fail_fast:
+            raise BridgeResolutionError(reason)
+        return None
+
+    client = get_service_supabase_client()
+    context = _resolve_user_context_by_identity(
+        client,
+        email=email,
+        firebase_uid=firebase_uid,
+        claims=claims,
+        token_exp=token_exp,
+    )
+
+    if context:
+        return context
+
+    if fail_fast:
+        raise BridgeResolutionError(
+            f"Unable to resolve active app user context from Firebase claims "
+            f"(firebase_uid={firebase_uid or 'n/a'}, email={email or 'n/a'})"
+        )
 
     return None
 
@@ -410,12 +443,12 @@ def create_user_scoped_supabase_client_from_claims(
     refresh_window_seconds: Optional[int] = None,
     now: Optional[datetime] = None,
 ) -> Tuple[Client, BridgeUserContext, str, datetime, bool]:
+    email, firebase_uid, _ = _extract_firebase_identity(claims)
     context = resolve_user_context_from_claims(claims, fail_fast=True)
     if not context:
-        email = _normalize_email(claims.get("email"))
-        firebase_uid = str(claims.get("uid") or claims.get("user_id") or claims.get("sub") or "").strip()
         raise BridgeResolutionError(
-            f"Unable to resolve app user context from Firebase claims (firebase_uid={firebase_uid or 'n/a'}, email={email or 'n/a'})"
+            f"Unable to resolve app user context from Firebase claims "
+            f"(firebase_uid={firebase_uid or 'n/a'}, email={email or 'n/a'})"
         )
 
     client, token, expires_at, refreshed = create_user_scoped_supabase_client(

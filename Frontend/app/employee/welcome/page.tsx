@@ -700,14 +700,14 @@ const handleGenerateCertificate = (sprintId: string) => {
         
         // const dashboard_summary = await fetchWithAuth(`${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`, { headers });
         
-        console.log("Fetched dashboard data:", {
-          plans: plansRes,
-          modules: modulesRes,
-          progress: progressRes,
-          company: companyRes,
-          learningStyle: learningStyleRes,
-           dashboard_summary:dashboard_summary,
-        });
+        // console.log("Fetched dashboard data:", {
+        //   plans: plansRes,
+        //   modules: modulesRes,
+        //   progress: progressRes,
+        //   company: companyRes,
+        //   learningStyle: learningStyleRes,
+        //    dashboard_summary:dashboard_summary,
+        // });
 
         const dashBoardData = dashboard_summary;
         
@@ -767,7 +767,7 @@ const handleGenerateCertificate = (sprintId: string) => {
         progress,
         assessmentEvidenceByModuleId,
       );
-      console.log("Mapped assigned modules:", mappedAssigned);
+      // console.log("Mapped assigned modules:", mappedAssigned);
       setAssignedModules(mappedAssigned);
       setModuleProgress(progress);
       setLearningStyle(data?.learningStyle || null);
