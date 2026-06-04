@@ -1,5 +1,7 @@
-import redis
+import json
 import os
+
+import redis
 
 redis_client = redis.Redis(
     host=os.getenv("REDIS_HOST"),
@@ -9,3 +11,25 @@ redis_client = redis.Redis(
     decode_responses=True,
     ssl=True
 )
+
+
+def get_cache(key: str):
+    try:
+        data = redis_client.get(key)
+    except Exception:
+        return None
+
+    if data:
+        try:
+            return json.loads(data)
+        except json.JSONDecodeError:
+            return None
+
+    return None
+
+
+def set_cache(key: str, value, ttl: int = 300) -> None:
+    try:
+        redis_client.setex(key, ttl, json.dumps(value))
+    except Exception:
+        return None

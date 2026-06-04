@@ -27,7 +27,7 @@ const EmployeeNavigation = ({
 }: EmployeeNavigationProps) => {
   const router = useRouter();
   const pathname = usePathname();
-  const { user: authUser, logout, userRoles, isAdmin, isSuperAdmin, isDeveloper, isManager, employeeData } = useAuth();
+  const { user: authUser, logout, userRoles, isAdmin, isSuperAdmin, isDeveloper, isManager, employeeData, loading, rolesLoaded } = useAuth();
   const { activeCompany } = useTenant();
   
   // Existing Logic States
@@ -161,6 +161,10 @@ const EmployeeNavigation = ({
     </div>
   );
 
+  if (loading || !rolesLoaded) {
+    return null
+  }
+  
   return (
     <>
       {/* Loading Overlay */}
