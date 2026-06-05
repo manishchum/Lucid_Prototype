@@ -12,7 +12,7 @@ router = APIRouter()
 
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
-ai = GenerativeModel("gemini-3-pro-preview")
+ai = GenerativeModel("gemini-3.1-pro-preview")
 
 # WebSocket connections store
 connections = set()

@@ -1071,7 +1071,7 @@ Module is fully self-contained
       try {
         response = await generateWithRetry(() =>
           ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
+            model: 'gemini-3.1-pro-preview',
             contents: geminiContents,
             generationConfig: {
               maxOutputTokens: ragConfig.rag_max_output_tokens,
@@ -1096,7 +1096,7 @@ Module is fully self-contained
 
           response = await generateWithRetry(() =>
             ai.models.generateContent({
-              model: 'gemini-3-pro-preview',
+              model: 'gemini-3.1-pro-preview',
               contents: geminiContents,
               generationConfig: {
                 maxOutputTokens: ragConfig.rag_max_output_tokens,
