@@ -28,6 +28,7 @@ interface Sprint {
 interface AssignedSprintsSectionProps {
   assignedModules: any[];
   moduleProgress: any[];
+  plans: any[];
   userId: string;
   companyId: string;
   isLocked: boolean;
@@ -37,6 +38,7 @@ interface AssignedSprintsSectionProps {
 export function AssignedSprintsSection({
   assignedModules,
   moduleProgress,
+  plans,
   userId,
   companyId,
   isLocked,
@@ -60,19 +62,20 @@ export function AssignedSprintsSection({
 
   const enrichSprintsData = async () => {
     try {
-      const headers = {
-        "X-User-ID": userId,
-        "X-Company-ID": companyId,
-      };
+      // const headers = {
+      //   "X-User-ID": userId,
+      //   "X-Company-ID": companyId,
+      // };
 
-      // Fetch learning plans to get due dates
-      const plansRes = await fetchWithAuth(
-        `${API_BASE}/api/learning-plans/?user_id=${userId}`,
-        { headers }
-      );
-      const plans = plansRes.ok ? await plansRes.json() : { plans: [] };
+      // // Fetch learning plans to get due dates
+      // const plansRes = await fetchWithAuth(
+      //   `${API_BASE}/api/learning-plans/?user_id=${userId}`,
+      //   { headers }
+      // );
+      // const plans = plansRes.ok ? await plansRes.json() : { plans: [] };
+      const plansResponse = {plans: plans || []}
       const plansByModuleId: Record<string, any> = {};
-      plans.plans?.forEach((plan: any) => {
+      plansResponse.plans?.forEach((plan: any) => {
         plansByModuleId[plan.module_id] = plan;
       });
 

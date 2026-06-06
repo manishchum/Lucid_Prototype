@@ -215,11 +215,12 @@ const loadCachedFullProfile = async (authUser: AuthUserLike) => {
           userRoles: rolesData.roles,
           isAdmin: rolesData.isAdmin,
           isSuperAdmin: rolesData.isSuperAdmin,
-          isDeveloper: rolesData.isDeveloper
+          isDeveloper: rolesData.isDeveloper,
+          isManager: rolesData.isManager
         }
       },
       {
-        ttlMs: 2 * 60 * 1000,
+        ttlMs: 60 * 60 * 1000,
         swr: true,
         swrMs: 5 * 60 * 1000
       }

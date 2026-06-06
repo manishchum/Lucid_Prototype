@@ -72,7 +72,7 @@ interface AssessmentEvidence {
 }
 
 export default function EmployeeWelcome() {
-  const { user, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading, logout, employeeData } = useAuth();
   const { activeCompanyId, isDeveloperMode } = useTenant();
   const router = useRouter();
 
@@ -82,6 +82,7 @@ export default function EmployeeWelcome() {
   const [scoreHistory, setScoreHistory] = useState<any[]>([]);
   const [moduleProgress, setModuleProgress] = useState<any[]>([]);
   const [assignedModules, setAssignedModules] = useState<SprintItem[]>([]);
+  const [plans, setPlans] = useState<any[]>([]);
   const [learningStyle, setLearningStyle] = useState<string | null>(null);
   const [baselineScore, setBaselineScore] = useState<number | null>(null);
   const [baselineMaxScore, setBaselineMaxScore] = useState<number | null>(null);
@@ -654,20 +655,20 @@ const handleGenerateCertificate = (sprintId: string) => {
 
   // ─── Data fetching ─────────────────────────────────────────────────────────
 
-  const fetchUserByEmail = async (email: string) => {
-    try {
-      const res = await fetchWithAuth(
-        `${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`,
-      );
-      if (!res.ok) return null;
-      const payload = await res.json();
-      let u = payload?.user ?? payload;
-      if (Array.isArray(u)) u = u[0];
-      return u || null;
-    } catch {
-      return null;
-    }
-  };
+  // const fetchUserByEmail = async (email: string) => {
+  //   try {
+  //     const res = await fetchWithAuth(
+  //       `${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`,
+  //     );
+  //     if (!res.ok) return null;
+  //     const payload = await res.json();
+  //     let u = payload?.user ?? payload;
+  //     if (Array.isArray(u)) u = u[0];
+  //     return u || null;
+  //   } catch {
+  //     return null;
+  //   }
+  // };
 
   const fetchDashboardData = async (
     employeeData: any,
@@ -688,17 +689,17 @@ const handleGenerateCertificate = (sprintId: string) => {
           "X-Company-ID": effectiveCompanyId,
         };
 
-        const [plansRes, modulesRes, progressRes, companyRes, learningStyleRes, dashboard_summary]: any[] = await Promise.all([
-          fetchWithAuth(`${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchWithAuth(`${API_BASE}/api/training-modules/company/${employeeData.company_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchWithAuth(`${API_BASE}/api/module-progress/user/${employeeData.user_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
-          fetchWithAuth(`${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+        // const [plansRes, modulesRes, progressRes, companyRes, learningStyleRes, dashboard_summary]: any[] = await Promise.all([
+        //   fetchWithAuth(`${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+        //   fetchWithAuth(`${API_BASE}/api/training-modules/company/${employeeData.company_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+        //   fetchWithAuth(`${API_BASE}/api/module-progress/user/${employeeData.user_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+        //   fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+        //   fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+        //   fetchWithAuth(`${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
         
-        ]);
+        // ]);
         
-        // const dashboard_summary = await fetchWithAuth(`${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`, { headers });
+        const dashboard_summary = await fetchWithAuth(`${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`, { headers }).then((r)=> r.ok ? r.json() : ({} as any));
         
         // console.log("Fetched dashboard data:", {
         //   plans: plansRes,
@@ -709,25 +710,24 @@ const handleGenerateCertificate = (sprintId: string) => {
         //    dashboard_summary:dashboard_summary,
         // });
 
-        const dashBoardData = dashboard_summary;
+        // const dashBoardData = dashboard_summary;
         
      
         return {
-          plans: plansRes?.plans || [],
-          modules: modulesRes?.modules || [],
-          progress: progressRes?.progress || [],
-          users: [], // Intentionally empty to avoid 403 Permission Denied for employees
-          company: companyRes?.company || companyRes || null,
-          learningStyle: learningStyleRes?.data?.learning_style || null,
-          assessmentEvidenceByModuleId: dashBoardData.assessment_evidence_by_module_id || {},
-          userRank: dashBoardData.user_rank || null,
-          totalUsers: dashBoardData.total_users || 0,
+          plans: dashboard_summary?.plans || [],
+          modules: dashboard_summary?.modules || [],
+          progress: dashboard_summary?.progress || [],
+          company: dashboard_summary?.company || null,
+          learningStyle: dashboard_summary?.learning_style || null,
+          assessmentEvidenceByModuleId: dashboard_summary.assessment_evidence_by_module_id || {},
+          userRank: dashboard_summary.user_rank || null,
+          totalUsers: dashboard_summary.total_users || 0,
         };
       },
       {
-        ttlMs: 5 * 1000,
+        ttlMs: 60 * 1000,
         swr: true,
-        swrMs: 30 * 1000,
+        swrMs: 300 * 1000,
       },
     );
     return result.data;
@@ -738,9 +738,8 @@ const handleGenerateCertificate = (sprintId: string) => {
 
     try {
       setLoading(true);
-      const emp = await fetchUserByEmail(user.email);
+      const emp = employeeData;
       if (!emp) {
-        router.push("/login");
         return;
       }
 
@@ -756,6 +755,7 @@ const handleGenerateCertificate = (sprintId: string) => {
 
       const data = await fetchDashboardData(emp, selectedCompanyId);
       const plans = data?.plans || [];
+      setPlans(plans);
       const modules = data?.modules || [];
       const progress = Array.isArray(data?.progress) ? data.progress : [];
       const assessmentEvidenceByModuleId =
@@ -1007,6 +1007,7 @@ const handleGenerateCertificate = (sprintId: string) => {
             <AssignedSprintsSection
               assignedModules={assignedModules}
               moduleProgress={moduleProgress}
+              plans ={plans}
               userId={employee?.user_id || ""}
               companyId={
                 (isDeveloperMode && activeCompanyId ? activeCompanyId : employee?.company_id) || ""

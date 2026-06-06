@@ -77,24 +77,8 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!isDeveloperMode) {
-        try {
-          const companyRes = await fetch(
-            `${API_BASE}/api/companies/${encodeURIComponent(fallbackCompany.company_id)}`,
-            {
-              headers: userId ? { "X-User-ID": userId } : undefined,
-            }
-          )
-          const companyPayload = companyRes.ok ? await companyRes.json() : null
-          const resolvedCompany = companyPayload?.data?.company_id
-            ? companyPayload.data
-            : fallbackCompany
-
-          setAvailableCompanies([resolvedCompany])
-          setActiveCompanyIdState(resolvedCompany.company_id)
-        } catch {
-          setAvailableCompanies([fallbackCompany])
-          setActiveCompanyIdState(fallbackCompany.company_id)
-        }
+        setAvailableCompanies([fallbackCompany])
+        setActiveCompanyIdState(fallbackCompany.company_id)
         return
       }
 
