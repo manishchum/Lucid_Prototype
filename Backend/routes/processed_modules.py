@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel
 from typing import Optional, List
 from utils.auth import RequestAuth, get_request_auth_required
+from utils.redis_client import get_cache, set_cache, redis_client
 
 from utils.db.processed_modules_db import (
     get_processed_modules_by_original_module,
@@ -78,6 +79,13 @@ async def get_processed_modules_by_original_module_route(
     Get all processed modules for a specific original training module.
     Optional query parameter: learning_style
     """
+    cache_key = f"processed_modules:original_module:{original_module_id}:learning_style:{learning_style or 'default'}"
+    cached = get_cache(cache_key)
+    if cached:
+        print(f"PROCESSED MODULES CACHE HIT {cache_key}")
+        return cached
+    print(f"PROCESSED MODULES CACHE MISS {cache_key}")
+    
     result = await get_processed_modules_by_original_module(
         auth_ctx.user_id, original_module_id, learning_style, auth_claims=auth_ctx.claims
     )
@@ -86,7 +94,9 @@ async def get_processed_modules_by_original_module_route(
         raise HTTPException(status_code=403 if "Permission denied" in result["error"] else 404, 
                           detail=result["error"])
     
-    return {"data": result["data"]}
+    response_payload = {"data": result["data"]}
+    set_cache(cache_key, response_payload, ttl=3600)
+    return response_payload
 
 
 @router.get("/{processed_module_id}")
@@ -97,6 +107,13 @@ async def get_processed_module_by_id_route(
     """
     Get a specific processed module by ID.
     """
+    cache_key = f"processed_module:{processed_module_id}"
+    cached = get_cache(cache_key)
+    if cached:
+        print(f"PROCESSED MODULE CACHE HIT {cache_key}")
+        return cached
+    print(f"PROCESSED MODULE CACHE MISS {cache_key}")
+    
     result = await get_processed_module_by_id(auth_ctx.user_id, processed_module_id, auth_claims=auth_ctx.claims)
     
     if result["error"]:
@@ -105,7 +122,9 @@ async def get_processed_module_by_id_route(
             detail=result["error"]
         )
     
-    return {"data": result["data"]}
+    response_payload = {"data": result["data"]}
+    set_cache(cache_key, response_payload, ttl=3600)
+    return response_payload
 
 
 @router.post("/batch")
@@ -146,6 +165,12 @@ async def create_processed_module_route(
             status_code=403 if "Permission denied" in result["error"] else 400,
             detail=result["error"]
         )
+    original_module_id = (
+        result["data"]
+        .get("original_module_id")
+    )
+    for key in redis_client.scan_iter(f"processed_modules:original_module:{original_module_id}:*"):
+        redis_client.delete(key)
     
     return {"data": result["data"], "message": "Processed module created successfully"}
 
@@ -167,6 +192,18 @@ async def update_processed_module_route(
     if not updates:
         raise HTTPException(status_code=400, detail="No update data provided")
     
+    existing_module = await get_processed_module_by_id(
+        user_id,
+        processed_module_id,
+        auth_claims=auth_ctx.claims
+    )
+    
+    original_module_id = (
+        existing_module["data"].get("original_module_id")
+        if existing_module["data"]
+        else None
+    )
+    
     result = await update_processed_module(user_id, processed_module_id, updates)
     
     if result["error"]:
@@ -174,6 +211,12 @@ async def update_processed_module_route(
             status_code=403 if "Permission denied" in result["error"] else 404,
             detail=result["error"]
         )
+    
+    redis_client.delete(f"processed_module:{processed_module_id}")
+    
+    if original_module_id:
+        for key in redis_client.scan_iter(f"processed_modules:original_module:{original_module_id}:*"):
+            redis_client.delete(key)
     
     return {"data": result["data"], "message": "Processed module updated successfully"}
 
@@ -189,6 +232,18 @@ async def update_audio_route(
     Update audio-related fields for a processed module.
     Supports both English and Hinglish audio.
     """
+    existing_module = await get_processed_module_by_id(
+        user_id,
+        processed_module_id,
+        auth_claims=auth_ctx.claims
+    )
+    
+    original_module_id = (
+        existing_module["data"].get("original_module_id")
+        if existing_module["data"]
+        else None
+    )
+    
     result = await update_audio_data(
         user_id,
         processed_module_id,
@@ -203,6 +258,12 @@ async def update_audio_route(
             detail=result["error"]
         )
     
+    redis_client.delete(f"processed_module:{processed_module_id}")
+    
+    if original_module_id:
+        for key in redis_client.scan_iter(f"processed_modules:original_module:{original_module_id}:*"):
+            redis_client.delete(key)
+    
     return {"data": result["data"], "message": "Audio data updated successfully"}
 
 
@@ -216,6 +277,18 @@ async def update_video_route(
     """
     Update video-related fields for a processed module.
     """
+    existing_module = await get_processed_module_by_id(
+        user_id,
+        processed_module_id,
+        auth_claims=auth_ctx.claims
+    )
+    
+    original_module_id = (
+        existing_module["data"].get("original_module_id")
+        if existing_module["data"]
+        else None
+    )
+    
     result = await update_video_data(
         user_id,
         processed_module_id,
@@ -230,6 +303,12 @@ async def update_video_route(
             detail=result["error"]
         )
     
+    redis_client.delete(f"processed_module:{processed_module_id}")
+    
+    if original_module_id:
+        for key in redis_client.scan_iter(f"processed_modules:original_module:{original_module_id}:*"):
+            redis_client.delete(key)
+    
     return {"data": result["data"], "message": "Video data updated successfully"}
 
 
@@ -243,6 +322,17 @@ async def update_content_generation_route(
     """
     Update content generation fields (mindmap, flashcard, infographic).
     """
+    existing_module = await get_processed_module_by_id(
+        user_id,
+        processed_module_id,
+        auth_claims=auth_ctx.claims
+    )
+    
+    original_module_id = (
+        existing_module["data"].get("original_module_id")
+        if existing_module["data"]
+        else None
+    )
 
     print(f"Received request to update content generation data for processed_module_id: {processed_module_id} by user: {user_id}")
     print(f"Mindmap data: {request.mindmap_data}")
@@ -261,7 +351,13 @@ async def update_content_generation_route(
             status_code=403 if "Permission denied" in result["error"] else 404,
             detail=result["error"]
         )
+        
+    redis_client.delete(f"processed_module:{processed_module_id}")
     
+    if original_module_id:
+        for key in redis_client.scan_iter(f"processed_modules:original_module:{original_module_id}:*"):
+            redis_client.delete(key)
+        
     return {"data": result["data"], "message": "Content generation data updated successfully"}
 
 
@@ -276,6 +372,18 @@ async def update_podcast_route(
     Update podcast-related fields for a processed module.
     Supports both English and Hinglish podcasts.
     """
+    existing_module = await get_processed_module_by_id(
+        user_id,
+        processed_module_id,
+        auth_claims=auth_ctx.claims
+    )
+    
+    original_module_id = (
+        existing_module["data"].get("original_module_id")
+        if existing_module["data"]
+        else None
+    )
+    
     result = await update_podcast_data(
         user_id,
         processed_module_id,
@@ -289,6 +397,12 @@ async def update_podcast_route(
             status_code=403 if "Permission denied" in result["error"] else 404,
             detail=result["error"]
         )
+    
+    redis_client.delete(f"processed_module:{processed_module_id}")
+    
+    if original_module_id:
+        for key in redis_client.scan_iter(f"processed_modules:original_module:{original_module_id}:*"):
+            redis_client.delete(key)
     
     return {"data": result["data"], "message": "Podcast data updated successfully"}
 
@@ -305,6 +419,18 @@ async def delete_processed_module_route(
     Delete a processed module.
     Requires Manager+ role.
     """
+    existing_module = await get_processed_module_by_id(
+        user_id,
+        processed_module_id,
+        auth_claims=auth_ctx.claims
+    )
+    
+    original_module_id = (
+        existing_module["data"].get("original_module_id")
+        if existing_module["data"]
+        else None
+    )
+    
     result = await delete_processed_module(user_id, processed_module_id)
     
     if result["error"]:
@@ -312,5 +438,11 @@ async def delete_processed_module_route(
             status_code=403 if "Permission denied" in result["error"] else 404,
             detail=result["error"]
         )
+    
+    redis_client.delete(f"processed_module:{processed_module_id}")
+    
+    if original_module_id:
+        for key in redis_client.scan_iter(f"processed_modules:original_module:{original_module_id}:*"):
+            redis_client.delete(key)
     
     return {"message": "Processed module deleted successfully"}

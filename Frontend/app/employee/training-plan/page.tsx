@@ -66,9 +66,9 @@ function TrainingPlanContent() {
         return result;
       },
       {
-        ttlMs: 5 * 1000, // Short fallback TTL to pick up external progress completions
+        ttlMs: 5 * 60 * 1000, // Short fallback TTL to pick up external progress completions
         swr: true,
-        swrMs: 30 * 1000,
+        swrMs: 10 * 60 * 1000,
       },
     );
   };
@@ -167,7 +167,7 @@ function TrainingPlanContent() {
           return res.json();
         },
         {
-          ttlMs: 5 * 1000,
+          ttlMs: 60 * 1000,
           swr: true,
           swrMs: 30 * 1000,
         },
@@ -219,28 +219,28 @@ function TrainingPlanContent() {
       return;
     }
 
-    if (!authLoading && employeeData && moduleId) {
-      loadPlan();
-      fetchModuleProgress(employeeData);
+    // if (!authLoading && employeeData && moduleId) {
+    //   loadPlan();
+    //   fetchModuleProgress(employeeData);
       
-      // Fetch module title
-      const fetchModuleTitle = async () => {
-        try {
-          const res = await fetch(`${API_BASE}/api/training-modules/${moduleId}`, {
-            headers: { "X-User-ID": employeeData.user_id },
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const title = data?.module?.title || data?.title || "";
-            setModuleTitle(title);
-          }
-        } catch (err) {
-          console.error("Failed to fetch module title:", err);
-        }
-      };
+    //   // Fetch module title
+    //   const fetchModuleTitle = async () => {
+    //     try {
+    //       const res = await fetch(`${API_BASE}/api/training-modules/${moduleId}`, {
+    //         headers: { "X-User-ID": employeeData.user_id },
+    //       });
+    //       if (res.ok) {
+    //         const data = await res.json();
+    //         const title = data?.module?.title || data?.title || "";
+    //         setModuleTitle(title);
+    //       }
+    //     } catch (err) {
+    //       console.error("Failed to fetch module title:", err);
+    //     }
+    //   };
       
-      fetchModuleTitle();
-    }
+    //   fetchModuleTitle();
+    // }
 
     const bootstrap = async () => {
       if (!moduleId) {
@@ -265,11 +265,12 @@ function TrainingPlanContent() {
       await Promise.allSettled([
         loadPlan(resolvedEmployee, moduleId),
         fetchModuleTitle(moduleId, resolvedEmployee.user_id),
+        fetchModuleProgress(resolvedEmployee)
       ]);
     };
 
     bootstrap();
-  }, [employeeData, moduleId, authLoading, user, router]);
+  }, [authLoading, moduleId, employeeData?.user_id, user?.email]);
 
   // Helper to render reasoning in a readable format
   function renderReasoning(reasoning: any) {

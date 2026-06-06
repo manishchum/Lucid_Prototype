@@ -17,6 +17,7 @@ from utils.db.companies_db import (
 )
 
 from utils.exceptions import NotFoundError, ValidationError, ConflictError
+from utils.redis_client import redis_client, set_cache, get_cache
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
@@ -116,16 +117,33 @@ async def get_company(
     Get company by ID.
     Permission: Any authenticated user.
     """
+    cache_key = f"company:{company_id}"
+
+    cached = get_cache(cache_key)
+
+    if cached:
+        print(f"COMPANY CACHE HIT {cache_key}")
+        return cached
+
+    print(f"COMPANY CACHE MISS {cache_key}")
+
     result = await get_company_by_id(user_id, company_id)
-    
-    # Unwrap service layer response
+
     company = result.get("data") or None
-    
-    return {
+
+    response_payload = {
         "success": True,
         "data": company,
         "error": result.get("error")
     }
+
+    set_cache(
+        cache_key,
+        response_payload,
+        ttl=3600
+    )
+
+    return response_payload
 
 
 @router.get("/by-name/{company_name}")
@@ -234,6 +252,7 @@ async def update_company_route(
     update_data = request.dict(exclude_none=True)
     result = await update_company(user_id, company_id, update_data)
     
+    redis_client.delete(f"company:{company_id}")  # Invalidate cache on update
     # Unwrap service layer response
     company = result.get("data") or None
     
@@ -255,7 +274,7 @@ async def delete_company_route(
     Permission: Super admin only.
     """
     result = await delete_company(user_id, company_id)
-    
+    redis_client.delete(f"company:{company_id}")  # Invalidate cache on delete
     # Unwrap service layer response
     deleted = result.get("data") or None
     

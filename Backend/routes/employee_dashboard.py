@@ -6,6 +6,7 @@ from utils.auth_bridge import get_service_supabase_client
 from utils.supabase_client import supabase
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 from utils.db.permissions import check_user_permission
+from utils.redis_client import get_cache, set_cache, redis_client
 
 router = APIRouter(prefix="/api/employee", tags=["employee-dashboard"])
 
@@ -44,6 +45,16 @@ async def get_dashboard_summary(
             raise HTTPException(status_code=403, detail="User does not belong to this company")
 
         x_company_id = str(effective_company_id)
+        
+        cache_key = f"dashboard_summary:{user_id}"
+        cached = get_cache(cache_key)
+        
+        if cached:
+            print("Dashboard Summary Cache Hit", {"cache_key": cache_key, "user_id": user_id})
+            return cached
+        
+        print(f"Dashboard Summary Cache Miss for user {user_id}")
+        
 
         # 1. Fetch Company details
         company_res = (
@@ -152,16 +163,20 @@ async def get_dashboard_summary(
         print(f"[Dashboard Summary] User {user_id} has completed {modules_completed} modules.")
 
         # Build response payload
-        return {
+        response_payload = {
             "plans": plans,
             "modules": modules,
             "progress": progress,
             "company": company_data,
             "total_users": total_users,
             "learning_style": learning_style,
-            "assessment_evidence_by_module_id": assessment_evidence_by_module_id,
-            "user_rank": user_rank_data
+            "user_rank": user_rank_data,
+            "assessment_evidence_by_module_id": assessment_evidence_by_module_id
         }
+        
+        set_cache(cache_key, response_payload, ttl=300)
+        return response_payload
+          
     except Exception as e:
         print(f"[Dashboard Summary Error] {e}")
         raise HTTPException(status_code=500, detail=str(e))

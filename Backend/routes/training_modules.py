@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel
 from typing import Optional
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
+from utils.redis_client import set_cache, get_cache, redis_client
 
 from utils.db.training_modules_db import (
     get_training_modules_by_company,
@@ -70,6 +71,19 @@ async def list_training_modules(
     Permission: Any user in the company can view modules.
     Optional filters: processing_status, review_stage
     """
+    cache_key = (f"company_modules:"
+                 f"training_modules:{effective_company_id}:"
+                 f"processing_status={processing_status}:"
+                 f"review_stage={review_stage}")
+    cached = get_cache(cache_key)
+    if cached:
+        print(
+            f"TRAINING MODULE CACHE HIT {cache_key}"
+        )
+        return cached
+    print(
+        f"TRAINING MODULE CACHE MISS {cache_key}"
+    )
     result = await get_training_modules_by_company(
         auth_ctx.user_id,
         effective_company_id,
@@ -81,11 +95,12 @@ async def list_training_modules(
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     
-    return {
+    response_payload = {
         "modules": result["data"] or [],
         "count": len(result["data"] or [])
     }
-
+    set_cache(cache_key, response_payload, ttl=300)
+    return response_payload
 
 @router.get("/uploader/{uploader_id}")
 async def list_modules_by_uploader(
@@ -118,13 +133,22 @@ async def get_module(
     Get a specific training module by ID.
     Permission: Any user in the company can view.
     """
+    cache_key = f"training_module:{module_id}"
+    cached = get_cache(cache_key)
+    if cached:
+        print(
+            f"TRAINING MODULE CACHE HIT {cache_key}"
+        )
+        return cached
     result = await get_training_module_by_id(auth_ctx.user_id, module_id, auth_claims=auth_ctx.claims)
     
     if result["error"]:
         status_code = 404 if result["error"] == "Training module not found" else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
     
-    return {"module": result["data"]}
+    response_payload = {"module": result["data"]}
+    set_cache(cache_key, response_payload, ttl=1800)
+    return response_payload
 
 
 @router.post("/")
@@ -140,6 +164,13 @@ async def create_module(
     module_data = request.dict()
     result = await create_training_module(user_id, module_data, auth_claims=auth_ctx.claims)
 
+    module = result["data"]
+    company_id = module.get("company_id")
+    if company_id:
+        redis_client.delete(
+        f"company_modules:training_modules:{company_id}:processing_status=None:review_stage=None"
+    )
+            
     if result["error"]:
         error_message = result["error"]
         if isinstance(error_message, str) and error_message.startswith("RATE_LIMIT_EXCEEDED:"):
@@ -170,6 +201,20 @@ async def update_module(
         status_code = 404 if result["error"] == "Training module not found" else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
     
+        
+    redis_client.delete(
+            f"training_module:{module_id}"
+        )
+
+    module = result["data"]
+
+    company_id = module.get("company_id")
+
+    if company_id:
+            redis_client.delete(
+                f"company_modules:{company_id}:None:None"
+            )
+            
     return {
         "message": "Training module updated successfully",
         "module": result["data"]
@@ -190,6 +235,7 @@ async def update_processing_status(
     processing_status = request.processing_status
     additional_updates = request.dict(exclude={'processing_status'}, exclude_unset=True)
     
+    
     result = await update_module_processing_status(
         user_id, 
         module_id, 
@@ -200,6 +246,20 @@ async def update_processing_status(
     if result["error"]:
         status_code = 404 if result["error"] == "Training module not found" else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
+    
+    redis_client.delete(
+        f"training_module:{module_id}"
+    )
+
+    module = result["data"]
+
+    company_id = module.get("company_id")
+
+    if company_id:
+        redis_client.delete(
+            f"company_modules:{company_id}:None:None"
+        )
+    
     
     return {
         "message": "Processing status updated successfully",
@@ -224,11 +284,24 @@ async def update_review_stage(
         request.review_stage,
         request.reviewer_id
     )
-    
+        
     if result["error"]:
         status_code = 404 if result["error"] == "Training module not found" else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
     
+    redis_client.delete(
+        f"training_module:{module_id}"
+    )
+
+    module = result["data"]
+
+    company_id = module.get("company_id")
+
+    if company_id:
+        redis_client.delete(
+            f"company_modules:{company_id}:None:None"
+        )
+        
     return {
         "message": "Review stage updated successfully",
         "module": result["data"]
@@ -241,16 +314,57 @@ async def delete_module(
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     user_id = auth_ctx.user_id
+
     """
     Delete a training module.
     Permission: Company admin+ only.
     """
-    result = await delete_training_module(user_id, module_id)
-    
+
+    # Get module first so we know which cache to invalidate
+    existing_module = await get_training_module_by_id(
+        user_id,
+        module_id,
+        auth_claims=auth_ctx.claims
+    )
+
+    company_id = None
+
+    if (
+        existing_module
+        and existing_module.get("data")
+    ):
+        company_id = (
+            existing_module["data"]
+            .get("company_id")
+        )
+
+    result = await delete_training_module(
+        user_id,
+        module_id
+    )
+
     if result["error"]:
-        status_code = 404 if result["error"] == "Training module not found" else 403
-        raise HTTPException(status_code=status_code, detail=result["error"])
-    
+        status_code = (
+            404
+            if result["error"] == "Training module not found"
+            else 403
+        )
+
+        raise HTTPException(
+            status_code=status_code,
+            detail=result["error"]
+        )
+
+    # Redis invalidation
+    redis_client.delete(
+        f"training_module:{module_id}"
+    )
+
+    if company_id:
+        redis_client.delete(
+            f"company_modules:{company_id}:None:None"
+        )
+
     return {
         "message": "Training module deleted successfully"
     }

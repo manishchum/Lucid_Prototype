@@ -9,8 +9,15 @@ redis_client = redis.Redis(
     username=os.getenv("REDIS_USERNAME"),
     password=os.getenv("REDIS_PASSWORD"),
     decode_responses=True,
-    ssl=True
+    # ssl=True
 )
+
+try:
+    print("Testing Redis connection...")
+    print(redis_client.ping())
+except Exception as e:
+    print(f"Redis connection failed: {e}")
+
 
 
 def get_cache(key: str):

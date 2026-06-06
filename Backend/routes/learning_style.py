@@ -2,6 +2,7 @@ from utils.auth import RequestAuth, get_request_auth_required, get_effective_com
 from fastapi import APIRouter, HTTPException, Header, Depends
 from pydantic import BaseModel
 from typing import Optional
+from utils.redis_client import get_cache, set_cache, redis_client
 
 from utils.db.learning_style_db import (
     get_learning_style_by_user_id,
@@ -45,13 +46,30 @@ async def get_user_learning_style(
     Get learning style for a specific user.
     Permission: Self OR manager+ in same company.
     """
+    cache_key = f"learning_style:{target_user_id}"
+
+    cached = get_cache(cache_key)
+
+    if cached:
+        print(
+            f"LEARNING STYLE CACHE HIT {cache_key}"
+        )
+        return cached
+
+    print(
+        f"LEARNING STYLE CACHE MISS {cache_key}"
+    )
     result = await get_learning_style_by_user_id(user_id, target_user_id)
     
     if result["error"]:
         status_code = 404 if result["error"] == "User not found" else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
     
-    return {"learning_style": result["data"]}
+    response_payload = {
+        "learning_style": result["data"]
+    }
+    set_cache(cache_key, response_payload, ttl=3600)
+    return response_payload
 
 
 @router.get("/company/{company_id}")
@@ -65,15 +83,33 @@ async def list_company_learning_styles(
     Get all learning styles for users in a company.
     Permission: Manager+ in the same company.
     """
+    cache_key = (
+        f"company_learning_styles:"
+        f"{effective_company_id}"
+    )
+    cached = get_cache(cache_key)
+    if cached:
+        print(
+            f"COMPANY LEARNING STYLES CACHE HIT {cache_key}"
+        )
+        return cached
+    
     result = await get_learning_styles_by_company(user_id, effective_company_id)
     
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     
-    return {
+    response_payload = {
         "learning_styles": result["data"] or [],
         "count": len(result["data"] or [])
     }
+    set_cache(
+        cache_key,
+        response_payload,
+        ttl=3600
+        )
+    
+    return response_payload
 
 
 @router.post("/")
@@ -99,6 +135,8 @@ async def create_learning_style_record(
         status_code = 400 if "already exists" in result["error"] else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
     
+    target_user_id = request.user_id
+    redis_client.delete(f"learning_style:{target_user_id}")    
     return {"learning_style": result["data"]}
 
 
@@ -130,6 +168,12 @@ async def update_user_learning_style(
         status_code = 404 if result["error"] == "Learning style not found" else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
     
+    redis_client.delete(f"learning_style:{target_user_id}")
+    for key in redis_client.scan_iter(
+        "company_learning_styles:*"
+    ):
+        redis_client.delete(key)
+    
     return {"learning_style": result["data"]}
 
 
@@ -155,6 +199,8 @@ async def upsert_learning_style_record(
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     
+    target_user_id = request.user_id
+    redis_client.delete(f"learning_style:{target_user_id}")
     return {"learning_style": result["data"]}
 
 
@@ -173,5 +219,6 @@ async def delete_user_learning_style(
     if result["error"]:
         status_code = 404 if result["error"] == "User not found" else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
+    redis_client.delete(f"learning_style:{target_user_id}")
     
     return {"message": "Learning style deleted successfully", "data": result["data"]}

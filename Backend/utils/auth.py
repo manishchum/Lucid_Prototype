@@ -114,6 +114,7 @@ def _resolve_internal_user_context(
 		except BridgeConfigurationError as exc:
 			raise HTTPException(status_code=500, detail=f"Bridge configuration failure: {exc}") from exc
 		except BridgeResolutionError as exc:
+			# print("Bridge Failed",{"email":email, "claims":claims})
 			raise HTTPException(status_code=401, detail=f"Bridge user resolution failed: {exc}") from exc
 	elif email:
 		try:
@@ -152,11 +153,13 @@ def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> st
 def _build_request_auth_from_verified_claims(claims: Dict[str, Any]) -> RequestAuth:
 	token_user_id = claims.get("uid") or claims.get("user_id") or claims.get("sub")
 	email = claims.get("email")
+	# print("AUTH START",{"token_user_id": token_user_id, "email": email, "claims": claims})
 	user_id, company_id = _resolve_internal_user_context(
 		str(email) if email else None,
 		str(token_user_id) if token_user_id else "",
 		claims,
 	)
+	# print("AUTH RESOLVED",{"user_id": user_id, "company_id": company_id})
 
 	if not user_id or (token_user_id and str(user_id) == str(token_user_id)):
 		raise HTTPException(status_code=401, detail="Authenticated Firebase user is not linked to an app user")

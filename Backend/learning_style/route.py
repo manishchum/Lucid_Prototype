@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from utils.supabase_client import supabase
 from utils.auth import RequestAuth, get_request_auth_required
 from utils.auth_bridge import get_service_supabase_client
+from utils.redis_client import get_cache, set_cache, redis_client
 
 import google.generativeai as genai
 
@@ -219,6 +220,7 @@ async def POST(req: Request, auth_ctx: RequestAuth = Depends(get_request_auth_re
                 pass
         except Exception as e:
             print("[LearningStyle] Fallback computation error", e)
+        redis_client.delete(f"learning_style:{user_id}")
 
         # Call Gemini for learning style analysis
         gptResult: Any = None
@@ -406,6 +408,7 @@ Survey Responses:
                     print("[LearningStyle] Failed to save GPT analysis", saveErr)
                 else:
                     print(f"[LearningStyle][POST] stage={stage} saved learning_style={updatePayload.get('learning_style')} gpt_analysis_len={len(str(updatePayload.get('gpt_analysis') or ''))}")
+                redis_client.delete(f"learning_style:{user_id}")
 
             # Ensure response contains dominant_style
             if gptResult and isinstance(gptResult, dict):
@@ -437,6 +440,13 @@ async def GET(req: Request, auth_ctx: RequestAuth = Depends(get_request_auth_req
         if not user_id:
             return JSONResponse(content={"error": "user_id required"}, status_code=400)
 
+        cache_key = f"learning_style:{user_id}"
+        cached = get_cache(cache_key)
+        if cached:
+            print(f"LEARNING STYLE CACHE HIT {cache_key}")
+            return JSONResponse(content=cached)
+        print(f"LEARNING STYLE CACHE MISS {cache_key}")
+        
         # adminClient, supabaseUrl, supabaseServiceKey = _get_admin_client()
         # if not supabaseUrl or not supabaseServiceKey or not adminClient:
         #     return JSONResponse(content={"error": "Supabase service key missing"}, status_code=500)
@@ -500,13 +510,15 @@ async def GET(req: Request, auth_ctx: RequestAuth = Depends(get_request_auth_req
         if gpt_analysis and isinstance(gpt_analysis, str):
             gpt_analysis = gpt_analysis.replace("\\n", "\n")
 
-        return JSONResponse(content={
+        response_payload = {
             "success": True,
             "data": {
                 "learning_style": record.get("learning_style"),
                 "gpt_analysis": gpt_analysis
             }
-        })
+        }
+        set_cache(cache_key, response_payload, ttl=3600)
+        return JSONResponse(content=response_payload)
 
     except Exception as err:
         return JSONResponse(content={"error": str(err) if str(err) else "Unknown error"}, status_code=500)

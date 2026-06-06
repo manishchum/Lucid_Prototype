@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from utils.auth import RequestAuth, get_request_auth_required
 from utils.db import learning_plan_db
-
+from utils.redis_client import get_cache, set_cache, redis_client
 
 router = APIRouter(prefix="/api/learning-plans", tags=["learning_plans"])
 
@@ -56,6 +56,19 @@ async def list_learning_plans(
     - Regular users see only their own plans
     - Managers+ see plans from their company
     """
+    cache_key = (f"learning plans:"
+                 f"{auth_ctx.user_id}:"
+                 f"{user_id}:"
+                 f"{module_id}:"
+                 f"{status}"
+                 )
+    
+    cached = get_cache(cache_key)
+    
+    if cached:
+        print("LEARNING PLAN CACHE HIT", cache_key)
+        return cached
+    
     result = await learning_plan_db.list_learning_plans(
         auth_ctx.user_id, user_id, module_id, status, baseline_assessment, limit
     )
@@ -63,10 +76,14 @@ async def list_learning_plans(
     if result.get("error"):
         raise HTTPException(status_code=403, detail=result["error"])
     
-    return {
-        "plans": result["data"],
-        "count": len(result["data"]) if result["data"] else 0
+    response_payload = {
+       "plans": result["data"],
+       "count": len(result["data"]) if result["data"] else 0
     }
+    
+    set_cache(cache_key, response_payload, ttl=300)
+    return response_payload
+    
 
 
 @router.get("/stats")
@@ -144,7 +161,7 @@ async def create_learning_plan(
     if result.get("error"):
         status_code = 400 if "required" in result["error"].lower() else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
-    
+    redis_client.delete(f"learning plans:{user_id}")
     return {
         "success": True,
         "plan": result["data"],
@@ -165,7 +182,7 @@ async def update_learning_plan(
     - Managers+ can update plans in their company
     """
     updates = request.dict(exclude_none=True)
-    
+    redis_client.delete(f"learning plans:{user_id}")
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     
@@ -220,7 +237,7 @@ async def delete_learning_plan(
     Permission: Manager+ role required.
     """
     result = await learning_plan_db.delete_learning_plan(auth_ctx.user_id, learning_plan_id)
-    
+    redis_client.delete(f"learning plans:{auth_ctx.user_id}")
     if result.get("error"):
         status_code = 404 if "not found" in result["error"].lower() else 403
         raise HTTPException(status_code=status_code, detail=result["error"])

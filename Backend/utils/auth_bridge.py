@@ -12,6 +12,7 @@ import os
 import jwt
 from supabase import Client, create_client
 from supabase.lib.client_options import SyncClientOptions
+from utils.redis_client import get_cache, set_cache
 
 
 _LOGGER = logging.getLogger("lucid.auth_bridge")
@@ -267,7 +268,20 @@ def resolve_user_context_from_claims(
     fail_fast: bool = True,
 ) -> Optional[BridgeUserContext]:
     email, firebase_uid, token_exp = _extract_firebase_identity(claims)
+    cache_key = (f"auth:{firebase_uid}")
+    cached = get_cache(cache_key)
+    if cached:
+        # print("Cache Hit",{"cache_key": cache_key, "cached": cached})
+        return BridgeUserContext(
+            user_id = cached["user_id"],
+            email = cached["email"],
+            company_id = cached["company_id"],
+            firebase_uid = cached["firebase_uid"],
+            claims = claims,
+        )
 
+    
+    
     if not email and not firebase_uid:
         reason = "Bridge claims missing both email and firebase_uid"
         log_bridge_event(
@@ -293,6 +307,16 @@ def resolve_user_context_from_claims(
     )
 
     if context:
+        # print("Redis Miss:", cache_key)
+        set_cache(
+            cache_key,{
+                "user_id": context.user_id,
+                "email": context.email,
+                "company_id": context.company_id,
+                "firebase_uid": context.firebase_uid,
+            },
+            ttl=3600
+        )
         return context
 
     if fail_fast:

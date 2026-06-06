@@ -9,6 +9,7 @@ import uuid
 from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission
 from utils.assignment_notifications import send_assignment_notification_email
+from utils.redis_client import get_cache, set_cache, redis_client
 
 
 def _resolve_app_user_id(service_supabase, user_id: Optional[str]) -> Optional[str]:
@@ -38,20 +39,51 @@ def _resolve_app_user_id(service_supabase, user_id: Optional[str]) -> Optional[s
 
     return None
 
+async def get_user_company_id(
+    user_id: str
+) -> Optional[str]:
 
-async def get_user_company_id(user_id: str) -> Optional[str]:
-    """Helper function to get user's company_id"""
+    cache_key = f"user_company:{user_id}"
+
+    cached = get_cache(cache_key)
+
+    if cached:
+        return cached
+
     try:
         db = get_service_supabase_client()
-        resolved_user_id = _resolve_app_user_id(db, user_id)
+
+        resolved_user_id = _resolve_app_user_id(
+            db,
+            user_id
+        )
+
         if not resolved_user_id:
             return None
 
-        resp = db.table('users').select('company_id').eq(
-            'user_id', resolved_user_id
-        ).maybe_single().execute()
-        
-        return resp.data.get('company_id') if resp.data else None
+        resp = (
+            db.table("users")
+            .select("company_id")
+            .eq("user_id", resolved_user_id)
+            .maybe_single()
+            .execute()
+        )
+
+        company_id = (
+            resp.data.get("company_id")
+            if resp.data
+            else None
+        )
+
+        if company_id:
+            set_cache(
+                cache_key,
+                company_id,
+                ttl=3600
+            )
+
+        return company_id
+
     except Exception:
         return None
 

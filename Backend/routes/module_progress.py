@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel
 from typing import Optional
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
+from utils.redis_client import redis_client, set_cache, get_cache
 
 from utils.db.module_progress_db import (
     get_progress_by_id,
@@ -69,6 +70,17 @@ async def get_user_progress(
     Get all module progress records for a specific user.
     Permission: Self OR manager+ in same company.
     """
+    cache_key = (
+        f"module_progress:"
+        f"{target_user_id}:"
+        f"{completed_only}"
+    )
+    cached = get_cache(cache_key)
+    if cached:
+        print(f"Module progress cache hit for user {target_user_id} {cache_key}")
+        return cached
+    print(f"Module progress cache miss for user {target_user_id} {cache_key}"
+          )
     result = await get_progress_by_user(
         auth_ctx.user_id,
         target_user_id,
@@ -79,10 +91,18 @@ async def get_user_progress(
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     
-    return {
+    response_payload = {
         "progress": result["data"],
         "count": len(result["data"] or [])
     }
+
+    set_cache(
+        cache_key,
+        response_payload,
+        ttl=120
+    )
+
+    return response_payload
 
 
 @router.get("/module/{processed_module_id}")
@@ -117,12 +137,36 @@ async def get_user_module_progress(
     Get progress record for a specific user and processed module.
     Permission: Self OR manager+ in same company.
     """
+    cache_key = (
+        f"user_module_progress:"
+        f"{target_user_id}:"
+        f"{processed_module_id}"
+    )
+
+    cached = get_cache(cache_key)
+
+    if cached:
+        print(
+            f"USER MODULE PROGRESS CACHE HIT {cache_key}"
+        )
+        return cached
+    
     result = await get_progress_by_user_and_module(user_id, target_user_id, processed_module_id)
     
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     
-    return {"progress": result["data"]}
+    response_payload = {
+        "progress": result["data"]
+    }
+
+    set_cache(
+        cache_key,
+        response_payload,
+        ttl=120
+    )
+
+    return response_payload
 
 
 @router.get("/company/{company_id}")
@@ -194,6 +238,22 @@ async def create_or_update_progress_record(
     if result["error"]:
         raise HTTPException(status_code=400, detail=result["error"])
     
+    target_user_id = request.user_id
+
+    redis_client.delete(
+        f"module_progress:{target_user_id}:False"
+    )
+
+    redis_client.delete(
+        f"module_progress:{target_user_id}:True"
+    )
+
+    redis_client.delete(
+        f"user_module_progress:"
+        f"{target_user_id}:"
+        f"{request.processed_module_id}"
+    )
+
     action = result.get("action", "updated")
     message_map = {
         "created": "Module progress created successfully",
@@ -231,6 +291,29 @@ async def update_progress_record(
         status_code = 404 if "not found" in result["error"].lower() else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
     
+    progress = result["data"]
+
+    target_user_id = progress.get("user_id")
+    processed_module_id = progress.get("processed_module_id")
+
+    if target_user_id:
+
+        redis_client.delete(
+            f"module_progress:{target_user_id}:False"
+        )
+
+        redis_client.delete(
+            f"module_progress:{target_user_id}:True"
+        )
+
+    if target_user_id and processed_module_id:
+
+        redis_client.delete(
+            f"user_module_progress:"
+            f"{target_user_id}:"
+            f"{processed_module_id}"
+        )
+    
     return {
         "message": "Module progress updated successfully",
         "progress": result["data"]
@@ -247,11 +330,46 @@ async def delete_progress_record(
     Delete a module progress record.
     Permission: Manager+ in same company (for data cleanup).
     """
+    existing_progress = await get_progress_by_id(
+        user_id,
+        progress_id
+    )
     result = await delete_progress(user_id, progress_id)
+    target_user_id = None
+    processed_module_id = None
+
+    if existing_progress.get("data"):
+        target_user_id = (
+            existing_progress["data"]
+            .get("user_id")
+        )
+
+        processed_module_id = (
+            existing_progress["data"]
+            .get("processed_module_id")
+        )
     
     if result["error"]:
         status_code = 404 if "not found" in result["error"].lower() else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
+    
+    if target_user_id:
+
+        redis_client.delete(
+            f"module_progress:{target_user_id}:False"
+        )
+
+        redis_client.delete(
+            f"module_progress:{target_user_id}:True"
+        )
+
+    if target_user_id and processed_module_id:
+
+        redis_client.delete(
+            f"user_module_progress:"
+            f"{target_user_id}:"
+            f"{processed_module_id}"
+        )
     
     return {
         "message": "Module progress deleted successfully",
