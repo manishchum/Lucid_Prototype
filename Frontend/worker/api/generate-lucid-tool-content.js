@@ -102,8 +102,11 @@ async function generateLucidToolContent({
       lucid_tool_job_id,
       source_document_id,
       tool_name,
-      semantic_query,
-      generated_content
+      semantic_retrieval_query,
+      generated_content,
+      tools (
+        output_format_prompt
+      )
     `)
     .eq(
       'lucid_tool_job_id',
@@ -126,6 +129,7 @@ async function generateLucidToolContent({
     };
   }
 
+
   let updated = 0;
 
   for (const tool of tools) {
@@ -142,7 +146,7 @@ async function generateLucidToolContent({
       //--------------------------------------------------
 
       const queryText =
-        tool.semantic_query ||
+        tool.semantic_retrieval_query ||
         tool.tool_name;
 
       const embedding =
@@ -179,6 +183,14 @@ async function generateLucidToolContent({
           .map(chunk => chunk.content)
           .join('\n\n');
 
+      const outputFormatPrompt =
+        tool.tools?.output_format_prompt || '';
+
+      console.log(
+        '[DEBUG TOOL]',
+        JSON.stringify(tool, null, 2)
+      );
+
       //--------------------------------------------------
       // STEP 3
       // PROMPT
@@ -191,7 +203,7 @@ TOOL NAME:
 ${tool.tool_name}
 
 SEMANTIC QUERY:
-${tool.semantic_query}
+${tool.semantic_retrieval_query}
 
 SOURCE CONTEXT:
 ${ragContext}
@@ -209,41 +221,17 @@ RULES
 - Preserve factual information.
 - Expand explanations only when needed.
 - Keep language professional.
+- Use only the given output format 
 
 OUTPUT FORMAT
 
-Return valid HTML only.
+You MUST follow the exact structure below.
 
-Use this structure:
+${outputFormatPrompt}
 
-<section>
-
-<h2>${tool.tool_name}</h2>
-
-<h3>Overview</h3>
-<p>...</p>
-
-<h3>Key Insights</h3>
-<ul>
-<li>...</li>
-</ul>
-
-<h3>Talking Points</h3>
-<ul>
-<li>...</li>
-</ul>
-
-<h3>Objection Handling</h3>
-<ul>
-<li>...</li>
-</ul>
-
-<h3>Summary</h3>
-<p>...</p>
-
-</section>
-
-Do not return markdown.
+Do not add any sections not present in the format.
+Do not add explanations outside the format.
+Return only the formatted output.
 `;
 
       //--------------------------------------------------
@@ -261,7 +249,7 @@ Do not return markdown.
             generationConfig: {
               temperature: 0.1,
               topP: 1,
-              maxOutputTokens: 3000
+              maxOutputTokens: 300
             }
           })
         );

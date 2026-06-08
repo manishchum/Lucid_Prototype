@@ -759,7 +759,7 @@ async def POST(request: Request):
         # Call Gemini
         planJsonRaw = ""
         try:
-            model = genai.GenerativeModel("gemini-3-pro-preview")
+            model = genai.GenerativeModel("gemini-2.5-pro")
             result = model.generate_content(prompt)
             planJsonRaw = (result.text or "").strip()
         except Exception as err:

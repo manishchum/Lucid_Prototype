@@ -318,7 +318,7 @@ async def generateAvatarImage(dir: str) -> str:
 # ------------------------------------------------------------------
 # GOOGLE TTS
 # ------------------------------------------------------------------
-async def generateTTSAudio(script: str, outFile: str, language_code: str = "en-IN", voice_name: str = "en-IN-Chirp3-HD-Callirrhoe") -> float:
+async def generateTTSAudio(script: str, outFile: str, language_code: str = "en-IN", voice_name: str = "en-IN-Wavenet-C") -> float:
     ttsClient = texttospeech.TextToSpeechClient()
 
     response = ttsClient.synthesize_speech(
@@ -582,7 +582,7 @@ async def generateVideo(processedModuleId: str) -> dict:
         
         # English audio
         print(f"[VIDEO] Scene {i + 1} - English Script: {scene.get('spoken_script', '')}")
-        duration_en = await generateTTSAudio(scene["spoken_script"], audio_en, "en-IN", "en-IN-Chirp3-HD-Callirrhoe")
+        duration_en = await generateTTSAudio(scene["spoken_script"], audio_en, "en-IN", "en-IN-Wavenet-C")
 
         # Hinglish audio
         hinglish_script = scene.get("hinglish_script", scene["spoken_script"])

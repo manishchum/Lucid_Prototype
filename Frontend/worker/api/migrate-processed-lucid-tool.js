@@ -16,7 +16,9 @@ async function migrateProcessedLucidTool({
       id,
       source_document_id,
       semantic_retrieval_query,
-      tools(name)
+      tool_id,
+      tools(id,
+      name)
     `);
 
   if (lucidToolJobId) {
@@ -54,9 +56,10 @@ async function migrateProcessedLucidTool({
       .insert({
         lucid_tool_job_id: job.id,
         source_document_id: job.source_document_id,
+        tool_id: job.tool_id,
 
         tool_name: job.tools?.name || null,
-        semantic_query: job.semantic_retrieval_query,
+        semantic_retrieval_query: job.semantic_retrieval_query,
 
         generated_content: ''
       });
