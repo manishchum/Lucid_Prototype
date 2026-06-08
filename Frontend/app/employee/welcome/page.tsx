@@ -58,6 +58,9 @@ interface SprintItem {
   title: string;
   moduleName: string | null;
   hasBaseline: boolean;
+  baselineCompleted: boolean;
+  baselineScore?: number | null;
+  baselineMaxScore?: number | null;
   status: SprintStatus;
   certificateEarned: boolean;
   completedDate: string | null;
@@ -229,6 +232,7 @@ const handleGenerateCertificate = (sprintId: string) => {
     modules: any[],
     progress: any[],
     assessmentEvidenceByModuleId?: Record<string, AssessmentEvidence[]>,
+    baselineEvidenceByModuleId?: Record<string, AssessmentEvidence[]>,
   ): SprintItem[] => {
     // Only process plans the user is actually assigned to
     const assignedPlans = plans.filter((p: any) => {
@@ -280,7 +284,7 @@ const handleGenerateCertificate = (sprintId: string) => {
     // ── Helper: pick the best progress entry for a set of candidate IDs ───
     // "Best" = has a completed_at, or a pass_status, or a quiz_score.
     const findBestProgress = (...ids: Array<string | null | undefined>): any | null => {
-      for (const id of ids) {
+    for (const id of ids) {
         if (!id) continue;
         const entries = progressByAnyId.get(String(id).trim()) || [];
         if (!entries.length) continue;
@@ -299,6 +303,13 @@ const handleGenerateCertificate = (sprintId: string) => {
       return null;
     };
 
+    const baselineCompletedModuleIds = new Set<string>(
+      (plans || [])
+        .filter((plan: any) => normalizeStatus(plan?.status) === "BASELINE_COMPLETED")
+        .map((plan: any) => String(plan?.module_id ?? plan?.id ?? "").trim())
+        .filter(Boolean),
+    );
+
     return assignedPlans.map((p: any) => {
       const sprintId = String(p.module_id ?? p.id ?? "");
       const threshold =
@@ -316,6 +327,20 @@ const handleGenerateCertificate = (sprintId: string) => {
           p.overall_status === "true" ||
           normalizeStatus(p?.status) === "COMPLETED",
       );
+
+      const baselineEvidence = baselineEvidenceByModuleId?.[sprintId] || [];
+      const baselineCompleted =
+        baselineCompletedModuleIds.has(sprintId) ||
+        baselineEvidence.some((ev) => Boolean(ev.completedAt)) ||
+        baselineEvidence.length > 0;
+      const baselineScore =
+        baselineEvidence.length > 0
+          ? baselineEvidence
+              .map((ev) => ev.scorePercent)
+              .filter((value): value is number => typeof value === "number")
+              .at(-1) ?? null
+          : null;
+      const baselineMaxScore = baselineEvidence.length > 0 ? 100 : null;
 
       // ── Build the SprintModule list ───────────────────────────────────
       let sprintModules: SprintModule[] = [];
@@ -548,6 +573,9 @@ const handleGenerateCertificate = (sprintId: string) => {
         moduleName: p.module_name || p.module_title || p.title || null,
         hasBaseline:
           p.baseline_assessment === 1 || p.baseline_assessment === true,
+        baselineCompleted,
+        baselineScore,
+        baselineMaxScore,
         status,
         certificateEarned,
         completedDate,
@@ -707,6 +735,7 @@ const handleGenerateCertificate = (sprintId: string) => {
           company: data.company || null,
           learningStyle: data.learning_style || null,
           assessmentEvidenceByModuleId: data.assessment_evidence_by_module_id || {},
+          baselineEvidenceByModuleId: data.baseline_evidence_by_module_id || {},
           userRank: data.user_rank || null,
           totalUsers: data.total_users || 0,
         };
@@ -747,12 +776,15 @@ const handleGenerateCertificate = (sprintId: string) => {
       const progress = Array.isArray(data?.progress) ? data.progress : [];
       const assessmentEvidenceByModuleId =
         data?.assessmentEvidenceByModuleId || {};
+      const baselineEvidenceByModuleId =
+        data?.baselineEvidenceByModuleId || {};
 
       const mappedAssigned = buildSprintsFromPlans(
         plans,
         modules,
         progress,
         assessmentEvidenceByModuleId,
+        baselineEvidenceByModuleId,
       );
 
       setAssignedModules(mappedAssigned);
@@ -1166,13 +1198,22 @@ function SprintRow({
 
       {/* Action buttons */}
       <div className="flex gap-2 w-full sm:w-auto flex-shrink-0">
-        {/* Baseline button — only when required and sprint not yet complete */}
-        {sprint.hasBaseline && !sprint.certificateEarned && (
+        {/* Baseline button stays visible until the learner has taken it once. */}
+        {sprint.hasBaseline && (
           <button
-            onClick={() => onNavigate(assessmentPath)}
-            className="px-3 py-2 rounded-lg text-xs border border-slate-200 font-bold text-slate-700 bg-white hover:bg-slate-50 flex-1 sm:flex-none h-10"
+            onClick={() => {
+              if (sprint.baselineCompleted) return;
+              onNavigate(assessmentPath);
+            }}
+            disabled={sprint.baselineCompleted}
+            className={[
+              "px-3 py-2 rounded-lg text-xs border font-bold flex-1 sm:flex-none h-10 transition-colors",
+              sprint.baselineCompleted
+                ? "border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed"
+                : "border-slate-200 text-slate-700 bg-white hover:bg-slate-50",
+            ].join(" ")}
           >
-            Baseline
+            {sprint.baselineCompleted ? "Baseline Completed" : "Baseline"}
           </button>
         )}
 
@@ -1194,13 +1235,19 @@ function SprintRow({
          *   - not_started        → "Start your sprint" (blue filled)
          */}
         <button
-          onClick={() => onNavigate(trainingPlanPath)}
+          onClick={() => {
+            if (sprint.hasBaseline && !sprint.baselineCompleted) return;
+            onNavigate(trainingPlanPath);
+          }}
+          disabled={sprint.hasBaseline && !sprint.baselineCompleted}
           className={[
-            "px-4 sm:px-5 py-1.5 sm:py-2 rounded-xl text-xs font-bold flex-1 sm:flex-none h-9 sm:h-10 transition-all duration-200",
+            "px-4 sm:px-5 py-1.5 sm:py-2 rounded-xl text-xs font-bold flex-1 sm:flex-none h-9 sm:h-10 transition-all duration-200 disabled:cursor-not-allowed",
             sprint.certificateEarned
               ? "bg-slate-100 text-slate-700 hover:bg-slate-200"
               : sprint.status === "in_progress"
               ? "border border-blue-600 text-blue-700 hover:bg-blue-50"
+              : sprint.hasBaseline && !sprint.baselineCompleted
+              ? "bg-blue-300 text-white"
               : "bg-blue-600 text-white hover:bg-blue-700",
           ].join(" ")}
         >
@@ -1208,6 +1255,8 @@ function SprintRow({
             ? "Review Sprint"
             : sprint.status === "in_progress"
             ? "Continue"
+            : sprint.hasBaseline && !sprint.baselineCompleted
+            ? "Complete Baseline First"
             : "Start your sprint"}
         </button>
       </div>

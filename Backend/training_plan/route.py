@@ -132,9 +132,11 @@ async def POST(request: Request):
         checkForBaselineRes = (
             supabase
             .table("learning_plan")
-            .select("baseline_assessment")
+            .select("learning_plan_id, baseline_assessment, status, assigned_on")
             .eq("user_id", user_id)
             .eq("module_id", module_id)
+            .order("assigned_on", desc=True)
+            .limit(1)
             .execute()
         )
         checkForBaseline = getattr(checkForBaselineRes, "data", None)
