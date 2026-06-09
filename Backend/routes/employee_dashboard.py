@@ -23,7 +23,7 @@ async def get_dashboard_summary(
 
     try:
         # 1. Fetch Company details
-        company_res = supabase.table("companies").select("*").eq("company_id", x_company_id).single().execute()
+        company_res = supabase.table("companies").select().eq("company_id", x_company_id).single().execute()
         company_data = company_res.data if company_res.data else {}
 
         # 2. Fetch User details & Count total users in company
@@ -35,19 +35,19 @@ async def get_dashboard_summary(
         learning_style = learning_style_res.data[0].get("learning_style") if learning_style_res.data else None
 
         # 4. Fetch Learning Plans
-        plans_res = supabase.table("learning_plan").select("*").eq("user_id", user_id).execute()
+        plans_res = supabase.table("learning_plan").select().eq("user_id", user_id).execute()
         plans = plans_res.data if plans_res.data else []
         
         # 5. Fetch Training Modules for Company
-        modules_res = supabase.table("training_modules").select("*").eq("company_id", x_company_id).execute()
+        modules_res = supabase.table("training_modules").select().eq("company_id", x_company_id).execute()
         modules = modules_res.data if modules_res.data else []
 
         # 6. Fetch Module Progress
-        progress_res = supabase.table("module_progress").select("*").eq("user_id", user_id).execute()
+        progress_res = supabase.table("module_progress").select().eq("user_id", user_id).execute()
         progress = progress_res.data if progress_res.data else []
 
         # 7. Fetch Employee Assessments
-        assessments_res = supabase.table("employee_assessments").select("*").eq("user_id", user_id).execute()
+        assessments_res = supabase.table("employee_assessments").select().eq("user_id", user_id).execute()
         employee_assessments = assessments_res.data if assessments_res.data else []
 
         # 8. Fetch Assessment Details mapped from Employee Assessments
@@ -56,14 +56,14 @@ async def get_dashboard_summary(
         assessment_details = []
         if assessment_ids:
             # We can use .in_() operator
-            assessment_details_res = supabase.table("assessments").select("*").in_("assessment_id", assessment_ids).execute()
+            assessment_details_res = supabase.table("assessments").select().in_("assessment_id", assessment_ids).execute()
             assessment_details = assessment_details_res.data if assessment_details_res.data else []
 
         # Process mapping assessment to processed_module_ids
         processed_module_ids = list(set([str(d.get("processed_module_id")) for d in assessment_details if d.get("processed_module_id")]))
         processed_modules = []
         if processed_module_ids:
-            pm_res = supabase.table("processed_modules").select("*").in_("processed_module_id", processed_module_ids).execute()
+            pm_res = supabase.table("processed_modules").select().in_("processed_module_id", processed_module_ids).execute()
             processed_modules = pm_res.data if pm_res.data else []
 
         # We construct the assessmentEvidenceByModuleId here in backend to save bandwidth
@@ -102,7 +102,17 @@ async def get_dashboard_summary(
                 "completedAt": ea.get("completed_at")
             })
 
-        # 9. Fake or real user rank for now. Usually needs a separate leaderboard query, doing basic for now
+        # 9. Fetch Task Submissions for task reports
+        task_submissions_res = (
+            supabase.table("task_submissions")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("company_id", x_company_id)
+            .execute()
+        )
+        task_submissions = task_submissions_res.data if task_submissions_res.data else []
+
+        # 10. Fake or real user rank for now. Usually needs a separate leaderboard query, doing basic for now
         # Fetch completed modules for user_id to compute rank
         completed_modules_res = supabase.table("learning_plan").select("learning_plan_id").eq("user_id", user_id).in_("status", ["COMPLETED"]).execute()
         modules_completed = len(completed_modules_res.data) if completed_modules_res.data else 0
@@ -123,6 +133,7 @@ async def get_dashboard_summary(
             "total_users": total_users,
             "learning_style": learning_style,
             "assessment_evidence_by_module_id": assessment_evidence_by_module_id,
+            "task_submissions": task_submissions,
             "user_rank": user_rank_data
         }
     except Exception as e:

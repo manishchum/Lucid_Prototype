@@ -280,8 +280,11 @@ async def delete_scenario(
             raise HTTPException(status_code=401, detail="User ID and Company ID required")
         
         # Verify ownership (scenario belongs to company)
-        scenario_result = supabase.table("scenarios").select("*").eq(
-            "scenario_id", scenario_id
+        # scenario_result = supabase.table("scenarios").select("*").eq(
+        #     "scenario_id", scenario_id
+        # ).eq("company_id", company_id).execute()
+        scenario_result = supabase.table("scenarios").select("scenario_id").eq(
+        "scenario_id", scenario_id
         ).eq("company_id", company_id).execute()
         
         if not scenario_result.data:
@@ -422,8 +425,13 @@ async def get_scenario_assignments(
         if not user_id:
             raise HTTPException(status_code=401, detail="User ID required")
         
-        result = supabase.table("scenario_assignments").select("*").eq(
-            "scenario_id", scenario_id
+        # result = supabase.table("scenario_assignments").select("*").eq(
+        #     "scenario_id", scenario_id
+        # ).execute()
+        result = supabase.table("scenario_assignments").select(
+        "assignment_id, scenario_id, assignment_type, department_id, company_id, assigned_at, user_id"
+        ).eq(
+        "scenario_id", scenario_id
         ).execute()
         
         return {

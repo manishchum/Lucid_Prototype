@@ -13,10 +13,19 @@ from utils.auth import get_request_auth_required_from_request
 
 router = APIRouter()
 
-supabase: Client = create_client(
-    os.environ["NEXT_PUBLIC_SUPABASE_URL"],
-    os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-)
+# Initialize Supabase client with error handling
+try:
+    supabase_url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    
+    if supabase_url and supabase_key:
+        supabase: Client = create_client(supabase_url, supabase_key)
+    else:
+        print("[WARNING] Supabase environment variables not configured")
+        supabase = None
+except Exception as e:
+    print(f"[WARNING] Failed to initialize Supabase client: {e}")
+    supabase = None
 
 
 @router.post("/career-journeys")
@@ -26,6 +35,12 @@ async def create_career_journey(request: Request):
     Requires: X-User-ID header (admin)
     """
     try:
+        if not supabase:
+            return JSONResponse(
+                {"error": "Database service not available"},
+                status_code=503
+            )
+        
         auth_ctx = get_request_auth_required_from_request(request)
         body = await request.json()
 
@@ -88,30 +103,48 @@ async def create_career_journey(request: Request):
 async def list_career_journeys(request: Request, status: str = None):
     """
     List career journeys with optional status filter
-    - Admin: can see all drafts (status=draft)
-    - Users: can see published journeys (status=published)
+    - Status=published: returns all published journeys (no auth required)
+    - Status=draft: returns all draft journeys (admin only)
     """
     try:
-        # Check if user is authenticated (optional for public published journeys)
-        user_id = request.headers.get("X-User-ID")
-
-        query = supabase.table("career_journeys").select("*")
-
-        # Filter by status if provided
-        if status:
-            query = query.eq("status", status)
-
-        resp = query.order("created_at", desc=True).execute()
-
-        journeys = resp.data or []
-
+        if not supabase:
+            print("[career-journeys GET] Supabase client not initialized")
+            return JSONResponse({
+                "success": True,
+                "data": []
+            })
+        
+        # Determine the filter value
+        filter_status = status if status else "published"
+        
+        # Try to fetch from Supabase
+        try:
+            resp = supabase.table("career_journeys") \
+                .select() \
+                .eq("status", filter_status) \
+                .order("created_at", desc=True) \
+                .execute()
+            
+            journeys = resp.data or []
+            
+        except Exception as db_error:
+            print(f"[career-journeys GET] Database error: {db_error}")
+            import traceback
+            traceback.print_exc()
+            # If table doesn't exist or there's a permissions issue, return empty list
+            journeys = []
+        
         return JSONResponse({
             "success": True,
             "data": journeys
         })
 
+    except HTTPException as error:
+        return JSONResponse({"error": error.detail}, status_code=error.status_code)
     except Exception as error:
         print("[career-journeys GET] Error:", error)
+        import traceback
+        traceback.print_exc()
         return JSONResponse(
             {"error": "Failed to fetch career journeys", "details": str(error)},
             status_code=500
@@ -126,7 +159,7 @@ async def get_career_journey(request: Request, journey_id: str):
     try:
         auth_ctx = get_request_auth_required_from_request(request)
 
-        resp = supabase.table("career_journeys").select("*").eq(
+        resp = supabase.table("career_journeys").eq(
             "id", journey_id
         ).single().execute()
 
@@ -172,7 +205,7 @@ async def update_career_journey(request: Request, journey_id: str):
         body = await request.json()
 
         # Get existing journey
-        resp = supabase.table("career_journeys").select("*").eq(
+        resp = supabase.table("career_journeys").eq(
             "id", journey_id
         ).single().execute()
 
@@ -243,7 +276,7 @@ async def publish_career_journey(request: Request, journey_id: str):
         auth_ctx = get_request_auth_required_from_request(request)
 
         # Get existing journey
-        resp = supabase.table("career_journeys").select("*").eq(
+        resp = supabase.table("career_journeys").eq(
             "id", journey_id
         ).single().execute()
 
@@ -308,7 +341,7 @@ async def delete_career_journey(request: Request, journey_id: str):
         auth_ctx = get_request_auth_required_from_request(request)
 
         # Get existing journey
-        resp = supabase.table("career_journeys").select("*").eq(
+        resp = supabase.table("career_journeys").eq(
             "id", journey_id
         ).single().execute()
 

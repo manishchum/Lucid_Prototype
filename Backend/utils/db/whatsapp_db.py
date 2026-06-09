@@ -111,7 +111,7 @@ async def get_pending_scheduled_messages() -> Dict[str, Any]:
         # Query one_time messages that are due
         one_time_response = (
             supabase.table("scheduled_whatsapp")
-            .select("*")
+            .select()
             .eq("schedule_type", "one_time")
             .eq("is_active", True)
             .lte("scheduled_date", today)
@@ -122,7 +122,7 @@ async def get_pending_scheduled_messages() -> Dict[str, Any]:
         # day-of-week matching is easier in app logic)
         recurring_response = (
             supabase.table("scheduled_whatsapp")
-            .select("*")
+            .select()
             .eq("schedule_type", "recurring")
             .eq("is_active", True)
             .execute()
@@ -146,7 +146,7 @@ async def get_pending_dispatch_records(
     try:
         response = (
             supabase.table("whatsapp_dispatch")
-            .select("*")
+            .select()
             .eq("scheduled_whatsapp_id", scheduled_whatsapp_id)
             .eq("status", status)
             .execute()
@@ -165,7 +165,7 @@ async def get_scheduled_whatsapp_by_id(
     try:
         response = (
             supabase.table("scheduled_whatsapp")
-            .select("*")
+            .select()
             .eq("scheduled_whatsapp_id", scheduled_whatsapp_id)
             .single()
             .execute()
@@ -184,7 +184,7 @@ async def get_dispatch_record_by_id(
     try:
         response = (
             supabase.table("whatsapp_dispatch")
-            .select("*")
+            .select()
             .eq("whatsapp_dispatch_id", whatsapp_dispatch_id)
             .single()
             .execute()
@@ -204,7 +204,7 @@ async def get_scheduled_messages_by_company(
     try:
         response = (
             supabase.table("scheduled_whatsapp")
-            .select("*")
+            .select()
             .eq("company_id", company_id)
             .order("created_at", desc=True)
             .limit(limit)
