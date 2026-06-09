@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import TaskDashboard from "@/components/task-manager/TaskDashboard";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { useAuth } from "@/contexts/auth-context";
@@ -21,6 +22,10 @@ import {
   Download, Linkedin, X
 } from "lucide-react";
 import { AssignedSprintsSection } from "@/components/assigned-sprints-section";
+import { useTasks } from "@/hooks/useTasks";
+import { submitTaskResponse } from "@/lib/taskApi";
+import type { SubmitTaskPayload, Task } from "@/lib/taskApi";
+import type { AssignedTask, AssignmentLevel, SubmissionFormat } from "@/types/task";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const DEFAULT_QUIZ_THRESHOLD = 80;
@@ -71,8 +76,71 @@ interface AssessmentEvidence {
   completedAt: string | null;
 }
 
+function mapBackendLevel(level: string): AssignmentLevel {
+  return level === "cohort" ? "sprint" : (level as AssignmentLevel);
+}
+
+function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
+  return backendTasks.map((task) => {
+    const level = mapBackendLevel(task.level);
+    const audienceName = task.audience_display_name || "";
+    const submission = (task as any).submission || null;
+
+  const statusNormalized = String(task.status || "").toLowerCase();
+  const statusIsCompleted = statusNormalized.includes("completed") || statusNormalized.includes("submitted") || statusNormalized.includes("reviewed");
+  const hasSubmission = task.submitted === true || Boolean(submission) || statusIsCompleted;
+
+    const mapped = {
+      id: task.assignment_id || task.task_id,
+      level,
+      mode: "single" as const,
+      tasks: [
+        {
+          id: task.task_id,
+          title: task.title,
+          description: task.description ?? "",
+          submissionFormat: Array.isArray(task.submission_format)
+            ? (task.submission_format[0] as SubmissionFormat)
+            : (task.submission_format as SubmissionFormat) || ((task as any).submissionFormat as SubmissionFormat) || 'text',
+          questions: task.questions || [],
+        },
+      ],
+      targetSprints: level === "sprint" ? [audienceName].filter(Boolean) : [],
+      targetOrgs: level === "org" ? [audienceName].filter(Boolean) : [],
+      targetFunctions: level === "function" ? [audienceName].filter(Boolean) : [],
+      targetSubFunctions: level === "sub_function" ? [audienceName].filter(Boolean) : [],
+      targetIndividuals: level === "individual" ? [audienceName].filter(Boolean) : [],
+      dueDate: task.due_date,
+      createdAt: task.created_at,
+      status: hasSubmission ? "Completed" : "Active",
+      completionCount: task.completion_count,
+      totalTargetUsersCount: task.total_target_count,
+      recurrence: task.recurrence as AssignedTask["recurrence"],
+      submitted: hasSubmission,
+      submission: submission,
+    } as AssignedTask;
+
+    // Temporary debug to verify mapping contains submissions
+    try {
+      // eslint-disable-next-line no-console
+      console.log(
+        "CHECK SUBMISSION MAP",
+        mapped.id,
+        {
+          id: mapped.id,
+          status: mapped.status,
+          submitted: mapped.submitted,
+          submission: mapped.submission,
+        }
+      );
+    } catch (e) {}
+
+    return mapped;
+  });
+}
+
 export default function EmployeeWelcome() {
-  const { user, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading, logout, isAdmin, isSuperAdmin, isDeveloper, isManager } = useAuth();
   const { activeCompanyId, isDeveloperMode } = useTenant();
   const router = useRouter();
 
@@ -106,6 +174,7 @@ export default function EmployeeWelcome() {
   const [showLeaderboard, setShowLeaderboard] = useState<boolean>(false);
   const [showAllModules, setShowAllModules] = useState(false);
   const [showLoadingProgress, setShowLoadingProgress] = useState(true);
+  const [activeHomeTab, setActiveHomeTab] = useState<"sprints" | "tasks">("sprints");
 
   // Sync basic loading state without fake UI delays
   useEffect(() => {
@@ -115,6 +184,51 @@ export default function EmployeeWelcome() {
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
   const certificateRef = useRef<HTMLDivElement | null>(null);
+  const isAdminUser = isAdmin || isSuperAdmin || isDeveloper || isManager;
+  const effectiveCompanyId =
+    (isDeveloperMode && activeCompanyId ? activeCompanyId : employee?.company_id) || "";
+  const {
+    tasks,
+    loading: tasksLoading,
+    error: tasksError,
+  } = useTasks(employee?.user_id, isAdminUser, effectiveCompanyId);
+  const { tasks: _tasks, loading: _loading, error: _error, refetch: refetchTasks } = useTasks(employee?.user_id, isAdminUser, effectiveCompanyId);
+  const assignedTaskItems = useMemo(() => mapBackendTasksToAssignedTasks(_tasks), [_tasks]);
+  // NOTE: keep `tasks` variable compatible with other code by reusing _tasks
+  // when necessary. Replace references below to use `assignedTaskItems` which
+  // is derived from `_tasks`.
+  useEffect(() => {
+    console.log("RAW BACKEND TASKS:", _tasks);
+    console.log("MAPPED DASHBOARD TASKS:", assignedTaskItems);
+  }, [_tasks, assignedTaskItems]);
+
+  const handleTaskSubmitResponse = async (payload: Omit<SubmitTaskPayload, "user_id">) => {
+    if (!employee?.user_id) {
+      throw new Error("Missing employee identity");
+    }
+
+    return submitTaskResponse(
+      { ...payload, user_id: employee.user_id },
+      { userId: employee.user_id, companyId: effectiveCompanyId }
+    );
+  };
+
+  const handleTaskSubmitted = (
+    taskId: string,
+    title: string,
+    score: number,
+    totalQuestions: number,
+    questionsList: any[]
+  ) => {
+    // After an optimistic local update in TaskDashboard, re-query the backend to
+    // fetch the attached `submission` object for the assignment. This ensures
+    // the UI shows the Verified & Complete badge that relies on backend data.
+    try {
+      refetchTasks();
+    } catch (err) {
+      console.warn('Refetch after submit failed', err);
+    }
+  };
 
 const handleGenerateCertificate = (sprintId: string) => {
   const sprint = assignedModules.find((s) => s.id === sprintId);
@@ -202,6 +316,48 @@ const handleGenerateCertificate = (sprintId: string) => {
       month: "long",
       day: "numeric",
     });
+  };
+
+  const formatTaskDate = (value?: string) => {
+    if (!value) return "N/A";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "N/A";
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  const formatSubmissionLabel = (format: Task["submission_format"]) => {
+    switch (format) {
+      case "text":
+        return "Written Response";
+      case "image":
+        return "Image Upload";
+      case "multiple_choice":
+        return "Multiple Choice";
+      case "audio":
+        return "Audio Recording";
+      case "video":
+        return "Video Recording";
+      default:
+        return format;
+    }
+  };
+
+  const getTaskStatusColor = (status: string) => {
+    const normalized = status?.toLowerCase();
+    if (normalized === "completed" || normalized === "submitted") {
+      return "bg-green-100 text-green-700";
+    }
+    if (normalized === "overdue") {
+      return "bg-red-100 text-red-700";
+    }
+    if (normalized === "due_soon" || normalized === "pending") {
+      return "bg-yellow-100 text-yellow-700";
+    }
+    return "bg-slate-100 text-slate-700";
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -992,16 +1148,82 @@ const handleGenerateCertificate = (sprintId: string) => {
             )}
 
              {/* Assigned Modules */}
-            <AssignedSprintsSection
-              assignedModules={assignedModules}
-              moduleProgress={moduleProgress}
-              userId={employee?.user_id || ""}
-              companyId={
-                (isDeveloperMode && activeCompanyId ? activeCompanyId : employee?.company_id) || ""
-              }
-              isLocked={companyLearningStyleEnabled && !learningStyle}
-              onGenerateCertificate={handleGenerateCertificate}
-            />
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <button
+                onClick={() => setActiveHomeTab("sprints")}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold border transition-colors ${
+                  activeHomeTab === "sprints"
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                Assigned Sprints
+                <span
+                  className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    activeHomeTab === "sprints"
+                      ? "bg-white/20 text-white"
+                      : "bg-slate-100 text-slate-700"
+                  }`}
+                >
+                  {assignedModules.length}
+                </span>
+              </button>
+              <button
+                onClick={() => setActiveHomeTab("tasks")}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold border transition-colors ${
+                  activeHomeTab === "tasks"
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                Assigned Tasks
+                <span
+                  className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    activeHomeTab === "tasks"
+                      ? "bg-white/20 text-white"
+                      : "bg-slate-100 text-slate-700"
+                  }`}
+                >
+                  {_tasks.length}
+                </span>
+              </button>
+            </div>
+
+            {activeHomeTab === "sprints" ? (
+              <AssignedSprintsSection
+                assignedModules={assignedModules}
+                moduleProgress={moduleProgress}
+                userId={employee?.user_id || ""}
+                companyId={effectiveCompanyId}
+                isLocked={companyLearningStyleEnabled && !learningStyle}
+                onGenerateCertificate={handleGenerateCertificate}
+              />
+            ) : (
+              <div className="space-y-8">
+                {tasksLoading ? (
+                  <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+                    <CardContent className="p-6 text-sm text-slate-500">Loading tasks...</CardContent>
+                  </Card>
+                ) : tasksError ? (
+                  <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+                    <CardContent className="p-6 text-sm text-red-600 font-medium">{tasksError}</CardContent>
+                  </Card>
+                ) : assignedTaskItems.length === 0 ? (
+                  <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+                    <CardContent className="p-6 text-sm text-slate-500">No tasks assigned</CardContent>
+                  </Card>
+                ) : (
+                  <TaskDashboard
+                    assignedTasks={assignedTaskItems}
+                    onStartCreateTask={() => {}}
+                    userRole="employee"
+                    onSubmitTaskResponse={handleTaskSubmitResponse}
+                    onTaskSubmitted={handleTaskSubmitted}
+                  />
+                )}
+
+              </div>
+            )}
 
              {/* Progress History */}
              {/* <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">

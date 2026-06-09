@@ -102,7 +102,17 @@ async def get_dashboard_summary(
                 "completedAt": ea.get("completed_at")
             })
 
-        # 9. Fake or real user rank for now. Usually needs a separate leaderboard query, doing basic for now
+        # 9. Fetch Task Submissions for task reports
+        task_submissions_res = (
+            supabase.table("task_submissions")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("company_id", x_company_id)
+            .execute()
+        )
+        task_submissions = task_submissions_res.data if task_submissions_res.data else []
+
+        # 10. Fake or real user rank for now. Usually needs a separate leaderboard query, doing basic for now
         # Fetch completed modules for user_id to compute rank
         completed_modules_res = supabase.table("learning_plan").select("learning_plan_id").eq("user_id", user_id).in_("status", ["COMPLETED"]).execute()
         modules_completed = len(completed_modules_res.data) if completed_modules_res.data else 0
@@ -123,6 +133,7 @@ async def get_dashboard_summary(
             "total_users": total_users,
             "learning_style": learning_style,
             "assessment_evidence_by_module_id": assessment_evidence_by_module_id,
+            "task_submissions": task_submissions,
             "user_rank": user_rank_data
         }
     except Exception as e:

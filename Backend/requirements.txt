@@ -182,7 +182,7 @@ typer-slim==0.24.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzlocal==5.3.1
-unstructured==0.21.5
+unstructured==0.18.32
 unstructured-client==0.42.10
 uritemplate==4.2.0
 urllib3==2.6.3
@@ -195,3 +195,9 @@ wrapt==1.17.3
 yarg==0.1.10
 yarl==1.23.0
 zstandard==0.25.0
+easyocr==1.7.2
+opencv-python-headless==4.10.0.84
+pillow
+mediapipe==0.10.8
+ultralytics==8.1.41
+torchvision==0.15.0
