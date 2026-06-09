@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { sharedDataClient } from '@/lib/data-client';
 
@@ -141,23 +141,43 @@ export default function EmployeesPage() {
   const [showSubDepartmentDropdown, setShowSubDepartmentDropdown] = useState(false);
   const currentUserId = admin?.user_id || null;
   
-   useEffect(() => {
-        if (!authLoading) {
-          if (!user) router.push("/login");
-          else checkAdminAccess();
-          
-        }
-      }, [user, authLoading, router]);
+  const bootstrapStarted = useRef(false);
 
   useEffect(() => {
-    if (admin?.company_id) {
-      loadUsers(admin.company_id);
-      loadDepartments(admin.company_id);
-      loadTrainingModules(admin.company_id);
-      loadLearningPlans(admin.company_id);
-      loadRoles();
+    if (authLoading) return;
+    if (!user) {
+      router.push("/login");
+      return;
     }
-  }, [admin]);
+
+    if (bootstrapStarted.current) return;
+    bootstrapStarted.current = true;
+
+    checkAdminAccess();
+  }, [authLoading, user?.email]);
+
+  useEffect(() => {
+    if (!admin?.company_id) return;
+
+    const bootstrap = async () => {
+      try {
+        await Promise.all([
+          loadUsers(admin.company_id),
+          loadDepartments(admin.company_id),
+          loadTrainingModules(admin.company_id),
+          loadLearningPlans(admin.company_id),
+          loadRoles()
+        ]);
+      } catch (e) {
+        console.error(
+          'Employee bootstrap failed',
+          e
+        );
+      }
+    };
+
+    bootstrap();
+  }, [admin?.company_id]);
 
   // Filter users when filters change
   useEffect(() => {
@@ -168,72 +188,103 @@ export default function EmployeesPage() {
     if (!user?.email) return;
 
     try {
-      // First get user by email via API (no auth needed for bootstrap)
-      const userRes = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`);
+      setLoading(true);
+      setError('');
+
+      const userRes = await fetchWithAuth(
+        `${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`
+      );
 
       if (!userRes.ok) {
-        setError("User not found or inactive");
-        return;
+        throw new Error(`User lookup failed (${userRes.status})`);
       }
 
       const { user: userData } = await userRes.json();
 
-      // Get user roles via backend API instead of direct Supabase call
-      const rolesRes = await fetchWithAuth(`${API_URL}/api/roles/users/${userData.user_id}`, {
-        headers: { 'X-User-ID': userData.user_id }
-      });
+      sessionStorage.setItem(
+        'lucid_admin_user_id',
+        userData.user_id
+      );
+
+      const [rolesRes, companyRes] = await Promise.all([
+        fetchWithAuth(
+          `${API_URL}/api/roles/users/${userData.user_id}`,
+          {
+            headers: {
+              'X-User-ID': userData.user_id
+            }
+          }
+        ),
+
+        fetchWithAuth(
+          `${API_URL}/api/companies/${userData.company_id}`,
+          {
+            headers: {
+              'X-User-ID': userData.user_id
+            }
+          }
+        )
+      ]);
 
       if (!rolesRes.ok) {
-        setError("No active roles found for user");
-        return;
+        throw new Error(`Roles API failed (${rolesRes.status})`);
       }
 
-      const { assignments } = await rolesRes.json();
+      const rolesPayload = await rolesRes.json();
 
-      if (!assignments || assignments.length === 0) {
-        setError("No active roles found for user");
-        return;
+      const assignments =
+        rolesPayload.assignments || [];
+
+      if (!assignments.length) {
+        throw new Error('No active roles found');
       }
 
-      // Check if user has Admin role
-      const hasAdminRole = assignments.some((assignment: any) => 
-        assignment.role && (
-          assignment.role.level >= 3 ||
-          ['admin', 'super_admin', 'ceo'].includes(assignment.role.name?.toLowerCase())
-        )
+      const hasAdminRole = assignments.some(
+        (assignment: any) =>
+          assignment.role &&
+          (
+            assignment.role.level >= 3 ||
+            ['admin', 'super_admin', 'ceo']
+              .includes(
+                assignment.role.name?.toLowerCase()
+              )
+          )
       );
 
       if (!hasAdminRole) {
-        setError("Console access required");
-        return;
+        throw new Error('Console access required');
       }
 
-      // Fetch company name for the admin
       let companyName = '';
-      try {
-        const companyRes = await fetchWithAuth(`${API_URL}/api/companies/${userData.company_id}`, {
-          headers: { 'X-User-ID': userData.user_id }
-        });
-        if (companyRes.ok) {
-          const companyData = await companyRes.json();
-          companyName = companyData?.data?.name || companyData?.company?.name || companyData?.name || '';
-        }
-      } catch (e) {
-        console.error('Failed to fetch company name:', e);
+
+      if (companyRes.ok) {
+        const companyPayload = await companyRes.json();
+
+        companyName =
+          companyPayload?.data?.name ||
+          companyPayload?.company?.name ||
+          companyPayload?.name ||
+          '';
       }
-      
-      // Set admin data using user data
-      const adminData: Admin = {
+
+      setAdmin({
         user_id: userData.user_id,
         email: userData.email,
         name: userData.name,
         company_id: userData.company_id,
         company_name: companyName
-      };
-      
-      setAdmin(adminData);
-    } catch (error: any) {
-      setError(`Authentication error: ${error.message}`);
+      });
+
+    } catch (err: any) {
+      console.error(
+        'CHECK ADMIN ACCESS FAILED',
+        err
+      );
+
+      setError(
+        err?.message ||
+        'Failed to load user data'
+      );
     } finally {
       setLoading(false);
     }
@@ -243,7 +294,7 @@ export default function EmployeesPage() {
     try {
       
       const res = await fetchWithAuth(`${API_URL}/api/users/company/${companyId}`, {
-        headers: { 'X-User-ID': `${currentUserId ?? admin?.user_id ?? ''}` }
+        headers: {'X-User-ID':admin?.user_id || ''}
       });
       if (!res.ok) throw await res.json();
       const payload = await res.json();
@@ -273,7 +324,7 @@ export default function EmployeesPage() {
 
   const loadRoles = async () => {
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/roles`);
+      const res = await fetchWithAuth(`${API_URL}/api/roles/`);
       if (res.ok) {
         const payload = await res.json();
         setRoles(payload.data || []);
@@ -307,15 +358,18 @@ export default function EmployeesPage() {
   const loadLearningPlans = async (companyId: string) => {
     try {
       // Fetch learning plans via backend API (will be filtered by company automatically)
-      const adminId = sessionStorage.getItem('lucid_admin_user_id');
+      const adminId =
+        admin?.user_id ||
+        sessionStorage.getItem(
+          'lucid_admin_user_id'
+        );
+
       if (!adminId) {
-        console.error('Admin user ID not found');
-        setLearningPlans([]);
         return;
       }
 
       const lpRes = await fetchWithAuth(
-        `${API_URL}/api/learning-plans/?limit=5000`,
+        `${API_URL}/api/learning-plans/?limit=250`,
         { headers: { 'X-User-ID': adminId } }
       );
 
@@ -666,6 +720,8 @@ export default function EmployeesPage() {
                 <UserBulkAdd
                   companyId={admin.company_id}
                   adminId={admin.user_id}
+                  departments={departments}
+                  roles={roles}
                   onSuccess={() => {
                     loadUsers(admin.company_id);
                     setSuccess("Users uploaded successfully!");
@@ -1245,6 +1301,8 @@ export default function EmployeesPage() {
           isSuperAdmin={isSuperAdmin}
           isDeveloper={isDeveloper}
           currentRole={selectedEmployee.role ? [selectedEmployee.role.name] : []}
+          departments={departments}
+          roles={roles}
           onSuccess={() => {
             loadUsers(admin.company_id);
             setSuccess("Employee updated successfully!");
@@ -1310,15 +1368,15 @@ export default function EmployeesPage() {
 }
 
 // Placeholder components that need to be implemented
-function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
+function UserBulkAdd({ companyId, adminId, departments, roles, onSuccess, onError }: any) {
   const [mode, setMode] = useState<'manual' | 'upload' | 'detailed'>('upload');
   const [showModal, setShowModal] = useState(false);
   const [manualEmails, setManualEmails] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState<string[][]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
+  // const [departments, setDepartments] = useState<Department[]>([]);
+  // const [roles, setRoles] = useState<Role[]>([]);
 
   // Add checkEmailExists function here
   const checkEmailExists = async (email: string): Promise<boolean> => {
@@ -1341,27 +1399,27 @@ function UserBulkAdd({ companyId, adminId, onSuccess, onError }: any) {
   };
 
   // Load departments and roles when component mounts
-  useEffect(() => {
-    loadDropdownData();
-  }, []);
+  // useEffect(() => {
+  //   loadDropdownData();
+  // }, []);
 
-  const loadDropdownData = async () => {
-    try {
-      const dRes = await fetchWithAuth(`${API_URL || ''}/api/sub-departments/`);
-      if (dRes.ok) {
-        const dPayload = await dRes.json();
-        setDepartments(dPayload.data || []);
-      }
+  // const loadDropdownData = async () => {
+  //   try {
+  //     const dRes = await fetchWithAuth(`${API_URL || ''}/api/sub-departments/`);
+  //     if (dRes.ok) {
+  //       const dPayload = await dRes.json();
+  //       setDepartments(dPayload.data || []);
+  //     }
 
-      const rRes = await fetchWithAuth(`${API_URL || ''}/api/roles`);
-      if (rRes.ok) {
-        const rPayload = await rRes.json();
-        setRoles(rPayload.data || []);
-      }
-    } catch (error){
-      console.error('Error loading dropdown data:', error);
-    }
-  };
+  //     const rRes = await fetchWithAuth(`${API_URL || ''}/api/roles/`);
+  //     if (rRes.ok) {
+  //       const rPayload = await rRes.json();
+  //       setRoles(rPayload.data || []);
+  //     }
+  //   } catch (error){
+  //     console.error('Error loading dropdown data:', error);
+  //   }
+  // };
 
   const handleManualAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1840,23 +1898,27 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
 
   // Load dropdown data
   useEffect(() => {
-    if (isOpen) {
-      loadDropdownData();
-      setSelectedCompanyId(companyId || '');
-      setNewCompanyName('');
-      setNewCompanyDomain('');
-      setNewCompanyLogoFile(null);
-      setNewCompanyLogoPreview('');
-      setShowProvisionModal(false);
-      setProvisioningCompany(null);
-      setTemplateDepartments([]);
-      setSelectedTemplateIds([]);
-      setCustomFunctionEntries([{ function_name: '', sub_function_name: '' }]);
-      setProvisioningError('');
-      // Auto-set company name for admin/super_admin
-      if (companyName) {
-        setFormData(prev => ({ ...prev, company_name: companyName }));
-      }
+    if (!isOpen) return;
+
+    setSelectedCompanyId(companyId || '');
+    setNewCompanyName('');
+    setNewCompanyDomain('');
+    setNewCompanyLogoFile(null);
+    setNewCompanyLogoPreview('');
+    setShowProvisionModal(false);
+    setProvisioningCompany(null);
+    setTemplateDepartments([]);
+    setSelectedTemplateIds([]);
+    setCustomFunctionEntries([
+      { function_name: '', sub_function_name: '' }
+    ]);
+    setProvisioningError('');
+
+    if (companyName) {
+      setFormData(prev => ({
+        ...prev,
+        company_name: companyName
+      }));
     }
   }, [isOpen, companyName]);
 
@@ -2343,7 +2405,9 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
   };
 
   // Get unique departments
-  const uniqueDepartments = Array.from(new Set(departments.map((sd: any) => sd.department_name))).sort();
+  const uniqueDepartments = Array.from(
+    new Set((departments || []).map((sd: any) => sd.department_name))
+  ).sort();
 
   // Get subdepartments for selected department
   const selectedDepartmentName = departments.find((sd: any) => sd.department_id === formData.department_id)?.department_name;
@@ -3608,6 +3672,8 @@ function UpdateEmployeeModal({
   isAdmin,
   isSuperAdmin,
   isDeveloper,
+  departments,
+  roles,
   currentRole, 
   onSuccess 
 }: { 
@@ -3619,7 +3685,9 @@ function UpdateEmployeeModal({
   isAdmin: boolean;
   isSuperAdmin: boolean;
   isDeveloper: boolean;
-  currentRole: string[];
+  departments: Department[];
+  roles: Role[];
+  currentRole?: string[];
   onSuccess: () => void;
 }) {
   const [formData, setFormData] = useState({
@@ -3637,8 +3705,6 @@ function UpdateEmployeeModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<{[key: string]: string}>({});
-  const [subDepartments, setSubDepartments] = useState<any[]>([]);
-  const [roles, setRoles] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -3692,7 +3758,6 @@ function UpdateEmployeeModal({
         position: employee.position || '',
         selected_roles: []
       });
-      loadDropdownData();
     }
   }, [employee, isOpen]);
 
@@ -3728,38 +3793,22 @@ function UpdateEmployeeModal({
     }
   };
 
-  const loadDropdownData = async () => {
-    try {
-      const subDeptRes = await fetchWithAuth(`${API_URL || ''}/api/sub-departments/`);
-      if (subDeptRes.ok) {
-        const subDeptPayload = await subDeptRes.json();
-        setSubDepartments(subDeptPayload.data || []);
-      }
-
-      const rolesRes = await fetchWithAuth(`${API_URL || ''}/api/roles/`);
-      if (rolesRes.ok) {
-        const rolesPayload = await rolesRes.json();
-        setRoles(rolesPayload.data || []);
-      }
-
-      try{
-        const compRes = await fetchWithAuth(`${API_URL}/api/companies`, {
-          headers: { 'X-User-ID': adminId }
-        });
-        if (!compRes.ok) {
-          console.warn("Failed to load companies from backend");
-          setCompanies([]);
-        } else {
-          const compPayload = await compRes.json().catch(() => null);
-          const companiesData = compPayload?.data?.companies ?? compPayload?.companies ?? (Array.isArray(compPayload?.data) ? compPayload.data : []) ?? [];
-          setCompanies(companiesData || []);
-        }
-      } catch (e) {
-        console.error('Error loading companies:', e);
+  const loadCompanies = async () => {
+    try{
+      const compRes = await fetchWithAuth(`${API_URL}/api/companies`, {
+        headers: { 'X-User-ID': adminId }
+      });
+      if (!compRes.ok) {
+        console.warn("Failed to load companies from backend");
         setCompanies([]);
+      } else {
+        const compPayload = await compRes.json().catch(() => null);
+        const companiesData = compPayload?.data?.companies ?? compPayload?.companies ?? (Array.isArray(compPayload?.data) ? compPayload.data : []) ?? [];
+        setCompanies(companiesData || []);
       }
-    } catch (error) {
-      console.error('Failed to load dropdown data:', error);
+    } catch (e) {
+      console.error('Error loading companies:', e);
+      setCompanies([]);
       setError('Failed to load form data');
     }
   };
@@ -3974,8 +4023,14 @@ function UpdateEmployeeModal({
     }
   };
 
+  useEffect(() => {
+    if (isOpen) {
+      loadCompanies();
+    }
+  }, [isOpen]);
+
   // Get available subdepartments based on current selection
-  const availableSubDepartments = subDepartments.sort((a: any, b: any) => {
+  const availableSubDepartments = [...departments].sort((a: any, b: any) => {
     const deptSort = (a.department_name || '').localeCompare(b.department_name || '');
     if (deptSort !== 0) return deptSort;
     return (a.sub_department_name || '').localeCompare(b.sub_department_name || '');

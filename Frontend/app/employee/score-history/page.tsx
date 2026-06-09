@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChevronDown, BookOpen } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
-import { supabase } from "@/lib/supabase";
+// import { supabase } from "@/lib/supabase";
 import { sharedDataClient, createCacheKey } from "@/lib/data-client";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
@@ -396,13 +396,25 @@ export default function ScoreHistoryPage() {
         query: { ids: assessmentIds },
       }),
       async () => {
-        const promises = assessmentIds.map((id) =>
-          fetchWithAuth(`${API_BASE}/api/assessments/${encodeURIComponent(id)}`, {
-            headers: { "X-User-ID": employee.user_id },
-          }).then((r) => (r.ok ? r.json() : null)),
+        const res = await fetchWithAuth(
+          `${API_BASE}/api/assessments/batch`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-User-ID": employee.user_id,
+            },
+            body: JSON.stringify({
+              assessment_ids: assessmentIds,
+            }),
+          }
         );
 
-        return Promise.all(promises);
+        if (!res.ok) {
+          throw new Error("Failed to fetch assessment details");
+        }
+
+        return res.json();
       },
       {
         ttlMs: 5 * 60 * 1000,
@@ -410,7 +422,11 @@ export default function ScoreHistoryPage() {
     );
 
     const assessmentMap = new Map<string, any>();
-    (Array.isArray(detailsPayload) ? detailsPayload : []).forEach((payload: any) => {
+    const assessmentsData =
+      detailsPayload?.data ||
+      [];
+
+    assessmentsData.forEach((payload: any) => {
       const assessment = payload?.data?.assessment ?? payload?.data ?? payload?.assessment ?? payload;
       if (assessment?.assessment_id) {
         assessmentMap.set(String(assessment.assessment_id), assessment);
@@ -542,13 +558,16 @@ export default function ScoreHistoryPage() {
       setEmployeeId(employee.user_id);
       setEmployeeName(employee.name || "");
 
-      const company = await getCompany(employee);
-      const assessments = await getAssessments(employee);
-      // console.log("[score-history] fetchAllData assessments", {
-      //   count: Array.isArray(assessments) ? assessments.length : "not-array",
-      // });
+      // const company = await getCompany(employee);
+      // const assessments = await getAssessments(employee);
+      // // console.log("[score-history] fetchAllData assessments", {
+      // //   count: Array.isArray(assessments) ? assessments.length : "not-array",
+      // // });
+      // const assessmentsWithModules = await getModules(employee, assessments);
+      // const learningStyle = await getLearningStyle(employee);
+
+      const [company, assessments, learningStyle] = await Promise.all([ getCompany(employee), getAssessments(employee), getLearningStyle(employee) ]);
       const assessmentsWithModules = await getModules(employee, assessments);
-      const learningStyle = await getLearningStyle(employee);
 
       setCompanyUsesLearningStyle(Boolean(company?.learning_style));
       setScoreHistory(assessmentsWithModules);

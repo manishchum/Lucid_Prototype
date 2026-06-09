@@ -1,6 +1,7 @@
 from typing import Dict, Any, Optional, List
 from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
+from ..supabase_client import supabase
 
 # ==================== ASSESSMENT OPERATIONS ====================
 
@@ -58,6 +59,35 @@ async def get_assessment_by_id(
     except Exception as e:
         return {"data": None, "error": str(e)}
 
+async def get_assessments_batch(
+    requesting_user_id: str,
+    assessment_ids: List[str]
+) -> Dict[str, Any]:
+
+    if not assessment_ids:
+        return {"data": [], "error": None}
+
+    try:
+        resp = (
+            supabase
+            .table("assessments")
+            .select("*")
+            .in_("assessment_id", assessment_ids)
+            .execute()
+        )
+
+        assessments = resp.data or []
+
+        return {
+            "data": assessments,
+            "error": None
+        }
+
+    except Exception as e:
+        return {
+            "data": None,
+            "error": str(e)
+        }
 
 async def get_assessments_by_company(
     requesting_user_id: str,

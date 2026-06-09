@@ -130,6 +130,15 @@ function TrainingPlanContent() {
       setPlan(data?.plan ?? null);
       setReasoning(data?.reasoning ?? null);
 
+      const title =
+        data?.module?.title ||
+        data?.training_module?.title ||
+        data?.title ||
+        "";
+      if(title){
+        setModuleTitle(title);
+      }
+
       const readingsRaw = data?.additional_readings;
       if (readingsRaw) {
         const readings = typeof readingsRaw === "string" ? JSON.parse(readingsRaw) : readingsRaw;
@@ -264,8 +273,8 @@ function TrainingPlanContent() {
 
       await Promise.allSettled([
         loadPlan(resolvedEmployee, moduleId),
+        fetchModuleProgress(resolvedEmployee),
         fetchModuleTitle(moduleId, resolvedEmployee.user_id),
-        fetchModuleProgress(resolvedEmployee)
       ]);
     };
 
@@ -430,21 +439,13 @@ function TrainingPlanContent() {
     return normalized;
   };
 
-  const resolveModuleId = async (mod: any): Promise<string | null> => {
-    const directResolved =
-      mod?.processed_module_id ??
-      (mod?.id && String(mod.id).startsWith("pm_") ? mod.id : null);
-
-    if (directResolved) {
-      return String(directResolved);
+  const resolveProcessedModuleId = async (mod: any, fallbackIndex: number): Promise<string | null> => {
+    const directId = getNormalizedProcessedModuleId(mod);
+    if (directId) {
+      return directId;
     }
 
-    if (!activeEmployee?.user_id) {
-      return null;
-    }
-
-    const originalModuleId = mod?.original_module_id || moduleId;
-    if (!originalModuleId) {
+    if (!activeEmployee?.user_id || !moduleId) {
       return null;
     }
 
@@ -454,15 +455,20 @@ function TrainingPlanContent() {
           namespace: "processed-modules",
           tenantId: activeEmployee.company_id,
           userId: activeEmployee.user_id,
-          path: `/api/processed-modules/original-module/${originalModuleId}`,
+          path: `/api/processed-modules/original-module/${moduleId}`,
         }),
         async () => {
-          const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${originalModuleId}`, {
-            headers: { "X-User-ID": activeEmployee.user_id },
-          });
+          const res = await fetchWithAuth(
+            `${API_BASE}/api/processed-modules/original-module/${moduleId}`,
+            {
+              headers: { "X-User-ID": activeEmployee.user_id },
+            }
+          );
+
           if (!res.ok) {
             return { data: [] };
           }
+
           return res.json();
         },
         {
@@ -472,24 +478,104 @@ function TrainingPlanContent() {
         },
       );
 
-      const allModules = (Array.isArray(result?.data) ? result.data : (result?.data?.data || result?.data?.modules || []));
-      const targetTitle = String(mod?.title || mod?.name || "").trim().toLowerCase();
-
-      const matched = (Array.isArray(allModules) ? allModules : []).find((pm: any) => {
-        const pmTitle = String(pm?.title || "").trim().toLowerCase();
-        return targetTitle && pmTitle === targetTitle;
-      });
-
-      if (matched?.processed_module_id) {
-        return String(matched.processed_module_id);
+      const rawModules = result?.data?.data ?? result?.data ?? [];
+      const availableModules = Array.isArray(rawModules) ? rawModules : [];
+      if (availableModules.length === 0) {
+        return null;
       }
 
-      const fallback = Array.isArray(allModules) ? allModules[0] : null;
-      return fallback?.processed_module_id ? String(fallback.processed_module_id) : null;
+      const candidateTitle = String(mod?.title || mod?.name || "").trim().toLowerCase();
+      const candidateOrder = Number(mod?.order || mod?.recommended_order || fallbackIndex + 1);
+
+      if (candidateTitle) {
+        const matched = availableModules.find((item: any) => {
+          const itemTitle = String(item?.title || item?.name || "").trim().toLowerCase();
+          return itemTitle && itemTitle === candidateTitle;
+        });
+
+        if (matched?.processed_module_id) {
+          return String(matched.processed_module_id);
+        }
+      }
+
+      if (candidateOrder > 0 && candidateOrder <= availableModules.length) {
+        const orderedMatch = availableModules[candidateOrder - 1];
+        if (orderedMatch?.processed_module_id) {
+          return String(orderedMatch.processed_module_id);
+        }
+      }
+
+      const fallbackMatch = availableModules[fallbackIndex];
+      if (fallbackMatch?.processed_module_id) {
+        return String(fallbackMatch.processed_module_id);
+      }
+
+      return null;
     } catch {
       return null;
     }
   };
+
+  // const resolveModuleId = async (mod: any): Promise<string | null> => {
+  //   const directResolved =
+  //     mod?.processed_module_id ??
+  //     (mod?.id && String(mod.id).startsWith("pm_") ? mod.id : null);
+
+  //   if (directResolved) {
+  //     return String(directResolved);
+  //   }
+
+  //   if (!activeEmployee?.user_id) {
+  //     return null;
+  //   }
+
+  //   const originalModuleId = mod?.original_module_id || moduleId;
+  //   if (!originalModuleId) {
+  //     return null;
+  //   }
+
+  //   try {
+  //     const result = await sharedDataClient.query(
+  //       createCacheKey({
+  //         namespace: "processed-modules",
+  //         tenantId: activeEmployee.company_id,
+  //         userId: activeEmployee.user_id,
+  //         path: `/api/processed-modules/original-module/${originalModuleId}`,
+  //       }),
+  //       async () => {
+  //         const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${originalModuleId}`, {
+  //           headers: { "X-User-ID": activeEmployee.user_id },
+  //         });
+  //         if (!res.ok) {
+  //           return { data: [] };
+  //         }
+  //         return res.json();
+  //       },
+  //       {
+  //         ttlMs: 10 * 60 * 1000,
+  //         swr: true,
+  //         swrMs: 20 * 60 * 1000,
+  //       },
+  //     );
+
+  //     const allModules = (Array.isArray(result?.data) ? result.data : (result?.data?.data || result?.data?.modules || []));
+  //     const targetTitle = String(mod?.title || mod?.name || "").trim().toLowerCase();
+
+  //     const matched = (Array.isArray(allModules) ? allModules : []).find((pm: any) => {
+  //       const pmTitle = String(pm?.title || "").trim().toLowerCase();
+  //       return targetTitle && pmTitle === targetTitle;
+  //     });
+
+  //     if (matched?.processed_module_id) {
+  //       return String(matched.processed_module_id);
+  //     }
+
+  //     const fallback = Array.isArray(allModules) ? allModules[0] : null;
+  //     return fallback?.processed_module_id ? String(fallback.processed_module_id) : null;
+  //   } catch {
+  //     return null;
+  //   }
+  // };
 
   // Defensive: Support both plan.modules and plan.learning_plan.modules
   let parsedPlan = plan;
@@ -525,93 +611,93 @@ function TrainingPlanContent() {
     } catch {}
   }
 
-  const moduleCandidates = Array.isArray(modules) ? (modules as any[]) : [];
+  // const moduleCandidates = Array.isArray(modules) ? (modules as any[]) : [];
 
-  useEffect(() => {
-    let cancelled = false;
+  // useEffect(() => {
+  //   let cancelled = false;
 
-    const resolveMissingProcessedModuleIds = async () => {
-      if (!moduleCandidates.length || !employeeData?.user_id) return;
+  //   const resolveMissingProcessedModuleIds = async () => {
+  //     if (!moduleCandidates.length || !employeeData?.user_id) return;
 
-      const missing = moduleCandidates
-        .map((mod: any, idx: number) => {
-          const normalizedTitle = mod?.title || mod?.name || `Module ${idx + 1}`;
-          const fallback = `${idx}-${normalizedTitle || "module"}`;
-          const tabValue = String(mod?.id ?? mod?.original_module_id ?? fallback);
+  //     const missing = moduleCandidates
+  //       .map((mod: any, idx: number) => {
+  //         const normalizedTitle = mod?.title || mod?.name || `Module ${idx + 1}`;
+  //         const fallback = `${idx}-${normalizedTitle || "module"}`;
+  //         const tabValue = String(mod?.id ?? mod?.original_module_id ?? fallback);
 
-          return {
-            mod,
-            tabValue,
-            resolvedProcessedModuleId: getNormalizedProcessedModuleId(mod),
-          };
-        })
-        .filter((item) => !item.resolvedProcessedModuleId);
+  //         return {
+  //           mod,
+  //           tabValue,
+  //           resolvedProcessedModuleId: getNormalizedProcessedModuleId(mod),
+  //         };
+  //       })
+  //       .filter((item) => !item.resolvedProcessedModuleId);
 
-      if (!missing.length) return;
+  //     if (!missing.length) return;
 
-      const resolutions = await Promise.all(
-        missing.map(async (item) => {
-          const resolved = await resolveModuleId(item.mod);
-          return {
-            tabValue: item.tabValue,
-            resolved: resolved ? String(resolved) : null,
-          };
-        })
-      );
+  //     const resolutions = await Promise.all(
+  //       missing.map(async (item) => {
+  //         const resolved = await resolveModuleId(item.mod);
+  //         return {
+  //           tabValue: item.tabValue,
+  //           resolved: resolved ? String(resolved) : null,
+  //         };
+  //       })
+  //     );
 
-      if (cancelled) return;
+  //     if (cancelled) return;
 
-      const resolvedMap = new Map<string, string>();
-      resolutions.forEach((item) => {
-        if (item?.tabValue && item?.resolved) {
-          resolvedMap.set(item.tabValue, item.resolved);
-        }
-      });
+  //     const resolvedMap = new Map<string, string>();
+  //     resolutions.forEach((item) => {
+  //       if (item?.tabValue && item?.resolved) {
+  //         resolvedMap.set(item.tabValue, item.resolved);
+  //       }
+  //     });
 
-      if (!resolvedMap.size) return;
+  //     if (!resolvedMap.size) return;
 
-      setPlan((prev: any) => {
-        if (!prev) return prev;
+  //     setPlan((prev: any) => {
+  //       if (!prev) return prev;
 
-        const patchModules = (list: any[] | undefined) => {
-          if (!Array.isArray(list)) return list;
-          return list.map((mod: any, idx: number) => {
-            const fallback = `${idx}-${(mod?.title || mod?.name || "module")}`;
-            const tabValue = String(mod?.id ?? mod?.original_module_id ?? fallback);
-            const resolved = resolvedMap.get(tabValue);
-            if (!resolved) return mod;
-            return {
-              ...mod,
-              resolved_processed_module_id: resolved,
-            };
-          });
-        };
+  //       const patchModules = (list: any[] | undefined) => {
+  //         if (!Array.isArray(list)) return list;
+  //         return list.map((mod: any, idx: number) => {
+  //           const fallback = `${idx}-${(mod?.title || mod?.name || "module")}`;
+  //           const tabValue = String(mod?.id ?? mod?.original_module_id ?? fallback);
+  //           const resolved = resolvedMap.get(tabValue);
+  //           if (!resolved) return mod;
+  //           return {
+  //             ...mod,
+  //             resolved_processed_module_id: resolved,
+  //           };
+  //         });
+  //       };
 
-        return {
-          ...prev,
-          modules: patchModules(prev.modules),
-          learning_plan: prev.learning_plan
-            ? {
-                ...prev.learning_plan,
-                modules: patchModules(prev.learning_plan.modules),
-              }
-            : prev.learning_plan,
-          plan: prev.plan
-            ? {
-                ...prev.plan,
-                modules: patchModules(prev.plan.modules),
-              }
-            : prev.plan,
-        };
-      });
-    };
+  //       return {
+  //         ...prev,
+  //         modules: patchModules(prev.modules),
+  //         learning_plan: prev.learning_plan
+  //           ? {
+  //               ...prev.learning_plan,
+  //               modules: patchModules(prev.learning_plan.modules),
+  //             }
+  //           : prev.learning_plan,
+  //         plan: prev.plan
+  //           ? {
+  //               ...prev.plan,
+  //               modules: patchModules(prev.plan.modules),
+  //             }
+  //           : prev.plan,
+  //       };
+  //     });
+  //   };
 
-    resolveMissingProcessedModuleIds();
+  //   resolveMissingProcessedModuleIds();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [moduleCandidates, moduleId, employeeData?.user_id]);
+  //   return () => {
+  //     cancelled = true;
+  //   };
+  // }, [moduleCandidates, moduleId, employeeData?.user_id]);
 
   if (showLoadingProgress) {
     return <LoadingProgress label="Fetching your Sprint" progress={loadingProgress} />;
@@ -939,11 +1025,7 @@ function TrainingPlanContent() {
                       variant="outline"
                       className="shrink-0"
                       onClick={async () => {
-                        const realId = getNormalizedProcessedModuleId(mod);
-                        setContentLoadingModuleId(mod._tabValue);
-                        
-                        // Only navigate if we have a real ID or can resolve one
-                        const navId = realId || (await resolveModuleId(mod));
+                        const navId = await resolveProcessedModuleId(mod, idx);
                         
                         if (navId) {
                           router.push(`/employee/module/${navId}`);
@@ -976,10 +1058,7 @@ function TrainingPlanContent() {
                           : "bg-blue-600 hover:bg-blue-700"
                       }`}
                       onClick={async () => {
-                        const realId = getNormalizedProcessedModuleId(mod);
-                        setQuizLoadingModuleId(mod._tabValue);
-                        
-                        const navId = realId || (await resolveModuleId(mod));
+                        const navId = await resolveProcessedModuleId(mod, idx);
                         
                         if (navId) {
                           router.push(`/employee/quiz/${navId}`);

@@ -17,10 +17,11 @@ interface Module {
 interface ModuleSideNavProps {
   userId: string;
   currentModuleId: string;
-  sprintModuleId?: string; // The original module_id from training_modules (sprint level)
+  sprintModuleId?: string;
+  originalModuleId?: string;
 }
 
-export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId }: ModuleSideNavProps) {
+export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId, originalModuleId }: ModuleSideNavProps) {
   const [modules, setModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(false);
   const [resolvedOriginalModuleId, setResolvedOriginalModuleId] = useState<string | null>(null);
@@ -40,10 +41,10 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
       }
 
       // Determine the original_module_id (sprint-level module_id)
-      let originalModuleId = sprintModuleId;
+      let resolvedOriginalModuleId = originalModuleId || sprintModuleId;
 
       // If sprintModuleId is not provided, get it from the current processed module
-      if (!originalModuleId && currentModuleId) {
+      if (!resolvedOriginalModuleId && currentModuleId) {
         try {
           const currentModuleResult = await sharedDataClient.query<any>(
             createCacheKey({
@@ -70,7 +71,7 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
             return;
           }
 
-          originalModuleId = currentModule.original_module_id;
+          resolvedOriginalModuleId = currentModule.original_module_id;
           setResolvedOriginalModuleId(String(currentModule.original_module_id));
         } catch (error) {
           console.error("[ModuleSideNav] Error fetching current module:", error);
@@ -78,7 +79,7 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
         }
       }
 
-      if (!originalModuleId) {
+      if (!resolvedOriginalModuleId) {
         return;
       }
 
@@ -89,11 +90,11 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
             namespace: "processed-modules",
             tenantId: "public",
             userId,
-            path: `/api/processed-modules/original-module/${originalModuleId}`,
+            path: `/api/processed-modules/original-module/${resolvedOriginalModuleId}`,
           }),
           async () => {
             const modulesRes = await fetchWithAuth(
-              `${API_BASE}/api/processed-modules/original-module/${originalModuleId}`,
+              `${API_BASE}/api/processed-modules/original-module/${resolvedOriginalModuleId}`,
             );
             if (!modulesRes.ok) {
               throw new Error("Failed to fetch sprint modules");
@@ -107,7 +108,7 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
         
         if (Array.isArray(modules) && modules.length > 0) {
           setModules(modules);
-          setResolvedOriginalModuleId(String(originalModuleId));
+          setResolvedOriginalModuleId(String(resolvedOriginalModuleId));
         }
       } catch (error) {
         console.error("[ModuleSideNav] Error fetching modules:", error);

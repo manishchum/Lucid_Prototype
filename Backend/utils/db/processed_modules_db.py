@@ -526,34 +526,79 @@ async def get_processed_modules_by_ids(
     requesting_user_id: str,
     processed_module_ids: List[str]
 ) -> Dict[str, Any]:
-    """
-    Fetch multiple processed modules by their IDs.
-    Permission: User must have access to the original training modules.
-    Returns only the modules the user has access to.
-    """
+
     if not processed_module_ids:
         return {"data": [], "error": None}
-    
+
     try:
         db = get_service_supabase_client()
 
-        # Get all processed modules
-        response = db.table('processed_modules').select('*').in_(
-            'processed_module_id', processed_module_ids
-        ).execute()
-        
-        if not response.data:
+        # Get user's company once
+        user_resp = (
+            db.table("users")
+            .select("company_id")
+            .eq("user_id", requesting_user_id)
+            .maybe_single()
+            .execute()
+        )
+
+        user_company_id = (
+            user_resp.data.get("company_id")
+            if user_resp.data
+            else None
+        )
+
+        if not user_company_id:
             return {"data": [], "error": None}
-        
-        # Filter modules based on access
-        accessible_modules = []
-        for module in response.data:
-            original_module_id = module.get('original_module_id')
-            if original_module_id:
-                has_access = await check_module_access(requesting_user_id, original_module_id)
-                if has_access:
-                    accessible_modules.append(module)
-        
-        return {"data": accessible_modules, "error": None}
+
+        # Fetch processed modules
+        pm_resp = (
+            db.table("processed_modules")
+            .select("*")
+            .in_("processed_module_id", processed_module_ids)
+            .execute()
+        )
+
+        modules = pm_resp.data or []
+
+        if not modules:
+            return {"data": [], "error": None}
+
+        original_ids = list(
+            {
+                m["original_module_id"]
+                for m in modules
+                if m.get("original_module_id")
+            }
+        )
+
+        tm_resp = (
+            db.table("training_modules")
+            .select("module_id, company_id")
+            .in_("module_id", original_ids)
+            .execute()
+        )
+
+        module_company_map = {
+            row["module_id"]: row["company_id"]
+            for row in (tm_resp.data or [])
+        }
+
+        accessible_modules = [
+            m
+            for m in modules
+            if module_company_map.get(
+                m.get("original_module_id")
+            ) == user_company_id
+        ]
+
+        return {
+            "data": accessible_modules,
+            "error": None
+        }
+
     except Exception as e:
-        return {"data": None, "error": str(e)}
+        return {
+            "data": None,
+            "error": str(e)
+        }

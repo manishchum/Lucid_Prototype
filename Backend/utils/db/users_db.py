@@ -107,7 +107,19 @@ async def get_users_by_company(
             query_client = get_service_supabase_client()
 
         response = query_client.table('users').select(
-            '*'
+            '''
+            user_id,
+            company_id,
+            name,
+            email,
+            phone,
+            position,
+            hire_date,
+            employment_status,
+            department_id,
+            is_active,
+            created_at
+            '''
         ).eq('company_id', company_id).eq('is_active', True).order('name').execute()
         
         return {"data": response.data, "error": None}
