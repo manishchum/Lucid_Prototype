@@ -216,7 +216,7 @@ Keep the feedback constructive, specific, and encouraging. Format it as a struct
 
 IMPORTANT: Use this EXACT format with these headings. Do not add extra sections or change the structure."""
 
-            model = genai.GenerativeModel("gemini-3-pro-preview")
+            model = genai.GenerativeModel("gemini-3.1-pro-preview")
             result = model.generate_content(feedbackPrompt)
             rawFeedback = result.text if result else None
 
