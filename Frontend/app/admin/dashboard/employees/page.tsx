@@ -1269,16 +1269,16 @@ export default function EmployeesPage() {
                 onClick={() => {
                   setShowDeleteConfirm(false);
                   setUserToDelete(null);
-                }}
+                }}                                   
               >
                 Cancel
               </Button>
+
               <Button
-                variant="destructive"
-                onClick={confirmDeleteUser}
-                className="bg-red-600 hover:bg-red-700"
+                onClick={onAssignNewUsers}
+                className="bg-green-600 hover:bg-green-700"
               >
-                Delete
+                Assign Only to New Users
               </Button>
             </div>
           </div>
@@ -2857,6 +2857,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
   const [error, setError] = useState('');
   const [moduleBaselineSettings, setModuleBaselineSettings] = useState<{[moduleId: string]: boolean}>({});
   const [dueDate, setDueDate] = useState('');
+  const [assignableUsers, setAssignableUsers] = useState<string[]>([]);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicateAssignments, setDuplicateAssignments] = useState<any[]>([]);
   const [moduleSearchTerm, setModuleSearchTerm] = useState('');
@@ -2868,6 +2869,87 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       loadModules();
     }
   }, [isOpen, companyId]);
+
+  const handleAssignOnlyNewUsers = async () => {
+
+    setShowDuplicateModal(false);
+
+    const learningPlans = [];
+
+    for (const userId of assignableUsers) {
+      for (const moduleId of selectedModules) {
+        learningPlans.push({
+          user_id: userId,
+          module_id: moduleId,
+          assigned_on: new Date().toISOString(),
+          due_date: dueDate || null,
+          baseline_assessment:
+            moduleBaselineSettings[moduleId] || false,
+          status: 'ASSIGNED'
+        });
+      }
+    }
+
+    // Existing createRes loop can be reused here
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const plan of learningPlans) {
+        try {
+          const createRes = await fetchWithAuth(
+            `${API_URL}/api/learning-plans/`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': adminId
+              },
+              body: JSON.stringify(plan)
+            }
+          );
+
+          if (createRes.ok) {
+            successCount++;
+          } else {
+            const errorData = await createRes.json();
+
+            if (
+              errorData.detail?.includes('23505') ||
+              errorData.detail?.includes('duplicate')
+            ) {
+              // duplicate skip
+            } else {
+              failCount++;
+              console.error('Failed to create assignment:', errorData);
+            }
+          }
+        } catch (e) {
+          failCount++;
+          console.error('Error creating assignment:', e);
+        }
+      }
+
+      // ADD THIS BLOCK HERE
+      sharedDataClient.invalidateByPrefix("v1|dashboard");
+      sharedDataClient.invalidateByPrefix("v1|training-plan");
+
+      try {
+        shadcnToast({
+          title: 'Modules Assigned!',
+          description: `Successfully assigned modules to new users.`,
+          duration: 7000,
+        });
+      } catch (e) {
+        console.warn('Toast error', e);
+      }
+
+      onSuccess();
+      setLoading(false);
+
+      // CLOSE THE FUNCTION HERE
+      };
+
+
   const loadModules = async () => {
     setLoadingModules(true);
     setError('');
@@ -3097,7 +3179,24 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       );
 
       // If there are existing assignments, show the duplicate modal
-      if (existingAssignments && existingAssignments.length > 0) {
+      if (existingAssignments.length > 0) {
+
+        const duplicateUserIds = [
+          ...new Set(existingAssignments.map(a => a.user_id))
+        ];
+
+        const newUserIds = selectedUsers.filter(
+          userId => !duplicateUserIds.includes(userId)
+        );
+        if (newUserIds.length === 0) {
+          setDuplicateAssignments(existingAssignments);
+          setAssignableUsers([]);
+          setShowDuplicateModal(true);
+          setLoading(false);
+          return;
+        }
+
+        setAssignableUsers(newUserIds);
         setDuplicateAssignments(existingAssignments);
         setShowDuplicateModal(true);
         setLoading(false);
@@ -3162,6 +3261,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       // Invalidate the cache for user dashboards globally when assignments change
       sharedDataClient.invalidateByPrefix("v1|dashboard");
       sharedDataClient.invalidateByPrefix("v1|training-plan");
+    
 
       if (failCount > 0) {
         setError(`Created ${successCount} assignments, ${failCount} failed`);
@@ -3181,6 +3281,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       }
 
       onSuccess();
+    
       
     } catch (error: any) {
       console.error('Failed to assign sprints:', error);
@@ -3521,6 +3622,8 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         isOpen={showDuplicateModal}
         onClose={() => setShowDuplicateModal(false)}
         duplicateAssignments={duplicateAssignments}
+        assignableUsers={assignableUsers}
+        onAssignNewUsers={handleAssignOnlyNewUsers}
       />
     </>
   );
@@ -3530,11 +3633,16 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
 function DuplicateAssignmentModal({ 
   isOpen, 
   onClose, 
-  duplicateAssignments 
+  duplicateAssignments,
+  assignableUsers,
+  onAssignNewUsers
 }: { 
   isOpen: boolean;
   onClose: () => void;
   duplicateAssignments: any[];
+  assignableUsers: string[];
+  onAssignNewUsers: () => void;
+
 }) {
   if (!isOpen) return null;
 
@@ -3601,19 +3709,46 @@ function DuplicateAssignmentModal({
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
             <h4 className="font-medium text-blue-900 mb-2">💡 What to do next:</h4>
             <ul className="text-sm text-blue-800 space-y-1">
-              <li>• Uncheck the users or modules that are already assigned</li>
-              <li>• Or select different users/modules for assignment</li>
-              <li>• You can still proceed with the remaining selections</li>
+              {assignableUsers.length > 0 ? (
+                  <>
+                    <li>• Some selected users already have these sprint assignments.</li>
+                    <li>• You can assign the sprint only to users who do not already have it.</li>
+                  </>
+                ) : (
+                  <>
+                    <li>• All selected users already have these sprint assignments.</li>
+                    <li>• No new assignments can be created.</li>
+                  </>
+                )}
+              
             </ul>
           </div>
 
           <div className="flex justify-end">
-            <Button
-              onClick={onClose}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              Got it, let me adjust my selection
-            </Button>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={onClose}
+              >
+                Cancel
+              </Button>
+
+              {assignableUsers.length > 0 ? (
+                <Button
+                  onClick={onAssignNewUsers}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  Assign Only New Users
+                </Button>
+              ) : (
+                <Button
+                  disabled
+                  className="bg-gray-400 cursor-not-allowed"
+                >
+                  Already Assigned To All Users
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </div>
