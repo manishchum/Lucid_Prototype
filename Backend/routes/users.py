@@ -333,6 +333,11 @@ async def get_user_by_email_route(
     }
 
 
+# @router.port("/bulk-create")
+# async def bulk_create_users(
+#     payload: dict,
+#     auth: RequestAuth = Depends(get_request_auth_required)
+# ):
 
 @router.get("/by-phone/{phone}")
 async def get_user_by_phone_route(

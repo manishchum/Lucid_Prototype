@@ -40,3 +40,11 @@ def set_cache(key: str, value, ttl: int = 300) -> None:
         redis_client.setex(key, ttl, json.dumps(value))
     except Exception:
         return None
+    
+def delete_cache_pattern(patter:str):
+    try:
+        keys = redis_client.keys(patter)
+        if keys:
+            redis_client.delete(*keys)
+    except Exception:
+        return None

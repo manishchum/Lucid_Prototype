@@ -30,7 +30,7 @@ from module_chat.route import router as module_chat
 from assistant.route import router as assistant_router
 from assistant.chat.route import router as assistant_chat_router
 from change_password.route import router as change_password_router
-from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications
+from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications, employees
 from routes.analytics_export import router as analytics_export_router
 from routes.career_journeys import router as career_journeys_router
 from routes.employee_dashboard import router as employee_dashboard_router
@@ -145,6 +145,7 @@ app.include_router(content_generation_history.router)  # content generation hist
 app.include_router(learning_plan.router)  # learning plan router
 app.include_router(learning_style.router)  # learning style router
 app.include_router(training_modules.router)  # training modules router
+app.include_router(employees.router)  # employees bootstrap router
 app.include_router(processed_modules.router)  # processed modules router
 app.include_router(dispatch.router)  # dispatch router
 app.include_router(module_progress.router)  # module progress router

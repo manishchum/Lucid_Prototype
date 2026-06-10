@@ -505,3 +505,71 @@ async def get_learning_plan_stats(
         return {"data": stats, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
+
+async def get_company_learning_plans(
+    requesting_user_id: str,
+    company_id: str,
+    limit: int = 250
+) -> Dict[str, Any]:
+    """
+    Get learning plans for a specific company.
+    Used by admin bootstrap endpoints.
+    """
+
+    try:
+        db = get_service_supabase_client()
+
+        has_permission = await check_user_permission(
+            requesting_user_id,
+            "manager"
+        )
+
+        if not has_permission:
+            return {
+                "data": None,
+                "error": "Permission denied: Manager role required"
+            }
+
+        user_resp = (
+            db.table("users")
+            .select("user_id")
+            .eq("company_id", company_id)
+            .eq("is_active", True)
+            .execute()
+        )
+
+        user_ids = [
+            row["user_id"]
+            for row in (user_resp.data or [])
+            if row.get("user_id")
+        ]
+
+        if not user_ids:
+            return {
+                "data": [],
+                "error": None
+            }
+
+        plans_resp = (
+            db.table("learning_plan")
+            .select(
+                "*, "
+                "users(user_id,name,email,company_id), "
+                "training_modules(module_id,title,company_id)"
+            )
+            .in_("user_id", user_ids)
+            .order("assigned_on", desc=True)
+            .limit(limit)
+            .execute()
+        )
+
+        return {
+            "data": plans_resp.data or [],
+            "error": None
+        }
+
+    except Exception as e:
+        return {
+            "data": None,
+            "error": str(e)
+        }

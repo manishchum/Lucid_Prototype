@@ -384,3 +384,7 @@ async def get_users_by_filter(filters: dict):
         return {"data": result.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
+
+# async def bulk_create_user(
+#     users:list[dict]
+# ):

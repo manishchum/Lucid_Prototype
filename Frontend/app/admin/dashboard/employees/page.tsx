@@ -159,24 +159,7 @@ export default function EmployeesPage() {
   useEffect(() => {
     if (!admin?.company_id) return;
 
-    const bootstrap = async () => {
-      try {
-        await Promise.all([
-          loadUsers(admin.company_id),
-          loadDepartments(admin.company_id),
-          loadTrainingModules(admin.company_id),
-          loadLearningPlans(admin.company_id),
-          loadRoles()
-        ]);
-      } catch (e) {
-        console.error(
-          'Employee bootstrap failed',
-          e
-        );
-      }
-    };
-
-    bootstrap();
+    loadBootstrap(admin.company_id);
   }, [admin?.company_id]);
 
   // Filter users when filters change
@@ -304,6 +287,40 @@ export default function EmployeesPage() {
       // console.log("payload:", payload)
     } catch (error: any) {
       setError(`Failed to load users: ${error.message}`);
+    }
+  };
+
+  const loadBootstrap = async (companyId: string) => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const res = await fetchWithAuth(
+        `${API_URL}/api/employees/bootstrap/${companyId}`,
+        {
+          headers: {
+            'X-User-ID': admin?.user_id || ''
+          }
+        }
+      );
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to load employees bootstrap data');
+      }
+
+      const payload = await res.json();
+
+      setUsers(payload.users || []);
+      setDepartments(payload.departments || []);
+      setRoles(payload.roles || []);
+      setTrainingModules(payload.training_modules || []);
+      setLearningPlans(payload.learning_plans || []);
+    } catch (error: any) {
+      console.error('Employee bootstrap failed', error);
+      setError(`Failed to load employee bootstrap: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -548,7 +565,7 @@ export default function EmployeesPage() {
       
       // Reload users to reflect changes
       if (admin?.company_id) {
-        await loadUsers(admin.company_id);
+        await loadBootstrap(admin.company_id);
       }
       
       // Scroll to top to see updated list
@@ -723,7 +740,7 @@ export default function EmployeesPage() {
                   departments={departments}
                   roles={roles}
                   onSuccess={() => {
-                    loadUsers(admin.company_id);
+                    loadBootstrap(admin.company_id);
                     setSuccess("Users uploaded successfully!");
                     // Scroll to top to see the new users
                     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1281,7 +1298,7 @@ export default function EmployeesPage() {
         isSuperAdmin={isSuperAdmin}
         isDeveloper={isDeveloper}
         onSuccess={() => {
-          loadUsers(admin.company_id);
+          loadBootstrap(admin.company_id);
           setSuccess("User added successfully!");
           setShowAddModal(false);
           // Scroll to top to see the new user
@@ -1304,7 +1321,7 @@ export default function EmployeesPage() {
           departments={departments}
           roles={roles}
           onSuccess={() => {
-            loadUsers(admin.company_id);
+            loadBootstrap(admin.company_id);
             setSuccess("Employee updated successfully!");
             setShowUpdateModal(false);
             // Scroll to top to see the updated employee
@@ -1431,18 +1448,38 @@ function UserBulkAdd({ companyId, adminId, departments, roles, onSuccess, onErro
     try {
       const emails = manualEmails.split(',').map(email => email.trim()).filter(email => email);
       const results = { added: 0, skipped: 0, errors: [] as string[] };
+      
+      const existingUsersRes = await fetchWithAuth(
+        `${API_URL}/api/users/company/${companyId}`,
+        {
+          headers: { 'X-User-ID': adminId }
+        }
+      );
+
+      let existingEmails = new Set<string>();
+
+      if (existingUsersRes.ok) {
+        const existingData = await existingUsersRes.json();
+
+        existingEmails = new Set(
+          (existingData.users || [])
+            .map((u: any) => u.email?.toLowerCase())
+            .filter(Boolean)
+        );
+      }
 
       for (const email of emails) {
         try {
           // Check if email already exists via API
-          const checkRes = await fetchWithAuth(`${API_URL}/api/users/company/${companyId}`, {
-            headers: { 'X-User-ID': adminId }
-          });
-          let exists = false;
-          if (checkRes.ok) {
-            const checkData = await checkRes.json();
-            exists = checkData.users?.some((u: any) => u.email.toLowerCase() === email.toLowerCase());
-          }
+          // const checkRes = await fetchWithAuth(`${API_URL}/api/users/company/${companyId}`, {
+          //   headers: { 'X-User-ID': adminId }
+          // });
+          // let exists = false;
+          // if (checkRes.ok) {
+          //   const checkData = await checkRes.json();
+          //   exists = checkData.users?.some((u: any) => u.email.toLowerCase() === email.toLowerCase());
+          // }
+          const exists = existingEmails.has(email.toLowerCase());
           if (exists) {
             results.skipped++;
             continue;
@@ -1580,7 +1617,7 @@ function UserBulkAdd({ companyId, adminId, departments, roles, onSuccess, onErro
       
       let companiesData: any[] = [];
       try{
-        const compRes = await fetchWithAuth(`${API_URL}/api/companies`, {
+        const compRes = await fetchWithAuth(`${API_URL}/api/companies/`, {
           headers: { 'X-User-ID': adminId }
         });
         if (compRes.ok) {
@@ -1597,94 +1634,94 @@ function UserBulkAdd({ companyId, adminId, departments, roles, onSuccess, onErro
       const departmentsMap = new Map(departmentsData?.map((d: any) => [`${d.department_name.toLowerCase()}-${d.sub_department_name.toLowerCase()}`, d.department_id]) || []);
       const companiesMap = new Map(companiesData?.map((c: any) => [c.name.toLowerCase(), c.company_id]) || []);
       let temp = false;
-      for (const row of dataRows) {
-        // Expected format from old admin: company_user_id, email, name, company_name, department, sub_department, employment_status, roles, position, phone
-        if (row.length < 3 || !row[1]) continue; // Need at least company_user_id, email, name
-        const [, email, name, companyName, department, subDepartment, employmentStatus, roles, position, phone] = row.map(cell => cell || '');
+      // for (const row of dataRows) {
+      //   // Expected format from old admin: company_user_id, email, name, company_name, department, sub_department, employment_status, roles, position, phone
+      //   if (row.length < 3 || !row[1]) continue; // Need at least company_user_id, email, name
+      //   const [, email, name, companyName, department, subDepartment, employmentStatus, roles, position, phone] = row.map(cell => cell || '');
         
-        try {
-          // Validate required fields
-          if (!name || !email) {
-            // console.log(name)
-            // console.log(email)
-            results.errors.push(`Row ${dataRows.indexOf(row) + 1}: Name and email are required`);
-            continue;
-          }
+      //   try {
+      //     // Validate required fields
+      //     if (!name || !email) {
+      //       // console.log(name)
+      //       // console.log(email)
+      //       results.errors.push(`Row ${dataRows.indexOf(row) + 1}: Name and email are required`);
+      //       continue;
+      //     }
 
-          // Email validation
-          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-          if (!emailRegex.test(email)) {
-            // console.log("Error because of the email")
-            results.errors.push(`${email}: Invalid email format`);
-            continue;
-          }
+      //     // Email validation
+      //     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      //     if (!emailRegex.test(email)) {
+      //       // console.log("Error because of the email")
+      //       results.errors.push(`${email}: Invalid email format`);
+      //       continue;
+      //     }
 
-          // Check if email already exists (but not for current user)
-          const emailExists = await checkEmailExists(email);
-          if (emailExists) {
-            results.errors.push('An employee with this email already exists');
-          }
+      //     // Check if email already exists (but not for current user)
+      //     const emailExists = await checkEmailExists(email);
+      //     if (emailExists) {
+      //       results.errors.push('An employee with this email already exists');
+      //     }
 
-          // Find department ID
-          let departmentId = null;
-          if (department && subDepartment) {
-            const deptKey = `${department.toLowerCase()}-${subDepartment.toLowerCase()}`;
-            departmentId = departmentsMap.get(deptKey) || null;
+      //     // Find department ID
+      //     let departmentId = null;
+      //     if (department && subDepartment) {
+      //       const deptKey = `${department.toLowerCase()}-${subDepartment.toLowerCase()}`;
+      //       departmentId = departmentsMap.get(deptKey) || null;
             
-            if (!departmentId) {
-              // console.log("Error because of the department ID is missing")
-              results.errors.push(`${email}: Department "${department}" - "${subDepartment}" not found`);
-              continue;
-            }
-          }
+      //       if (!departmentId) {
+      //         // console.log("Error because of the department ID is missing")
+      //         results.errors.push(`${email}: Department "${department}" - "${subDepartment}" not found`);
+      //         continue;
+      //       }
+      //     }
 
-          // Find company ID
-          let userCompanyId: any = companyId; // Default to admin's company
-          if (companyName) {
-            const foundCompanyId = companiesMap.get(companyName.toLowerCase());
-            if (foundCompanyId) {
-              userCompanyId = foundCompanyId;
-            }
-          }
+      //     // Find company ID
+      //     let userCompanyId: any = companyId; // Default to admin's company
+      //     if (companyName) {
+      //       const foundCompanyId = companiesMap.get(companyName.toLowerCase());
+      //       if (foundCompanyId) {
+      //         userCompanyId = foundCompanyId;
+      //       }
+      //     }
 
-          // Create user via API
-          try {
-            const createRes = await fetchWithAuth(`${API_URL}/api/users/`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-User-ID': adminId
-              },
-              body: JSON.stringify({
-                name: name,
-                email: email.toLowerCase(),
-                company_id: userCompanyId,
-                department_id: departmentId,
-                position: position || null,
-                phone: phone ? String(phone) : null,
-                hire_date: new Date().toISOString().split('T')[0]
-              })
-            });
+      //     // Create user via API
+      //     try {
+      //       const createRes = await fetchWithAuth(`${API_URL}/api/users/`, {
+      //         method: 'POST',
+      //         headers: {
+      //           'Content-Type': 'application/json',
+      //           'X-User-ID': adminId
+      //         },
+      //         body: JSON.stringify({
+      //           name: name,
+      //           email: email.toLowerCase(),
+      //           company_id: userCompanyId,
+      //           department_id: departmentId,
+      //           position: position || null,
+      //           phone: phone ? String(phone) : null,
+      //           hire_date: new Date().toISOString().split('T')[0]
+      //         })
+      //       });
 
-            if (!createRes.ok) {
-              const errorData = await createRes.json();
-              results.errors.push(`${email}: ${errorData.detail || 'Failed to create user'}`);
-              continue;
-            }
+      //       if (!createRes.ok) {
+      //         const errorData = await createRes.json();
+      //         results.errors.push(`${email}: ${errorData.detail || 'Failed to create user'}`);
+      //         continue;
+      //       }
 
-            const { user: userData } = await createRes.json();
+      //       const { user: userData } = await createRes.json();
             
             
-            // Learning-style records are initialized via backend routes to avoid browser-side RLS failures.
+      //       // Learning-style records are initialized via backend routes to avoid browser-side RLS failures.
 
-            results.added++;
-          } catch (createError: any) {
-            results.errors.push(`${email}: ${createError.message || 'Failed to create user'}`);
-          }
-        } catch (e){
-          console.warn(e);
-        }
-      }
+      //       results.added++;
+      //     } catch (createError: any) {
+      //       results.errors.push(`${email}: ${createError.message || 'Failed to create user'}`);
+      //     }
+      //   } catch (e){
+      //     console.warn(e);
+      //   }
+      // }
 
       if (results.errors.length > 0) {
         onError(`Added ${results.added}, skipped ${results.skipped}, errors: ${results.errors.slice(0, 5).join('; ')}${results.errors.length > 5 ? ` and ${results.errors.length - 5} more...` : ''}`);
@@ -1896,31 +1933,58 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
     return false;
   });
 
+  const loadCompanies = async () => {
+    try {
+      const res = await fetchWithAuth(
+        `${API_URL}/api/companies/`,
+        {
+          headers: {
+            'X-User-ID': adminId
+          }
+        }
+      );
+
+      if (!res.ok) {
+        console.error(
+          'Failed to load companies'
+        );
+        return;
+      }
+
+      const payload =
+        await res.json();
+
+      setCompanies(
+        payload?.data?.companies ||
+        payload?.companies ||
+        payload?.data ||
+        []
+      );
+    } catch (err) {
+      console.error(
+        'Company load failed',
+        err
+      );
+    }
+  };
+
   // Load dropdown data
   useEffect(() => {
     if (!isOpen) return;
 
     setSelectedCompanyId(companyId || '');
-    setNewCompanyName('');
-    setNewCompanyDomain('');
-    setNewCompanyLogoFile(null);
-    setNewCompanyLogoPreview('');
-    setShowProvisionModal(false);
-    setProvisioningCompany(null);
-    setTemplateDepartments([]);
-    setSelectedTemplateIds([]);
-    setCustomFunctionEntries([
-      { function_name: '', sub_function_name: '' }
-    ]);
-    setProvisioningError('');
 
-    if (companyName) {
-      setFormData(prev => ({
-        ...prev,
-        company_name: companyName
-      }));
-    }
-  }, [isOpen, companyName]);
+    setFormData(prev => ({
+      ...prev,
+      company_name: companyName || ''
+    }));
+  }, [isOpen, companyId, companyName]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if(!(isDeveloper || isSuperAdmin)){ return; }
+    loadCompanies();
+  }, [isOpen, isDeveloper, isSuperAdmin]);
 
   const loadDepartmentTemplatesForProvisioning = async () => {
     const response = await fetchWithAuth(`${API_URL}/api/companies/org-templates`, {
@@ -2087,30 +2151,30 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
     }
   };
 
-  const loadDropdownData = async () => {
-    try {
-      try{
-        const companiesUrl = `${(API_URL || '').replace(/\/$/, '')}/api/companies/`;
-        const compRes = await fetchWithAuth(companiesUrl, {
-          headers: { 'X-User-ID': adminId }
-        });
-          if (!compRes.ok) {
-            console.warn("Failed to load companies");
-            setCompanies([]);
-          } else {
-            const compPayload = await compRes.json().catch(()=> null);
-            const companiesData = compPayload?.data?.companies ?? compPayload?.companies ?? (Array.isArray(compPayload?.data) ? compPayload.data : []) ?? [];
-            setCompanies(companiesData || []);
-          }
-      } catch (e) {
-        console.error('Error loading companies:', e);
-        setCompanies([]);
-    }
-    } catch (error) {
-      console.error('Failed to load dropdown data:', error);
-      setError('Failed to load form data');
-    }
-  };
+  // const loadDropdownData = async () => {
+  //   try {
+  //     try{
+  //       const companiesUrl = `${(API_URL || '').replace(/\/$/, '')}/api/companies/`;
+  //       const compRes = await fetchWithAuth(companiesUrl, {
+  //         headers: { 'X-User-ID': adminId }
+  //       });
+  //         if (!compRes.ok) {
+  //           console.warn("Failed to load companies");
+  //           setCompanies([]);
+  //         } else {
+  //           const compPayload = await compRes.json().catch(()=> null);
+  //           const companiesData = compPayload?.data?.companies ?? compPayload?.companies ?? (Array.isArray(compPayload?.data) ? compPayload.data : []) ?? [];
+  //           setCompanies(companiesData || []);
+  //         }
+  //     } catch (e) {
+  //       console.error('Error loading companies:', e);
+  //       setCompanies([]);
+  //   }
+  //   } catch (error) {
+  //     console.error('Failed to load dropdown data:', error);
+  //     setError('Failed to load form data');
+  //   }
+  // };
 
   // Email validation function
   const validateEmail = (email: string): boolean => {
@@ -3795,7 +3859,7 @@ function UpdateEmployeeModal({
 
   const loadCompanies = async () => {
     try{
-      const compRes = await fetchWithAuth(`${API_URL}/api/companies`, {
+      const compRes = await fetchWithAuth(`${API_URL}/api/companies/`, {
         headers: { 'X-User-ID': adminId }
       });
       if (!compRes.ok) {
