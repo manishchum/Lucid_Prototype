@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award, Plus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
@@ -333,7 +333,9 @@ const EmployeeNavigation = ({
                 <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
                   {[
                       { href: "/admin/dashboard/analytics", label: "Analytics", icon: BarChart3 },
+                      { href: "/task-manager", label: "Task Management", icon: ListChecks },
                       ...(isManagerOnlyConsole ? [] : [
+                        // { href: "/task-manager?create=true", label: "Create Task", icon: Plus },
                         { href: "/admin/dashboard/employees", label: "Assign Sprints", icon: Users },
                         { href: "/admin/dashboard/uploads", label: "Sprint Manager", icon: Upload },
                         { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },

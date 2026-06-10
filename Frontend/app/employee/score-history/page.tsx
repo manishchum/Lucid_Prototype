@@ -11,6 +11,7 @@ import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import RolePlayReports from "@/components/roleplay/RolePlayReports";
+import TaskReports from "@/components/task-manager/TaskReports";
 
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -254,7 +255,7 @@ export default function ScoreHistoryPage() {
   const [learningStyleData, setLearningStyleData] = useState<any>(null);
   const [companyUsesLearningStyle, setCompanyUsesLearningStyle] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'assessments' | 'roleplay'>('assessments');
+  const [activeTab, setActiveTab] = useState<'assessments' | 'roleplay' | 'tasks'>('assessments');
   // State to track which items are expanded (must be declared at the top level)
   const [expanded, setExpanded] = useState<{ [key: number]: boolean }>({});
   const [learningStyleExpanded, setLearningStyleExpanded] = useState<boolean>(false);
@@ -530,12 +531,12 @@ export default function ScoreHistoryPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <div className="px-4 py-8">
-        <div className="max-w-7xl mx-auto">
+        <div className="container mx-auto">
           <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
             <h1 className="text-3xl font-bold text-gray-800 mb-2">Sprint Performance Reports</h1>
             <p className="text-slate-600">Comprehensive analysis of your scores and performance metrics</p>
           </div>
-          <main className="max-w-6xl mx-auto px-6 lg:px-8">
+          <main className="w-full px-6 lg:px-8">
 
           {/* Tabs Navigation */}
           <div className="flex gap-2 mb-8">
@@ -558,6 +559,16 @@ export default function ScoreHistoryPage() {
               }`}
             >
               🎭 Role-Play Sessions
+            </button>
+            <button
+              onClick={() => setActiveTab('tasks')}
+              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
+                activeTab === 'tasks'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              📋 Task Management
             </button>
           </div>
         
@@ -788,10 +799,27 @@ export default function ScoreHistoryPage() {
         </div>
         )}
 
-        {/* Role-Play Sessions Tab */}
+        {/* Role-Play Sessions Tab (with Task Management sidebar) */}
         {activeTab === 'roleplay' && employeeId && (
-          <RolePlayReports employeeId={employeeId} />
+          <div className="grid grid-cols-1 lg:grid-cols-1 gap-10">
+            <div className="lg:col-span-2">
+              <RolePlayReports employeeId={employeeId} />
+            </div>
+            {/* <div className="lg:col-span-1">
+              <TaskReports defaultActiveSubTab={"tasks"} employeeId={employeeId} />
+            </div> */}
+          </div>
         )}
+
+        {/* Standalone Task Management Tab */}
+        {activeTab === 'tasks' && employeeId && (
+  <div className="w-full">
+    <TaskReports 
+      defaultActiveSubTab="tasks"
+      employeeId={employeeId}
+    />
+  </div>
+)}
 
       </main>
         </div>
