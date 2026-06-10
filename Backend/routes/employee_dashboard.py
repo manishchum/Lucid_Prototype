@@ -111,6 +111,14 @@ async def get_dashboard_summary(
                     "completedAt": ea.get("completed_at")
                 })
 
+            if detail.get("type") == "baseline":
+                if original_module_id not in baseline_evidence_by_module_id:
+                    baseline_evidence_by_module_id[original_module_id] = []
+                baseline_evidence_by_module_id[original_module_id].append({
+                    "scorePercent": score_percent,
+                    "completedAt": ea.get("completed_at")
+                })
+
         # 9. Fetch Task Submissions for task reports
         task_submissions_res = (
             supabase.table("task_submissions")
