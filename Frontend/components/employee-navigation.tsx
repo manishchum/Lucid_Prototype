@@ -197,7 +197,7 @@ const EmployeeNavigation = ({
           </div>
         )}
 
-        <nav className="flex-1 px-3 overflow-y-visible overflow-x-visible space-y-1 custom-scrollbar pt-2">
+        <nav className="flex-1 px-3 min-h-0 overflow-y-auto overflow-x-visible space-y-1 custom-scrollbar pt-2">
           {/* Home */}
           <div className="relative group">
             <button 
@@ -289,6 +289,26 @@ const EmployeeNavigation = ({
             </button>
             {isCollapsed && <NavTooltip label="Role-Play" />}
           </div>
+
+
+
+          {/* <div className="relative group">
+            <button 
+              onClick={() => handleNavigate('/employee/lucid-tools')}
+              className={`w-full flex items-center justify-between gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/lucid-tools') ? 'bg-[#F2EDFF] text-[#5B3DF8] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-3.5">
+                <Sparkles size={20} className="shrink-0" />
+                {!isCollapsed && <span className="text-[15px] font-bold">Lucid Tools </span>}
+              </div>
+              {!isCollapsed && (
+                <span className="text-[10px] font-bold bg-[#E8E6FF] text-[#7857FF] px-2 py-0.5 rounded-full tracking-wide">
+                  NEW
+                </span>
+              )}
+            </button>
+            {isCollapsed && <NavTooltip label="Lucid Tools" />}
+          </div> */}
           {/* Console - visible for manager and higher roles */}
           {canAccessConsole && (
             <div className="relative group">

@@ -27,3 +27,5 @@ ffmpeg
 static-ffmpeg
 bcrypt
 pydantic[email]
+
+ultralytics

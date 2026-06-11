@@ -3,6 +3,7 @@ import tempfile
 import httpx
 from utils.supabase_client import supabase
 from ingestion.pipeline import ingest_pdf_for_rag
+from ingestion.embedder import cleanup_model_cache
 
 
 def ingest_by_module_id(module_id: str):
@@ -64,9 +65,12 @@ def ingest_by_module_id(module_id: str):
         print(f"[RAG] Ingestion completed for module_id: {module_id}")
 
     finally:
-        # 5️⃣ Cleanup
+        # 5️⃣ Cleanup temporary PDF
         if os.path.exists(temp_pdf_path):
             os.remove(temp_pdf_path)
             print(f"[RAG] Temp file removed: {temp_pdf_path}")
+        
+        # 6️⃣ Cleanup model cache
+        # cleanup_model_cache()
 
 

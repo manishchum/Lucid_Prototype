@@ -68,6 +68,7 @@ async def get_dashboard_summary(
 
         # We construct the assessmentEvidenceByModuleId here in backend to save bandwidth
         assessment_evidence_by_module_id = {}
+        baseline_evidence_by_module_id = {}
         
         # Build lookups
         assessment_detail_by_id = {str(d.get("assessment_id")): d for d in assessment_details}
@@ -75,9 +76,9 @@ async def get_dashboard_summary(
         
         for ea in employee_assessments:
             detail = assessment_detail_by_id.get(str(ea.get("assessment_id")))
-            if not detail or detail.get("type") != "module":
+            if not detail:
                 continue
-                
+
             processed_module = processed_module_by_id.get(str(detail.get("processed_module_id")))
             original_module_id = str(detail.get("original_module_id") or (processed_module.get("original_module_id") if processed_module else ""))
             
@@ -101,6 +102,22 @@ async def get_dashboard_summary(
                 "scorePercent": score_percent,
                 "completedAt": ea.get("completed_at")
             })
+
+            if detail.get("type") == "baseline":
+                if original_module_id not in baseline_evidence_by_module_id:
+                    baseline_evidence_by_module_id[original_module_id] = []
+                baseline_evidence_by_module_id[original_module_id].append({
+                    "scorePercent": score_percent,
+                    "completedAt": ea.get("completed_at")
+                })
+
+            if detail.get("type") == "baseline":
+                if original_module_id not in baseline_evidence_by_module_id:
+                    baseline_evidence_by_module_id[original_module_id] = []
+                baseline_evidence_by_module_id[original_module_id].append({
+                    "scorePercent": score_percent,
+                    "completedAt": ea.get("completed_at")
+                })
 
         # 9. Fetch Task Submissions for task reports
         task_submissions_res = (
@@ -133,6 +150,7 @@ async def get_dashboard_summary(
             "total_users": total_users,
             "learning_style": learning_style,
             "assessment_evidence_by_module_id": assessment_evidence_by_module_id,
+            "baseline_evidence_by_module_id": baseline_evidence_by_module_id,
             "task_submissions": task_submissions,
             "user_rank": user_rank_data
         }
