@@ -13,6 +13,7 @@ from utils.auth_bridge import (
 )
 from utils.supabase_client import supabase
 from utils.auth_bridge import get_service_supabase_client
+import uuid as _uuid
 
 
 @dataclass
@@ -216,8 +217,30 @@ def get_request_auth_optional(
 			print(f"[auth optional] Firebase verification exception, falling back to X-User-ID: {str(exc)}")
 
 	if x_user_id:
-		print(f"[auth optional] Using X-User-ID fallback; x_user_id={x_user_id}")
-		return RequestAuth(user_id=x_user_id, email=None, source="legacy-x-user-id", claims=None)
+		# Try resolving legacy firebase_uid -> internal user_id (UUID) so
+		# downstream DB queries that expect UUIDs don't fail.
+		def _is_uuid(val: str) -> bool:
+			try:
+				_uuid.UUID(str(val))
+				return True
+			except Exception:
+				return False
+
+		def _resolve_firebase_uid_to_user_id(val: str) -> str:
+			if _is_uuid(val):
+				return val
+			try:
+				resp = supabase.table('users').select('user_id').eq('firebase_uid', val).maybe_single().execute()
+				data = getattr(resp, 'data', None)
+				if isinstance(data, dict) and data.get('user_id'):
+					return str(data.get('user_id'))
+			except Exception as e:
+				print(f"[auth] firebase_uid lookup failed: {e}")
+			return val
+
+		resolved = _resolve_firebase_uid_to_user_id(x_user_id)
+		print(f"[auth optional] Using X-User-ID fallback; x_user_id={x_user_id}; resolved_user_id={resolved}")
+		return RequestAuth(user_id=resolved, email=None, source="legacy-x-user-id", claims=None)
 
 	return RequestAuth(user_id=None, email=None, source="anonymous", claims=None)
 

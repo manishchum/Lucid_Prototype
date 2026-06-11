@@ -21,6 +21,9 @@ interface Sprint {
   quizzesAttempted: number;
   totalQuizzes: number;
   hasBaseline: boolean;
+  baselineCompleted: boolean;
+  baselineScore?: number | null;
+  baselineMaxScore?: number | null;
   learningPlanId?: string;
   certificateEarned?: boolean;
 }
@@ -119,6 +122,9 @@ export function AssignedSprintsSection({
             quizzesAttempted,
             totalQuizzes,
             hasBaseline: module.hasBaseline,
+            baselineCompleted: Boolean(module.baselineCompleted),
+            baselineScore: module.baselineScore ?? null,
+            baselineMaxScore: module.baselineMaxScore ?? null,
             learningPlanId: plan?.learning_plan_id,
             certificateEarned: module.certificateEarned,
           };
@@ -139,6 +145,9 @@ export function AssignedSprintsSection({
         quizzesAttempted: 0,
         totalQuizzes: 1,
         hasBaseline: module.hasBaseline,
+        baselineCompleted: Boolean(module.baselineCompleted),
+        baselineScore: module.baselineScore ?? null,
+        baselineMaxScore: module.baselineMaxScore ?? null,
         certificateEarned: module.certificateEarned,
       }));
       console.log("Basic sprints data:", basicSprints);
@@ -336,9 +345,13 @@ export function AssignedSprintsSection({
                       <h4 className="text-sm font-bold text-slate-900 line-clamp-2">
                         {sprint.title}
                       </h4>
+
                       {sprint.moduleName && (
-                        <p className="text-xs text-slate-500 mt-1">{sprint.moduleName}</p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {sprint.moduleName}
+                        </p>
                       )}
+
                     </div>
                     <Badge className={`ml-2 shrink-0 text-xs font-semibold ${getStatusColor(sprint.status)}`}>
                       {sprint.status}
@@ -346,11 +359,33 @@ export function AssignedSprintsSection({
                   </div>
 
                   {/* Due date */}
-                  <div className="mb-3 text-xs">
-                    <span className="text-slate-500">Due: </span>
-                    <span className={sprint.dueDate ? "text-slate-700 font-medium" : "text-slate-400"}>
-                      {formatDate(sprint.dueDate)}
-                    </span>
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="text-xs">
+                      <span className="text-slate-500">Due: </span>
+                      <span
+                        className={
+                          sprint.dueDate
+                            ? "text-slate-700 font-medium"
+                            : "text-slate-400"
+                        }
+                      >
+                        {formatDate(sprint.dueDate)}
+                      </span>
+                    </div>
+
+                    {sprint.hasBaseline && (
+                      <Badge
+                        className={
+                          sprint.baselineCompleted
+                            ? "bg-green-100 text-green-700 border-green-200"
+                            : "bg-amber-100 text-amber-700 border-amber-200"
+                        }
+                      >
+                        {sprint.baselineCompleted
+                          ? "Baseline Completed"
+                          : "Baseline Required"}
+                      </Badge>
+                    )}
                   </div>
 
                   {/* Completion info */}
@@ -372,41 +407,65 @@ export function AssignedSprintsSection({
                     </p>
                   </div>
 
-                  {/* Action buttons */}
-                  <div className="flex gap-2">
+                                    {/* Action buttons */}
+                  <div className="flex gap-2 w-full">
                     {sprint.hasBaseline && (
                       <button
-                        onClick={() =>
-                          router.push(`/employee/assessment?moduleId=${sprint.id}`)
-                        }
-                        className="flex-1 px-3 py-2 rounded-lg text-xs border border-slate-200 font-bold text-slate-700 bg-white hover:bg-slate-50 transition-colors"
+                        onClick={() => {
+                          if (sprint.baselineCompleted) return;
+                          router.push(`/employee/assessment?moduleId=${sprint.id}`);
+                        }}
+                        disabled={sprint.baselineCompleted}
+                        className={[
+                          "flex-1 px-3 py-2 rounded-lg text-xs border font-bold transition-colors",
+                          sprint.baselineCompleted
+                            ? "border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed"
+                            : "border-slate-200 text-slate-700 bg-white hover:bg-slate-50",
+                        ].join(" ")}
                       >
-                        Baseline
+                        {sprint.baselineCompleted
+                          ? "Baseline"
+                          : "Baseline"}
                       </button>
                     )}
-                    <div className="flex-1 flex gap-2">
-                      <button
-                        onClick={() =>
-                          router.push(`/employee/training-plan?module_id=${sprint.id}`)
-                        }
-                        className={`w-1/2 flex-1 px-3 py-2 rounded-lg text-xs font-bold text-white transition-colors ${
-                          sprint.status === "Completed"
-                            ? "bg-slate-400 hover:bg-slate-500"
-                            : "bg-blue-600 hover:bg-blue-700"
-                        }`}
-                      >
-                        {sprint.status === "Completed" ? "Review" : sprint.status === "In Progress" ? "Resume" : "Start"}
-                      </button>
-                      <button
-                        onClick={() => onGenerateCertificate(sprint.id)}
-                        disabled={!sprint.certificateEarned}
-                        className="w-1/2 flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-colors border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
-                      >
-                        Certificate
-                      </button>
-                    </div>
+
+                    <button
+                      onClick={() => {
+                        if (sprint.hasBaseline && !sprint.baselineCompleted)
+                          return;
+                        router.push(
+                          `/employee/training-plan?module_id=${sprint.id}`
+                        );
+                      }}
+                      disabled={
+                        sprint.hasBaseline && !sprint.baselineCompleted
+                      }
+                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold text-white transition-colors ${
+                        sprint.status === "Completed"
+                          ? "bg-slate-400 hover:bg-slate-500"
+                          : sprint.hasBaseline && !sprint.baselineCompleted
+                          ? "bg-blue-300 cursor-not-allowed"
+                          : "bg-blue-600 hover:bg-blue-700"
+                      }`}
+                    >
+                      {sprint.status === "Completed"
+                        ? "Review"
+                        : sprint.status === "In Progress"
+                        ? "Resume"
+                        : "Start"}
+                    </button>
+
+                    <button
+                      onClick={() => onGenerateCertificate(sprint.id)}
+                      disabled={!sprint.certificateEarned}
+                      className="flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-colors border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                    >
+                      Certificate
+                    </button>
                   </div>
-                </div>
+                  </div>
+
+                
               ))}
             </div>
 
@@ -510,27 +569,28 @@ export function AssignedSprintsSection({
                     </td>
                     <td className="px-4 md:px-6 py-4">
                       <div className="flex gap-2 justify-center flex-wrap">
-                        {sprint.hasBaseline && (
-                          <button
-                            onClick={() =>
-                              router.push(`/employee/assessment?moduleId=${sprint.id}`)
-                            }
-                            className="px-3 py-1.5 rounded text-xs border border-slate-200 font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-colors whitespace-nowrap"
-                          >
-                            Baseline
-                          </button>
-                        )}
+                        
                         <button
-                          onClick={() =>
-                            router.push(`/employee/training-plan?module_id=${sprint.id}`)
-                          }
+                          onClick={() => {
+                            if (sprint.hasBaseline && !sprint.baselineCompleted) return;
+                            router.push(`/employee/training-plan?module_id=${sprint.id}`);
+                          }}
+                          disabled={sprint.hasBaseline && !sprint.baselineCompleted}
                           className={`px-4 py-1.5 rounded text-xs font-semibold text-white transition-colors whitespace-nowrap ${
                             sprint.status === "Completed"
                               ? "bg-slate-400 hover:bg-slate-500"
+                              : sprint.hasBaseline && !sprint.baselineCompleted
+                              ? "bg-blue-300 cursor-not-allowed"
                               : "bg-blue-600 hover:bg-blue-700"
                           }`}
                         >
-                          {sprint.status === "Completed" ? "Review" : sprint.status === "In Progress" ? "Resume" : "Start"}
+                          {sprint.status === "Completed"
+                            ? "Review"
+                            : sprint.status === "In Progress"
+                            ? "Resume"
+                            : sprint.hasBaseline && !sprint.baselineCompleted
+                            ? "Start"
+                            : "Start"}
                         </button>
                       </div>
                     </td>

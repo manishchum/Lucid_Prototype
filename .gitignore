@@ -4,3 +4,14 @@
 node_modules
 /.venv
 /.vscode
+
+# Model cache directories
+Backend/models/
+Backend/.cache/
+.huggingface/
+
+# Common model file extensions
+*.bin
+*.safetensors
+*.pt
+*.pth

@@ -14,50 +14,81 @@ SUPABASE_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY") or os.getenv("SUPABASE
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUCKET = "module-assets"
 
-def fetch_module_details(module_id: str):
-    res = (
-        supabase
-        .table("training_modules")
-        .select("module_id, title, company_id")
-        .eq("module_id", module_id)
-        .single()
-        .execute()
-    )
+def fetch_document_details(doc_id: str, source_type="training"):
+    
+    if source_type == "training":
+        res = (
+            supabase
+            .table("training_modules")
+            .select("module_id, title, company_id")
+            .eq("module_id", doc_id)
+            .single()
+            .execute()
+        )
 
-    if not res.data:
-        raise ValueError(f"Module not found: {module_id}")
+        if not res.data:
+            raise ValueError(f"Module not found: {doc_id}")
 
-    return res.data
+        return {
+            "company_id": res.data["company_id"],
+            "title": res.data["title"]
+        }
+
+    elif source_type == "sales_tool":
+
+        res = (
+            supabase
+            .table("sales_tool_documents")
+            .select("document_id, file_name, company_id")
+            .eq("document_id", doc_id)
+            .single()
+            .execute()
+        )
+
+        if not res.data:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        return {
+            "company_id": res.data["company_id"],
+            "title": res.data["file_name"]
+        }
 
 
 def insert_chunks_to_supabase(
-    module_id: str,
+    doc_id: str,
     chunks: List[str],
     embeddings: np.ndarray,
     source_file: str,
+    source_type="training"
 ):
-    print("Inserting chunks into Supabase for module_id:", module_id)
-    module = fetch_module_details(module_id)
-    print("Fetched module details:", module_id)
+    print("Inserting chunks into Supabase for doc_id:", doc_id)
+    document = fetch_document_details(doc_id, source_type)
+    print("Fetched document details:", doc_id)
 
     rows = []
 
     for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-        rows.append({
-            "company_id": module["company_id"],
-            "module_id": module_id,
-            "module_title": module["title"],
+        row = {
+            "company_id": document["company_id"],
+            "module_title": document["title"],
             "chunk_index": idx,
             "content": chunk,
-            "embedding": embedding.tolist(),  # VERY IMPORTANT
+            "embedding": embedding.tolist(),
             "metadata": {
                 "source": source_file,
                 "chunk_size": 500,
                 "overlap": 80,
                 "embedding_model": "bge-large-en-v1.5"
             }
-        })
+        }
+        if source_type == "training":
+            row["module_id"] = doc_id
+        else:
+            row["source_document_id"] = doc_id
+        
+        rows.append(row)
         print(f"Prepared chunk {idx} for insertion")
+        
 
     print(f"[SUPABASE] Attempting to insert {len(rows)} rows into vectordb_chunks...")
     try:
@@ -74,7 +105,7 @@ def insert_chunks_to_supabase(
         raise
 
 
-def insert_image_to_supabase(module_id, chunk_id, image, ocr_text):
+def insert_image_to_supabase(doc_id, chunk_id, image, ocr_text, source_type="training"):
 
     if image is None:
         print("Skipping None image")
@@ -83,7 +114,7 @@ def insert_image_to_supabase(module_id, chunk_id, image, ocr_text):
     image.save(image_bytes, format='PNG')
     image_bytes.seek(0)
 
-    file_path = f"{module_id}/images/{chunk_id}_{uuid.uuid4()}.png"
+    file_path = f"{doc_id}/images/{chunk_id}_{uuid.uuid4()}.png"
     try:
         supabase.storage.from_(BUCKET).upload(
             file_path,
@@ -93,13 +124,26 @@ def insert_image_to_supabase(module_id, chunk_id, image, ocr_text):
         print(f"[SUPABASE] ✅ Uploaded image for chunk_id {chunk_id} to storage at {file_path}")
 
         # Store the relative path, not a public URL
-        supabase.table("vectordb_images").insert({
-            "module_id": module_id,
+        # supabase.table("vectordb_images").insert({
+        #     "module_id": module_id,
+        #     "chunk_id": chunk_id,
+        #     "storage_path": file_path,  # Store the path directly
+        #     "caption": "",  # Placeholder for caption
+        #     "surrounding_text": ocr_text
+        # }).execute()
+        payload = {
             "chunk_id": chunk_id,
-            "storage_path": file_path,  # Store the path directly
-            "caption": "",  # Placeholder for caption
+            "storage_path": file_path,
+            "caption": "",
             "surrounding_text": ocr_text
-        }).execute()
+        }
+
+        if source_type == "training":
+            payload["module_id"] = doc_id
+        else:
+            payload["source_document_id"] = doc_id
+
+        supabase.table("vectordb_images").insert(payload).execute()
 
         print(f"[SUPABASE] ✅ Linked image path {file_path} to chunk {chunk_id}")
 

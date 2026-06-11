@@ -330,6 +330,57 @@ Review the questions you missed and study the related concepts to improve your u
         print("❌ Error saving assessment result:", saveError)
         return JSONResponse(content={"error": "Failed to save assessment result"}, status_code=500)
 
+    is_baseline_assessment = str(assessment.get("type") or "").lower() == "baseline"
+    module_id_for_plan = body.get("module_id") or assessment.get("processed_module_id")
+
+    # Record baseline completion in learning_plan once per user/module.
+    # We keep the original assigned plan row intact and add a dedicated
+    # completion marker row so the UI can disable Baseline after first use.
+    if is_baseline_assessment and module_id_for_plan:
+        try:
+            existingBaselinePlanRes = (
+                supabase
+                .table("learning_plan")
+                .select("learning_plan_id")
+                .eq("user_id", user_id)
+                .eq("module_id", module_id_for_plan)
+                .eq("status", "BASELINE_COMPLETED")
+                .order("assigned_on", desc=True)
+                .limit(1)
+                .maybe_single()
+                .execute()
+            )
+            existingBaselinePlan = getattr(existingBaselinePlanRes, "data", None)
+            existingBaselinePlanError = getattr(existingBaselinePlanRes, "error", None)
+
+            if existingBaselinePlanError:
+                print("⚠️ Error checking existing baseline completion plan:", existingBaselinePlanError)
+            elif not existingBaselinePlan:
+                baselinePlanRow = {
+                    "user_id": user_id,
+                    "module_id": module_id_for_plan,
+                    "status": "BASELINE_COMPLETED",
+                    "baseline_assessment": False,
+                    "reasoning": {
+                        "source": "baseline_assessment",
+                        "assessment_id": assessment_id,
+                        "completed_at": __import__("datetime").datetime.utcnow().isoformat(),
+                    },
+                    "assigned_on": __import__("datetime").datetime.utcnow().isoformat(),
+                }
+
+                baselinePlanInsertRes = (
+                    supabase
+                    .table("learning_plan")
+                    .insert(baselinePlanRow)
+                    .execute()
+                )
+                baselinePlanInsertError = getattr(baselinePlanInsertRes, "error", None)
+                if baselinePlanInsertError:
+                    print("⚠️ Failed to create baseline completion learning_plan row:", baselinePlanInsertError)
+        except Exception as baselinePlanError:
+            print("⚠️ Unexpected error while recording baseline completion in learning_plan:", baselinePlanError)
+
     # Extract employee_assessment_id from savedResult (supabase-py returns list usually)
     employee_assessment_id = None
     if isinstance(savedResult, list) and len(savedResult) > 0 and isinstance(savedResult[0], dict):

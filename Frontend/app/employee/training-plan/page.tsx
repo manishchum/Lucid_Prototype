@@ -998,15 +998,15 @@ function TrainingPlanContent() {
             </Card>
           )}
 
-          {/* Module Cards - Scrollable Section */}
+          {/* Module Cards Section */}
           <div className="mb-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Your Modules</h2>
-            <div className="max-h-[600px] overflow-y-auto pr-2 space-y-4 scroll-smooth">
+            <div className="space-y-4">
               {normalizedModules.map((mod: any, idx: number) => (
                 <Card key={mod._tabValue} className="border-0 shadow-sm hover:shadow-md transition-shadow">
                   <CardHeader className="pb-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex-1">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold text-gray-600 mb-1">
                           MODULE {idx + 1} OF {totalModulesCount}
                         </div>
@@ -1014,16 +1014,16 @@ function TrainingPlanContent() {
                           {mod.title}
                         </CardTitle>
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-2 sm:items-center">
                         {mod._isCompleted && (
-                          <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 text-xs font-semibold rounded-full border border-green-200">
+                          <div className="flex items-center justify-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 text-xs font-semibold rounded-full border border-green-200 sm:col-span-2">
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             Completed
                           </div>
                         )}
                     <Button
                       variant="outline"
-                      className="shrink-0"
+                      className="w-full sm:w-auto shrink-0"
                       onClick={async () => {
                         const navId = await resolveProcessedModuleId(mod, idx);
                         
@@ -1043,7 +1043,7 @@ function TrainingPlanContent() {
                       }
                     >
                       {contentLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue) ? (
-                        <span className="flex items-center gap-2">
+                        <span className="flex items-center justify-center gap-2">
                           <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-500 border-t-transparent"></div>
                           Loading...
                         </span>
@@ -1052,7 +1052,7 @@ function TrainingPlanContent() {
                       )}
                     </Button>
                     <Button
-                      className={`shrink-0 ${
+                      className={`w-full sm:w-auto shrink-0 ${
                         mod._isCompleted || moduleRequiresBaseline(mod)
                           ? "bg-gray-200 text-gray-500 hover:bg-gray-200"
                           : "bg-blue-600 hover:bg-blue-700"
@@ -1075,7 +1075,7 @@ function TrainingPlanContent() {
                       }
                     >
                       {quizLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue) ? (
-                        <span className="flex items-center gap-2">
+                        <span className="flex items-center justify-center gap-2">
                           <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
                           Loading...
                         </span>

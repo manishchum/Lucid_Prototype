@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import TaskDashboard from "@/components/task-manager/TaskDashboard";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { useAuth } from "@/contexts/auth-context";
@@ -21,6 +22,10 @@ import {
   Download, Linkedin, X
 } from "lucide-react";
 import { AssignedSprintsSection } from "@/components/assigned-sprints-section";
+import { useTasks } from "@/hooks/useTasks";
+import { submitTaskResponse } from "@/lib/taskApi";
+import type { SubmitTaskPayload, Task } from "@/lib/taskApi";
+import type { AssignedTask, AssignmentLevel, SubmissionFormat } from "@/types/task";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const DEFAULT_QUIZ_THRESHOLD = 80;
@@ -58,6 +63,9 @@ interface SprintItem {
   title: string;
   moduleName: string | null;
   hasBaseline: boolean;
+  baselineCompleted: boolean;
+  baselineScore?: number | null;
+  baselineMaxScore?: number | null;
   status: SprintStatus;
   certificateEarned: boolean;
   completedDate: string | null;
@@ -69,6 +77,69 @@ interface SprintItem {
 interface AssessmentEvidence {
   scorePercent: number | null;
   completedAt: string | null;
+}
+
+function mapBackendLevel(level: string): AssignmentLevel {
+  return level === "cohort" ? "sprint" : (level as AssignmentLevel);
+}
+
+function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
+  return backendTasks.map((task) => {
+    const level = mapBackendLevel(task.level);
+    const audienceName = task.audience_display_name || "";
+    const submission = (task as any).submission || null;
+
+  const statusNormalized = String(task.status || "").toLowerCase();
+  const statusIsCompleted = statusNormalized.includes("completed") || statusNormalized.includes("submitted") || statusNormalized.includes("reviewed");
+  const hasSubmission = task.submitted === true || Boolean(submission) || statusIsCompleted;
+
+    const mapped = {
+      id: task.assignment_id || task.task_id,
+      level,
+      mode: "single" as const,
+      tasks: [
+        {
+          id: task.task_id,
+          title: task.title,
+          description: task.description ?? "",
+          submissionFormat: Array.isArray(task.submission_format)
+            ? (task.submission_format[0] as SubmissionFormat)
+            : (task.submission_format as SubmissionFormat) || ((task as any).submissionFormat as SubmissionFormat) || 'text',
+          questions: task.questions || [],
+        },
+      ],
+      targetSprints: level === "sprint" ? [audienceName].filter(Boolean) : [],
+      targetOrgs: level === "org" ? [audienceName].filter(Boolean) : [],
+      targetFunctions: level === "function" ? [audienceName].filter(Boolean) : [],
+      targetSubFunctions: level === "sub_function" ? [audienceName].filter(Boolean) : [],
+      targetIndividuals: level === "individual" ? [audienceName].filter(Boolean) : [],
+      dueDate: task.due_date,
+      createdAt: task.created_at,
+      status: hasSubmission ? "Completed" : "Active",
+      completionCount: task.completion_count,
+      totalTargetUsersCount: task.total_target_count,
+      recurrence: task.recurrence as AssignedTask["recurrence"],
+      submitted: hasSubmission,
+      submission: submission,
+    } as AssignedTask;
+
+    // Temporary debug to verify mapping contains submissions
+    try {
+      // eslint-disable-next-line no-console
+      console.log(
+        "CHECK SUBMISSION MAP",
+        mapped.id,
+        {
+          id: mapped.id,
+          status: mapped.status,
+          submitted: mapped.submitted,
+          submission: mapped.submission,
+        }
+      );
+    } catch (e) {}
+
+    return mapped;
+  });
 }
 
 export default function EmployeeWelcome() {
@@ -107,6 +178,7 @@ export default function EmployeeWelcome() {
   const [showLeaderboard, setShowLeaderboard] = useState<boolean>(false);
   const [showAllModules, setShowAllModules] = useState(false);
   const [showLoadingProgress, setShowLoadingProgress] = useState(true);
+  const [activeHomeTab, setActiveHomeTab] = useState<"sprints" | "tasks">("sprints");
 
   // Sync basic loading state without fake UI delays
   useEffect(() => {
@@ -116,6 +188,51 @@ export default function EmployeeWelcome() {
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
   const certificateRef = useRef<HTMLDivElement | null>(null);
+  const isAdminUser = isAdmin || isSuperAdmin || isDeveloper || isManager;
+  const effectiveCompanyId =
+    (isDeveloperMode && activeCompanyId ? activeCompanyId : employee?.company_id) || "";
+  const {
+    tasks,
+    loading: tasksLoading,
+    error: tasksError,
+  } = useTasks(employee?.user_id, isAdminUser, effectiveCompanyId);
+  const { tasks: _tasks, loading: _loading, error: _error, refetch: refetchTasks } = useTasks(employee?.user_id, isAdminUser, effectiveCompanyId);
+  const assignedTaskItems = useMemo(() => mapBackendTasksToAssignedTasks(_tasks), [_tasks]);
+  // NOTE: keep `tasks` variable compatible with other code by reusing _tasks
+  // when necessary. Replace references below to use `assignedTaskItems` which
+  // is derived from `_tasks`.
+  useEffect(() => {
+    console.log("RAW BACKEND TASKS:", _tasks);
+    console.log("MAPPED DASHBOARD TASKS:", assignedTaskItems);
+  }, [_tasks, assignedTaskItems]);
+
+  const handleTaskSubmitResponse = async (payload: Omit<SubmitTaskPayload, "user_id">) => {
+    if (!employee?.user_id) {
+      throw new Error("Missing employee identity");
+    }
+
+    return submitTaskResponse(
+      { ...payload, user_id: employee.user_id },
+      { userId: employee.user_id, companyId: effectiveCompanyId }
+    );
+  };
+
+  const handleTaskSubmitted = (
+    taskId: string,
+    title: string,
+    score: number,
+    totalQuestions: number,
+    questionsList: any[]
+  ) => {
+    // After an optimistic local update in TaskDashboard, re-query the backend to
+    // fetch the attached `submission` object for the assignment. This ensures
+    // the UI shows the Verified & Complete badge that relies on backend data.
+    try {
+      refetchTasks();
+    } catch (err) {
+      console.warn('Refetch after submit failed', err);
+    }
+  };
 
 const handleGenerateCertificate = (sprintId: string) => {
   const sprint = assignedModules.find((s) => s.id === sprintId);
@@ -205,6 +322,48 @@ const handleGenerateCertificate = (sprintId: string) => {
     });
   };
 
+  const formatTaskDate = (value?: string) => {
+    if (!value) return "N/A";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "N/A";
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  const formatSubmissionLabel = (format: Task["submission_format"]) => {
+    switch (format) {
+      case "text":
+        return "Written Response";
+      case "image":
+        return "Image Upload";
+      case "multiple_choice":
+        return "Multiple Choice";
+      case "audio":
+        return "Audio Recording";
+      case "video":
+        return "Video Recording";
+      default:
+        return format;
+    }
+  };
+
+  const getTaskStatusColor = (status: string) => {
+    const normalized = status?.toLowerCase();
+    if (normalized === "completed" || normalized === "submitted") {
+      return "bg-green-100 text-green-700";
+    }
+    if (normalized === "overdue") {
+      return "bg-red-100 text-red-700";
+    }
+    if (normalized === "due_soon" || normalized === "pending") {
+      return "bg-yellow-100 text-yellow-700";
+    }
+    return "bg-slate-100 text-slate-700";
+  };
+
   // ─────────────────────────────────────────────────────────────────────────────
   // buildSprintsFromPlans
   //
@@ -230,6 +389,7 @@ const handleGenerateCertificate = (sprintId: string) => {
     modules: any[],
     progress: any[],
     assessmentEvidenceByModuleId?: Record<string, AssessmentEvidence[]>,
+    baselineEvidenceByModuleId?: Record<string, AssessmentEvidence[]>,
   ): SprintItem[] => {
     // Only process plans the user is actually assigned to
     const assignedPlans = plans.filter((p: any) => {
@@ -281,7 +441,7 @@ const handleGenerateCertificate = (sprintId: string) => {
     // ── Helper: pick the best progress entry for a set of candidate IDs ───
     // "Best" = has a completed_at, or a pass_status, or a quiz_score.
     const findBestProgress = (...ids: Array<string | null | undefined>): any | null => {
-      for (const id of ids) {
+    for (const id of ids) {
         if (!id) continue;
         const entries = progressByAnyId.get(String(id).trim()) || [];
         if (!entries.length) continue;
@@ -300,6 +460,13 @@ const handleGenerateCertificate = (sprintId: string) => {
       return null;
     };
 
+    const baselineCompletedModuleIds = new Set<string>(
+      (plans || [])
+        .filter((plan: any) => normalizeStatus(plan?.status) === "BASELINE_COMPLETED")
+        .map((plan: any) => String(plan?.module_id ?? plan?.id ?? "").trim())
+        .filter(Boolean),
+    );
+
     return assignedPlans.map((p: any) => {
       const sprintId = String(p.module_id ?? p.id ?? "");
       const threshold =
@@ -317,6 +484,20 @@ const handleGenerateCertificate = (sprintId: string) => {
           p.overall_status === "true" ||
           normalizeStatus(p?.status) === "COMPLETED",
       );
+
+      const baselineEvidence = baselineEvidenceByModuleId?.[sprintId] || [];
+      const baselineCompleted =
+        baselineCompletedModuleIds.has(sprintId) ||
+        baselineEvidence.some((ev) => Boolean(ev.completedAt)) ||
+        baselineEvidence.length > 0;
+      const baselineScore =
+        baselineEvidence.length > 0
+          ? baselineEvidence
+              .map((ev) => ev.scorePercent)
+              .filter((value): value is number => typeof value === "number")
+              .at(-1) ?? null
+          : null;
+      const baselineMaxScore = baselineEvidence.length > 0 ? 100 : null;
 
       // ── Build the SprintModule list ───────────────────────────────────
       let sprintModules: SprintModule[] = [];
@@ -549,6 +730,9 @@ const handleGenerateCertificate = (sprintId: string) => {
         moduleName: p.module_name || p.module_title || p.title || null,
         hasBaseline:
           p.baseline_assessment === 1 || p.baseline_assessment === true,
+        baselineCompleted,
+        baselineScore,
+        baselineMaxScore,
         status,
         certificateEarned,
         completedDate,
@@ -760,12 +944,15 @@ const handleGenerateCertificate = (sprintId: string) => {
       const progress = Array.isArray(data?.progress) ? data.progress : [];
       const assessmentEvidenceByModuleId =
         data?.assessmentEvidenceByModuleId || {};
+      const baselineEvidenceByModuleId =
+        data?.baselineEvidenceByModuleId || {};
 
       const mappedAssigned = buildSprintsFromPlans(
         plans,
         modules,
         progress,
         assessmentEvidenceByModuleId,
+        baselineEvidenceByModuleId,
       );
       // console.log("Mapped assigned modules:", mappedAssigned);
       setAssignedModules(mappedAssigned);
@@ -1180,13 +1367,22 @@ function SprintRow({
 
       {/* Action buttons */}
       <div className="flex gap-2 w-full sm:w-auto flex-shrink-0">
-        {/* Baseline button — only when required and sprint not yet complete */}
-        {sprint.hasBaseline && !sprint.certificateEarned && (
+        {/* Baseline button stays visible until the learner has taken it once. */}
+        {sprint.hasBaseline && (
           <button
-            onClick={() => onNavigate(assessmentPath)}
-            className="px-3 py-2 rounded-lg text-xs border border-slate-200 font-bold text-slate-700 bg-white hover:bg-slate-50 flex-1 sm:flex-none h-10"
+            onClick={() => {
+              if (sprint.baselineCompleted) return;
+              onNavigate(assessmentPath);
+            }}
+            disabled={sprint.baselineCompleted}
+            className={[
+              "px-3 py-2 rounded-lg text-xs border font-bold flex-1 sm:flex-none h-10 transition-colors",
+              sprint.baselineCompleted
+                ? "border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed"
+                : "border-slate-200 text-slate-700 bg-white hover:bg-slate-50",
+            ].join(" ")}
           >
-            Baseline
+            {sprint.baselineCompleted ? "Baseline Completed" : "Baseline"}
           </button>
         )}
 
@@ -1208,13 +1404,19 @@ function SprintRow({
          *   - not_started        → "Start your sprint" (blue filled)
          */}
         <button
-          onClick={() => onNavigate(trainingPlanPath)}
+          onClick={() => {
+            if (sprint.hasBaseline && !sprint.baselineCompleted) return;
+            onNavigate(trainingPlanPath);
+          }}
+          disabled={sprint.hasBaseline && !sprint.baselineCompleted}
           className={[
-            "px-4 sm:px-5 py-1.5 sm:py-2 rounded-xl text-xs font-bold flex-1 sm:flex-none h-9 sm:h-10 transition-all duration-200",
+            "px-4 sm:px-5 py-1.5 sm:py-2 rounded-xl text-xs font-bold flex-1 sm:flex-none h-9 sm:h-10 transition-all duration-200 disabled:cursor-not-allowed",
             sprint.certificateEarned
               ? "bg-slate-100 text-slate-700 hover:bg-slate-200"
               : sprint.status === "in_progress"
               ? "border border-blue-600 text-blue-700 hover:bg-blue-50"
+              : sprint.hasBaseline && !sprint.baselineCompleted
+              ? "bg-blue-300 text-white"
               : "bg-blue-600 text-white hover:bg-blue-700",
           ].join(" ")}
         >
@@ -1222,6 +1424,8 @@ function SprintRow({
             ? "Review Sprint"
             : sprint.status === "in_progress"
             ? "Continue"
+            : sprint.hasBaseline && !sprint.baselineCompleted
+            ? "Complete Baseline First"
             : "Start your sprint"}
         </button>
       </div>

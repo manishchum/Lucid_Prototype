@@ -4,6 +4,23 @@ import re
 from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
+def get_module_assignment_count(module_id: str):
+    """
+    Count distinct users assigned to a training module
+    through the learning_plan table.
+    """
+
+    result = (
+        supabase
+        .table("learning_plan")
+        .select("user_id")
+        .eq("module_id", module_id)
+        .execute()
+    )
+
+    assignments = result.data or []
+
+    return len(set(row["user_id"] for row in assignments if row.get("user_id")))
 
 def extract_storage_path_from_url(content_url: str) -> Optional[str]:
     """

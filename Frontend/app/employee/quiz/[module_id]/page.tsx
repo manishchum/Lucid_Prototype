@@ -655,23 +655,23 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                               key={oIdx}
                               onClick={() => handleSelect(globalIdx, oIdx)}
                               disabled={submitted}
-                              className={`w-full p-4 text-left border-2 rounded-lg transition-all duration-200 hover:shadow-md ${
+                              className={`w-full p-3 sm:p-4 text-left border-2 rounded-lg transition-all duration-200 hover:shadow-md ${
                                 answers[globalIdx] === oIdx
                                   ? "border-blue-500 bg-blue-50 shadow-sm"
                                   : "border-gray-200 hover:border-gray-300"
                               } ${submitted ? "cursor-not-allowed" : "cursor-pointer"}`}
                             >
-                              <div className="flex items-center gap-3">
-                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                              <div className="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-3">
+                                <div className={`w-5 h-5 aspect-square shrink-0 rounded-full border-2 flex items-center justify-center mt-0.5 ${
                                   answers[globalIdx] === oIdx
                                     ? "border-blue-500 bg-blue-500"
                                     : "border-gray-300"
-                                }`}>
+                                  }`}>
                                   {answers[globalIdx] === oIdx && (
                                     <div className="w-2 h-2 rounded-full bg-white"></div>
                                   )}
                                 </div>
-                                <span className="text-sm sm:text-base">{opt}</span>
+                                <span className="min-w-0 text-sm sm:text-base leading-snug break-words">{opt}</span>
                               </div>
                             </button>
                           ))}

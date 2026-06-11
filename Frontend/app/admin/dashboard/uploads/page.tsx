@@ -59,6 +59,8 @@ function ContentUpload({
   const [additionalLinks, setAdditionalLinks] = useState<Array<{ title: string; url: string }>>([]);
   const [linkTitle, setLinkTitle] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
+ 
+  const [assignedUserCount, setAssignedUserCount] = useState(0);
 
   // Debounce timer for email validation
   useEffect(() => {
@@ -75,6 +77,8 @@ function ContentUpload({
 
     return () => clearTimeout(timer);
   }, [reviewerEmail]);
+
+
 
   const validateReviewerEmail = async (email: string) => {
     try {
@@ -808,6 +812,28 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const [zoom, setZoom] = useState(1.25);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [moduleToDelete, setModuleToDelete] = useState<any | null>(null);
+  const [assignedUserCount, setAssignedUserCount] = useState(0);
+
+const fetchAssignmentCount = async (moduleId: string) => {
+    try {
+      const res = await fetchWithAuth(
+        `${API_URL}/api/training-modules/${moduleId}/assignment-count`,
+        {
+          headers: {
+            "X-User-ID": adminId,
+          },
+        }
+      );
+
+      const data = await res.json();
+      setAssignedUserCount(data.count || 0);
+    } catch (err) {
+      console.error("Failed to fetch assignment count", err);
+      setAssignedUserCount(0);
+    }
+  };
 
   const files = (() => {
     if (!selectedModule) return [];
@@ -1106,7 +1132,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   };
 
   const handleDeleteModule = async (moduleId: string) => {
-    if (!confirm("Are you sure you want to delete this Sprint?")) return;
+    
 
     try {
       // Delete module via backend API
@@ -1329,6 +1355,75 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
   </DialogContent>
 </Dialog>
+      <Dialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+      >
+        <DialogContent className="max-w-lg rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl text-red-600 flex items-center gap-2">
+              <Trash2 className="w-5 h-5" />
+              Delete Training Module
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700 leading-relaxed">
+              Are you sure you want to delete the training module{" "}
+              <span className="font-semibold text-slate-900">
+                "{moduleToDelete?.title}"
+                <div className="p-4 rounded-lg border border-amber-200 bg-amber-50">
+                  <p className="text-sm font-medium text-amber-800">
+                    This sprint is currently assigned to
+                    <span className="font-bold">
+                      {" "}{assignedUserCount} users
+                    </span>.
+                  </p>
+
+                  {assignedUserCount > 0 && (
+                    <p className="text-xs text-amber-700 mt-1">
+                      {/* Deleting this sprint may impact those users' learning plans. */}
+                    </p>
+                  )}
+                </div>
+              </span>
+              
+            </p>
+
+            <div className="p-4 rounded-lg border border-red-200 bg-red-50">
+              <p className="text-sm text-red-700">
+                Warning: This action cannot be undone. The sprint will be removed from all assigned users, and all related content and data will be permanently deleted from the database.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDeleteDialogOpen(false);
+                  setModuleToDelete(null);
+                }}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  if (!moduleToDelete) return;
+
+                  await handleDeleteModule(moduleToDelete.module_id);
+
+                  setDeleteDialogOpen(false);
+                  setModuleToDelete(null);
+                }}
+              >
+                Delete Permanently
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       
 
       
@@ -1468,7 +1563,11 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleDeleteModule(module.module_id)}
+                    onClick={async() => {
+                      setModuleToDelete(module);
+                      await fetchAssignmentCount(module.module_id);
+                      setDeleteDialogOpen(true);
+                    }}
                     className="text-red-600"
                   >
                     <Trash2 className="w-4 h-4 mr-1" />

@@ -109,8 +109,7 @@ async def get_pending_one_time_emails(
             scheduled_date = str(date.today())
         
         response = (
-            supabase_admin.table("scheduled_emails")
-            .select("*")
+            supabase.table("scheduled_emails")
             .eq("schedule_type", "one_time")
             .eq("status", "pending")
             .eq("is_active", True)
@@ -138,8 +137,7 @@ async def get_pending_recurring_emails(
     try:
         # Query all recurring messages that are active
         response = (
-            supabase_admin.table("scheduled_emails")
-            .select("*")
+            supabase.table("scheduled_emails")
             .eq("schedule_type", "recurring")
             .eq("status", "pending")
             .eq("is_active", True)
@@ -398,8 +396,7 @@ async def get_scheduled_email_by_id(
     """
     try:
         response = (
-            supabase_admin.table("scheduled_emails")
-            .select("*")
+            supabase.table("scheduled_emails")
             .eq("scheduled_email_id", scheduled_email_id)
             .single()
             .execute()
@@ -426,8 +423,7 @@ async def get_scheduled_emails_by_company(
     """
     try:
         query = (
-            supabase_admin.table("scheduled_emails")
-            .select("*")
+            supabase.table("scheduled_emails")
             .eq("company_id", company_id)
         )
         

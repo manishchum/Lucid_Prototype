@@ -111,7 +111,7 @@ Objectives: {json.dumps(objectives)}
 """
 
     try:
-        model = genai.GenerativeModel("gemini-3.1-pro-preview")
+        model = genai.GenerativeModel("gemini-2.5-pro")
         result = model.generate_content(prompt)
         content = result.text if result else None
 

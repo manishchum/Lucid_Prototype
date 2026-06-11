@@ -113,6 +113,7 @@ async def get_dashboard_summary(
 
         # We construct the assessmentEvidenceByModuleId here in backend to save bandwidth
         assessment_evidence_by_module_id = {}
+        baseline_evidence_by_module_id = {}
         
         # Build lookups
         assessment_detail_by_id = {str(d.get("assessment_id")): d for d in assessment_details}
@@ -120,9 +121,9 @@ async def get_dashboard_summary(
         
         for ea in employee_assessments:
             detail = assessment_detail_by_id.get(str(ea.get("assessment_id")))
-            if not detail or detail.get("type") != "module":
+            if not detail:
                 continue
-                
+
             processed_module = processed_module_by_id.get(str(detail.get("processed_module_id")))
             original_module_id = str(detail.get("original_module_id") or (processed_module.get("original_module_id") if processed_module else ""))
             
@@ -147,7 +148,33 @@ async def get_dashboard_summary(
                 "completedAt": ea.get("completed_at")
             })
 
-        # 9. Fake or real user rank for now. Usually needs a separate leaderboard query, doing basic for now
+            if detail.get("type") == "baseline":
+                if original_module_id not in baseline_evidence_by_module_id:
+                    baseline_evidence_by_module_id[original_module_id] = []
+                baseline_evidence_by_module_id[original_module_id].append({
+                    "scorePercent": score_percent,
+                    "completedAt": ea.get("completed_at")
+                })
+
+            if detail.get("type") == "baseline":
+                if original_module_id not in baseline_evidence_by_module_id:
+                    baseline_evidence_by_module_id[original_module_id] = []
+                baseline_evidence_by_module_id[original_module_id].append({
+                    "scorePercent": score_percent,
+                    "completedAt": ea.get("completed_at")
+                })
+
+        # 9. Fetch Task Submissions for task reports
+        task_submissions_res = (
+            supabase.table("task_submissions")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("company_id", x_company_id)
+            .execute()
+        )
+        task_submissions = task_submissions_res.data if task_submissions_res.data else []
+
+        # 10. Fake or real user rank for now. Usually needs a separate leaderboard query, doing basic for now
         # Fetch completed modules for user_id to compute rank
         completed_modules_res = service_supabase.table("learning_plan").select("learning_plan_id").eq("user_id", user_id).in_("status", ["COMPLETED"]).execute()
         completed_modules_data = _get_data(completed_modules_res)
@@ -171,7 +198,9 @@ async def get_dashboard_summary(
             "total_users": total_users,
             "learning_style": learning_style,
             "user_rank": user_rank_data,
-            "assessment_evidence_by_module_id": assessment_evidence_by_module_id
+            "assessment_evidence_by_module_id": assessment_evidence_by_module_id,
+            "baseline_evidence_by_module_id": baseline_evidence_by_module_id,
+            "task_submissions": task_submissions
         }
         
         set_cache(cache_key, response_payload, ttl=300)
