@@ -487,17 +487,17 @@ const AssessmentContent = () => {
   };
 
   return (
-    <div className="min-h-screen w-full py-10">
-      <div className="max-w-8xl mx-auto px-4">
+    <div className="min-h-screen w-full py-6 sm:py-10">
+      <div className="max-w-8xl mx-auto px-3 sm:px-4 lg:px-6">
           <button
             onClick={() => router.back()}
-            className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium mb-6 transition-colors"
+            className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium mb-4 sm:mb-6 transition-colors"
           >
             <ChevronLeft className="w-5 h-5" />
             Back
           </button>
-          <h1 className="text-3xl font-bold mb-4">Starting Baseline</h1>
-          <p className="mb-6 text-gray-700">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4">Starting Baseline</h1>
+          <p className="mb-5 sm:mb-6 text-sm sm:text-base leading-relaxed text-gray-700">
             Every learner is different. This short assessment helps us tailor the program to your strengths and needs, so you can learn smarter, apply faster and move closer to your career ambitions.
           </p>
           {error && <div className="mb-4 text-red-600">{error}</div>}
@@ -516,9 +516,9 @@ const AssessmentContent = () => {
             />
           )}
           {!loading && score !== null && (
-            <div className="space-y-6 w-full">
+            <div className="space-y-4 sm:space-y-6 w-full">
               {/* Main Results Card - Similar to Learning Style */}
-              <div className="bg-white rounded-lg shadow-lg p-8 border-t-4 border-blue-600 w-full">
+              <div className="bg-white rounded-lg shadow-lg p-4 sm:p-8 border-t-4 border-blue-600 w-full">
                 {(() => {
                   const { mainTitle, sections } = parseFeedbackSections(feedback);
                   // console.log(feedback)
@@ -526,30 +526,30 @@ const AssessmentContent = () => {
                   
                   return (
                     <>
-                      <div className="text-center mb-8">
-                        <h2 className="text-4xl font-bold text-gray-900 mb-4">{mainTitle}</h2>
-                        <p className="text-gray-600 mb-6">
+                      <div className="text-center mb-5 sm:mb-8">
+                        <h2 className="text-2xl sm:text-4xl font-bold text-gray-900 mb-3 sm:mb-4 leading-tight">{mainTitle}</h2>
+                        <p className="text-sm sm:text-base text-gray-600 mb-4 sm:mb-6 leading-relaxed">
                           Understand your performance to achieve better outcomes
                         </p>
                       </div>
 
                       {/* Score Display */}
-                      <div className="bg-blue-50 rounded-lg p-6 mb-8 border-2 border-blue-200">
-                        <div className="flex items-center justify-between mb-4">
-                          <div>
-                            <p className="text-sm text-gray-600 mb-1">Assessment Score</p>
-                            <div className="flex items-baseline gap-3">
-                              <span className="text-4xl font-bold text-blue-600">
+                      <div className="bg-blue-50 rounded-lg p-4 sm:p-6 mb-6 sm:mb-8 border-2 border-blue-200">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6 mb-4">
+                          <div className="min-w-0">
+                            <p className="text-xs sm:text-sm text-gray-600 mb-1">Assessment Score</p>
+                            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                              <span className="text-3xl sm:text-4xl font-bold text-blue-600 leading-none">
                                 {score}/{(mcqQuestionsByModule[0]?.questions || []).length}
                               </span>
-                              <span className="text-2xl text-gray-600">
+                              <span className="text-lg sm:text-2xl text-gray-600">
                                 ({Math.round((score / (mcqQuestionsByModule[0]?.questions || []).length) * 100)}%)
                               </span>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-600">Completed:</span>
-                            <span className="text-sm font-medium text-green-600">
+                          <div className="flex items-center gap-2 sm:justify-end sm:text-right">
+                            <span className="text-xs sm:text-sm text-gray-600">Completed:</span>
+                            <span className="text-xs sm:text-sm font-medium text-green-600 whitespace-nowrap">
                               {new Date().toLocaleDateString()}
                             </span>
                           </div>
@@ -563,7 +563,7 @@ const AssessmentContent = () => {
                       </div>
 
                       {/* Performance Insights - Expandable Sections */}
-                      <div className="mb-8">
+                      <div className="mb-6 sm:mb-8">
                         {/* <h3 className="text-2xl font-bold text-gray-900 mb-4">Your Performance Insights</h3> */}
                         <div className="space-y-3">
                           {sectionKeys.map((sectionTitle, idx) => {
@@ -601,9 +601,9 @@ const AssessmentContent = () => {
               <div className="bg-white rounded-lg shadow-lg overflow-hidden">
                 <button
                   onClick={() => toggleSection('questions')}
-                  className="w-full px-8 py-6 flex items-center justify-between bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 transition-colors border-b-2 border-blue-200"
+                  className="w-full px-4 sm:px-8 py-4 sm:py-6 flex items-center justify-between gap-3 bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 transition-colors border-b-2 border-blue-200"
                 >
-                  <h3 className="text-2xl font-bold text-gray-900">Question-by-Question Review</h3>
+                  <h3 className="text-lg sm:text-2xl font-bold text-gray-900 text-left leading-tight">Question-by-Question Review</h3>
                   {expandedSections.questions ? (
                     <ChevronUp className="w-6 h-6 text-gray-600 flex-shrink-0" />
                   ) : (
@@ -611,11 +611,11 @@ const AssessmentContent = () => {
                   )}
                 </button>
                 {expandedSections.questions && (
-                  <div className="p-8 space-y-6">
+                  <div className="p-4 sm:p-8 space-y-4 sm:space-y-6">
                     {correctAnswers.map((answer, idx) => (
                       <div 
                         key={idx} 
-                        className={`p-6 rounded-lg border-2 ${
+                        className={`p-4 sm:p-6 rounded-lg border-2 ${
                           answer.isCorrect 
                             ? 'bg-green-50 border-green-300' 
                             : 'bg-red-50 border-red-300'
@@ -628,23 +628,23 @@ const AssessmentContent = () => {
                             <XCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
                           )}
                           <div className="flex-1">
-                            <div className="flex items-center justify-between mb-2">
-                              <h4 className="font-semibold text-gray-900">Question {idx + 1}</h4>
-                              <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+                              <h4 className="font-semibold text-gray-900 text-sm sm:text-base">Question {idx + 1}</h4>
+                              <span className="self-start sm:self-auto px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
                                 {answer.bloomLevel}
                               </span>
                             </div>
-                            <p className="text-gray-800 font-medium mb-4">{answer.question}</p>
+                            <p className="text-gray-800 font-medium mb-4 text-sm sm:text-base leading-relaxed">{answer.question}</p>
                             
                             <div className="space-y-2 mb-4">
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                                 <span className="font-semibold text-gray-700">Your answer:</span>
                                 <span className={answer.isCorrect ? 'text-green-700' : 'text-red-700'}>
                                   {answer.userAnswer}
                                 </span>
                               </div>
                               {!answer.isCorrect && (
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                                   <span className="font-semibold text-gray-700">Correct answer:</span>
                                   <span className="text-green-700">{answer.correctAnswer}</span>
                                 </div>
@@ -669,16 +669,16 @@ const AssessmentContent = () => {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex gap-4 justify-center">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
                 <button
                   onClick={() => router.push('/employee/welcome')}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+                  className="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
                 >
                   Return to Dashboard
                 </button>
                 <button
                   onClick={() => router.push('/employee/score-history')}
-                  className="px-6 py-3 bg-white text-blue-600 border-2 border-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-colors"
+                  className="w-full sm:w-auto px-6 py-3 bg-white text-blue-600 border-2 border-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-colors"
                 >
                   View Reports
                 </button>
