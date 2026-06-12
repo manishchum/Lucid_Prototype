@@ -2,6 +2,7 @@ from typing import Dict, Any, Optional, List
 from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 from ..supabase_client import supabase
+from ..redis_client import get_cache, set_cache, delete_cache_pattern
 
 # ==================== ASSESSMENT OPERATIONS ====================
 
@@ -65,6 +66,24 @@ async def get_assessments_batch(
 ) -> Dict[str, Any]:
 
     if not assessment_ids:
+        cache_key = (
+            "assessment_batch:"
+            + ":".join(
+                sorted(assessment_ids)
+            )
+        )
+
+        cached = get_cache(cache_key)
+
+        if cached:
+            print(
+                "Assessment Batch Cache Hit"
+            )
+
+            return {
+                "data": cached,
+                "error": None
+            }
         return {"data": [], "error": None}
 
     try:
@@ -77,6 +96,8 @@ async def get_assessments_batch(
         )
 
         assessments = resp.data or []
+        
+        set_cache(cache_key, assessments, ttl=600)
 
         return {
             "data": assessments,

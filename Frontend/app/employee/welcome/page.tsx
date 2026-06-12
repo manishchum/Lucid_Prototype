@@ -143,7 +143,7 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
 }
 
 export default function EmployeeWelcome() {
-  const { user, loading: authLoading, logout, employeeData } = useAuth();
+  const { user, loading: authLoading, logout, employeeData, isAdmin, isSuperAdmin, isDeveloper, isManager } = useAuth();
   const { activeCompanyId, isDeveloperMode } = useTenant();
   const router = useRouter();
 
@@ -191,20 +191,23 @@ export default function EmployeeWelcome() {
   const isAdminUser = isAdmin || isSuperAdmin || isDeveloper || isManager;
   const effectiveCompanyId =
     (isDeveloperMode && activeCompanyId ? activeCompanyId : employee?.company_id) || "";
+  const taskUserId = employee?.user_id || '';
   const {
     tasks,
     loading: tasksLoading,
     error: tasksError,
-  } = useTasks(employee?.user_id, isAdminUser, effectiveCompanyId);
-  const { tasks: _tasks, loading: _loading, error: _error, refetch: refetchTasks } = useTasks(employee?.user_id, isAdminUser, effectiveCompanyId);
-  const assignedTaskItems = useMemo(() => mapBackendTasksToAssignedTasks(_tasks), [_tasks]);
+  } = useTasks(taskUserId, isAdminUser, effectiveCompanyId);
+
+  const assignedTaskItems = useMemo(() => mapBackendTasksToAssignedTasks(tasks), [tasks]);
+  // const { tasks: _tasks, loading: _loading, error: _error, refetch: refetchTasks } = useTasks(taskUserId, isAdminUser, effectiveCompanyId);
+  // const assignedTaskItems = useMemo(() => mapBackendTasksToAssignedTasks(_tasks), [_tasks]);
   // NOTE: keep `tasks` variable compatible with other code by reusing _tasks
   // when necessary. Replace references below to use `assignedTaskItems` which
   // is derived from `_tasks`.
-  useEffect(() => {
-    console.log("RAW BACKEND TASKS:", _tasks);
-    console.log("MAPPED DASHBOARD TASKS:", assignedTaskItems);
-  }, [_tasks, assignedTaskItems]);
+  // useEffect(() => {
+  //   console.log("RAW BACKEND TASKS:", _tasks);
+  //   console.log("MAPPED DASHBOARD TASKS:", assignedTaskItems);
+  // }, [_tasks, assignedTaskItems]);
 
   const handleTaskSubmitResponse = async (payload: Omit<SubmitTaskPayload, "user_id">) => {
     if (!employee?.user_id) {
@@ -904,6 +907,7 @@ const handleGenerateCertificate = (sprintId: string) => {
           company: dashboard_summary?.company || null,
           learningStyle: dashboard_summary?.learning_style || null,
           assessmentEvidenceByModuleId: dashboard_summary.assessment_evidence_by_module_id || {},
+          baselineEvidenceByModuleId: dashboard_summary.baseline_evidence_by_module_id || {},
           userRank: dashboard_summary.user_rank || null,
           totalUsers: dashboard_summary.total_users || 0,
         };
@@ -1196,9 +1200,7 @@ const handleGenerateCertificate = (sprintId: string) => {
               moduleProgress={moduleProgress}
               plans ={plans}
               userId={employee?.user_id || ""}
-              companyId={
-                (isDeveloperMode && activeCompanyId ? activeCompanyId : employee?.company_id) || ""
-              }
+              companyId={effectiveCompanyId}
               isLocked={companyLearningStyleEnabled && !learningStyle}
               onGenerateCertificate={handleGenerateCertificate}
             />

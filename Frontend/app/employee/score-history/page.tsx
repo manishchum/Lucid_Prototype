@@ -294,7 +294,8 @@ export default function ScoreHistoryPage() {
         path: "/employee/me",
       }),
       async () => {
-        const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+        const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`,
+      {headers:{ "X-User-ID": authEmployeeData?.user_id || "" }});
         if (!res.ok) {
           throw new Error("Failed to fetch employee");
         }
@@ -325,7 +326,7 @@ export default function ScoreHistoryPage() {
         path: `/company/${employee.company_id}`,
       }),
       async () => {
-        const res = await fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employee.company_id)}`);
+        const res = await fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employee.company_id)}`,{headers:{ "X-User-ID": employee.user_id }});
         if (!res.ok) {
           throw new Error("Failed to fetch company");
         }

@@ -7,7 +7,7 @@ from datetime import datetime
 from ..supabase_client import supabase
 from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
-
+from ..redis_client import get_cache, set_cache, delete_cache_pattern
 
 async def get_user_company_id(user_id: str) -> Optional[str]:
     """Helper function to get user's company_id"""
@@ -72,6 +72,24 @@ async def get_employee_assessments_by_user(
     Optional filter by assessment_id.
     """
     try:
+        cache_key = (
+            f"employee_assessments:"
+            f"{target_user_id}:"
+            f"{assessment_id or 'all'}:"
+            f"{limit}"
+        )
+        cached = get_cache(cache_key)
+
+        if cached:
+            print(
+                f"Employee Assessments Cache Hit: "
+                f"{target_user_id}"
+            )
+            return {
+                "data": cached,
+                "error": None
+            }
+        print("Employee Assessments Cache miss")
         db = get_service_supabase_client()
         # Get target user's company to check permissions
         user_resp = db.table('users').select('company_id').eq(
@@ -100,7 +118,17 @@ async def get_employee_assessments_by_user(
             query = query.eq('assessment_id', assessment_id)
         
         resp = query.execute()
-        return {"data": resp.data, "error": None}
+
+        set_cache(
+            cache_key,
+            resp.data,
+            ttl=300
+        )
+
+        return {
+            "data": resp.data,
+            "error": None
+        }
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -247,6 +275,7 @@ async def create_employee_assessment(
     
     try:
         response = supabase.table('employee_assessments').insert(assessment_data).execute()
+        delete_cache_pattern(f"employee_assessments:{user_id}:*")
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -289,7 +318,7 @@ async def update_employee_assessment(
         response = supabase.table('employee_assessments').update(update_data).eq(
             'employee_assessment_id', employee_assessment_id
         ).execute()
-        
+        delete_cache_pattern(f"employee_assessments:{requesting_user_id}:*")
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -307,6 +336,8 @@ async def delete_employee_assessment(
     existing = await get_employee_assessment_by_id(requesting_user_id, employee_assessment_id)
     
     if existing["error"]:
+        assessment = existing.get("data")
+        assessment_user_id = assessment.get('user_id')
         return existing
     
     # Check if user has admin permission
@@ -318,7 +349,7 @@ async def delete_employee_assessment(
         response = supabase.table('employee_assessments').delete().eq(
             'employee_assessment_id', employee_assessment_id
         ).execute()
-        
+        delete_cache_pattern(f"employee_assessments:{requesting_user_id}:*")
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
