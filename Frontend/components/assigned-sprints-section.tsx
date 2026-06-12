@@ -111,7 +111,7 @@ export function AssignedSprintsSection({
               ? Math.round((quizzesAttempted / totalQuizzes) * 100)
               : 0;
 
-          console.log(`Module: ${module.title}, Quizzes Attempted: ${quizzesAttempted}, Total Quizzes: ${totalQuizzes}, Status: ${status}, Completion: ${completionPercentage}%`);
+          // console.log(`Module: ${module.title}, Quizzes Attempted: ${quizzesAttempted}, Total Quizzes: ${totalQuizzes}, Status: ${status}, Completion: ${completionPercentage}%`);
           return {
             id: module.id,
             title: module.title,

@@ -22,6 +22,7 @@ let googleProvider: any = null;
 try {
   app = initializeApp(firebaseConfig)
   auth = getAuth(app)
+  auth.useDeviceLanguage();
   googleProvider = new GoogleAuthProvider()
   googleProvider.addScope("email")
   googleProvider.addScope("profile")

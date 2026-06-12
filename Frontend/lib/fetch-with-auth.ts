@@ -38,8 +38,13 @@ export async function getFirebaseIdToken(): Promise<string> {
     });
   };
 
-  const user = await resolveCurrentUser();
-  if (!user) {
+  let user = await resolveCurrentUser();
+  if(!user && auth){
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    user = auth.currentUser;
+  }
+  if(!user){
+    console.warn("[fetch-with-auth] No authenticated user found when attempting to get Firebase ID token");
     return "";
   }
 
@@ -65,6 +70,13 @@ export async function getFirebaseIdToken(): Promise<string> {
 export async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
   const token = await getFirebaseIdToken();
   const headers = toHeaders(options.headers);
+  // console.log(
+  //   "[AUTH CHECK]",
+  //   {
+  //     currentUser: !!auth?.currentUser,
+  //     tokenExists: !!token
+  //   }
+  // );
 
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
@@ -78,28 +90,54 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
   });
 
   // If the backend says the token is invalid (401), force a refresh once
-  if (response.status === 401 && auth.currentUser) {
+  if (response.status === 401) {
     console.warn("[fetch-with-auth] Received 401, forcing token refresh and retrying", { url });
     try {
-      const refreshedToken = await auth.currentUser.getIdToken(true);
-      if (refreshedToken && refreshedToken !== token) {
-        const retryHeaders = toHeaders(options.headers);
-        retryHeaders.set("Authorization", `Bearer ${refreshedToken}`);
-        response = await fetch(url, {
-          ...options,
-          headers: retryHeaders,
-        });
-        
-        // If still 401 after retry, dispatch global logout
-        if (response.status === 401) {
-          window.dispatchEvent(new Event("lucid:auth:force-logout"));
-        }
-      } else {
-        window.dispatchEvent(new Event("lucid:auth:force-logout"));
+      const currentUser = auth?.currentUser;
+
+      if (!currentUser) {
+        console.error(
+          "[fetch-with-auth] Cannot refresh token because currentUser is null"
+        );
+
+        window.dispatchEvent(
+          new Event("lucid:auth:force-logout")
+        );
+
+        return response;
       }
-    } catch (refreshErr) {
-      console.error("[fetch-with-auth] Retry token refresh failed", refreshErr);
-      window.dispatchEvent(new Event("lucid:auth:force-logout"));
+
+      const refreshedToken =
+        await currentUser.getIdToken(true);
+
+      const retryHeaders =
+        toHeaders(options.headers);
+
+      retryHeaders.set(
+        "Authorization",
+        `Bearer ${refreshedToken}`
+      );
+
+      response = await fetch(url, {
+        ...options,
+        headers: retryHeaders,
+      });
+
+      if (response.status === 401) {
+        window.dispatchEvent(
+          new Event("lucid:auth:force-logout")
+        );
+      }
+    }
+    catch (refreshErr) {
+      console.error(
+        "[fetch-with-auth] Retry token refresh failed",
+        refreshErr
+      );
+
+      window.dispatchEvent(
+        new Event("lucid:auth:force-logout")
+      );
     }
   }
 
