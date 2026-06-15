@@ -35,6 +35,9 @@ function TrainingPlanContent() {
   const [attemptedQuizModules, setAttemptedQuizModules] = useState<string[]>([]);
   const [additionalReadings, setAdditionalReadings] = useState<any[] | null>(null);
   const [moduleTitle, setModuleTitle] = useState<string>("");
+  const [fallbackEmployeeData, setFallbackEmployeeData] = useState<any | null>(null);
+
+  const activeEmployee = employeeData?.user_id ? employeeData : fallbackEmployeeData;
 
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
 
@@ -63,19 +66,54 @@ function TrainingPlanContent() {
         return result;
       },
       {
-        ttlMs: 5 * 1000, // Short fallback TTL to pick up external progress completions
+        ttlMs: 5 * 60 * 1000, // Short fallback TTL to pick up external progress completions
         swr: true,
-        swrMs: 30 * 1000,
+        swrMs: 10 * 60 * 1000,
       },
     );
   };
 
-  const loadPlan = async () => {
-    if (!employeeData || !moduleId) return;
+  const fetchEmployeeByEmail = async (email?: string | null) => {
+    if (!email) return null;
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+      if (!res.ok) return null;
+      const payload = await res.json();
+      let employee = payload?.user ?? payload;
+      if (Array.isArray(employee)) employee = employee[0];
+      return employee || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const fetchModuleTitle = async (selectedModuleId: string, employeeId: string) => {
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/training-modules/${selectedModuleId}`, {
+        headers: { "X-User-ID": employeeId },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const title = data?.module?.title || data?.title || "";
+        setModuleTitle(title);
+      }
+    } catch (err) {
+      console.error("Failed to fetch module title:", err);
+    }
+  };
+
+  const loadPlan = async (employeeOverride?: any, selectedModuleIdOverride?: string) => {
+    const employee = employeeOverride || activeEmployee;
+    const selectedModuleId = selectedModuleIdOverride || moduleId;
+
+    if (!employee?.user_id || !selectedModuleId) {
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     try {
-      const result = await fetchTrainingPlan(employeeData, moduleId);
+      const result = await fetchTrainingPlan(employee, selectedModuleId);
       const data = result.data;
       ////console.log("Fetched training plan data:", data);
       if (data?.error === "BASELINE_REQUIRED") {
@@ -91,6 +129,15 @@ function TrainingPlanContent() {
       setBaselineMessage(null);
       setPlan(data?.plan ?? null);
       setReasoning(data?.reasoning ?? null);
+
+      const title =
+        data?.module?.title ||
+        data?.training_module?.title ||
+        data?.title ||
+        "";
+      if(title){
+        setModuleTitle(title);
+      }
 
       const readingsRaw = data?.additional_readings;
       if (readingsRaw) {
@@ -129,7 +176,7 @@ function TrainingPlanContent() {
           return res.json();
         },
         {
-          ttlMs: 5 * 1000,
+          ttlMs: 60 * 1000,
           swr: true,
           swrMs: 30 * 1000,
         },
@@ -176,33 +223,63 @@ function TrainingPlanContent() {
 
   useEffect(() => {
     if (!authLoading && !user) {
+      setLoading(false);
       router.push("/login");
       return;
     }
 
-    if (!authLoading && employeeData && moduleId) {
-      loadPlan();
-      fetchModuleProgress(employeeData);
+    // if (!authLoading && employeeData && moduleId) {
+    //   loadPlan();
+    //   fetchModuleProgress(employeeData);
       
-      // Fetch module title
-      const fetchModuleTitle = async () => {
-        try {
-          const res = await fetch(`${API_BASE}/api/training-modules/${moduleId}`, {
-            headers: { "X-User-ID": employeeData.user_id },
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const title = data?.module?.title || data?.title || "";
-            setModuleTitle(title);
-          }
-        } catch (err) {
-          console.error("Failed to fetch module title:", err);
+    //   // Fetch module title
+    //   const fetchModuleTitle = async () => {
+    //     try {
+    //       const res = await fetch(`${API_BASE}/api/training-modules/${moduleId}`, {
+    //         headers: { "X-User-ID": employeeData.user_id },
+    //       });
+    //       if (res.ok) {
+    //         const data = await res.json();
+    //         const title = data?.module?.title || data?.title || "";
+    //         setModuleTitle(title);
+    //       }
+    //     } catch (err) {
+    //       console.error("Failed to fetch module title:", err);
+    //     }
+    //   };
+      
+    //   fetchModuleTitle();
+    // }
+
+    const bootstrap = async () => {
+      if (!moduleId) {
+        setLoading(false);
+        return;
+      }
+
+      let resolvedEmployee = activeEmployee;
+      if (!resolvedEmployee?.user_id && user?.email) {
+        resolvedEmployee = await fetchEmployeeByEmail(user.email);
+        if (resolvedEmployee?.user_id) {
+          setFallbackEmployeeData(resolvedEmployee);
         }
-      };
-      
-      fetchModuleTitle();
-    }
-  }, [employeeData, moduleId, authLoading, user]);
+      }
+
+      if (!resolvedEmployee?.user_id) {
+        setLoading(false);
+        setPlan({ error: "Unable to resolve your profile. Please refresh." });
+        return;
+      }
+
+      await Promise.allSettled([
+        loadPlan(resolvedEmployee, moduleId),
+        fetchModuleProgress(resolvedEmployee),
+        fetchModuleTitle(moduleId, resolvedEmployee.user_id),
+      ]);
+    };
+
+    bootstrap();
+  }, [authLoading, moduleId, employeeData?.user_id, user?.email]);
 
   // Helper to render reasoning in a readable format
   function renderReasoning(reasoning: any) {
@@ -362,21 +439,13 @@ function TrainingPlanContent() {
     return normalized;
   };
 
-  const resolveModuleId = async (mod: any): Promise<string | null> => {
-    const directResolved =
-      mod?.processed_module_id ??
-      (mod?.id && String(mod.id).startsWith("pm_") ? mod.id : null);
-
-    if (directResolved) {
-      return String(directResolved);
+  const resolveProcessedModuleId = async (mod: any, fallbackIndex: number): Promise<string | null> => {
+    const directId = getNormalizedProcessedModuleId(mod);
+    if (directId) {
+      return directId;
     }
 
-    if (!employeeData?.user_id) {
-      return null;
-    }
-
-    const originalModuleId = mod?.original_module_id || moduleId;
-    if (!originalModuleId) {
+    if (!activeEmployee?.user_id || !moduleId) {
       return null;
     }
 
@@ -384,17 +453,22 @@ function TrainingPlanContent() {
       const result = await sharedDataClient.query(
         createCacheKey({
           namespace: "processed-modules",
-          tenantId: employeeData.company_id,
-          userId: employeeData.user_id,
-          path: `/api/processed-modules/original-module/${originalModuleId}`,
+          tenantId: activeEmployee.company_id,
+          userId: activeEmployee.user_id,
+          path: `/api/processed-modules/original-module/${moduleId}`,
         }),
         async () => {
-          const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${originalModuleId}`, {
-            headers: { "X-User-ID": employeeData.user_id },
-          });
+          const res = await fetchWithAuth(
+            `${API_BASE}/api/processed-modules/original-module/${moduleId}`,
+            {
+              headers: { "X-User-ID": activeEmployee.user_id },
+            }
+          );
+
           if (!res.ok) {
             return { data: [] };
           }
+
           return res.json();
         },
         {
@@ -404,24 +478,104 @@ function TrainingPlanContent() {
         },
       );
 
-      const allModules = (Array.isArray(result?.data) ? result.data : (result?.data?.data || result?.data?.modules || []));
-      const targetTitle = String(mod?.title || mod?.name || "").trim().toLowerCase();
-
-      const matched = (Array.isArray(allModules) ? allModules : []).find((pm: any) => {
-        const pmTitle = String(pm?.title || "").trim().toLowerCase();
-        return targetTitle && pmTitle === targetTitle;
-      });
-
-      if (matched?.processed_module_id) {
-        return String(matched.processed_module_id);
+      const rawModules = result?.data?.data ?? result?.data ?? [];
+      const availableModules = Array.isArray(rawModules) ? rawModules : [];
+      if (availableModules.length === 0) {
+        return null;
       }
 
-      const fallback = Array.isArray(allModules) ? allModules[0] : null;
-      return fallback?.processed_module_id ? String(fallback.processed_module_id) : null;
+      const candidateTitle = String(mod?.title || mod?.name || "").trim().toLowerCase();
+      const candidateOrder = Number(mod?.order || mod?.recommended_order || fallbackIndex + 1);
+
+      if (candidateTitle) {
+        const matched = availableModules.find((item: any) => {
+          const itemTitle = String(item?.title || item?.name || "").trim().toLowerCase();
+          return itemTitle && itemTitle === candidateTitle;
+        });
+
+        if (matched?.processed_module_id) {
+          return String(matched.processed_module_id);
+        }
+      }
+
+      if (candidateOrder > 0 && candidateOrder <= availableModules.length) {
+        const orderedMatch = availableModules[candidateOrder - 1];
+        if (orderedMatch?.processed_module_id) {
+          return String(orderedMatch.processed_module_id);
+        }
+      }
+
+      const fallbackMatch = availableModules[fallbackIndex];
+      if (fallbackMatch?.processed_module_id) {
+        return String(fallbackMatch.processed_module_id);
+      }
+
+      return null;
     } catch {
       return null;
     }
   };
+
+  // const resolveModuleId = async (mod: any): Promise<string | null> => {
+  //   const directResolved =
+  //     mod?.processed_module_id ??
+  //     (mod?.id && String(mod.id).startsWith("pm_") ? mod.id : null);
+
+  //   if (directResolved) {
+  //     return String(directResolved);
+  //   }
+
+  //   if (!activeEmployee?.user_id) {
+  //     return null;
+  //   }
+
+  //   const originalModuleId = mod?.original_module_id || moduleId;
+  //   if (!originalModuleId) {
+  //     return null;
+  //   }
+
+  //   try {
+  //     const result = await sharedDataClient.query(
+  //       createCacheKey({
+  //         namespace: "processed-modules",
+  //         tenantId: activeEmployee.company_id,
+  //         userId: activeEmployee.user_id,
+  //         path: `/api/processed-modules/original-module/${originalModuleId}`,
+  //       }),
+  //       async () => {
+  //         const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${originalModuleId}`, {
+  //           headers: { "X-User-ID": activeEmployee.user_id },
+  //         });
+  //         if (!res.ok) {
+  //           return { data: [] };
+  //         }
+  //         return res.json();
+  //       },
+  //       {
+  //         ttlMs: 10 * 60 * 1000,
+  //         swr: true,
+  //         swrMs: 20 * 60 * 1000,
+  //       },
+  //     );
+
+  //     const allModules = (Array.isArray(result?.data) ? result.data : (result?.data?.data || result?.data?.modules || []));
+  //     const targetTitle = String(mod?.title || mod?.name || "").trim().toLowerCase();
+
+  //     const matched = (Array.isArray(allModules) ? allModules : []).find((pm: any) => {
+  //       const pmTitle = String(pm?.title || "").trim().toLowerCase();
+  //       return targetTitle && pmTitle === targetTitle;
+  //     });
+
+  //     if (matched?.processed_module_id) {
+  //       return String(matched.processed_module_id);
+  //     }
+
+  //     const fallback = Array.isArray(allModules) ? allModules[0] : null;
+  //     return fallback?.processed_module_id ? String(fallback.processed_module_id) : null;
+  //   } catch {
+  //     return null;
+  //   }
+  // };
 
   // Defensive: Support both plan.modules and plan.learning_plan.modules
   let parsedPlan = plan;
@@ -457,93 +611,93 @@ function TrainingPlanContent() {
     } catch {}
   }
 
-  const moduleCandidates = Array.isArray(modules) ? (modules as any[]) : [];
+  // const moduleCandidates = Array.isArray(modules) ? (modules as any[]) : [];
 
-  useEffect(() => {
-    let cancelled = false;
+  // useEffect(() => {
+  //   let cancelled = false;
 
-    const resolveMissingProcessedModuleIds = async () => {
-      if (!moduleCandidates.length || !employeeData?.user_id) return;
+  //   const resolveMissingProcessedModuleIds = async () => {
+  //     if (!moduleCandidates.length || !employeeData?.user_id) return;
 
-      const missing = moduleCandidates
-        .map((mod: any, idx: number) => {
-          const normalizedTitle = mod?.title || mod?.name || `Module ${idx + 1}`;
-          const fallback = `${idx}-${normalizedTitle || "module"}`;
-          const tabValue = String(mod?.id ?? mod?.original_module_id ?? fallback);
+  //     const missing = moduleCandidates
+  //       .map((mod: any, idx: number) => {
+  //         const normalizedTitle = mod?.title || mod?.name || `Module ${idx + 1}`;
+  //         const fallback = `${idx}-${normalizedTitle || "module"}`;
+  //         const tabValue = String(mod?.id ?? mod?.original_module_id ?? fallback);
 
-          return {
-            mod,
-            tabValue,
-            resolvedProcessedModuleId: getNormalizedProcessedModuleId(mod),
-          };
-        })
-        .filter((item) => !item.resolvedProcessedModuleId);
+  //         return {
+  //           mod,
+  //           tabValue,
+  //           resolvedProcessedModuleId: getNormalizedProcessedModuleId(mod),
+  //         };
+  //       })
+  //       .filter((item) => !item.resolvedProcessedModuleId);
 
-      if (!missing.length) return;
+  //     if (!missing.length) return;
 
-      const resolutions = await Promise.all(
-        missing.map(async (item) => {
-          const resolved = await resolveModuleId(item.mod);
-          return {
-            tabValue: item.tabValue,
-            resolved: resolved ? String(resolved) : null,
-          };
-        })
-      );
+  //     const resolutions = await Promise.all(
+  //       missing.map(async (item) => {
+  //         const resolved = await resolveModuleId(item.mod);
+  //         return {
+  //           tabValue: item.tabValue,
+  //           resolved: resolved ? String(resolved) : null,
+  //         };
+  //       })
+  //     );
 
-      if (cancelled) return;
+  //     if (cancelled) return;
 
-      const resolvedMap = new Map<string, string>();
-      resolutions.forEach((item) => {
-        if (item?.tabValue && item?.resolved) {
-          resolvedMap.set(item.tabValue, item.resolved);
-        }
-      });
+  //     const resolvedMap = new Map<string, string>();
+  //     resolutions.forEach((item) => {
+  //       if (item?.tabValue && item?.resolved) {
+  //         resolvedMap.set(item.tabValue, item.resolved);
+  //       }
+  //     });
 
-      if (!resolvedMap.size) return;
+  //     if (!resolvedMap.size) return;
 
-      setPlan((prev: any) => {
-        if (!prev) return prev;
+  //     setPlan((prev: any) => {
+  //       if (!prev) return prev;
 
-        const patchModules = (list: any[] | undefined) => {
-          if (!Array.isArray(list)) return list;
-          return list.map((mod: any, idx: number) => {
-            const fallback = `${idx}-${(mod?.title || mod?.name || "module")}`;
-            const tabValue = String(mod?.id ?? mod?.original_module_id ?? fallback);
-            const resolved = resolvedMap.get(tabValue);
-            if (!resolved) return mod;
-            return {
-              ...mod,
-              resolved_processed_module_id: resolved,
-            };
-          });
-        };
+  //       const patchModules = (list: any[] | undefined) => {
+  //         if (!Array.isArray(list)) return list;
+  //         return list.map((mod: any, idx: number) => {
+  //           const fallback = `${idx}-${(mod?.title || mod?.name || "module")}`;
+  //           const tabValue = String(mod?.id ?? mod?.original_module_id ?? fallback);
+  //           const resolved = resolvedMap.get(tabValue);
+  //           if (!resolved) return mod;
+  //           return {
+  //             ...mod,
+  //             resolved_processed_module_id: resolved,
+  //           };
+  //         });
+  //       };
 
-        return {
-          ...prev,
-          modules: patchModules(prev.modules),
-          learning_plan: prev.learning_plan
-            ? {
-                ...prev.learning_plan,
-                modules: patchModules(prev.learning_plan.modules),
-              }
-            : prev.learning_plan,
-          plan: prev.plan
-            ? {
-                ...prev.plan,
-                modules: patchModules(prev.plan.modules),
-              }
-            : prev.plan,
-        };
-      });
-    };
+  //       return {
+  //         ...prev,
+  //         modules: patchModules(prev.modules),
+  //         learning_plan: prev.learning_plan
+  //           ? {
+  //               ...prev.learning_plan,
+  //               modules: patchModules(prev.learning_plan.modules),
+  //             }
+  //           : prev.learning_plan,
+  //         plan: prev.plan
+  //           ? {
+  //               ...prev.plan,
+  //               modules: patchModules(prev.plan.modules),
+  //             }
+  //           : prev.plan,
+  //       };
+  //     });
+  //   };
 
-    resolveMissingProcessedModuleIds();
+  //   resolveMissingProcessedModuleIds();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [moduleCandidates, moduleId, employeeData?.user_id]);
+  //   return () => {
+  //     cancelled = true;
+  //   };
+  // }, [moduleCandidates, moduleId, employeeData?.user_id]);
 
   if (showLoadingProgress) {
     return <LoadingProgress label="Fetching your Sprint" progress={loadingProgress} />;
@@ -871,11 +1025,7 @@ function TrainingPlanContent() {
                       variant="outline"
                       className="w-full sm:w-auto shrink-0"
                       onClick={async () => {
-                        const realId = getNormalizedProcessedModuleId(mod);
-                        setContentLoadingModuleId(mod._tabValue);
-                        
-                        // Only navigate if we have a real ID or can resolve one
-                        const navId = realId || (await resolveModuleId(mod));
+                        const navId = await resolveProcessedModuleId(mod, idx);
                         
                         if (navId) {
                           router.push(`/employee/module/${navId}`);
@@ -908,10 +1058,7 @@ function TrainingPlanContent() {
                           : "bg-blue-600 hover:bg-blue-700"
                       }`}
                       onClick={async () => {
-                        const realId = getNormalizedProcessedModuleId(mod);
-                        setQuizLoadingModuleId(mod._tabValue);
-                        
-                        const navId = realId || (await resolveModuleId(mod));
+                        const navId = await resolveProcessedModuleId(mod, idx);
                         
                         if (navId) {
                           router.push(`/employee/quiz/${navId}`);

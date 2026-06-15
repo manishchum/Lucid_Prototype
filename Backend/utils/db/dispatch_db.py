@@ -1,8 +1,9 @@
 from typing import Dict, Any, List
-from ..supabase_client import supabase
+from ..auth_bridge import get_service_supabase_client
 
 
 async def get_sprints_by_company(company_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """Get all training_modules (sprints) for a company."""
     try:
         response = (
@@ -19,6 +20,7 @@ async def get_sprints_by_company(company_id: str) -> Dict[str, Any]:
 
 
 async def get_sub_modules_by_sprint(module_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """Get all processed_modules for a given training_module (sprint)."""
     try:
         response = (
@@ -34,6 +36,7 @@ async def get_sub_modules_by_sprint(module_id: str) -> Dict[str, Any]:
 
 
 async def get_assigned_users_for_sprint(module_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Get all users assigned to a sprint via the learning_plan table.
     Returns user_id list from learning_plan, then fetches user details.
@@ -89,6 +92,7 @@ async def get_assigned_users_for_sprint(module_id: str) -> Dict[str, Any]:
 
 
 async def get_sprint_image(module_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Fetch the first available image for a sprint from the vectordb_images table.
     Returns the public image_url or None if no images exist.

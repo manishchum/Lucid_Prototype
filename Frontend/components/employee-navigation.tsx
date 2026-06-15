@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,6 @@ import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shie
 import { useAuth } from "@/contexts/auth-context";
 import { useTenant } from "@/contexts/tenant-context";
 import CompanySelector from "@/components/company-selector";
-import { supabase } from "@/lib/supabase";
 
 interface EmployeeNavigationProps {
   showBack?: boolean;
@@ -28,7 +27,7 @@ const EmployeeNavigation = ({
 }: EmployeeNavigationProps) => {
   const router = useRouter();
   const pathname = usePathname();
-  const { user: authUser, logout, userRoles, isAdmin, isSuperAdmin, isDeveloper, isManager, employeeData } = useAuth();
+  const { user: authUser, logout, userRoles, isAdmin, isSuperAdmin, isDeveloper, isManager, employeeData, loading, rolesLoaded } = useAuth();
   const { activeCompany } = useTenant();
   
   // Existing Logic States
@@ -39,8 +38,45 @@ const EmployeeNavigation = ({
   const [kpiDropdownOpen, setKpiDropdownOpen] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
   const [showReportToast, setShowReportToast] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const displayUser = employeeData || authUser;
+  const normalizedRoleSet = useMemo(
+    () =>
+      new Set(
+        (userRoles || []).map((role) =>
+          String(role || "").toLowerCase().replace(/[-_\s]/g, "")
+        )
+      ),
+    [userRoles]
+  );
+  const hasAdminAccess =
+    isAdmin ||
+    isSuperAdmin ||
+    normalizedRoleSet.has("admin") ||
+    normalizedRoleSet.has("companyadmin") ||
+    normalizedRoleSet.has("superadmin") ||
+    normalizedRoleSet.has("ceo");
+  const hasSuperAdminAccess =
+    isSuperAdmin || normalizedRoleSet.has("superadmin") || normalizedRoleSet.has("ceo");
+
+  useEffect(() => {
+    // Print payloads to help debug why components are hidden
+    // console.log("[EmployeeNavigation] Current Auth State Payload:", {
+    //   mounted,
+    //   user_email: authUser?.email,
+    //   isAdmin,
+    //   isSuperAdmin,
+    //   userRoles,
+    //   normalizedRoleSet: Array.from(normalizedRoleSet),
+    //   computed_hasAdminAccess: hasAdminAccess,
+    //   computed_hasSuperAdminAccess: hasSuperAdminAccess
+    // });
+  }, [mounted, authUser, isAdmin, isSuperAdmin, userRoles, hasAdminAccess, hasSuperAdminAccess]);
   const companyDisplayName = activeCompany?.name || displayUser?.company_name || 'Company';
   const companyLogo = activeCompany?.company_logo;
   const canAccessConsole = isAdmin || isSuperAdmin || isDeveloper || isManager;
@@ -125,6 +161,10 @@ const EmployeeNavigation = ({
     </div>
   );
 
+  if (loading || !rolesLoaded) {
+    return null
+  }
+  
   return (
     <>
       {/* Loading Overlay */}
@@ -182,12 +222,12 @@ const EmployeeNavigation = ({
           <div className="px-4 mb-4">
             <div className="flex items-center gap-3 p-3.5 rounded-[18px] border border-slate-50 bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
               <div className="w-10 h-10 rounded-full bg-[#E0E9FF] flex items-center justify-center text-[#3B66F5] font-bold text-sm relative shrink-0">
-                {displayUser?.name ? displayUser.name.split(' ').map((n:any)=>n[0]).join('').toUpperCase() : 'U'}
+                {mounted ? (displayUser?.name ? displayUser.name.split(' ').map((n:any)=>n[0]).join('').toUpperCase() : 'U') : 'U'}
                 <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#4ADE80] border-2 border-white rounded-full"></div>
               </div>
               <div className="overflow-hidden">
-                <p className="text-[14px] font-bold text-[#1E293B] leading-tight truncate">{displayUser?.name || 'User'}</p>
-                <p className="text-[11px] text-slate-500 truncate font-medium mt-0.5">{displayUser?.email}</p>
+                <p className="text-[14px] font-bold text-[#1E293B] leading-tight truncate">{mounted ? (displayUser?.name || 'User') : 'User'}</p>
+                <p className="text-[11px] text-slate-500 truncate font-medium mt-0.5">{mounted ? (displayUser?.email || '') : ''}</p>
               </div>
             </div>
 
@@ -212,7 +252,7 @@ const EmployeeNavigation = ({
 
           {/* Training Plan (Dropdown)
           <div className="relative group">
-            <button 
+            {/* <button 
               onClick={() => isCollapsed ? handleNavigate('/employee/welcome') : setCoursesOpen(!coursesOpen)} 
               className={`w-full flex items-center justify-between px-4 py-2.5 rounded-[12px] transition-all duration-200 text-[#1E293B] hover:bg-slate-50`}
             >
@@ -222,7 +262,7 @@ const EmployeeNavigation = ({
               </div>
               {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${coursesOpen ? '' : '-rotate-90'}`} />}
             </button>
-            {isCollapsed && <NavTooltip label="Performance Sprint" />}
+            {isCollapsed && <NavTooltip label="Performance Sprint" />} */}
             
             {coursesOpen && !isCollapsed && (
               <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
@@ -240,7 +280,7 @@ const EmployeeNavigation = ({
                     <span className="truncate">{item.label}</span>
                   </button>
                 ))}
-              </div> */}
+              </div> )}
             
           {/* </div> */}
 
@@ -322,10 +362,10 @@ const EmployeeNavigation = ({
                 }} 
                 className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
               >
-                <div className="flex items-center gap-3.5">
+                <span className="flex items-center gap-3.5">
                   <Shield size={20} className="shrink-0" />
                   {!isCollapsed && <span className="text-[15px] font-bold">Console</span>}
-                </div>
+                </span>
                 {!isCollapsed && !isManagerOnlyConsole && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${adminDropdownOpen ? '' : '-rotate-90'}`} />}
               </button>
               {isCollapsed && <NavTooltip label="Console" />}
@@ -359,7 +399,7 @@ const EmployeeNavigation = ({
                       <Bell size={18} className="shrink-0" />
                       <span className="truncate">Notify</span>
                       {/* Notification badge */}
-                      <div className="absolute top-2 left-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"></div>
+                      <span className="absolute top-2 left-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"></span>
                   </button>
                 </div>
               )}
@@ -367,16 +407,16 @@ const EmployeeNavigation = ({
           )}
 
           {/* KPI Panel - visible only for Super Admin */}
-          {isSuperAdmin && (
+          {mounted && isSuperAdmin && (
             <div className="relative group">
               <button 
                 onClick={() => isCollapsed ? handleNavigate('/kpi/intelligence') : setKpiDropdownOpen(!kpiDropdownOpen)} 
                 className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
               >
-                <div className="flex items-center gap-3.5">
+                <span className="flex items-center gap-3.5">
                   <TrendingUp size={20} className="shrink-0" />
                   {!isCollapsed && <span className="text-[15px] font-bold">KPI</span>}
-                </div>
+                </span>
                 {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${kpiDropdownOpen ? '' : '-rotate-90'}`} />}
               </button>
               {isCollapsed && <NavTooltip label="KPI" />}
@@ -434,9 +474,9 @@ const EmployeeNavigation = ({
             <LogOut size={20} className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
             {!isCollapsed && <span>Log Out</span>}
             {isCollapsed && (
-              <div className="absolute left-full ml-2 px-2.5 py-1.5 bg-red-600 text-white text-xs font-medium rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible pointer-events-none transition-all duration-200 z-[9999] whitespace-nowrap shadow-lg top-1/2 -translate-y-1/2">
+              <span className="absolute left-full ml-2 px-2.5 py-1.5 bg-red-600 text-white text-xs font-medium rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible pointer-events-none transition-all duration-200 z-[9999] whitespace-nowrap shadow-lg top-1/2 -translate-y-1/2">
                 Log Out
-              </div>
+              </span>
             )}
           </button>
         </div>

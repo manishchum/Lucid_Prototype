@@ -9,9 +9,9 @@ from PIL import Image as PILImage
 import uuid
 
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY") or os.getenv("SUPABASE_ANON_KEY")
 
-supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUCKET = "module-assets"
 
 def fetch_document_details(doc_id: str, source_type="training"):

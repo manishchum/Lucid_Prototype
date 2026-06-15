@@ -23,7 +23,8 @@ from ingestion import ingest_from_upload
 from fastapi import UploadFile, File, Form
 # ... (rest of your existing imports)
 # from supabase import create_client, Client
-from utils.supabase_client import supabase
+from utils.auth_bridge import get_service_supabase_client
+supabase = get_service_supabase_client()
 from ingestion.parser import parse_excel_first_sheet
 
 # ✅ Gemini v1 SDK

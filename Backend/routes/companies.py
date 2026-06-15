@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Header, Query
+from utils.auth import RequestAuth, get_request_auth_required
+from fastapi import APIRouter, Header, Query, Depends
 from pydantic import BaseModel
 from typing import Optional, List
 
@@ -16,6 +17,7 @@ from utils.db.companies_db import (
 )
 
 from utils.exceptions import NotFoundError, ValidationError, ConflictError
+from utils.redis_client import redis_client, set_cache, get_cache
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
@@ -46,8 +48,9 @@ class ProvisionCompanyFunctionsRequest(BaseModel):
 
 @router.get("/")
 async def list_companies(
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     List all companies.
     Permission: Super admin only.
@@ -68,8 +71,9 @@ async def list_companies(
 async def search_companies_route(
     q: str = Query(..., min_length=2, description="Search term (minimum 2 characters)"),
     limit: int = Query(10, ge=1, le=50, description="Maximum number of results"),
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Search companies by name (case-insensitive partial match).
     Permission: Public access (for signup), requires minimum 2 characters for privacy.
@@ -106,29 +110,48 @@ async def get_org_templates_route(
 @router.get("/{company_id}")
 async def get_company(
     company_id: str,
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Get company by ID.
     Permission: Any authenticated user.
     """
+    cache_key = f"company:{company_id}"
+
+    cached = get_cache(cache_key)
+
+    if cached:
+        print(f"COMPANY CACHE HIT {cache_key}")
+        return cached
+
+    print(f"COMPANY CACHE MISS {cache_key}")
+
     result = await get_company_by_id(user_id, company_id)
-    
-    # Unwrap service layer response
+
     company = result.get("data") or None
-    
-    return {
+
+    response_payload = {
         "success": True,
         "data": company,
         "error": result.get("error")
     }
 
+    set_cache(
+        cache_key,
+        response_payload,
+        ttl=3600
+    )
+
+    return response_payload
+
 
 @router.get("/by-name/{company_name}")
 async def get_company_by_name_route(
     company_name: str,
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Get company by name (case-insensitive).
     Permission: Public access (for signup validation).
@@ -148,8 +171,9 @@ async def get_company_by_name_route(
 @router.get("/by-domain/{domain}")
 async def get_company_by_domain_route(
     domain: str,
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Get company by domain.
     Permission: Public access (for signup/email validation).
@@ -169,8 +193,9 @@ async def get_company_by_domain_route(
 @router.post("/")
 async def create_company_route(
     request: CreateCompanyRequest,
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Create a new company.
     Permission: Super admin OR public signup (no auth required).
@@ -217,8 +242,9 @@ async def provision_company_functions_route(
 async def update_company_route(
     company_id: str,
     request: UpdateCompanyRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Update company details.
     Permission: Admin+ of the company.
@@ -226,6 +252,7 @@ async def update_company_route(
     update_data = request.dict(exclude_none=True)
     result = await update_company(user_id, company_id, update_data)
     
+    redis_client.delete(f"company:{company_id}")  # Invalidate cache on update
     # Unwrap service layer response
     company = result.get("data") or None
     
@@ -239,14 +266,15 @@ async def update_company_route(
 @router.delete("/{company_id}")
 async def delete_company_route(
     company_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Delete a company.
     Permission: Super admin only.
     """
     result = await delete_company(user_id, company_id)
-    
+    redis_client.delete(f"company:{company_id}")  # Invalidate cache on delete
     # Unwrap service layer response
     deleted = result.get("data") or None
     

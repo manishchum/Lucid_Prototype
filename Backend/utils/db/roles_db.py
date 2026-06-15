@@ -1,5 +1,5 @@
 from typing import Dict, Any, Optional
-from ..supabase_client import supabase
+from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
 # ==================== ROLE OPERATIONS ====================
@@ -10,7 +10,8 @@ async def get_all_roles(requesting_user_id: str) -> Dict[str, Any]:
     Permission: Any authenticated user (for dropdowns).
     """
     try:
-        response = supabase.table('roles').select('*').order('level').execute()
+        service_supabase = get_service_supabase_client()
+        response = service_supabase.table('roles').select('*').order('level').execute()
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -39,8 +40,9 @@ async def assign_user_role(
     Permission: company_admin+ in the same company.
     """
     try:
+        service_supabase = get_service_supabase_client()
         # Fetch target user's company
-        target_resp = supabase.table('users').select('company_id').eq(
+        target_resp = service_supabase.table('users').select('company_id').eq(
             'user_id', target_user_id
         ).single().execute()
         
@@ -98,16 +100,16 @@ async def assign_user_role(
         }
         
         # Check for existing inactive assignment with same user+role+scope (to reactivate instead of duplicating)
-        existing = supabase.table('user_role_assignments').select('user_role_assignment_id').eq(
+        existing = service_supabase.table('user_role_assignments').select('user_role_assignment_id').eq(
             'user_id', target_user_id
         ).eq('role_id', role_id).eq('scope_id', scope_id).eq('is_active', False).execute()
         if existing.data:
             # Reactivate the existing inactive assignment instead of inserting a duplicate
-            resp = supabase.table('user_role_assignments').update({'is_active': True, 'assigned_by': requesting_user_id}).eq(
+            resp = service_supabase.table('user_role_assignments').update({'is_active': True, 'assigned_by': requesting_user_id}).eq(
                 'user_role_assignment_id', existing.data[0]['user_role_assignment_id']
             ).execute()
         else:
-            resp = supabase.table('user_role_assignments').insert(assignment).execute()
+            resp = service_supabase.table('user_role_assignments').insert(assignment).execute()
         return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -124,11 +126,12 @@ async def get_user_roles(
     Permission: self OR manager+ in same company.
     """
     try:
+        service_supabase = get_service_supabase_client()
         is_self = requesting_user_id == target_user_id
         
         if not is_self:
             # Get target user's company
-            target_resp = supabase.table('users').select('company_id').eq(
+            target_resp = service_supabase.table('users').select('company_id').eq(
                 'user_id', target_user_id
             ).single().execute()
             
@@ -146,7 +149,7 @@ async def get_user_roles(
                 return {"data": None, "error": "Permission denied"}
         
         # Fetch active role assignments with role details
-        resp = supabase.table('user_role_assignments').select(
+        resp = service_supabase.table('user_role_assignments').select(
             '*, role:roles(*)'
         ).eq('user_id', target_user_id).execute()
 
@@ -173,6 +176,7 @@ async def get_all_role_assignments(
     Permission: manager+ in the company.
     """
     try:
+        service_supabase = get_service_supabase_client()
         # Permission check
         has_perm = await check_user_permission(requesting_user_id, 'manager')
         has_access = await check_company_access(requesting_user_id, company_id)
@@ -184,7 +188,7 @@ async def get_all_role_assignments(
             }
         
         # Build query - get assignments for users in this company
-        query = supabase.table('user_role_assignments').select(
+        query = service_supabase.table('user_role_assignments').select(
             '*, role:roles(*), user:users!user_id(user_id, name, email, company_id)'
         )
         
@@ -219,8 +223,9 @@ async def update_role_assignment(
     Permission: company_admin+ in the same company as the assigned user.
     """
     try:
+        service_supabase = get_service_supabase_client()
         # Get the assignment to find the target user_id
-        assignment_resp = supabase.table('user_role_assignments').select(
+        assignment_resp = service_supabase.table('user_role_assignments').select(
             '*'
         ).eq('user_role_assignment_id', assignment_id).single().execute()
         
@@ -229,7 +234,7 @@ async def update_role_assignment(
         
         # Look up the user's company directly (avoids fragile join format)
         target_user_id = assignment_resp.data.get('user_id')
-        user_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).single().execute()
+        user_resp = service_supabase.table('users').select('company_id').eq('user_id', target_user_id).single().execute()
         user_company = user_resp.data.get('company_id') if user_resp.data else None
         
         # Permission check
@@ -252,7 +257,7 @@ async def update_role_assignment(
             return {"data": None, "error": "No valid fields to update"}
         
         # Update the assignment
-        resp = supabase.table('user_role_assignments').update(
+        resp = service_supabase.table('user_role_assignments').update(
             filtered_updates
         ).eq('user_role_assignment_id', assignment_id).execute()
         
@@ -271,8 +276,9 @@ async def revoke_role_assignment(
     Permission: company_admin+ in the same company as the assigned user.
     """
     try:
+        service_supabase = get_service_supabase_client()
         # Get the assignment to find the target user_id
-        assignment_resp = supabase.table('user_role_assignments').select(
+        assignment_resp = service_supabase.table('user_role_assignments').select(
             '*'
         ).eq('user_role_assignment_id', assignment_id).single().execute()
         
@@ -281,7 +287,7 @@ async def revoke_role_assignment(
         
         # Look up the user's company directly (avoids fragile join format)
         target_user_id = assignment_resp.data.get('user_id')
-        user_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).single().execute()
+        user_resp = service_supabase.table('users').select('company_id').eq('user_id', target_user_id).single().execute()
         user_company = user_resp.data.get('company_id') if user_resp.data else None
         
         # Permission check
@@ -295,7 +301,7 @@ async def revoke_role_assignment(
             }
         
         # Soft delete by setting is_active to false
-        resp = supabase.table('user_role_assignments').update(
+        resp = service_supabase.table('user_role_assignments').update(
             {"is_active": False}
         ).eq('user_role_assignment_id', assignment_id).execute()
         

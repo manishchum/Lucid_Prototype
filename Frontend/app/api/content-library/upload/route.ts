@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// This API route runs on the server and uses the service role key to
+// This API route runs on the server and uses the server key to
 // upload files to Supabase Storage and insert rows into the `courses` table.
 // It accepts a multipart/form-data POST with fields:
 // - file: (File) the uploaded file
@@ -11,18 +11,94 @@ import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 // console.log('Supabase URL:', SUPABASE_URL);
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
-// console.log('Service role key:', SERVICE_ROLE_KEY);
+const SUPABASE_SERVER_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+// console.log('Server key:', SUPABASE_SERVER_KEY);
 
-const supabaseService = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
-});
+const ADMIN_ROLES = new Set(['ADMIN', 'CEO', 'SUPER_ADMIN', 'DEVELOPER']);
+
+function createRequestScopedClient(req: Request) {
+  const authHeader = req.headers.get('authorization') || '';
+  return createClient(SUPABASE_URL, SUPABASE_SERVER_KEY, {
+    auth: { persistSession: false },
+    global: {
+      headers: authHeader ? { Authorization: authHeader } : {},
+    },
+  });
+}
+
+function sanitizeFileName(fileName: string) {
+  return fileName.replace(/[^a-zA-Z0-9._-]+/g, '_');
+}
+
+async function assertAdminAccess(req: Request, supabaseService: any) {
+  const authHeader = req.headers.get('authorization') || '';
+  const adminId = (req.headers.get('x-admin-id') || '').trim();
+  const companyId = (req.headers.get('x-company-id') || '').trim();
+
+  if (!authHeader.toLowerCase().startsWith('bearer ')) {
+    return { ok: false as const, status: 401, error: 'Missing bearer token' };
+  }
+  if (!adminId || !companyId) {
+    return { ok: false as const, status: 400, error: 'Missing x-admin-id or x-company-id' };
+  }
+
+  const { data: userDataRaw, error: userError } = await supabaseService
+    .from('users')
+    .select('user_id, company_id, is_active')
+    .eq('user_id', adminId)
+    .maybeSingle();
+
+  const userData = userDataRaw as { company_id?: string | null; is_active?: boolean } | null;
+
+  if (userError || !userData) {
+    return { ok: false as const, status: 403, error: 'Admin not found for authenticated context' };
+  }
+  if (!userData.is_active) {
+    return { ok: false as const, status: 403, error: 'Admin account is inactive' };
+  }
+  if (String(userData.company_id) !== companyId) {
+    return { ok: false as const, status: 403, error: 'Admin does not belong to the requested company' };
+  }
+
+  const { data: roleRows, error: rolesError } = await supabaseService
+    .from('user_role_assignments')
+    .select('scope_type, scope_id, is_active, roles!inner(name)')
+    .eq('user_id', adminId)
+    .eq('is_active', true);
+
+  if (rolesError) {
+    return { ok: false as const, status: 403, error: 'Unable to validate admin roles' };
+  }
+
+  const hasAdminRole = (roleRows || []).some((row: any) => {
+    const roleName = String(row?.roles?.name || '').toUpperCase();
+    if (!ADMIN_ROLES.has(roleName)) return false;
+    if (roleName === 'SUPER_ADMIN' || roleName === 'DEVELOPER') return true;
+    return row?.scope_type === 'COMPANY' && String(row?.scope_id || '') === companyId;
+  });
+
+  if (!hasAdminRole) {
+    return { ok: false as const, status: 403, error: 'Admin role required to upload content' };
+  }
+
+  return { ok: true as const, adminId, companyId };
+}
 
 const INSERTED_COURSE_COLUMNS = 'course_id, title, description, category_id, created_at, module, parent_course_id';
 
 export async function POST(req: Request) {
   //console.log('Upload route invoked');
   try {
+    if (!SUPABASE_URL || !SUPABASE_SERVER_KEY) {
+      return NextResponse.json({ error: 'Supabase is not configured' }, { status: 500 });
+    }
+
+    const supabaseService = createRequestScopedClient(req);
+    const access = await assertAdminAccess(req, supabaseService);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
+    }
+
     const form = await req.formData();
     //console.log('Upload route received form data');
     //console.log(form);
@@ -79,8 +155,8 @@ export async function POST(req: Request) {
     for (let i = 0; i < files.length; i++) {
       const file = files[i] as File;
       try {
-        const baseName = file.name || `upload_${Date.now()}`;
-        const filePath = `uploads/${Date.now()}_${i}_${baseName}`;
+        const baseName = sanitizeFileName(file.name || `upload_${Date.now()}`);
+        const filePath = `${access.companyId}/uploads/${Date.now()}_${i}_${baseName}`;
         const arrayBuffer = await file.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 

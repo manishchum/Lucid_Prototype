@@ -29,11 +29,10 @@ from generate_mindmap.route import router as generate_mindmap_router
 from module_chat.route import router as module_chat
 from assistant.route import router as assistant_router
 from assistant.chat.route import router as assistant_chat_router
-from module_progress.route import router as module_progress_router
 from change_password.route import router as change_password_router
 from task_manager.router import router as task_manager_router
 from photo_analysis.route import router as photo_analysis_router
-from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications
+from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications, employees
 from routes.analytics_export import router as analytics_export_router
 from routes.career_journeys import router as career_journeys_router
 from routes.employee_dashboard import router as employee_dashboard_router
@@ -46,6 +45,7 @@ from roleplay.realtime_ws.route import router as roleplay_realtime_router
 from roleplay.scenario.route import router as roleplay_scenario_router
 from roleplay.page.route import router as roleplay_page_router
 from ingestion.embedder import router as embed_router
+from routes import sub_departments
 
 # Create FastAPI app
 app = FastAPI(
@@ -193,7 +193,6 @@ app.include_router(roleplay_page_router, prefix="/api", tags=["roleplay-page"])
 app.include_router(roleplay_realtime_router, tags=["roleplay-realtime"])
 app.include_router(embed_router, prefix="/api", tags=["embeddings"])
 app.include_router(module_chat, prefix="/api", tags=["module-chat"])
-app.include_router(module_progress_router, prefix="/api", tags=["module-progress"])
 app.include_router(assistant_router, prefix="/api", tags=["assistant"])
 app.include_router(assistant_chat_router, prefix="/api", tags=["assistant-chat"])
 app.include_router(change_password_router, prefix="/api", tags=["change-password"])
@@ -206,6 +205,7 @@ app.include_router(employee_dashboard_router)  # employee dashboard summary rout
 # Router Includes are here
 # app.include_router(users_router, prefix="/api/users", tags=["users Router"])
 app.include_router(users.router)  # add this line (place with other app.include_router calls)
+app.include_router(sub_departments.router, prefix="/api/sub-departments", tags=["sub-departments"])
 app.include_router(roles.router)  # roles router
 app.include_router(assessments.router)  # assessments router
 app.include_router(companies.router)  # companies router
@@ -214,6 +214,7 @@ app.include_router(content_generation_history.router)  # content generation hist
 app.include_router(learning_plan.router)  # learning plan router
 app.include_router(learning_style.router)  # learning style router
 app.include_router(training_modules.router)  # training modules router
+app.include_router(employees.router)  # employees bootstrap router
 app.include_router(processed_modules.router)  # processed modules router
 app.include_router(dispatch.router)  # dispatch router
 app.include_router(module_progress.router)  # module progress router

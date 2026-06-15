@@ -3,9 +3,10 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createClient } from '@supabase/supabase-js';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const supabaseServerKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+  supabaseServerKey
 );
 
 export async function POST(request: NextRequest) {
@@ -40,10 +41,10 @@ export async function POST(request: NextRequest) {
     const prompt = `You are a training and development expert with deep knowledge of business data systems. Based on the following KPI indicators for the role of "${roleName}", suggest training modules that would help develop the required skills and competencies.
 
 Lead Indicators (Behavioral/Predictive):
-${leadIndicators.map((ind, i) => `${i + 1}. ${ind}`).join('\n')}
+${leadIndicators.map((ind: string, i: number) => `${i + 1}. ${ind}`).join('\n')}
 
 Lag Indicators (Outcome-based):
-${lagIndicators.map((ind, i) => `${i + 1}. ${ind}`).join('\n')}
+${lagIndicators.map((ind: string, i: number) => `${i + 1}. ${ind}`).join('\n')}
 
 For each KPI indicator (both lead and lag), suggest 1-2 relevant training modules.
 

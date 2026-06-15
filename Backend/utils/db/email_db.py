@@ -1,6 +1,6 @@
 from typing import Dict, Any, List, Optional
 from datetime import datetime, date
-from ..supabase_client import supabase
+from ..supabase_client import supabase, supabase_admin
 
 
 # ── CREATE / INSERT OPERATIONS ──────────────────────────────────────
@@ -78,7 +78,7 @@ async def create_scheduled_email(
         if created_by:
             payload["created_by"] = created_by
         
-        response = supabase.table("scheduled_emails").insert(payload).execute()
+        response = supabase_admin.table("scheduled_emails").insert(payload).execute()
         
         if response.data:
             return {"data": response.data[0], "error": None}
@@ -229,7 +229,7 @@ async def update_email_status(
             payload["last_error"] = last_error
         
         response = (
-            supabase.table("scheduled_emails")
+            supabase_admin.table("scheduled_emails")
             .update(payload)
             .eq("scheduled_email_id", scheduled_email_id)
             .execute()
@@ -259,7 +259,7 @@ async def increment_retry_count(
     try:
         # First, get the current retry_count
         get_response = (
-            supabase.table("scheduled_emails")
+            supabase_admin.table("scheduled_emails")
             .select("retry_count, max_retries")
             .eq("scheduled_email_id", scheduled_email_id)
             .single()
@@ -286,7 +286,7 @@ async def increment_retry_count(
             payload["status"] = "failed"
         
         response = (
-            supabase.table("scheduled_emails")
+            supabase_admin.table("scheduled_emails")
             .update(payload)
             .eq("scheduled_email_id", scheduled_email_id)
             .execute()
@@ -315,7 +315,7 @@ async def delete_scheduled_email(
     """
     try:
         response = (
-            supabase.table("scheduled_emails")
+            supabase_admin.table("scheduled_emails")
             .delete()
             .eq("scheduled_email_id", scheduled_email_id)
             .execute()
@@ -340,7 +340,7 @@ async def pause_scheduled_email(
     """
     try:
         response = (
-            supabase.table("scheduled_emails")
+            supabase_admin.table("scheduled_emails")
             .update({"is_active": False, "status": "paused"})
             .eq("scheduled_email_id", scheduled_email_id)
             .execute()
@@ -367,7 +367,7 @@ async def resume_scheduled_email(
     """
     try:
         response = (
-            supabase.table("scheduled_emails")
+            supabase_admin.table("scheduled_emails")
             .update({"is_active": True, "status": "pending"})
             .eq("scheduled_email_id", scheduled_email_id)
             .execute()

@@ -105,7 +105,11 @@ const mockSupabase = {
 
 const realSupabase = createClient(supabaseUrl, supabaseAnonKey);
 
+const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey;
+const realSupabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
 export const supabase: any = useMock ? mockSupabase : realSupabase;
+export const supabaseAdmin: any = useMock ? mockSupabase : realSupabaseAdmin;
 
 export type Database = {
   public: {

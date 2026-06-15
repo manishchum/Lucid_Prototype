@@ -1,6 +1,6 @@
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
-from ..supabase_client import supabase
+from ..supabase_client import supabase, supabase_admin
 
 
 # ── CREATE / INSERT OPERATIONS ──────────────────────────────────────
@@ -48,7 +48,7 @@ async def create_scheduled_whatsapp(
         
         print("Inserting this kind payload to database",payload)
 
-        response = supabase.table("scheduled_whatsapp").insert(payload).execute()
+        response = supabase_admin.table("scheduled_whatsapp").insert(payload).execute()
         print("this is the response fron the database")
         print(response)
         if response.data:
@@ -87,7 +87,7 @@ async def create_whatsapp_dispatch_batch(
         if not payloads:
             return {"data": [], "error": "No valid phone numbers in user list"}
         
-        response = supabase.table("whatsapp_dispatch").insert(payloads).execute()
+        response = supabase_admin.table("whatsapp_dispatch").insert(payloads).execute()
         return {"data": response.data or [], "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -244,7 +244,7 @@ async def update_dispatch_status(
             payload["delivered_at"] = datetime.utcnow().isoformat()
         
         response = (
-            supabase.table("whatsapp_dispatch")
+            supabase_admin.table("whatsapp_dispatch")
             .update(payload)
             .eq("whatsapp_dispatch_id", whatsapp_dispatch_id)
             .execute()
@@ -270,7 +270,7 @@ async def update_dispatch_retry_count(
         new_count = current_count + 1
         
         response = (
-            supabase.table("whatsapp_dispatch")
+            supabase_admin.table("whatsapp_dispatch")
             .update({"retry_count": new_count})
             .eq("whatsapp_dispatch_id", whatsapp_dispatch_id)
             .execute()
@@ -292,7 +292,7 @@ async def update_scheduled_whatsapp(
             return {"data": None, "error": "No fields to update"}
         
         response = (
-            supabase.table("scheduled_whatsapp")
+            supabase_admin.table("scheduled_whatsapp")
             .update(kwargs)
             .eq("scheduled_whatsapp_id", scheduled_whatsapp_id)
             .execute()
@@ -312,7 +312,7 @@ async def deactivate_scheduled_whatsapp(
     """
     try:
         response = (
-            supabase.table("scheduled_whatsapp")
+            supabase_admin.table("scheduled_whatsapp")
             .update({"is_active": False})
             .eq("scheduled_whatsapp_id", scheduled_whatsapp_id)
             .execute()
@@ -332,7 +332,7 @@ async def get_users_for_module(module_id: str) -> Dict[str, Any]:
     try:
         # Get user_ids from learning_plan for this module
         lp_response = (
-            supabase.table("learning_plan")
+            supabase_admin.table("learning_plan")
             .select("user_id")
             .eq("module_id", module_id)
             .execute()
@@ -346,7 +346,7 @@ async def get_users_for_module(module_id: str) -> Dict[str, Any]:
 
         # Fetch user details with phone numbers
         users_response = (
-            supabase.table("users")
+            supabase_admin.table("users")
             .select("user_id, name, email, phone")
             .in_("user_id", user_ids)
             .eq("is_active", True)
@@ -376,7 +376,7 @@ async def get_module_content(module_id: str) -> Dict[str, Any]:
     """
     try:
         response = (
-            supabase.table("processed_modules")
+            supabase_admin.table("processed_modules")
             .select(
                 "processed_module_id, original_module_id, title, flashcard_data, audio_url, video_url, mindmap_data, infographic_data"
             )

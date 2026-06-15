@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Literal
 from utils.supabase_client import supabase
 from utils.auth import get_request_auth_optional
+from utils.auth_bridge import get_service_supabase_client
 
 router = APIRouter(prefix="/roleplay/page", tags=["roleplay-page"])
 
@@ -87,6 +88,8 @@ def normalize_scenario(db_scenario: dict) -> dict:
 
 def fetch_all_scenarios() -> tuple[list, dict | None]:
     """Fetch all scenarios from database"""
+    supabase = get_service_supabase_client()
+
     try:
         result = supabase.table("scenarios").select(
             "scenario_id, title, description, role, difficulty, initialPrompt, userRole, tone, learnerBrief, aiObjective, maxDuration, minTurns, endConditions, evaluationParams, passingScore, created_at"
@@ -212,13 +215,15 @@ async def fetch_scenarios_for_user(
             x_user_id=request.headers.get("X-User-ID")
         )
         user_id = auth_ctx.user_id
-        
+        # print("Auth context for scenario fetch:", auth_ctx)
         if not user_id:
             raise HTTPException(status_code=401, detail="Authentication required")
         
         # Admin gets all scenarios
         if is_admin:
             db_scenarios, error = fetch_all_scenarios()
+            print("Fetched all scenarios for admin:", db_scenarios)
+            
             if error:
                 raise HTTPException(status_code=500, detail=error['message'])
             
@@ -230,6 +235,7 @@ async def fetch_scenarios_for_user(
         
         # Regular user gets assigned scenarios
         assigned_ids, error = get_assigned_scenario_ids_for_user(user_id)
+        # print("Assigned scenario IDs for user:", assigned_ids)
         
         if error:
             # Fall back to returning no custom scenarios
@@ -251,9 +257,11 @@ async def fetch_scenarios_for_user(
             "scenario_id", assigned_ids
         ).order('created_at', desc=True).execute()
         
+
+        print(result)
         assigned_scenarios = result.data or []
         normalized = [normalize_scenario(s) for s in assigned_scenarios]
-        
+        print("These are the assigned_scenarios:", assigned_scenarios)
         return {
             'success': True,
             'data': normalized

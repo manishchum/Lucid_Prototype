@@ -3,9 +3,10 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createClient } from '@supabase/supabase-js';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const supabaseServerKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+  supabaseServerKey
 );
 
 export async function POST(request: NextRequest) {

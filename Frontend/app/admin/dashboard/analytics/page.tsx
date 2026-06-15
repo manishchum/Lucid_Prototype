@@ -305,6 +305,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
   };
 
   const loadLearningPlanData = async (modulesData?: any[]) => {
+    console.time('loadLearningPlanData');
     try {
       // Use passed modules or fall back to state
       const modsToUse = modulesData || modules;
@@ -527,9 +528,11 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
     } catch (err) {
       console.error('loadLearningPlanData error', err);
     }
+    console.timeEnd('loadLearningPlanData');
   };
 
   const loadAssessmentData = async () => {
+    console.time('loadAssessmentData');
     try {
       if (!adminUserId) {
         console.warn('[loadAssessmentData] No adminUserId available');
@@ -686,6 +689,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       console.error('[loadAssessmentData] Error:', error);
       calculateAssessmentStatistics([]);
     }
+    console.timeEnd('loadAssessmentData');
   };
 
   const loadLearningStyleData = async () => {
@@ -747,6 +751,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
   };
 
   const loadOverallStatistics = async () => {
+    console.time('loadOverallStatistics');
     try {
       // Get company users via backend
       const companyUsers = await fetchCompanyUsers(companyId, adminUserId);
@@ -834,6 +839,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
     } catch (error) {
       console.error('Failed to load overall statistics:', error);
     }
+    console.timeEnd('loadOverallStatistics');
   };
 
   // helper to check if a user_id exists in company users

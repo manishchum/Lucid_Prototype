@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from utils.auth import RequestAuth, get_request_auth_required
+from fastapi import APIRouter, HTTPException, Header, Query, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
 import google.generativeai as genai
@@ -29,7 +30,7 @@ from utils.db.email_db import (
     create_scheduled_email,
     update_email_status,
 )
-from utils.supabase_client import supabase
+from utils.supabase_client import supabase, supabase_admin
 from whatsapp.formatter import formatter
 
 router = APIRouter(prefix="/api/dispatch", tags=["dispatch"])
@@ -391,8 +392,9 @@ def build_email_body(
 @router.get("/sprints/{company_id}")
 async def list_sprints(
     company_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     result = await get_sprints_by_company(company_id)
     if result["error"]:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -402,8 +404,9 @@ async def list_sprints(
 @router.get("/sub-modules/{module_id}")
 async def list_sub_modules(
     module_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     result = await get_sub_modules_by_sprint(module_id)
     if result["error"]:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -413,8 +416,9 @@ async def list_sub_modules(
 @router.get("/assigned-users/{module_id}")
 async def list_assigned_users(
     module_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     result = await get_assigned_users_for_sprint(module_id)
     if result["error"]:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -424,8 +428,9 @@ async def list_assigned_users(
 @router.get("/sprint-image/{module_id}")
 async def get_sprint_image_url(
     module_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """Return the first available image URL for a sprint from vectordb_images."""
     result = await get_sprint_image(module_id)
     if result["error"]:
@@ -436,8 +441,9 @@ async def get_sprint_image_url(
 @router.post("/generate-email")
 async def generate_email(
     request: GenerateEmailRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """Use Gemini to draft a nudge / encouragement email."""
     sub_modules_text = "\n".join(f"  - {t}" for t in request.sub_module_titles)
     event_date = (
@@ -752,8 +758,9 @@ Engagement question: {request.engagement_question or "none"}
 @router.post("/generate-whatsapp")
 async def generate_whatsapp(
     request: GenerateWhatsAppRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """Use Gemini to draft a nudge / encouragement WhatsApp message."""
     sub_modules_text = "\n".join(f"  - {t}" for t in request.sub_module_titles)
     event_date = (
@@ -810,8 +817,9 @@ Engagement question: {request.engagement_question or "none"}
 @router.post("/send-email")
 async def send_email(
     request: SendEmailRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """Send the drafted email to all users assigned to the sprint.
     
     ⭐ IMPORTANT: Now integrated with GDPR/CAN-SPAM unsubscribe system.
@@ -938,8 +946,9 @@ def send_smtp_job(recipient_emails: List[str], subject: str, body: str) -> None:
 @router.post("/schedule-email")
 async def schedule_email(
     request: ScheduleEmailRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """
     Schedule the drafted email to be delivered at a future date/time (UTC).
     
@@ -984,8 +993,9 @@ async def schedule_email(
         raise HTTPException(status_code=404, detail="No valid email addresses found")
 
     # 3. Get company_id from user context
-    user_data = supabase.table("users").select("company_id").eq("user_id", user_id).single().execute()
-    company_id = user_data.data.get("company_id") if user_data.data else None
+    user_data = supabase_admin.table("users").select("company_id").eq("user_id", user_id).maybe_single().execute()
+    user_row = user_data.data if (user_data and getattr(user_data, "data", None)) else None
+    company_id = user_row.get("company_id") if user_row else None
     if not company_id:
         raise HTTPException(status_code=400, detail="Could not determine company_id for user")
 
@@ -1027,8 +1037,9 @@ async def schedule_email(
 @router.post("/notify-email")
 async def notify_email(
     request: NotifyEmailRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """
     Build and send (or schedule) an email whose content blocks are
     determined by the admin's `selected_content` list.
@@ -1053,13 +1064,14 @@ async def notify_email(
     # 1a. Fetch sprint title from training_modules
     first_module_id = target_module_ids[0]
     print(f"\n[NOTIFY-EMAIL DEBUG] Fetching sprint title for module: {first_module_id}")
-    sprint_result = supabase.table("processed_modules") \
+    sprint_result = supabase_admin.table("processed_modules") \
         .select("title") \
         .eq("processed_module_id", first_module_id) \
-        .single() \
+        .maybe_single() \
         .execute()
 
-    if not sprint_result.data:
+    sprint_row = sprint_result.data if (sprint_result and getattr(sprint_result, "data", None)) else None
+    if not sprint_row:
         raise HTTPException(status_code=404, detail="Module not found")
 
     # 1b. Fetch flashcard_data and audio_url ONLY from the specified modules
@@ -1073,16 +1085,16 @@ async def notify_email(
         if request.module_ids:
             # Fetching specific processed modules
             print(f"[NOTIFY-EMAIL DEBUG] Using module_ids approach (specific module ID)")
-            fc_result = supabase.table("processed_modules") \
+            fc_result = supabase_admin.table("processed_modules") \
                 .select("flashcard_data, audio_url, title") \
                 .eq("processed_module_id", target_id) \
-                .single() \
+                .maybe_single() \
                 .execute()
             print(f"[NOTIFY-EMAIL DEBUG] Query result: {fc_result.data}")
         else:
             # Backward compatibility: fetch all processed modules for original module
             print(f"[NOTIFY-EMAIL DEBUG] Using backward compatibility approach (original module ID)")
-            fc_result = supabase.table("processed_modules") \
+            fc_result = supabase_admin.table("processed_modules") \
                 .select("flashcard_data, audio_url, title") \
                 .eq("original_module_id", target_id) \
                 .execute()
@@ -1120,7 +1132,7 @@ async def notify_email(
     print(f"[NOTIFY-EMAIL DEBUG] Audio URL from DB: {audio_url_from_db or 'NONE'}")
    
     module = {
-        "title": sprint_result.data.get("title", ""),
+        "title": sprint_row.get("title", ""),
         "audio_url": audio_url_from_db,
         "flashcard_data": combined_flashcards,
     }
@@ -1193,15 +1205,17 @@ async def notify_email(
 
         # Get company_id for Supabase storage
         first_module_id = request.module_id or target_module_ids[0]
-        module_data = supabase.table("processed_modules") \
+        module_data = supabase_admin.table("processed_modules") \
             .select("title") \
             .eq("processed_module_id", first_module_id) \
-            .single() \
+            .maybe_single() \
             .execute()
+        module_row = module_data.data if (module_data and getattr(module_data, "data", None)) else None
         
         # Get company_id from user context
-        user_data = supabase.table("users").select("company_id").eq("user_id", user_id).single().execute()
-        company_id = user_data.data.get("company_id") if user_data.data else None
+        user_data = supabase_admin.table("users").select("company_id").eq("user_id", user_id).maybe_single().execute()
+        user_row = user_data.data if (user_data and getattr(user_data, "data", None)) else None
+        company_id = user_row.get("company_id") if user_row else None
         if not company_id:
             raise HTTPException(status_code=400, detail="Could not determine company_id for user")
 
@@ -1215,7 +1229,7 @@ async def notify_email(
             scheduled_date=request.scheduled_date,
             scheduled_time=request.scheduled_time,
             processed_module_id=first_module_id,
-            module_title=module_data.data.get("title") if module_data.data else None,
+            module_title=module_row.get("title") if module_row else None,
             content_types=request.selected_content,
             custom_flashcards=request.customFlashcards,
             custom_audio_url=request.customAudioUrl,
@@ -1384,8 +1398,9 @@ class ScheduleMultiModuleRequest(BaseModel):
 @router.post("/schedule-multi-module")
 async def schedule_multi_module(
     request: ScheduleMultiModuleRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """
     Schedule emails with paired module-content-scheduling mappings.
    
@@ -1502,19 +1517,19 @@ async def schedule_multi_module(
                 )
 
             # ── Fetch processed_module row ──
-            pm_result = supabase.table("processed_modules") \
+            pm_result = supabase_admin.table("processed_modules") \
                 .select("processed_module_id, title, flashcard_data, audio_url, original_module_id") \
                 .eq("processed_module_id", module_id) \
-                .single() \
+                .maybe_single() \
                 .execute()
 
-            if not pm_result.data:
+            pm_row = pm_result.data if (pm_result and getattr(pm_result, "data", None)) else None
+            if not pm_row:
                 raise HTTPException(
                     status_code=404,
                     detail=f"Processed module {module_id} not found in processed_modules",
                 )
 
-            pm_row = pm_result.data
             module_title = pm_row.get("title") or module_id
             original_module_id = pm_row.get("original_module_id")
 
@@ -1591,8 +1606,9 @@ async def schedule_multi_module(
                 continue
 
             # ── Get company_id from user context ──
-            user_data = supabase.table("users").select("company_id").eq("user_id", user_id).single().execute()
-            company_id = user_data.data.get("company_id") if user_data.data else None
+            user_data = supabase_admin.table("users").select("company_id").eq("user_id", user_id).maybe_single().execute()
+            user_row = user_data.data if (user_data and getattr(user_data, "data", None)) else None
+            company_id = user_row.get("company_id") if user_row else None
             if not company_id:
                 raise HTTPException(status_code=400, detail=f"Could not determine company_id for user")
 
@@ -1668,8 +1684,9 @@ async def schedule_multi_module(
 @router.post("/notify-whatsapp")
 async def notify_whatsapp(
     request: NotifyWhatsAppRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+    user_id = auth_ctx.user_id
     """
     Schedule WhatsApp messages for content distribution.
    

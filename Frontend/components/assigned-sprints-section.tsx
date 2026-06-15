@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { LayoutGrid, List, ChevronDown, Search } from "lucide-react";
+import { callGemini } from "@/lib/gemini-helper";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -30,6 +31,7 @@ interface Sprint {
 interface AssignedSprintsSectionProps {
   assignedModules: any[];
   moduleProgress: any[];
+  plans: any[];
   userId: string;
   companyId: string;
   isLocked: boolean;
@@ -39,6 +41,7 @@ interface AssignedSprintsSectionProps {
 export function AssignedSprintsSection({
   assignedModules,
   moduleProgress,
+  plans,
   userId,
   companyId,
   isLocked,
@@ -62,26 +65,21 @@ export function AssignedSprintsSection({
 
   const enrichSprintsData = async () => {
     try {
-      const headers = {
-        "X-User-ID": userId,
-        "X-Company-ID": companyId,
-      };
+      // const headers = {
+      //   "X-User-ID": userId,
+      //   "X-Company-ID": companyId,
+      // };
 
-      // Fetch learning plans to get due dates
-      const plansRes = await fetchWithAuth(
-        `${API_BASE}/api/learning-plans/?user_id=${userId}`,
-        { headers }
-      );
-      const plans = plansRes.ok ? await plansRes.json() : { plans: [] };
+      // // Fetch learning plans to get due dates
+      // const plansRes = await fetchWithAuth(
+      //   `${API_BASE}/api/learning-plans/?user_id=${userId}`,
+      //   { headers }
+      // );
+      // const plans = plansRes.ok ? await plansRes.json() : { plans: [] };
+      const plansResponse = {plans: plans || []}
       const plansByModuleId: Record<string, any> = {};
-      plans.plans?.forEach((plan: any) => {
-        const status = String(plan?.status || "").trim().toUpperCase();
-        if (status === "BASELINE_COMPLETED") {
-          return;
-        }
-        if (!plansByModuleId[plan.module_id] || ["ASSIGNED", "IN_PROGRESS", "COMPLETED"].includes(status)) {
-          plansByModuleId[plan.module_id] = plan;
-        }
+      plansResponse.plans?.forEach((plan: any) => {
+        plansByModuleId[plan.module_id] = plan;
       });
 
       // Enrich modules with learning plan data and calculate status
@@ -113,6 +111,7 @@ export function AssignedSprintsSection({
               ? Math.round((quizzesAttempted / totalQuizzes) * 100)
               : 0;
 
+          // console.log(`Module: ${module.title}, Quizzes Attempted: ${quizzesAttempted}, Total Quizzes: ${totalQuizzes}, Status: ${status}, Completion: ${completionPercentage}%`);
           return {
             id: module.id,
             title: module.title,
@@ -131,7 +130,7 @@ export function AssignedSprintsSection({
           };
         })
       );
-
+      // console.log("Enriched sprints data:", enrichedSprints);
       setSprints(enrichedSprints);
     } catch (error) {
       console.error("Error enriching sprints data:", error);
@@ -151,6 +150,7 @@ export function AssignedSprintsSection({
         baselineMaxScore: module.baselineMaxScore ?? null,
         certificateEarned: module.certificateEarned,
       }));
+      console.log("Basic sprints data:", basicSprints);
       setSprints(basicSprints);
     } finally {
       setLoading(false);

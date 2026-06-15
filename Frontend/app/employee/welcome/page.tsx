@@ -143,7 +143,7 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
 }
 
 export default function EmployeeWelcome() {
-  const { user, loading: authLoading, logout, isAdmin, isSuperAdmin, isDeveloper, isManager } = useAuth();
+  const { user, loading: authLoading, logout, employeeData, isAdmin, isSuperAdmin, isDeveloper, isManager } = useAuth();
   const { activeCompanyId, isDeveloperMode } = useTenant();
   const router = useRouter();
 
@@ -153,6 +153,7 @@ export default function EmployeeWelcome() {
   const [scoreHistory, setScoreHistory] = useState<any[]>([]);
   const [moduleProgress, setModuleProgress] = useState<any[]>([]);
   const [assignedModules, setAssignedModules] = useState<SprintItem[]>([]);
+  const [plans, setPlans] = useState<any[]>([]);
   const [learningStyle, setLearningStyle] = useState<string | null>(null);
   const [baselineScore, setBaselineScore] = useState<number | null>(null);
   const [baselineMaxScore, setBaselineMaxScore] = useState<number | null>(null);
@@ -190,20 +191,23 @@ export default function EmployeeWelcome() {
   const isAdminUser = isAdmin || isSuperAdmin || isDeveloper || isManager;
   const effectiveCompanyId =
     (isDeveloperMode && activeCompanyId ? activeCompanyId : employee?.company_id) || "";
+  const taskUserId = employee?.user_id || '';
   const {
     tasks,
     loading: tasksLoading,
     error: tasksError,
-  } = useTasks(employee?.user_id, isAdminUser, effectiveCompanyId);
-  const { tasks: _tasks, loading: _loading, error: _error, refetch: refetchTasks } = useTasks(employee?.user_id, isAdminUser, effectiveCompanyId);
-  const assignedTaskItems = useMemo(() => mapBackendTasksToAssignedTasks(_tasks), [_tasks]);
+  } = useTasks(taskUserId, isAdminUser, effectiveCompanyId);
+
+  const assignedTaskItems = useMemo(() => mapBackendTasksToAssignedTasks(tasks), [tasks]);
+  // const { tasks: _tasks, loading: _loading, error: _error, refetch: refetchTasks } = useTasks(taskUserId, isAdminUser, effectiveCompanyId);
+  // const assignedTaskItems = useMemo(() => mapBackendTasksToAssignedTasks(_tasks), [_tasks]);
   // NOTE: keep `tasks` variable compatible with other code by reusing _tasks
   // when necessary. Replace references below to use `assignedTaskItems` which
   // is derived from `_tasks`.
-  useEffect(() => {
-    console.log("RAW BACKEND TASKS:", _tasks);
-    console.log("MAPPED DASHBOARD TASKS:", assignedTaskItems);
-  }, [_tasks, assignedTaskItems]);
+  // useEffect(() => {
+  //   console.log("RAW BACKEND TASKS:", _tasks);
+  //   console.log("MAPPED DASHBOARD TASKS:", assignedTaskItems);
+  // }, [_tasks, assignedTaskItems]);
 
   const handleTaskSubmitResponse = async (payload: Omit<SubmitTaskPayload, "user_id">) => {
     if (!employee?.user_id) {
@@ -838,20 +842,20 @@ const handleGenerateCertificate = (sprintId: string) => {
 
   // ─── Data fetching ─────────────────────────────────────────────────────────
 
-  const fetchUserByEmail = async (email: string) => {
-    try {
-      const res = await fetchWithAuth(
-        `${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`,
-      );
-      if (!res.ok) return null;
-      const payload = await res.json();
-      let u = payload?.user ?? payload;
-      if (Array.isArray(u)) u = u[0];
-      return u || null;
-    } catch {
-      return null;
-    }
-  };
+  // const fetchUserByEmail = async (email: string) => {
+  //   try {
+  //     const res = await fetchWithAuth(
+  //       `${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`,
+  //     );
+  //     if (!res.ok) return null;
+  //     const payload = await res.json();
+  //     let u = payload?.user ?? payload;
+  //     if (Array.isArray(u)) u = u[0];
+  //     return u || null;
+  //   } catch {
+  //     return null;
+  //   }
+  // };
 
   const fetchDashboardData = async (
     employeeData: any,
@@ -872,34 +876,46 @@ const handleGenerateCertificate = (sprintId: string) => {
           "X-Company-ID": effectiveCompanyId,
         };
 
-        const res = await fetchWithAuth(
-          `${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`,
-          { headers }
-        );
+        // const [plansRes, modulesRes, progressRes, companyRes, learningStyleRes, dashboard_summary]: any[] = await Promise.all([
+        //   fetchWithAuth(`${API_BASE}/api/learning-plans/?user_id=${employeeData.user_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+        //   fetchWithAuth(`${API_BASE}/api/training-modules/company/${employeeData.company_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+        //   fetchWithAuth(`${API_BASE}/api/module-progress/user/${employeeData.user_id}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+        //   fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+        //   fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
+        //   fetchWithAuth(`${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
         
-        if (!res.ok) {
-          throw new Error("Failed to fetch dashboard summary");
-        }
+        // ]);
         
-        const data = await res.json();
+        const dashboard_summary = await fetchWithAuth(`${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`, { headers }).then((r)=> r.ok ? r.json() : ({} as any));
         
+        // console.log("Fetched dashboard data:", {
+        //   plans: plansRes,
+        //   modules: modulesRes,
+        //   progress: progressRes,
+        //   company: companyRes,
+        //   learningStyle: learningStyleRes,
+        //    dashboard_summary:dashboard_summary,
+        // });
+
+        // const dashBoardData = dashboard_summary;
+        
+     
         return {
-          plans: data.plans || [],
-          modules: data.modules || [],
-          progress: data.progress || [],
-          users: [], // No longer fetching all users, using total_users instead
-          company: data.company || null,
-          learningStyle: data.learning_style || null,
-          assessmentEvidenceByModuleId: data.assessment_evidence_by_module_id || {},
-          baselineEvidenceByModuleId: data.baseline_evidence_by_module_id || {},
-          userRank: data.user_rank || null,
-          totalUsers: data.total_users || 0,
+          plans: dashboard_summary?.plans || [],
+          modules: dashboard_summary?.modules || [],
+          progress: dashboard_summary?.progress || [],
+          company: dashboard_summary?.company || null,
+          learningStyle: dashboard_summary?.learning_style || null,
+          assessmentEvidenceByModuleId: dashboard_summary.assessment_evidence_by_module_id || {},
+          baselineEvidenceByModuleId: dashboard_summary.baseline_evidence_by_module_id || {},
+          userRank: dashboard_summary.user_rank || null,
+          totalUsers: dashboard_summary.total_users || 0,
         };
       },
       {
-        ttlMs: 5 * 1000,
+        ttlMs: 60 * 1000,
         swr: true,
-        swrMs: 30 * 1000,
+        swrMs: 300 * 1000,
       },
     );
     return result.data;
@@ -910,9 +926,8 @@ const handleGenerateCertificate = (sprintId: string) => {
 
     try {
       setLoading(true);
-      const emp = await fetchUserByEmail(user.email);
+      const emp = employeeData;
       if (!emp) {
-        router.push("/login");
         return;
       }
 
@@ -928,6 +943,7 @@ const handleGenerateCertificate = (sprintId: string) => {
 
       const data = await fetchDashboardData(emp, selectedCompanyId);
       const plans = data?.plans || [];
+      setPlans(plans);
       const modules = data?.modules || [];
       const progress = Array.isArray(data?.progress) ? data.progress : [];
       const assessmentEvidenceByModuleId =
@@ -942,7 +958,7 @@ const handleGenerateCertificate = (sprintId: string) => {
         assessmentEvidenceByModuleId,
         baselineEvidenceByModuleId,
       );
-
+      // console.log("Mapped assigned modules:", mappedAssigned);
       setAssignedModules(mappedAssigned);
       setModuleProgress(progress);
       setLearningStyle(data?.learningStyle || null);
@@ -1179,82 +1195,15 @@ const handleGenerateCertificate = (sprintId: string) => {
             )}
 
              {/* Assigned Modules */}
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-              <button
-                onClick={() => setActiveHomeTab("sprints")}
-                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold border transition-colors ${
-                  activeHomeTab === "sprints"
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                }`}
-              >
-                Assigned Sprints
-                <span
-                  className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                    activeHomeTab === "sprints"
-                      ? "bg-white/20 text-white"
-                      : "bg-slate-100 text-slate-700"
-                  }`}
-                >
-                  {assignedModules.length}
-                </span>
-              </button>
-              <button
-                onClick={() => setActiveHomeTab("tasks")}
-                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold border transition-colors ${
-                  activeHomeTab === "tasks"
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                }`}
-              >
-                Assigned Tasks
-                <span
-                  className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                    activeHomeTab === "tasks"
-                      ? "bg-white/20 text-white"
-                      : "bg-slate-100 text-slate-700"
-                  }`}
-                >
-                  {_tasks.length}
-                </span>
-              </button>
-            </div>
-
-            {activeHomeTab === "sprints" ? (
-              <AssignedSprintsSection
-                assignedModules={assignedModules}
-                moduleProgress={moduleProgress}
-                userId={employee?.user_id || ""}
-                companyId={effectiveCompanyId}
-                isLocked={companyLearningStyleEnabled && !learningStyle}
-                onGenerateCertificate={handleGenerateCertificate}
-              />
-            ) : (
-              <div className="space-y-8">
-                {tasksLoading ? (
-                  <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-                    <CardContent className="p-6 text-sm text-slate-500">Loading tasks...</CardContent>
-                  </Card>
-                ) : tasksError ? (
-                  <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-                    <CardContent className="p-6 text-sm text-red-600 font-medium">{tasksError}</CardContent>
-                  </Card>
-                ) : assignedTaskItems.length === 0 ? (
-                  <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-                    <CardContent className="p-6 text-sm text-slate-500">No tasks assigned</CardContent>
-                  </Card>
-                ) : (
-                  <TaskDashboard
-                    assignedTasks={assignedTaskItems}
-                    onStartCreateTask={() => {}}
-                    userRole="employee"
-                    onSubmitTaskResponse={handleTaskSubmitResponse}
-                    onTaskSubmitted={handleTaskSubmitted}
-                  />
-                )}
-
-              </div>
-            )}
+            <AssignedSprintsSection
+              assignedModules={assignedModules}
+              moduleProgress={moduleProgress}
+              plans ={plans}
+              userId={employee?.user_id || ""}
+              companyId={effectiveCompanyId}
+              isLocked={companyLearningStyleEnabled && !learningStyle}
+              onGenerateCertificate={handleGenerateCertificate}
+            />
 
              {/* Progress History */}
              {/* <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">

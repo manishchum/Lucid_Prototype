@@ -3,6 +3,7 @@
 /secrets
 node_modules
 /.venv
+/.vscode
 
 # Model cache directories
 Backend/models/

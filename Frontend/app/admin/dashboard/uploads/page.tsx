@@ -240,20 +240,28 @@ function ContentUpload({
     setUploading(true);
     const uploadFiles = [...files];
     try {
-      const formData = new FormData();
-      files.forEach((file) => {
-        formData.append('file', file);
-      });
-      formData.append('title', title);
-      formData.append('description', description);
-
-      const response = await fetchWithAuth('/api/content-library/upload', {
+      
+      // We no longer rely on the frontend `/api/content-library/upload`. We just post directly
+      // to the backend to create a skeleton training module, then ai trigger will upload the files!
+      
+      const response = await fetchWithAuth(`${API_URL}/api/training-modules/`, {
         method: 'POST',
         headers: {
-          'x-company-id': companyId,
-          'x-admin-id': adminId
+          'Content-Type': 'application/json',
+          'X-User-ID': adminId
         },
-        body: formData,
+        body: JSON.stringify({
+          company_id: companyId,
+          title: title,
+          description: description,
+          content_url: "", // Content will be populated by AI processing
+          content_type: files[0]?.type || "application/pdf",
+          processing_status: 'pending',
+          threshold_value: thresholdValue,
+          reviewer_id: retrievedReviewerId,
+          additional_readings: additionalLinks.length > 0 ? additionalLinks : null,
+          source_files: files.map((f: File) => f.name) // Initial filenames, will be updated by AI Upload
+        })
       });
 
       if (!response.ok) {
@@ -291,10 +299,10 @@ function ContentUpload({
             storagePath = pathMatch[1];
             // console.log('[Upload] Extracted storage path:', storagePath, 'from URL:', moduleUrl);
           } else {
-            console.warn('[Upload] Could not extract storage path from URL:', moduleUrl);
+            let moduleData = result.module;
           }
-        } catch (e) {
-          console.warn('[Upload] Failed to parse URL:', moduleUrl, e);
+        }catch (err) {
+          console.warn('Failed to parse URL for storage path extraction:', moduleUrl, err);
         }
         
         return {

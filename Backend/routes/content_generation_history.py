@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Header, Query
+from utils.auth import RequestAuth, get_request_auth_required
+from fastapi import APIRouter, Header, Query, Depends
 from pydantic import BaseModel
 from typing import Optional
 
@@ -39,8 +40,9 @@ class UpdateStatusRequest(BaseModel):
 async def list_all_history(
     status: Optional[str] = Query(None, description="Filter by status"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of results"),
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     List all content generation history.
     Permission: Admin+ users see their company's history, super_admin sees all.
@@ -64,8 +66,9 @@ async def list_all_history(
 @router.get("/{content_generation_history_id}")
 async def get_history_by_id(
     content_generation_history_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Get content generation history by ID.
     Permission: User must have access to the original training module.
@@ -87,8 +90,9 @@ async def get_history_by_original_module(
     original_module_id: str,
     status: Optional[str] = Query(None, description="Filter by status"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of results"),
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     List content generation history for a specific original module.
     Permission: User must have access to the original training module.
@@ -116,8 +120,9 @@ async def get_history_by_processed_module(
     processed_module_id: str,
     status: Optional[str] = Query(None, description="Filter by status"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of results"),
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     List content generation history for a specific processed module.
     Permission: User must have access to the original training module.
@@ -143,8 +148,9 @@ async def get_history_by_processed_module(
 @router.post("/")
 async def create_history(
     request: CreateContentGenerationHistoryRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Create a new content generation history record.
     Permission: User must have access to the original training module.
@@ -174,8 +180,9 @@ async def create_history(
 async def update_history(
     content_generation_history_id: str,
     request: UpdateContentGenerationHistoryRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Update content generation history record.
     Permission: User must have access to the original training module.
@@ -207,8 +214,9 @@ async def update_history(
 async def update_status(
     content_generation_history_id: str,
     request: UpdateStatusRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Update the status (and optionally content) of a content generation history record.
     Permission: User must have access to the original training module.
@@ -239,8 +247,9 @@ async def update_status(
 @router.delete("/{content_generation_history_id}")
 async def delete_history(
     content_generation_history_id: str,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
+    user_id = auth_ctx.user_id
     """
     Delete a content generation history record.
     Permission: Admin+ users can delete their company's records, super_admin can delete any.
