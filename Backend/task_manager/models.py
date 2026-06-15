@@ -49,6 +49,8 @@ class TaskResponse(BaseModel):
     total_target_count: int
     completion_count: int
     created_at: str
+    submitted: Optional[bool] = False
+    submission: Optional[dict] = None
 
 
 class TaskListResponse(BaseModel):

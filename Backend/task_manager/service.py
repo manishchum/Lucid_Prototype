@@ -1,6 +1,9 @@
+import base64
 import json
 import os
 import re
+import tempfile
+import urllib.request
 from typing import Optional
 from uuid import uuid4
 
@@ -9,6 +12,10 @@ import google.generativeai as genai
 from utils.supabase_client import supabase
 
 from .models import SubmissionCreate, TaskCreate
+from audio_analysis.scoring import generate_audio_score
+from audio_analysis.services.acoustic_analysis import analyze_audio_features
+from audio_analysis.services.gemini_audio import analyze_audio_with_gemini
+from audio_analysis.services.speech_quality import analyze_speech_quality
 
 
 def _gemini_model():
@@ -18,6 +25,107 @@ def _gemini_model():
 
     genai.configure(api_key=api_key)
     return genai.GenerativeModel("gemini-3-pro-preview")
+
+
+def _extract_audio_bytes(audio_input: str | None) -> tuple[bytes, str]:
+    if not audio_input:
+        raise ValueError("Missing audio payload")
+
+    value = audio_input.strip()
+    if value.startswith("data:"):
+        header, encoded = value.split(",", 1)
+        mime_type = header.split("data:", 1)[1].split(";", 1)[0] or "audio/webm"
+        return base64.b64decode(encoded), mime_type
+
+    if value.startswith("http://") or value.startswith("https://"):
+        request = urllib.request.Request(value, headers={"User-Agent": "LucidBackend/1.0"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            mime_type = response.headers.get_content_type() or "audio/mpeg"
+            return response.read(), mime_type
+
+    return base64.b64decode(value), "audio/webm"
+
+
+def _audio_suffix(mime_type: str) -> str:
+    if "mpeg" in mime_type or "mp3" in mime_type:
+        return ".mp3"
+    if "wav" in mime_type:
+        return ".wav"
+    if "ogg" in mime_type:
+        return ".ogg"
+    if "mp4" in mime_type or "m4a" in mime_type:
+        return ".m4a"
+    return ".webm"
+
+
+def _store_audio_media(payload: SubmissionCreate, company_id: str, submission_id: str) -> str | None:
+    audio_input = payload.audio_url or payload.text_response
+    if not audio_input:
+        return None
+
+    try:
+        audio_bytes, mime_type = _extract_audio_bytes(audio_input)
+    except Exception as exc:
+        print("[task-manager] audio storage decode failed:", exc)
+        return None
+
+    bucket = os.getenv("TASK_SUBMISSIONS_BUCKET") or os.getenv("SUPABASE_TASK_SUBMISSIONS_BUCKET") or "task-submissions"
+    path = "/".join([
+        str(company_id),
+        str(payload.assignment_id or "unassigned"),
+        str(payload.user_id),
+        f"{submission_id}{_audio_suffix(mime_type)}",
+    ])
+
+    try:
+        supabase.storage.from_(bucket).upload(
+            path,
+            audio_bytes,
+            file_options={
+                "content-type": mime_type,
+                "upsert": "true",
+            },
+        )
+        public_url = supabase.storage.from_(bucket).get_public_url(path)
+        return str(public_url) if public_url else None
+    except Exception as exc:
+        print("[task-manager] audio storage upload failed:", exc)
+        return None
+
+
+def _analyze_audio_submission(payload: SubmissionCreate, task: dict) -> dict:
+    audio_input = payload.audio_url or payload.text_response
+    audio_bytes, mime_type = _extract_audio_bytes(audio_input)
+    prompt = (
+        "You are validating an employee audio task submission.\n\n"
+        f"Task title: {task.get('title', '')}\n"
+        f"Task description: {task.get('description', '')}\n\n"
+        "Transcribe the speech and evaluate whether the response satisfies the task. "
+        "Analyze tone, professionalism, communication quality, sentence structure, "
+        "language confidence, filler words, strengths, weaknesses, feedback, and "
+        "improvement suggestions. Return STRICT JSON ONLY with keys: transcript, "
+        "tone, communication_score, filler_words, strengths, weaknesses, feedback, "
+        "improvement_suggestions. Scores must be 0-100."
+    )
+
+    gemini_result = analyze_audio_with_gemini(audio_bytes, mime_type, prompt)
+
+    temp_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=_audio_suffix(mime_type)) as tmp:
+            tmp.write(audio_bytes)
+            temp_path = tmp.name
+
+        acoustic_result = analyze_audio_features(temp_path)
+        speech_result = analyze_speech_quality(temp_path)
+    finally:
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except Exception:
+                pass
+
+    return generate_audio_score(gemini_result, acoustic_result, speech_result)
 
 
 def resolve_company_id(user_id: str | None, fallback_company_id: Optional[str]) -> Optional[str]:
@@ -43,7 +151,7 @@ def resolve_company_id(user_id: str | None, fallback_company_id: Optional[str]) 
     return None
 
 
-def get_active_tasks(company_id: str) -> list:
+def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
     """
     Returns active tasks with audience resolved and completion count.
     Uses v_active_assignments view (created in migration).
@@ -102,31 +210,36 @@ def get_active_tasks(company_id: str) -> list:
             print("[task-manager] tasks query failed completely:", retry_error)
             tasks = []
 
+    user_submission_map = {}
+    completion_map = {}
     try:
-        submissions = (
+        submission_query = (
             supabase.table("task_submissions")
-            .select("assignment_id")
+            .select("*")
             .in_("assignment_id", assignment_ids)
             .eq("company_id", company_id)
-            .execute()
-        ).data or []
+        )
+        if user_id:
+            submission_query = submission_query.eq("user_id", user_id)
+        submissions = submission_query.execute().data or []
     except Exception as submission_error:
         print("[task-manager] submissions query with company filter failed, retrying without company_id:", submission_error)
         try:
-            submissions = (
-                supabase.table("task_submissions")
-                .select("assignment_id")
-                .in_("assignment_id", assignment_ids)
-                .execute()
-            ).data or []
+            submission_query = supabase.table("task_submissions").select("*").in_("assignment_id", assignment_ids)
+            if user_id:
+                submission_query = submission_query.eq("user_id", user_id)
+            submissions = submission_query.execute().data or []
         except Exception as retry_error:
             print("[task-manager] submissions query failed completely:", retry_error)
             submissions = []
 
-    completion_map = {}
     for submission in submissions:
-        assignment_id = submission["assignment_id"]
+        assignment_id = submission.get("assignment_id")
+        if not assignment_id:
+            continue
         completion_map[assignment_id] = completion_map.get(assignment_id, 0) + 1
+        if user_id and str(submission.get("user_id") or "") == str(user_id):
+            user_submission_map[str(assignment_id)] = submission
 
     task_map = {}
     for task in tasks:
@@ -167,6 +280,8 @@ def get_active_tasks(company_id: str) -> list:
                 "total_target_count": assignment.get("total_target_count", 0),
                 "completion_count": completion_map.get(assignment_id, 0),
                 "created_at": str(assignment.get("created_at", "")),
+                "submitted": assignment_id in user_submission_map,
+                "submission": user_submission_map.get(assignment_id),
             })
 
     return result
@@ -198,11 +313,9 @@ def get_tasks_for_user(user_id: str, company_id: str) -> list:
     submission_by_assignment = {}
     for s in submissions:
         aid = str(s.get("assignment_id") or "")
-        # keep latest submission per assignment
-        if not aid:
+        if not aid or aid in submission_by_assignment:
             continue
-        if aid not in submission_by_assignment:
-            submission_by_assignment[aid] = s
+        submission_by_assignment[aid] = s
 
     # Only include assignments where either submitted_by matches user or submitted_by is None
     filtered = []
@@ -226,6 +339,9 @@ def get_tasks_for_user(user_id: str, company_id: str) -> list:
             row["submitted"] = True
             # Normalize status for frontend
             row["status"] = "completed"
+        else:
+            row["submitted"] = False
+            row["submission"] = None
 
         filtered.append(row)
 
@@ -371,6 +487,7 @@ def submit_task_response(payload: SubmissionCreate, company_id: str) -> dict:
     ai_validation_suggestion = payload.ai_validation_suggestion
     ai_validation_confidence = payload.ai_validation_confidence
     ai_status = payload.ai_status
+    stored_audio_url = None
 
 
     # Gemini evaluation
@@ -537,6 +654,52 @@ def submit_task_response(payload: SubmissionCreate, company_id: str) -> dict:
                     exc
                 )
 
+        if submission_type == "audio" and (payload.audio_url or payload.text_response):
+            try:
+                stored_audio_url = _store_audio_media(payload, company_id, submission_id)
+                audio_report = _analyze_audio_submission(payload, task)
+                scores = audio_report.get("scores") or {}
+                overall_score = int(scores.get("overall") or score or 0)
+                score = overall_score
+                max_score = 100
+                ai_validation_pass = overall_score >= 60
+                ai_validation_verdict = "PASS" if ai_validation_pass else "REVIEW"
+                ai_validation_reason = (
+                    audio_report.get("feedback")
+                    or "Audio submission analyzed successfully."
+                )
+                ai_validation_suggestion = json.dumps(
+                    {
+                        "transcript": audio_report.get("transcript", ""),
+                        "scores": scores,
+                        "audio_features": audio_report.get("audio_features", {}),
+                        "tone": audio_report.get("tone", ""),
+                        "filler_words": audio_report.get("filler_words", []),
+                        "strengths": audio_report.get("strengths", []),
+                        "weaknesses": audio_report.get("weaknesses", []),
+                        "improvement_suggestions": audio_report.get("improvement_suggestions", []),
+                    },
+                    ensure_ascii=False,
+                )
+                ai_validation_confidence = (
+                    "high"
+                    if overall_score >= 80
+                    else "medium"
+                    if overall_score >= 50
+                    else "low"
+                )
+                ai_status = "completed"
+            except Exception as exc:
+                print("[task-manager] audio analysis failed:", exc)
+                ai_validation_pass = True
+                ai_validation_verdict = "REVIEW"
+                ai_validation_reason = (
+                    "Audio submission recorded. AI audio analysis could not be completed."
+                )
+                ai_validation_suggestion = str(exc)
+                ai_validation_confidence = "low"
+                ai_status = "failed"
+
 
     # fallback validation
 
@@ -620,7 +783,11 @@ def submit_task_response(payload: SubmissionCreate, company_id: str) -> dict:
 
 
             "audio_url":
-                payload.audio_url,
+                stored_audio_url or payload.audio_url or (
+                    payload.text_response
+                    if payload.submission_type == "audio"
+                    else None
+                ),
 
 
             "video_url":
@@ -712,6 +879,15 @@ def submit_task_response(payload: SubmissionCreate, company_id: str) -> dict:
 
         "ai_status":
             ai_status or "completed",
+        "ai_validation": {
+            "pass": ai_validation_pass,
+            "verdict": ai_validation_verdict,
+            "reason": ai_validation_reason,
+            "suggestion": ai_validation_suggestion,
+            "confidence": ai_validation_confidence,
+            "status": ai_status or "completed",
+            "scores": {"overall": score, "max_score": max_score},
+        },
 
     })
 
@@ -1156,5 +1332,3 @@ def reassign_task_assignment(
             "completion_count": 0,
             "created_at": "",
         }
-
-

@@ -313,6 +313,19 @@ export default function TaskReports({ reportsList = INITIAL_REPORTS, onAddSimula
               status: r.ai_status,
             };
 
+              let audioAnalysis: any = null;
+              if (r.submission_type === 'audio' && typeof aiValidationObj.suggestion === 'string') {
+                try {
+                  audioAnalysis = JSON.parse(aiValidationObj.suggestion);
+                  aiValidationObj.audioAnalysis = audioAnalysis;
+                  aiValidationObj.suggestion = Array.isArray(audioAnalysis.improvement_suggestions)
+                    ? audioAnalysis.improvement_suggestions.join(' ')
+                    : '';
+                } catch {
+                  audioAnalysis = null;
+                }
+              }
+
               // Derive a category for the report from joined task metadata or submission fields.
               const taskObj = r.tasks && (Array.isArray(r.tasks) ? r.tasks[0] : r.tasks);
               // Collect many possible candidate fields that might indicate category
@@ -899,6 +912,18 @@ export default function TaskReports({ reportsList = INITIAL_REPORTS, onAddSimula
                                   <span className="text-[12px] text-gray-500">Confidence: <strong className="text-gray-700">{activeReport.aiValidation.confidence || 'medium'}</strong></span>
                                 </div>
                                 <div className="mt-2"><strong>Remark:</strong> {activeReport.aiValidation.reason || 'No remarks'}</div>
+                                {activeReport.aiValidation.audioAnalysis && (
+                                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-[12px]">
+                                    <div className="rounded-lg bg-slate-50 border border-slate-100 p-2">
+                                      <strong>Transcript:</strong> {activeReport.aiValidation.audioAnalysis.transcript || 'No transcript available'}
+                                    </div>
+                                    <div className="rounded-lg bg-slate-50 border border-slate-100 p-2">
+                                      <strong>Tone:</strong> {activeReport.aiValidation.audioAnalysis.tone || 'Not available'}
+                                      <br />
+                                      <strong>Overall:</strong> {activeReport.aiValidation.audioAnalysis.scores?.overall ?? 'N/A'} / 100
+                                    </div>
+                                  </div>
+                                )}
                                 {activeReport.aiValidation.suggestion && (
                                   <div className="mt-2 text-sm text-gray-600"><strong>Suggestion:</strong> {activeReport.aiValidation.suggestion}</div>
                                 )}

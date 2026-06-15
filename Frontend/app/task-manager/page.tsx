@@ -229,13 +229,20 @@ function TaskManagerContent() {
     primaryTitle: string,
     score: number,
     maxScore: number,
-    questionsList: any[]
+    questionsList: any[],
+    submission?: any
   ) => {
-    // Minimal local update for UI: increment completionCount and log event
+    // Minimal local update for UI: mark the current assignment completed immediately
     setAssignedTasks((prev) =>
       prev.map((t) =>
         t.id === assignmentId
-          ? { ...t, completionCount: (t.completionCount || 0) + 1 }
+          ? {
+              ...t,
+              completionCount: (t.completionCount || 0) + 1,
+              status: "Completed",
+              submitted: true,
+              submission: submission || t.submission,
+            }
           : t
       )
     );
@@ -269,7 +276,21 @@ function TaskManagerContent() {
 
       companyId,
     }
-  );
+  ).then((response) => {
+    setAssignedTasks((prev) =>
+      prev.map((task) =>
+        task.id === payload.assignment_id
+          ? {
+              ...task,
+              status: "Completed",
+              submitted: true,
+              submission: response?.submission || { submission_id: response?.submission_id },
+            }
+          : task
+      )
+    );
+    return response;
+  });
 };
 
   const handleTaskReassigned = async (

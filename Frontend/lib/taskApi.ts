@@ -45,6 +45,8 @@ export interface SubmitTaskPayload {
   submission_type: string;
   text_response?: string;
   image_url?: string;
+  audio_url?: string;
+  video_url?: string;
   answers?: { question_id: string; selected_option: string }[];
   score?: number;
   max_score?: number;
@@ -279,4 +281,3 @@ export async function reassignTask(
   }
   return res.json();
 }
-

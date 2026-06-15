@@ -26,7 +26,7 @@ def list_tasks(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     try:
-        tasks = service.get_active_tasks(company_id)
+        tasks = service.get_active_tasks(company_id, auth_ctx.user_id)
         return {"tasks": tasks, "total": len(tasks)}
     except Exception as exc:
         # Enhanced logging to assist debugging when browser requests produce 500.
@@ -222,5 +222,4 @@ def reassign_task(
         return updated
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-
 

@@ -29,3 +29,16 @@ bcrypt
 pydantic[email]
 
 ultralytics
+
+librosa==0.11.0
+soundfile
+pydub
+ffmpeg-python
+
+
+torch==2.10.0
+torchaudio==2.11.0
+transformers==5.3.0
+
+
+google-genai==1.68.0
