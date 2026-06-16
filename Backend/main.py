@@ -36,6 +36,7 @@ from routes import users, roles, assessments, companies, content_jobs, learning_
 from routes.analytics_export import router as analytics_export_router
 from routes.career_journeys import router as career_journeys_router
 from routes.employee_dashboard import router as employee_dashboard_router
+from routes.analytics import router as analytics_router
 
 # Import user routes
 # from routes.users import router as users_router
@@ -200,6 +201,7 @@ app.include_router(task_manager_router, prefix="/api", tags=["task-manager"])
 app.include_router(career_journeys_router, prefix="/api", tags=["career-journeys"])
 app.include_router(photo_analysis_router, prefix="/api/photo-analysis", tags=["photo-analysis"])
 app.include_router(employee_dashboard_router)  # employee dashboard summary router
+app.include_router(analytics_router)  # analytics router with dashboard and other analytics endpoints
 
 
 # Router Includes are here
