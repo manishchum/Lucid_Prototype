@@ -103,13 +103,46 @@ const mockSupabase = {
   _isMock: true,
 };
 
-const realSupabase = createClient(supabaseUrl, supabaseAnonKey);
+// const realSupabase = createClient(supabaseUrl, supabaseAnonKey);
 
-const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey;
-const realSupabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+// const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey;
+// const realSupabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-export const supabase: any = useMock ? mockSupabase : realSupabase;
-export const supabaseAdmin: any = useMock ? mockSupabase : realSupabaseAdmin;
+// export const supabase: any = useMock ? mockSupabase : realSupabase;
+// export const supabaseAdmin: any = useMock ? mockSupabase : realSupabaseAdmin;
+
+
+declare global {
+  var __supabaseClient: any;
+}
+
+
+const realSupabase =
+  globalThis.__supabaseClient ??
+  createClient(
+    supabaseUrl,
+    supabaseAnonKey,
+    {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    }
+  );
+
+
+globalThis.__supabaseClient = realSupabase;
+
+
+export const supabase: any =
+  useMock ? mockSupabase : realSupabase;
+
+
+// IMPORTANT:
+// frontend admin must reuse same client
+export const supabaseAdmin: any =
+  useMock ? mockSupabase : realSupabase;
 
 export type Database = {
   public: {

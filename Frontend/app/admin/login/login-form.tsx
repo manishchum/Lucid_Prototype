@@ -34,6 +34,13 @@ export default function AdminLoginForm() {
 
   useEffect(() => {
     const urlError = searchParams.get("error")
+    const secureBlocked = searchParams.get("securetoken_blocked");
+    if (secureBlocked) {
+      setError(
+        "Authentication token refresh blocked by Google Cloud API key restrictions. Check API key restrictions and enable Identity Toolkit (Secure Token) API."
+      )
+      return
+    }
     if (urlError) {
       switch (urlError) {
         case "access_denied":
