@@ -25,6 +25,10 @@ from fastapi import UploadFile, File, Form
 # from supabase import create_client, Client
 from utils.auth_bridge import get_service_supabase_client
 supabase = get_service_supabase_client()
+print("=" * 80)
+print("SUPABASE_URL =", os.getenv("SUPABASE_URL"))
+print("NEXT_PUBLIC_SUPABASE_URL =", os.getenv("NEXT_PUBLIC_SUPABASE_URL"))
+print("=" * 80)
 from ingestion.parser import parse_excel_first_sheet
 
 # ✅ Gemini v1 SDK
@@ -861,11 +865,18 @@ async def openai_upload_file(
 
             supabase.storage.from_("content library").remove([source_storage_path])
 
+            print("ATTEMPTING SOURCE FILE UPLOAD")
+            print("PATH:", source_storage_path)
+            print("FILENAME:", file.filename)
+
             upload_source = supabase.storage.from_("content library").upload(
                 source_storage_path,
                 file_bytes,
                 {"content-type": file.content_type or "application/octet-stream"}
             )
+            
+            print("STEP 2")
+            print(upload_source)    
 
             if hasattr(upload_source, "error") and upload_source.error:
                 raise Exception(f"Failed to upload source file: {upload_source.error}")

@@ -404,7 +404,7 @@ async def POST(request: Request):
             set_cache(
                 cache_key,
                 response_payload,
-                expire_seconds=3600
+                ttl=3600
             )
 
             return JSONResponse(content=response_payload)
@@ -1035,7 +1035,7 @@ async def POST(request: Request):
         set_cache(
             cache_key,
             response_payload,
-            expire_seconds=3600
+            ttl=3600
         )
         return JSONResponse(content=response_payload)
 
