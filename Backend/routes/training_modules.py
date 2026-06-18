@@ -183,13 +183,45 @@ async def create_module(
     """
     module_data = request.dict()
     result = await create_training_module(user_id, module_data, auth_claims=auth_ctx.claims)
+    
+    if result["error"]:
+        error_message = result["error"]
 
-    module = result["data"]
-    company_id = module.get("company_id")
+        if (
+            isinstance(error_message, str)
+            and error_message.startswith(
+                "RATE_LIMIT_EXCEEDED:"
+            )
+        ):
+            raise HTTPException(
+                status_code=429,
+                detail=error_message.replace(
+                    "RATE_LIMIT_EXCEEDED:",
+                    ""
+                ).strip()
+            )
+
+        raise HTTPException(
+            status_code=403,
+            detail=error_message
+        )
+
+    module = (
+        result["data"][0]
+        if result["data"]
+        else None
+    )
+
+    company_id = (
+        module.get("company_id")
+        if module
+        else None
+    )
+
     if company_id:
         redis_client.delete(
-        f"company_modules:training_modules:{company_id}:processing_status=None:review_stage=None"
-    )
+            f"company_modules:training_modules:{company_id}:processing_status=None:review_stage=None"
+        )
             
     if result["error"]:
         error_message = result["error"]
@@ -199,7 +231,7 @@ async def create_module(
 
     return {
         "message": "Training module created successfully",
-        "module": result["data"]
+        "module": module
     }
 
 
@@ -226,10 +258,18 @@ async def update_module(
             f"training_module:{module_id}"
         )
 
-    module = result["data"]
+    module = (
+        result["data"][0]
+        if result["data"]
+        else None
+    )
 
-    company_id = module.get("company_id")
-
+    company_id = (
+        module.get("company_id")
+        if module
+        else None
+    )
+    
     if company_id:
             redis_client.delete(
                 f"company_modules:{company_id}:None:None"
@@ -271,9 +311,17 @@ async def update_processing_status(
         f"training_module:{module_id}"
     )
 
-    module = result["data"]
+    module = (
+        result["data"][0]
+        if isinstance(result["data"], list) and result["data"]
+        else result["data"]
+    )
 
-    company_id = module.get("company_id")
+    company_id = (
+        module.get("company_id")
+        if module
+        else None
+    )
 
     if company_id:
         redis_client.delete(
