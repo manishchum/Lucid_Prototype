@@ -420,7 +420,7 @@ def resolve_user_context_from_claims(
         client,
         email=email,
         firebase_uid=firebase_uid,
-        phone_number=phone_number
+        phone_number=phone_number,
         claims=claims,
         token_exp=token_exp,
     )
@@ -586,7 +586,7 @@ def create_user_scoped_supabase_client_from_claims(
     refresh_window_seconds: Optional[int] = None,
     now: Optional[datetime] = None,
 ) -> Tuple[Client, BridgeUserContext, str, datetime, bool]:
-    email, firebase_uid, _ = _extract_firebase_identity(claims)
+    email, firebase_uid, phone_number, token_exp = _extract_firebase_identity(claims)
     context = resolve_user_context_from_claims(claims, fail_fast=True)
     if not context:
         raise BridgeResolutionError(
