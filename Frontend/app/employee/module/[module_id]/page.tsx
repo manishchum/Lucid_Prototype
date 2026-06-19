@@ -11,9 +11,11 @@ import FlashcardCards from '@/components/FlashcardCards'
 import MindmapViewer from '@/components/MindmapViewer'
 import clsx from "clsx";
 import { useAuth } from "@/contexts/auth-context";
+import { useTenant, FEATURES } from "@/contexts/tenant-context";
 import jsPDF from 'jspdf';
 import VoiceInput from '@/components/VoiceInput';
 import VoiceOutput from '@/components/VoiceOutput';
+import { FeatureGate } from "@/components/feature-gate";
 import { callGemini } from "@/lib/gemini-helper";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { MediaAwareHtml } from '@/lib/module-media-embeds';
@@ -317,16 +319,18 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
 
                 <ContentCards content={module.content || ''} />
 
-                <div className="rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden mt-10">
-                  <div className="p-4 sm:p-6 h-[22rem] sm:h-96 overflow-y-auto bg-gray-50">
-                    {userChatHistory.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center h-full text-center">
-                        <div className="text-6xl mb-4">💬</div>
-                        <h3 className="text-lg font-semibold text-gray-700 mb-2">Ask me anything about this module!</h3>
-                        <p className="text-sm text-gray-500">I can help clarify concepts, provide examples, or answer questions.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
+                {/* Chat Section - Only visible for Tier 2+ */}
+                <FeatureGate feature={FEATURES.CHAT_IN_STUDIO}>
+                  <div className="rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden mt-10">
+                    <div className="p-4 sm:p-6 h-[22rem] sm:h-96 overflow-y-auto bg-gray-50">
+                      {userChatHistory.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full text-center">
+                          <div className="text-6xl mb-4">💬</div>
+                          <h3 className="text-lg font-semibold text-gray-700 mb-2">Ask me anything about this module!</h3>
+                          <p className="text-sm text-gray-500">I can help clarify concepts, provide examples, or answer questions.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
                         {userChatHistory.map((msg, idx) => {
                           // Determine if TTS should be enabled for this bot reply
                           // TTS is enabled if this is the most recent assistant message
@@ -430,6 +434,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                     </form>
                   </div>
                 </div>
+                </FeatureGate>
               </div>
             </main>
           </div>

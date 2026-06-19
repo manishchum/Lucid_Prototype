@@ -26,6 +26,8 @@ import { useTasks } from "@/hooks/useTasks";
 import { submitTaskResponse } from "@/lib/taskApi";
 import type { SubmitTaskPayload, Task } from "@/lib/taskApi";
 import type { AssignedTask, AssignmentLevel, SubmissionFormat } from "@/types/task";
+import { FeatureGate } from "@/components/feature-gate";
+import { FEATURES } from "@/contexts/tenant-context";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const DEFAULT_QUIZ_THRESHOLD = 80;
@@ -1195,15 +1197,89 @@ const handleGenerateCertificate = (sprintId: string) => {
             )}
 
              {/* Assigned Modules */}
-            <AssignedSprintsSection
-              assignedModules={assignedModules}
-              moduleProgress={moduleProgress}
-              plans ={plans}
-              userId={employee?.user_id || ""}
-              companyId={effectiveCompanyId}
-              isLocked={companyLearningStyleEnabled && !learningStyle}
-              onGenerateCertificate={handleGenerateCertificate}
-            />
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <button
+                onClick={() => setActiveHomeTab("sprints")}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold border transition-colors ${
+                  activeHomeTab === "sprints"
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                Assigned Sprints
+                <span
+                  className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    activeHomeTab === "sprints"
+                      ? "bg-white/20 text-white"
+                      : "bg-slate-100 text-slate-700"
+                  }`}
+                >
+                  {assignedModules.length}
+                </span>
+              </button>
+              
+              {/* Assigned Tasks - Only visible for Tier 3 */}
+              <FeatureGate feature={FEATURES.TASK_MANAGEMENT}>
+                <button
+                  onClick={() => setActiveHomeTab("tasks")}
+                  className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold border transition-colors ${
+                    activeHomeTab === "tasks"
+                      ? "bg-slate-900 text-white border-slate-900"
+                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  Assigned Tasks
+                  <span
+                    className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      activeHomeTab === "tasks"
+                        ? "bg-white/20 text-white"
+                        : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {tasks.length}
+                  </span>
+                </button>
+              </FeatureGate>
+            </div>
+
+            {activeHomeTab === "sprints" ? (
+              <AssignedSprintsSection
+                assignedModules={assignedModules}
+                moduleProgress={moduleProgress}
+                plans ={plans}
+                userId={employee?.user_id || ""}
+                companyId={effectiveCompanyId}
+                isLocked={companyLearningStyleEnabled && !learningStyle}
+                onGenerateCertificate={handleGenerateCertificate}
+              />
+            ) : (
+              <FeatureGate feature={FEATURES.TASK_MANAGEMENT}>
+                <div className="space-y-8">
+                  {tasksLoading ? (
+                    <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+                      <CardContent className="p-6 text-sm text-slate-500">Loading tasks...</CardContent>
+                    </Card>
+                  ) : tasksError ? (
+                    <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+                      <CardContent className="p-6 text-sm text-red-600 font-medium">{tasksError}</CardContent>
+                    </Card>
+                  ) : assignedTaskItems.length === 0 ? (
+                    <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+                      <CardContent className="p-6 text-sm text-slate-500">No tasks assigned</CardContent>
+                    </Card>
+                  ) : (
+                    <TaskDashboard
+                      assignedTasks={assignedTaskItems}
+                      onStartCreateTask={() => {}}
+                      userRole="employee"
+                      onSubmitTaskResponse={handleTaskSubmitResponse}
+                      onTaskSubmitted={handleTaskSubmitted}
+                    />
+                  )}
+
+                </div>
+              </FeatureGate>
+            )}
 
              {/* Progress History */}
              {/* <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">

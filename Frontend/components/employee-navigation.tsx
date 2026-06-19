@@ -8,7 +8,7 @@ import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
-import { useTenant } from "@/contexts/tenant-context";
+import { useTenant, FEATURES } from "@/contexts/tenant-context";
 import CompanySelector from "@/components/company-selector";
 
 interface EmployeeNavigationProps {
@@ -28,7 +28,7 @@ const EmployeeNavigation = ({
   const router = useRouter();
   const pathname = usePathname();
   const { user: authUser, logout, userRoles, isAdmin, isSuperAdmin, isDeveloper, isManager, employeeData, loading, rolesLoaded } = useAuth();
-  const { activeCompany } = useTenant();
+  const { activeCompany, hasFeature } = useTenant();
   
   // Existing Logic States
   const [isCollapsed, setIsCollapsed] = useState(forceCollapsed);
@@ -309,7 +309,8 @@ const EmployeeNavigation = ({
               </div>
             )}
           </div>
-            <div className="relative group">
+          {/* SprintVerse - always available (tier 1) */}
+          <div className="relative group">
             <button 
               onClick={() => handleNavigate('/employee/skill-upgrade')}
               className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/skill-upgrade') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
@@ -317,18 +318,22 @@ const EmployeeNavigation = ({
               <Award size={20} className="shrink-0" />
               {!isCollapsed && <span className="text-[15px] font-bold">SprintVerse</span>}
             </button>
-            {isCollapsed && <NavTooltip label="Skill Upgrade" />}
+            {isCollapsed && <NavTooltip label="SprintVerse" />}
           </div>
-          <div className="relative group">
-            <button 
-              onClick={() => handleNavigate('/employee/roleplay')}
-              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/roleplay') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
-            >
-              <UsersRound size={20} className="shrink-0" />
-              {!isCollapsed && <span className="text-[15px] font-bold">Role-Play</span>}
-            </button>
-            {isCollapsed && <NavTooltip label="Role-Play" />}
-          </div>
+
+          {/* Role Play - gated by role_play addon */}
+          {hasFeature(FEATURES.ROLE_PLAY) && (
+            <div className="relative group">
+              <button 
+                onClick={() => handleNavigate('/employee/roleplay')}
+                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/roleplay') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+              >
+                <UsersRound size={20} className="shrink-0" />
+                {!isCollapsed && <span className="text-[15px] font-bold">Role-Play</span>}
+              </button>
+              {isCollapsed && <NavTooltip label="Role-Play" />}
+            </div>
+          )}
 
 
 
@@ -373,7 +378,9 @@ const EmployeeNavigation = ({
                 <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
                   {[
                       { href: "/admin/dashboard/analytics", label: "Analytics", icon: BarChart3 },
-                      { href: "/task-manager", label: "Task Management", icon: ListChecks },
+                      ...(isDeveloper ? [{ href: "/admin/dashboard/company-access", label: "Company Access", icon: Building2 }] : []),
+                      // Task Management - only if tier_3
+                      ...(hasFeature(FEATURES.TASK_MANAGEMENT) ? [{ href: "/task-manager", label: "Task Management", icon: ListChecks }] : []),
                       ...(isManagerOnlyConsole ? [] : [
                         // { href: "/task-manager?create=true", label: "Create Task", icon: Plus },
                         { href: "/admin/dashboard/employees", label: "Assign Sprints", icon: Users },
@@ -406,8 +413,8 @@ const EmployeeNavigation = ({
             </div>
           )}
 
-          {/* KPI Panel - visible only for Super Admin */}
-          {mounted && isSuperAdmin && (
+          {/* KPI Panel - visible only when KPI add-on is enabled */}
+          {hasFeature(FEATURES.KPI) && mounted && isSuperAdmin &&(
             <div className="relative group">
               <button 
                 onClick={() => isCollapsed ? handleNavigate('/kpi/intelligence') : setKpiDropdownOpen(!kpiDropdownOpen)} 
