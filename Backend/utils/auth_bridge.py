@@ -165,9 +165,22 @@ def _normalize_email(email: Optional[str]) -> str:
 
 def _extract_firebase_identity(claims: Dict[str, Any]) -> Tuple[str, str, Optional[Any]]:
     email = _normalize_email(claims.get("email"))
-    firebase_uid = str(claims.get("uid") or claims.get("user_id") or claims.get("sub") or "").strip()
+
+    firebase_uid = str(
+        claims.get("uid")
+        or claims.get("user_id")
+        or claims.get("sub")
+        or ""
+    ).strip()
+
+    phone_number = str(
+        claims.get("phone_number")
+        or ""
+    ).strip()
+
     token_exp = claims.get("exp")
-    return email, firebase_uid, token_exp
+
+    return email, firebase_uid, phone_number, token_exp
 
 
 def _build_user_lookup_query(client: Client):
@@ -179,6 +192,7 @@ def _resolve_user_context_by_identity(
     *,
     email: str,
     firebase_uid: str,
+    phone_number: str,
     claims: Dict[str, Any],
     token_exp: Optional[Any],
 ) -> Optional[BridgeUserContext]:
@@ -187,6 +201,8 @@ def _resolve_user_context_by_identity(
         search_order.append(("firebase_uid", firebase_uid))
     if email:
         search_order.append(("email", email))
+    if phone_number:
+        search_order.append(("phone", phone_number))
 
     lookup_errors = []
 
@@ -228,6 +244,54 @@ def _resolve_user_context_by_identity(
                 else:
                     response = None
 
+            elif column == "phone":
+
+                response = (
+                    client
+                    .table("users")
+                    .select(
+                        "user_id,email,company_id,firebase_uid,is_active"
+                    )
+                    .eq("phone", value)
+                    .eq("is_active", True)
+                    .limit(1)
+                    .execute()
+                )
+
+                rows = getattr(response, "data", None) or []
+
+                if rows:
+
+                    row = rows[0]
+
+                    user_id = row.get("user_id")
+
+                    # AUTO CREATE MAPPING
+                    try:
+
+                        client.table(
+                            "user_firebase_uids"
+                        ).upsert(
+                            {
+                                "user_id": user_id,
+                                "firebase_uid": firebase_uid,
+                                "provider": "phone"
+                            },
+                            on_conflict="firebase_uid"
+                        ).execute()
+
+                        print(
+                            f"[PHONE MAPPING CREATED] "
+                            f"user_id={user_id} "
+                            f"firebase_uid={firebase_uid}"
+                        )
+
+                    except Exception as e:
+
+                        print(
+                            f"[PHONE MAPPING FAILED] {e}"
+                        )
+                        
             else:
 
                 response = (
@@ -321,7 +385,7 @@ def resolve_user_context_from_claims(
     *,
     fail_fast: bool = True,
 ) -> Optional[BridgeUserContext]:
-    email, firebase_uid, token_exp = _extract_firebase_identity(claims)
+    email, firebase_uid, phone_number, token_exp = _extract_firebase_identity(claims)
     cache_key = (f"auth:{firebase_uid}")
     cached = get_cache(cache_key)
     if cached:
@@ -356,6 +420,7 @@ def resolve_user_context_from_claims(
         client,
         email=email,
         firebase_uid=firebase_uid,
+        phone_number=phone_number
         claims=claims,
         token_exp=token_exp,
     )
