@@ -7,6 +7,7 @@ import os
 import config
 from PIL import Image as PILImage
 import uuid
+from utils.supabase_client import supabase_admin
 
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY") or os.getenv("SUPABASE_ANON_KEY")
@@ -116,7 +117,7 @@ def insert_image_to_supabase(doc_id, chunk_id, image, ocr_text, source_type="tra
 
     file_path = f"{doc_id}/images/{chunk_id}_{uuid.uuid4()}.png"
     try:
-        supabase.storage.from_(BUCKET).upload(
+        supabase_admin.storage.from_(BUCKET).upload(
             file_path,
             image_bytes.getvalue(),
             {"content-type": "image/png"}
