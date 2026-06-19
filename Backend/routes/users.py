@@ -13,6 +13,7 @@ from utils.db.users_db import (
     delete_user,
     get_users_by_filter,
     DEFAULT_PASSWORD,
+    normalize_phone,
 )
 from utils.db.companies_db import get_company_by_id
 
@@ -66,6 +67,20 @@ def _ensure_firebase_and_persist_uid(created_payload, request_password: Optional
             .eq("user_id", user_id)
             .execute()
         )
+        # --------------------------------------------------
+        # Ensure mapping table is populated for all users
+        # --------------------------------------------------
+
+        service_client.table(
+            "user_firebase_uids"
+        ).upsert(
+            {
+                "user_id": user_id,
+                "firebase_uid": firebase_uid,
+                "provider": "email"
+            },
+            on_conflict="firebase_uid"
+        ).execute()
         updated_data = getattr(update_res, "data", None)
         if isinstance(updated_data, list) and updated_data:
             return updated_data
@@ -245,6 +260,11 @@ async def create_user_endpoint(
     """Create a new user (requires authentication and authorization)."""
     user_data = request.dict()
     # NOTE: hash password before storing in production
+    if user_data.get("phone"):
+        from utils.db.users_db import normalize_phone
+        user_data["phone"] = normalize_phone(
+            user_data["phone"]
+        )
     result = await create_user(auth_ctx.user_id, user_data)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
@@ -273,6 +293,11 @@ async def update_user_endpoint(
 ):
     """Update user details."""
     updates = {k: v for k, v in request.dict().items() if v is not None}
+    if updates.get("phone"):
+        from utils.db.users_db import normalize_phone
+        updates["phone"] = normalize_phone(
+            updates["phone"]
+        )
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     result = await update_user(auth_ctx.user_id, target_user_id, updates)
@@ -345,11 +370,74 @@ async def get_user_by_phone_route(
     auth_ctx: RequestAuth = Depends(get_request_auth_optional),
 ):
     requesting_user_id = auth_ctx.user_id
-    result = await get_user_by_phone(requesting_user_id, phone, auth_ctx.claims)
-    
-    # result is {"data": user, "error": ...} from the service layer
+
+    normalized_phone = normalize_phone(phone)
+
+    result = await get_user_by_phone(
+        requesting_user_id,
+        normalized_phone,
+        auth_ctx.claims
+    )
+
     user_data = result.get("data")
-    
+
+    # --------------------------------------------------
+    # Auto-link phone-auth Firebase UID to Lucid user
+    # --------------------------------------------------
+    try:
+
+        if (
+            user_data
+            and auth_ctx.claims
+            and auth_ctx.claims.get("uid")
+        ):
+
+            firebase_uid = str(
+                auth_ctx.claims.get("uid")
+            )
+
+            user_id = str(
+                user_data.get("user_id")
+            )
+
+            service_client = get_service_supabase_client()
+
+            existing = (
+                service_client
+                .table("user_firebase_uids")
+                .select("id")
+                .eq("firebase_uid", firebase_uid)
+                .limit(1)
+                .execute()
+            )
+
+            existing_rows = (
+                getattr(existing, "data", None)
+                or []
+            )
+
+            if not existing_rows:
+
+                service_client.table(
+                    "user_firebase_uids"
+                ).upsert({
+                    "user_id": user_id,
+                    "firebase_uid": firebase_uid,
+                    "provider": "phone"
+                }).execute()
+
+                print(
+                    f"[PHONE AUTH LINKED] "
+                    f"user_id={user_id} "
+                    f"firebase_uid={firebase_uid}"
+                )
+
+    except Exception as e:
+
+        print(
+            f"[PHONE AUTH LINK ERROR] {e}"
+        )
+
     return {
         "success": True,
         "user": user_data,

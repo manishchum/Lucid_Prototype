@@ -192,24 +192,74 @@ def _resolve_user_context_by_identity(
 
     for column, value in search_order:
         try:
-            query = _build_user_lookup_query(client)
-            if column == "email":
-                response = query.ilike("email", value).eq("is_active", True).limit(1).execute()
+
+            # -------------------------------
+            # NEW Firebase UID Mapping Logic
+            # -------------------------------
+            if column == "firebase_uid":
+
+                mapping_response = (
+                    client
+                    .table("user_firebase_uids")
+                    .select("user_id")
+                    .eq("firebase_uid", value)
+                    .limit(1)
+                    .execute()
+                )
+
+                mapping_rows = getattr(mapping_response, "data", None) or []
+
+                if mapping_rows:
+
+                    mapped_user_id = mapping_rows[0].get("user_id")
+
+                    response = (
+                        client
+                        .table("users")
+                        .select(
+                            "user_id,email,company_id,firebase_uid,is_active"
+                        )
+                        .eq("user_id", mapped_user_id)
+                        .eq("is_active", True)
+                        .limit(1)
+                        .execute()
+                    )
+
+                else:
+                    response = None
+
             else:
-                response = query.eq(column, value).eq("is_active", True).limit(1).execute()
+
+                response = (
+                    _build_user_lookup_query(client)
+                    .ilike("email", value)
+                    .eq("is_active", True)
+                    .limit(1)
+                    .execute()
+                )
 
             rows = getattr(response, "data", None) or []
+
             if rows:
+
                 row = rows[0]
+
                 user_id = str(row.get("user_id") or "").strip()
-                row_email = _normalize_email(row.get("email") or email)
+
+                row_email = _normalize_email(
+                    row.get("email") or email
+                )
+
                 if user_id and row_email:
-                    company_id = str(row.get("company_id")) if row.get("company_id") else None
-                    resolved_firebase_uid = (
-                        str(row.get("firebase_uid") or firebase_uid)
-                        if (row.get("firebase_uid") or firebase_uid)
+
+                    company_id = (
+                        str(row.get("company_id"))
+                        if row.get("company_id")
                         else None
                     )
+
+                    resolved_firebase_uid = firebase_uid
+
                     log_bridge_event(
                         "bridge_user_resolved",
                         firebase_uid=resolved_firebase_uid,
@@ -218,6 +268,7 @@ def _resolve_user_context_by_identity(
                         token_exp=token_exp,
                         lookup_column=column,
                     )
+
                     return BridgeUserContext(
                         user_id=user_id,
                         email=row_email,
@@ -225,8 +276,11 @@ def _resolve_user_context_by_identity(
                         firebase_uid=resolved_firebase_uid,
                         claims=claims,
                     )
+
         except Exception as exc:
+
             lookup_errors.append(f"{column}: {exc}")
+
             log_bridge_event(
                 "bridge_lookup_error",
                 level="warning",
@@ -237,7 +291,7 @@ def _resolve_user_context_by_identity(
                 lookup_column=column,
                 reason=str(exc),
             )
-
+    
     reason: Optional[str]
     if lookup_errors:
         reason = (
