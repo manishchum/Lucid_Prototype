@@ -9,6 +9,29 @@ DEFAULT_PASSWORD = "workfloww@2025"
 
 # ==================== USER/EMPLOYEE OPERATIONS ====================
 
+import re
+
+def normalize_phone(phone: str) -> str:
+    if not phone:
+        return ""
+
+    digits = re.sub(r"\D", "", str(phone))
+
+    # 07404336860
+    if digits.startswith("0") and len(digits) == 11:
+        digits = digits[1:]
+
+    # 7404336860
+    if len(digits) == 10:
+        return f"+91{digits}"
+
+    # 917404336860
+    if digits.startswith("91") and len(digits) == 12:
+        return f"+{digits}"
+
+    # fallback
+    return f"+{digits}"
+
 async def get_user_by_email(requesting_user_id: Optional[str], email: str, auth_claims: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Return user by email. If requesting_user_id is None, allow lookup for auth bootstrap.
@@ -65,7 +88,31 @@ async def get_user_by_phone(requesting_user_id: Optional[str], phone: str, auth_
             query_client = get_service_supabase_client()
 
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
-        resp = query_client.table('users').select('*').eq('phone', phone).eq('is_active', True).limit(1).execute()
+        normalized_phone = normalize_phone(phone)
+
+        possible_formats = [
+            normalized_phone,
+        ]
+
+        digits = normalized_phone.replace("+91", "")
+
+        possible_formats.extend([
+            digits,
+            f"0{digits}",
+            f"91{digits}"
+        ])
+
+        possible_formats = list(set(possible_formats))
+
+        resp = (
+            query_client
+            .table("users")
+            .select("*")
+            .in_("phone", possible_formats)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
         rows = resp.data if hasattr(resp, 'data') else []
         user = rows[0] if rows else None
         if auth_claims and user and requesting_user_id and str(user.get("user_id")) != str(requesting_user_id):

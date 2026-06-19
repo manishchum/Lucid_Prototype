@@ -5,7 +5,7 @@ export async function analyzePhoto(
 
   const res =
   await fetch(
-    "http://localhost:8000/api/photo-analysis",
+    "http://localhost:8000/api/photo-analysis/",
     {
      method:"POST",
      headers:{
