@@ -1,18 +1,12 @@
-import os
 import json
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from supabase import create_client, Client
 from utils.auth import get_request_auth_required_from_request
+from utils.supabase_client import supabase
 from utils.welcome_notifications import send_sprint_completion_email
 
 router = APIRouter()
-
-supabase: Client = create_client(
-    os.environ["NEXT_PUBLIC_SUPABASE_URL"],
-    os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-)
 
 
 @router.post("/module-progress")
@@ -97,7 +91,7 @@ async def POST(request: Request):
                 pm_res = supabase.table("processed_modules") \
                     .select("original_module_id") \
                     .eq("processed_module_id", processed_module_id) \
-                    .single() \
+                    .maybe_single() \
                     .execute()
 
                 processedModule = pm_res.data

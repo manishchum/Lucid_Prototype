@@ -1,6 +1,7 @@
 from typing import Dict, Any, List, Optional
 from .supabase_client import supabase
 from fastapi import HTTPException
+import uuid as _uuid
 
 # ==================== PERMISSION HELPERS ====================
 
@@ -11,6 +12,30 @@ async def check_user_permission(user_id: str, required_role: str) -> bool:
     - Accepts synonyms for common role names (e.g. 'company_admin' -> ADMIN).
     """
     try:
+        # If caller provided a Firebase UID (legacy X-User-ID), try to resolve it
+        # to the internal `users.user_id` (UUID) to avoid invalid UUID errors
+        # when querying DB columns typed as uuid.
+        def _is_uuid(val: str) -> bool:
+            try:
+                _uuid.UUID(str(val))
+                return True
+            except Exception:
+                return False
+
+        def _resolve_firebase_uid_to_user_id(val: str) -> str:
+            if _is_uuid(val):
+                return val
+            try:
+                resp = supabase.table('users').select('user_id').eq('firebase_uid', val).maybe_single().execute()
+                data = getattr(resp, 'data', None)
+                if isinstance(data, dict) and data.get('user_id'):
+                    return str(data.get('user_id'))
+            except Exception as e:
+                print(f"[db_operations] firebase_uid lookup failed: {e}")
+            return val
+
+        user_id = _resolve_firebase_uid_to_user_id(user_id)
+
         # normalize required_role to a level
         role_aliases = {
             'super_admin': 4, 'SUPER_ADMIN': 4, 'SUPERADMIN': 4, 'ceo': 4, 'CEO': 4,
@@ -58,6 +83,28 @@ async def check_company_access(user_id: str, company_id: str) -> bool:
     Ensure the user belongs to the given company_id.
     """
     try:
+        # resolve firebase uid fallback to internal user_id
+        def _is_uuid(val: str) -> bool:
+            try:
+                _uuid.UUID(str(val))
+                return True
+            except Exception:
+                return False
+
+        def _resolve_firebase_uid_to_user_id(val: str) -> str:
+            if _is_uuid(val):
+                return val
+            try:
+                resp = supabase.table('users').select('user_id').eq('firebase_uid', val).maybe_single().execute()
+                data = getattr(resp, 'data', None)
+                if isinstance(data, dict) and data.get('user_id'):
+                    return str(data.get('user_id'))
+            except Exception as e:
+                print(f"[db_operations] firebase_uid lookup failed: {e}")
+            return val
+
+        user_id = _resolve_firebase_uid_to_user_id(user_id)
+
         resp = supabase.table('users').select('company_id').eq('user_id', user_id).single().execute()
         if not resp.data:
             return False

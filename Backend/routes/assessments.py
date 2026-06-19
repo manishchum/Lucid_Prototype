@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, Any, Dict
-from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 
 from utils.db.assessments_db import (
     create_assessment,
@@ -11,7 +11,8 @@ from utils.db.assessments_db import (
     get_baseline_assessment,
     get_module_assessment,
     update_assessment,
-    delete_assessment
+    delete_assessment,
+    get_assessments_batch
 )
 
 from utils.exceptions import NotFoundError, ValidationError
@@ -37,6 +38,8 @@ class UpdateAssessmentRequest(BaseModel):
     learning_style: Optional[str] = None
     original_module_id: Optional[str] = None
 
+class BatchAssessmentRequest(BaseModel):
+    assessment_ids: list[str]
 
 @router.post("/")
 async def create_assessment_endpoint(
@@ -59,6 +62,23 @@ async def create_assessment_endpoint(
         "error": result.get("error")
     }
 
+@router.post("/batch")
+async def get_assessments_batch_endpoint(
+    request: BatchAssessmentRequest,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    result = await get_assessments_batch(
+        auth_ctx.user_id,
+        request.assessment_ids
+    )
+
+    assessments = result.get("data") or []
+
+    return {
+        "success": True,
+        "data": result.get("data") or [],
+        "error": result.get("error")
+    }
 
 @router.get("/{assessment_id}")
 async def get_assessment_endpoint(
@@ -85,13 +105,14 @@ async def get_assessment_endpoint(
 async def get_company_assessments_endpoint(
     company_id: str,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id),
     type: Optional[str] = Query(None, description="Filter by assessment type (baseline/module)")
 ):
     """
     Get all assessments for a company, optionally filtered by type.
     Permission: Manager+ in the company.
     """
-    result = await get_assessments_by_company(auth_ctx.user_id, company_id, type)
+    result = await get_assessments_by_company(auth_ctx.user_id, effective_company_id, type)
     
     # Unwrap service layer response
     assessments = result.get("data") or []

@@ -6,14 +6,9 @@ import httpx
 from datetime import datetime
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from supabase import create_client, Client
+from utils.supabase_client import supabase
 
 router = APIRouter()
-
-supabase: Client = create_client(
-    os.environ["NEXT_PUBLIC_SUPABASE_URL"],
-    os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-)
 
 COMMON_GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-pro"]
 

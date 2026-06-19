@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChevronDown, BookOpen } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
-import { supabase } from "@/lib/supabase";
+// import { supabase } from "@/lib/supabase";
 import { sharedDataClient, createCacheKey } from "@/lib/data-client";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import RolePlayReports from "@/components/roleplay/RolePlayReports";
+import TaskReports from "@/components/task-manager/TaskReports";
 
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -254,7 +255,7 @@ export default function ScoreHistoryPage() {
   const [learningStyleData, setLearningStyleData] = useState<any>(null);
   const [companyUsesLearningStyle, setCompanyUsesLearningStyle] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'assessments' | 'roleplay'>('assessments');
+  const [activeTab, setActiveTab] = useState<'assessments' | 'roleplay' | 'tasks'>('assessments');
   // State to track which items are expanded (must be declared at the top level)
   const [expanded, setExpanded] = useState<{ [key: number]: boolean }>({});
   const [learningStyleExpanded, setLearningStyleExpanded] = useState<boolean>(false);
@@ -293,7 +294,8 @@ export default function ScoreHistoryPage() {
         path: "/employee/me",
       }),
       async () => {
-        const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+        const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`,
+      {headers:{ "X-User-ID": authEmployeeData?.user_id || "" }});
         if (!res.ok) {
           throw new Error("Failed to fetch employee");
         }
@@ -324,7 +326,7 @@ export default function ScoreHistoryPage() {
         path: `/company/${employee.company_id}`,
       }),
       async () => {
-        const res = await fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employee.company_id)}`);
+        const res = await fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employee.company_id)}`,{headers:{ "X-User-ID": employee.user_id }});
         if (!res.ok) {
           throw new Error("Failed to fetch company");
         }
@@ -365,6 +367,16 @@ export default function ScoreHistoryPage() {
     const assessments = assessmentsPayload?.data?.assessments ?? assessmentsPayload?.assessments ?? 
       (Array.isArray((assessmentsPayload as any)?.data) ? (assessmentsPayload as any).data : []);
 
+    // console.log("[score-history] assessments payload", assessmentsPayload);
+    // console.log(
+    //   "[score-history] assessments sample",
+    //   (assessments || []).slice(0, 5).map((ea: any) => ({
+    //     assessment_id: ea?.assessment_id,
+    //     type: ea?.assessments?.type,
+    //     processed_module_id: ea?.assessments?.processed_module_id,
+    //   })),
+    // );
+
     const assessmentIds: string[] = Array.from(
       new Set<string>(
         assessments
@@ -386,13 +398,25 @@ export default function ScoreHistoryPage() {
         query: { ids: assessmentIds },
       }),
       async () => {
-        const promises = assessmentIds.map((id) =>
-          fetchWithAuth(`${API_BASE}/api/assessments/${encodeURIComponent(id)}`, {
-            headers: { "X-User-ID": employee.user_id },
-          }).then((r) => (r.ok ? r.json() : null)),
+        const res = await fetchWithAuth(
+          `${API_BASE}/api/assessments/batch`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-User-ID": employee.user_id,
+            },
+            body: JSON.stringify({
+              assessment_ids: assessmentIds,
+            }),
+          }
         );
 
-        return Promise.all(promises);
+        if (!res.ok) {
+          throw new Error("Failed to fetch assessment details");
+        }
+
+        return res.json();
       },
       {
         ttlMs: 5 * 60 * 1000,
@@ -400,23 +424,41 @@ export default function ScoreHistoryPage() {
     );
 
     const assessmentMap = new Map<string, any>();
-    (Array.isArray(detailsPayload) ? detailsPayload : []).forEach((payload: any) => {
+    const assessmentsData =
+      detailsPayload?.data ||
+      [];
+
+    assessmentsData.forEach((payload: any) => {
       const assessment = payload?.data?.assessment ?? payload?.data ?? payload?.assessment ?? payload;
       if (assessment?.assessment_id) {
         assessmentMap.set(String(assessment.assessment_id), assessment);
       }
     });
 
-    return assessments.map((ea: any) => ({
-      ...ea,
-      assessments: assessmentMap.get(String(ea.assessment_id)) || null,
-    }));
+    return assessments.map((ea: any) => {
+      const mapped = assessmentMap.get(String(ea.assessment_id));
+      return {
+        ...ea,
+        assessments: mapped || ea?.assessments || null,
+      };
+    });
   };
 
   const getModules = async (employee: any, assessments: any[]) => {
+    // console.log("[score-history] getModules input", {
+    //   count: Array.isArray(assessments) ? assessments.length : "not-array",
+    //   sample: (Array.isArray(assessments) ? assessments : []).slice(0, 5).map((ea: any) => ({
+    //     assessment_id: ea?.assessment_id,
+    //     type: ea?.assessments?.type,
+    //     processed_module_id: ea?.assessments?.processed_module_id,
+    //   })),
+    // });
+
     const moduleIds = (assessments || [])
       .filter((a: any) => a?.assessments?.type === "module" && a.assessments?.processed_module_id)
       .map((a: any) => String(a.assessments.processed_module_id));
+
+    // console.log("[score-history] module IDs for title lookup", moduleIds);
 
     if (!moduleIds.length) {
       return assessments;
@@ -450,6 +492,8 @@ export default function ScoreHistoryPage() {
       },
     );
 
+    // console.log("[score-history] processed-modules response", modulesPayload);
+
     const mods = modulesPayload?.data?.modules ?? modulesPayload?.data ?? modulesPayload?.modules ?? modulesPayload ?? [];
     const titleMap = new Map<string, string>();
     (Array.isArray(mods) ? mods : []).forEach((m: any) => {
@@ -458,6 +502,8 @@ export default function ScoreHistoryPage() {
       }
     });
 
+    // console.log("[score-history] processed-modules title map", Array.from(titleMap.entries()));
+
     return assessments.map((a: any) => {
       if (a?.assessments?.type !== "module") {
         return a;
@@ -465,6 +511,11 @@ export default function ScoreHistoryPage() {
 
       const pid = String(a.assessments?.processed_module_id || "");
       const title = pid ? titleMap.get(pid) : undefined;
+      // console.log("[score-history] module title resolved", {
+      //   processed_module_id: pid,
+      //   title,
+      //   assessment_id: a?.assessment_id,
+      // });
       return { ...a, assessments: { ...a.assessments, module_title: title } };
     });
   };
@@ -477,13 +528,18 @@ export default function ScoreHistoryPage() {
         path: "/learning-style",
       }),
       async () => {
-        const { data } = await supabase
-          .from("employee_learning_style")
-          .select("learning_style, gpt_analysis, gemini_analysis, scores, updated_at")
-          .eq("user_id", employee.user_id)
-          .single();
-
-        return data ?? null;
+        try {
+          const res = await fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${employee.user_id}`, {
+            headers: { "X-User-ID": employee.user_id }
+          });
+          if (res.ok) {
+            const result = await res.json();
+            return result?.data || result || null;
+          }
+        } catch (e) {
+          console.error("Error fetching learning style", e);
+        }
+        return null;
       },
       {
         ttlMs: 10 * 60 * 1000,
@@ -504,10 +560,16 @@ export default function ScoreHistoryPage() {
       setEmployeeId(employee.user_id);
       setEmployeeName(employee.name || "");
 
-      const company = await getCompany(employee);
-      const assessments = await getAssessments(employee);
+      // const company = await getCompany(employee);
+      // const assessments = await getAssessments(employee);
+      // // console.log("[score-history] fetchAllData assessments", {
+      // //   count: Array.isArray(assessments) ? assessments.length : "not-array",
+      // // });
+      // const assessmentsWithModules = await getModules(employee, assessments);
+      // const learningStyle = await getLearningStyle(employee);
+
+      const [company, assessments, learningStyle] = await Promise.all([ getCompany(employee), getAssessments(employee), getLearningStyle(employee) ]);
       const assessmentsWithModules = await getModules(employee, assessments);
-      const learningStyle = await getLearningStyle(employee);
 
       setCompanyUsesLearningStyle(Boolean(company?.learning_style));
       setScoreHistory(assessmentsWithModules);
@@ -530,12 +592,12 @@ export default function ScoreHistoryPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <div className="px-4 py-8">
-        <div className="max-w-7xl mx-auto">
+        <div className="container mx-auto">
           <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
             <h1 className="text-3xl font-bold text-gray-800 mb-2">Sprint Performance Reports</h1>
             <p className="text-slate-600">Comprehensive analysis of your scores and performance metrics</p>
           </div>
-          <main className="max-w-6xl mx-auto px-6 lg:px-8">
+          <main className="w-full px-6 lg:px-8">
 
           {/* Tabs Navigation */}
           <div className="flex gap-2 mb-8">
@@ -558,6 +620,16 @@ export default function ScoreHistoryPage() {
               }`}
             >
               🎭 Role-Play Sessions
+            </button>
+            <button
+              onClick={() => setActiveTab('tasks')}
+              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
+                activeTab === 'tasks'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              📋 Task Management
             </button>
           </div>
         
@@ -788,10 +860,27 @@ export default function ScoreHistoryPage() {
         </div>
         )}
 
-        {/* Role-Play Sessions Tab */}
+        {/* Role-Play Sessions Tab (with Task Management sidebar) */}
         {activeTab === 'roleplay' && employeeId && (
-          <RolePlayReports employeeId={employeeId} />
+          <div className="grid grid-cols-1 lg:grid-cols-1 gap-10">
+            <div className="lg:col-span-2">
+              <RolePlayReports employeeId={employeeId} />
+            </div>
+            {/* <div className="lg:col-span-1">
+              <TaskReports defaultActiveSubTab={"tasks"} employeeId={employeeId} />
+            </div> */}
+          </div>
         )}
+
+        {/* Standalone Task Management Tab */}
+        {activeTab === 'tasks' && employeeId && (
+  <div className="w-full">
+    <TaskReports 
+      defaultActiveSubTab="tasks"
+      employeeId={employeeId}
+    />
+  </div>
+)}
 
       </main>
         </div>

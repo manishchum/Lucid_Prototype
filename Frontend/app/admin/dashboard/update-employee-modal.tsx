@@ -3,7 +3,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { supabase } from "@/lib/supabase";
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 interface Employee {
@@ -38,6 +37,8 @@ interface UpdateEmployeeModalProps {
   isOpen: boolean;
   onClose: () => void;
   employee: Employee;
+  subDepartments?: SubDepartment[];
+  roles?: Role[];
   currentRole?: string[];
   onSuccess: () => void;
   adminId?: string; // <-- added: id of the admin performing changes (optional)
@@ -49,6 +50,8 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
   isOpen,
   onClose,
   employee,
+  subDepartments = [],
+  roles = [],
   currentRole,
   onSuccess,
   adminId
@@ -66,15 +69,12 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<{[key: string]: string}>({});
-  const [subDepartments, setSubDepartments] = useState<SubDepartment[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
   const [currentRoleAssignments, setCurrentRoleAssignments] = useState<string[]>([]);
   const [currentAssignments, setCurrentAssignments] = useState<any[]>([]); // holds assignment objects from backend
 
   // Load dropdown data when modal opens
   useEffect(() => {
     if (isOpen) {
-      loadDropdownData();
       // Reset form data when employee changes
       setFormData({
         name: employee.name || '',
@@ -90,32 +90,6 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
       loadCurrentRoles();
     }
   }, [isOpen, employee]);
-
-  const loadDropdownData = async () => {
-    try {
-      // Load subdepartments
-      const { data: subDeptData, error: subDeptError } = await supabase
-        .from('sub_department')
-        .select('department_id, department_name, sub_department_name')
-        .order('department_name')
-        .order('sub_department_name');
-
-      if (subDeptError) throw subDeptError;
-      setSubDepartments(subDeptData || []);
-
-      // Load roles
-      const { data: rolesData, error: rolesError } = await supabase
-        .from('roles')
-        .select('role_id, name, description')
-        .order('name');
-
-      if (rolesError) throw rolesError;
-      setRoles(rolesData || []);
-    } catch (error) {
-      // console.error('Failed to load dropdown data:', error);
-      setError('Failed to load form data');
-    }
-  };
 
   const loadCurrentRoles = async () => {
     try {

@@ -85,7 +85,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     // Ensure assessmentId is set before submission
     if (!assessmentId) {
       // console.log("Inside thse !assessmentId block")
-      setFeedback("Error: Could not identify assessment. Please refresh and try again.");
+      setError("Error: Could not identify assessment. Please refresh and try again.");
       return;
     }
     setSubmitted(true);
@@ -265,13 +265,20 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           userId = emp?.user_id || null;
           companyId = emp?.company_id || null;
           if (emp?.user_id) {
-            const {data: styleData} = await supabase
-              .from('employee_learning_style')
-              .select('learning_style')
-              .eq('user_id', emp.user_id)
-              .maybeSingle();
-            if (styleData?.learning_style) {
-              learningStyle = styleData.learning_style;
+            try {
+              const styleRes = await fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${emp.user_id}`, {
+                headers: { 'X-User-ID': emp.user_id }
+              });
+              if (styleRes.ok) {
+                const styleJson = await styleRes.json();
+                const styleData = styleJson?.data || styleJson;
+                if (styleData?.learning_style) {
+                  learningStyle = styleData.learning_style;
+                }
+                console.log("Style Data:- ", styleData);
+              }
+            } catch (styleErr) {
+              console.error('[quiz] error fetching learning style', styleErr);
             }
           }
         } catch (e) {
@@ -380,7 +387,9 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         if (result.quiz) {
           setQuiz(result.quiz);
           setAnswers(new Array(result.quiz.length).fill(-1));
-          
+                    if (result.assessmentId) {
+             setAssessmentId(result.assessmentId);
+          }
           // Fetch the newly created assessment from backend
           try {
             const assessmentRes = await fetchWithAuth(
@@ -646,23 +655,23 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                               key={oIdx}
                               onClick={() => handleSelect(globalIdx, oIdx)}
                               disabled={submitted}
-                              className={`w-full p-4 text-left border-2 rounded-lg transition-all duration-200 hover:shadow-md ${
+                              className={`w-full p-3 sm:p-4 text-left border-2 rounded-lg transition-all duration-200 hover:shadow-md ${
                                 answers[globalIdx] === oIdx
                                   ? "border-blue-500 bg-blue-50 shadow-sm"
                                   : "border-gray-200 hover:border-gray-300"
                               } ${submitted ? "cursor-not-allowed" : "cursor-pointer"}`}
                             >
-                              <div className="flex items-center gap-3">
-                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                              <div className="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-3">
+                                <div className={`w-5 h-5 aspect-square shrink-0 rounded-full border-2 flex items-center justify-center mt-0.5 ${
                                   answers[globalIdx] === oIdx
                                     ? "border-blue-500 bg-blue-500"
                                     : "border-gray-300"
-                                }`}>
+                                  }`}>
                                   {answers[globalIdx] === oIdx && (
                                     <div className="w-2 h-2 rounded-full bg-white"></div>
                                   )}
                                 </div>
-                                <span className="text-sm sm:text-base">{opt}</span>
+                                <span className="min-w-0 text-sm sm:text-base leading-snug break-words">{opt}</span>
                               </div>
                             </button>
                           ))}

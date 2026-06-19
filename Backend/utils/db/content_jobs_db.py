@@ -1,5 +1,5 @@
 from typing import Dict, Any, Optional, List
-from ..supabase_client import supabase
+from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
 # ==================== CONTENT JOBS OPERATIONS ====================
@@ -9,9 +9,10 @@ async def get_module_company_id(module_id: str) -> Optional[str]:
     Helper function to get the company_id associated with a module.
     """
     try:
-        resp = supabase.table('training_modules').select('company_id').eq(
+        db = get_service_supabase_client()
+        resp = db.table('training_modules').select('company_id').eq(
             'module_id', module_id
-        ).single().execute()
+        ).maybe_single().execute()
         if resp.data:
             return resp.data.get('company_id')
         return None
@@ -27,10 +28,11 @@ async def get_content_job_by_id(
     Permission: Manager+ in the same company as the module.
     """
     try:
+        db = get_service_supabase_client()
         # Get the content job with module info
-        resp = supabase.table('content_jobs').select(
+        resp = db.table('content_jobs').select(
             '*, training_modules(module_id, title, company_id)'
-        ).eq('id', job_id).single().execute()
+        ).eq('id', job_id).maybe_single().execute()
         
         if not resp.data:
             return {"data": None, "error": "Content job not found"}
@@ -69,6 +71,7 @@ async def list_content_jobs(
     Permission: Manager+ can see jobs from their company only.
     """
     try:
+        db = get_service_supabase_client()
         # Check if user has manager+ permission
         has_permission = await check_user_permission(requesting_user_id, 'manager')
         if not has_permission:
@@ -78,9 +81,9 @@ async def list_content_jobs(
             }
         
         # Get user's company_id
-        user_resp = supabase.table('users').select('company_id').eq(
+        user_resp = db.table('users').select('company_id').eq(
             'user_id', requesting_user_id
-        ).single().execute()
+        ).maybe_single().execute()
         
         if not user_resp.data:
             return {"data": None, "error": "User not found"}
@@ -88,7 +91,7 @@ async def list_content_jobs(
         user_company_id = user_resp.data.get('company_id')
         
         # Build query with module join to filter by company
-        query = supabase.table('content_jobs').select(
+        query = db.table('content_jobs').select(
             '*, training_modules(module_id, title, company_id)'
         )
         
@@ -128,6 +131,7 @@ async def get_content_jobs_by_module(
     Permission: Manager+ in the same company as the module.
     """
     try:
+        db = get_service_supabase_client()
         # Get module's company
         company_id = await get_module_company_id(module_id)
         if not company_id:
@@ -144,7 +148,7 @@ async def get_content_jobs_by_module(
             }
         
         # Get all jobs for this module
-        resp = supabase.table('content_jobs').select('*').eq(
+        resp = db.table('content_jobs').select('*').eq(
             'module_id', module_id
         ).order('created_at', desc=True).execute()
         
@@ -166,6 +170,7 @@ async def create_content_job(
         return {"data": None, "error": "module_id is required"}
     
     try:
+        db = get_service_supabase_client()
         # Get module's company
         company_id = await get_module_company_id(module_id)
         if not company_id:
@@ -182,7 +187,7 @@ async def create_content_job(
             }
         
         # Create the content job
-        resp = supabase.table('content_jobs').insert(job_data).execute()
+        resp = db.table('content_jobs').insert(job_data).execute()
         
         return {"data": resp.data, "error": None}
     except Exception as e:
@@ -198,10 +203,11 @@ async def update_content_job(
     Permission: Manager+ in the same company as the module.
     """
     try:
+        db = get_service_supabase_client()
         # Get the existing job to check permissions
-        existing_job_resp = supabase.table('content_jobs').select(
+        existing_job_resp = db.table('content_jobs').select(
             'module_id'
-        ).eq('id', job_id).single().execute()
+        ).eq('id', job_id).maybe_single().execute()
         
         if not existing_job_resp.data:
             return {"data": None, "error": "Content job not found"}
@@ -227,7 +233,7 @@ async def update_content_job(
         updates['updated_at'] = 'now()'
         
         # Update the job
-        resp = supabase.table('content_jobs').update(updates).eq(
+        resp = db.table('content_jobs').update(updates).eq(
             'id', job_id
         ).execute()
         
@@ -244,10 +250,11 @@ async def delete_content_job(
     Permission: Company admin in the same company as the module.
     """
     try:
+        db = get_service_supabase_client()
         # Get the existing job to check permissions
-        existing_job_resp = supabase.table('content_jobs').select(
+        existing_job_resp = db.table('content_jobs').select(
             'module_id'
-        ).eq('id', job_id).single().execute()
+        ).eq('id', job_id).maybe_single().execute()
         
         if not existing_job_resp.data:
             return {"data": None, "error": "Content job not found"}
@@ -270,7 +277,7 @@ async def delete_content_job(
             }
         
         # Delete the job
-        resp = supabase.table('content_jobs').delete().eq('id', job_id).execute()
+        resp = db.table('content_jobs').delete().eq('id', job_id).execute()
         
         return {"data": resp.data, "error": None}
     except Exception as e:
@@ -285,6 +292,7 @@ async def get_content_jobs_stats(
     Permission: Manager+ can see stats for their company.
     """
     try:
+        db = get_service_supabase_client()
         # Check permissions
         has_permission = await check_user_permission(requesting_user_id, 'manager')
         if not has_permission:
@@ -295,9 +303,9 @@ async def get_content_jobs_stats(
         
         # If no company_id provided, use requesting user's company
         if not company_id:
-            user_resp = supabase.table('users').select('company_id').eq(
+            user_resp = db.table('users').select('company_id').eq(
                 'user_id', requesting_user_id
-            ).single().execute()
+            ).maybe_single().execute()
             
             if not user_resp.data:
                 return {"data": None, "error": "User not found"}
@@ -313,7 +321,7 @@ async def get_content_jobs_stats(
                 }
         
         # Get all jobs with module info
-        resp = supabase.table('content_jobs').select(
+        resp = db.table('content_jobs').select(
             'id, status, training_modules(company_id)'
         ).execute()
         

@@ -1,16 +1,19 @@
+from ..auth_bridge import get_service_supabase_client
 from typing import Dict, Any, Optional, List
 from ..supabase_client import supabase
 from .permissions import check_user_permission, check_company_access
+from ..supabase_client import supabase
 
 # ==================== COMPANY OPERATIONS ====================
 
 async def get_company_by_id(requesting_user_id: Optional[str], company_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Get company by ID.
     Permission: Any authenticated user can view any company (basic info).
     """
     try:
-        resp = supabase.table('companies').select('*').eq('company_id', company_id).single().execute()
+        resp = supabase.table('companies').select('*').eq('company_id', company_id).maybe_single().execute()
         if not resp.data:
             return {"data": None, "error": "Company not found"}
         return {"data": resp.data, "error": None}
@@ -19,6 +22,7 @@ async def get_company_by_id(requesting_user_id: Optional[str], company_id: str) 
 
 
 async def get_company_by_name(requesting_user_id: Optional[str], company_name: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Get company by name (case-insensitive).
     Permission: Public access (for signup validation).
@@ -31,12 +35,13 @@ async def get_company_by_name(requesting_user_id: Optional[str], company_name: s
 
 
 async def get_company_by_domain(requesting_user_id: Optional[str], domain: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Get company by domain.
     Permission: Public access (for signup/email domain validation).
     """
     try:
-        resp = supabase.table('companies').select('*').eq('domain', domain).single().execute()
+        resp = supabase.table('companies').select('*').eq('domain', domain).maybe_single().execute()
         if not resp.data:
             return {"data": None, "error": "Company not found"}
         return {"data": resp.data, "error": None}
@@ -45,6 +50,7 @@ async def get_company_by_domain(requesting_user_id: Optional[str], domain: str) 
 
 
 async def list_all_companies(requesting_user_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     List all companies.
     Permission: Super admin only.
@@ -61,6 +67,7 @@ async def list_all_companies(requesting_user_id: str) -> Dict[str, Any]:
 
 
 async def create_company(requesting_user_id: Optional[str], company_data: Dict[str, Any]) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Create a new company.
     Permission: Super admin OR public signup (requesting_user_id is None).
@@ -93,6 +100,7 @@ async def create_company(requesting_user_id: Optional[str], company_data: Dict[s
 
 
 async def update_company(requesting_user_id: str, company_id: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Update company details.
     Permission: Admin+ of the same company OR super admin.
@@ -112,6 +120,7 @@ async def update_company(requesting_user_id: str, company_id: str, update_data: 
 
 
 async def delete_company(requesting_user_id: str, company_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Delete a company.
     Permission: Super admin only.
@@ -128,6 +137,7 @@ async def delete_company(requesting_user_id: str, company_id: str) -> Dict[str, 
 
 
 async def search_companies(requesting_user_id: Optional[str], search_term: str, limit: int = 10) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
     """
     Search companies by name with a partial match (case-insensitive).
     Permission: Public access (for signup), but requires minimum 2 characters for privacy.

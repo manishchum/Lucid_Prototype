@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Scenario } from '@/lib/roleplay/types';
 import { useAuth } from '@/contexts/auth-context';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 import { 
   fetchUserDataAPI, 
   insertCustomScenarioAPI, 
@@ -169,11 +171,16 @@ const CreateRoleplayComponent = () => {
 
   const fetchUserData = async () => {
     console.log('Fetching user data...');
-    if (user && user.email) {
-      const { data: userData, error } = await fetchUserDataAPI(user.email);
-      if (error) {
-        console.error('Error fetching user data:', error);
-      } else if (userData) {
+    if (user) {
+      const res = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email || '')}`);
+      if (!res.ok) {
+        console.error('Failed to fetch user profile:', res.status);
+        return;
+      }
+      const payload = await res.json();
+      let userData = payload?.user ?? payload;
+      if (Array.isArray(userData)) userData = userData[0];
+      if (userData?.user_id) {
         userId = userData.user_id;
         userCompanyId = userData.company_id;
         console.log('Fetched user ID:', userId);

@@ -1,5 +1,5 @@
 from typing import Dict, Any, Optional
-from ..supabase_client import supabase
+from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
 # ==================== LEARNING STYLE OPERATIONS ====================
@@ -20,7 +20,7 @@ async def get_learning_style_by_user_id(
             # Get target user's company for permission check
             user_resp = supabase.table('users').select('company_id').eq(
                 'user_id', target_user_id
-            ).single().execute()
+            ).maybe_single().execute()
             
             if not user_resp.data:
                 return {"data": None, "error": "User not found"}
@@ -90,7 +90,7 @@ async def create_learning_style(
         # Get target user's company for permission check
         user_resp = supabase.table('users').select('company_id').eq(
             'user_id', user_id
-        ).single().execute()
+        ).maybe_single().execute()
         
         if not user_resp.data:
             return {"data": None, "error": "User not found"}
@@ -142,7 +142,7 @@ async def update_learning_style(
             # Get target user's company for permission check
             user_resp = supabase.table('users').select('company_id').eq(
                 'user_id', target_user_id
-            ).single().execute()
+            ).maybe_single().execute()
             
             if not user_resp.data:
                 return {"data": None, "error": "User not found"}
@@ -192,7 +192,7 @@ async def upsert_learning_style(
         # Get target user's company for permission check
         user_resp = supabase.table('users').select('company_id').eq(
             'user_id', user_id
-        ).single().execute()
+        ).maybe_single().execute()
         
         if not user_resp.data:
             return {"data": None, "error": "User not found"}
@@ -229,7 +229,7 @@ async def delete_learning_style(
         # Get target user's company for permission check
         user_resp = supabase.table('users').select('company_id').eq(
             'user_id', target_user_id
-        ).single().execute()
+        ).maybe_single().execute()
         
         if not user_resp.data:
             return {"data": None, "error": "User not found"}

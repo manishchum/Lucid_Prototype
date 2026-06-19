@@ -41,16 +41,14 @@ function ContentUpload({
   companyId,
   adminId,
   onUploadComplete,
-  onFilesUploaded,
 }: {
   companyId: string;
   adminId: string;
   onUploadComplete: () => void;
-  onFilesUploaded?: (moduleId: string, fileNames: string[]) => void;
 }) {
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [uploadResult, setUploadResult] = useState<any>(null);
+  // const [uploadResult, setUploadResult] = useState<any>(null);
   const [thresholdValue, setThresholdValue] = useState<number>(70);
   const [reviewerEmail, setReviewerEmail] = useState('');
   const [retrievedReviewerId, setRetrievedReviewerId] = useState<string | null>(null);
@@ -59,6 +57,8 @@ function ContentUpload({
   const [additionalLinks, setAdditionalLinks] = useState<Array<{ title: string; url: string }>>([]);
   const [linkTitle, setLinkTitle] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
+ 
+  // const [assignedUserCount, setAssignedUserCount] = useState(0);
 
   // Debounce timer for email validation
   useEffect(() => {
@@ -76,25 +76,32 @@ function ContentUpload({
     return () => clearTimeout(timer);
   }, [reviewerEmail]);
 
+
+
   const validateReviewerEmail = async (email: string) => {
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(email)}`);
+
+      const res = await fetchWithAuth(
+        `${API_URL}/api/admin/uploads/validate-reviewer?email=${encodeURIComponent(email)}&company_id=${companyId}`
+      );
+
       if (!res.ok) {
         setEmailValidationMessage('User with this email does not exist.');
         setRetrievedReviewerId(null);
         return;
       }
-      const payload = await res.json();
-      let user = payload?.user ?? payload;
-      if (Array.isArray(user)) user = user[0];
-      if (!user || !user.user_id || user.company_id !== companyId) {
-        setEmailValidationMessage('User with this email does not exist.');
-        setRetrievedReviewerId(null);
-        return;
-      }
-      setEmailValidationMessage(`Reviewer found: ${user.name || user.email}`);
-      setRetrievedReviewerId(user.user_id);
-    } catch (error) {
+
+      const data = await res.json();
+
+      setEmailValidationMessage(
+        `Reviewer found: ${data.reviewer.name || data.reviewer.email}`
+      );
+
+      setRetrievedReviewerId(
+        data.reviewer.user_id
+      );
+
+    } catch {
       setEmailValidationMessage('Error validating email');
       setRetrievedReviewerId(null);
     }
@@ -116,277 +123,209 @@ function ContentUpload({
   const [description, setDescription] = useState('');
 
   
-  const isMediaFile = (type: string) => type.includes('video/') || type.includes('audio/') || type.match(/\.(mp4|mp3|wav|mov|avi|m4a)$/i);
+  // const isMediaFile = (type: string) => type.includes('video/') || type.includes('audio/') || type.match(/\.(mp4|mp3|wav|mov|avi|m4a)$/i);
 
 
-  const triggerAIProcessing = async (moduleId: string, uploadFiles: File[], contentUrl?: string) => {
-    if (!moduleId || moduleId === "undefined") {
-      console.error("[AI] Invalid moduleId:", moduleId);
-      alert("Cannot process Sprint: Invalid Sprint ID");
-      return;
-    }
+  // const triggerAIProcessing = async (moduleId: string, uploadFiles: File[], contentUrl?: string) => {
+  //   if (!moduleId || moduleId === "undefined") {
+  //     console.error("[AI] Invalid moduleId:", moduleId);
+  //     alert("Cannot process Sprint: Invalid Sprint ID");
+  //     return;
+  //   }
 
-    if (!uploadFiles || uploadFiles.length === 0) {
-      console.error("[AI] No files passed to triggerAIProcessing");
-      alert("Cannot process Sprint: No files selected");
-      return;
-    }
+  //   if (!uploadFiles || uploadFiles.length === 0) {
+  //     console.error("[AI] No files passed to triggerAIProcessing");
+  //     alert("Cannot process Sprint: No files selected");
+  //     return;
+  //   }
 
-    try {
-      // console.log(`[AI] Starting processing for Sprint: ${moduleId}`);
+  //   try {
+  //     // console.log(`[AI] Starting processing for Sprint: ${moduleId}`);
 
-      const firstFile = uploadFiles[0];
-      const initialStatus = isMediaFile(firstFile?.type || "") ? "transcribing" : "summarizing";
+  //     const firstFile = uploadFiles[0];
+  //     const initialStatus = isMediaFile(firstFile?.type || "") ? "transcribing" : "summarizing";
 
-      const statusRes = await fetchWithAuth(
-        `${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "X-User-ID": adminId,
-          },
-          body: JSON.stringify({ processing_status: initialStatus }),
-        }
-      );
+  //     const statusRes = await fetchWithAuth(
+  //       `${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`,
+  //       {
+  //         method: "PATCH",
+  //         headers: {
+  //           "Content-Type": "application/json",
+  //           "X-User-ID": adminId,
+  //         },
+  //         body: JSON.stringify({ processing_status: initialStatus }),
+  //       }
+  //     );
 
-      if (!statusRes.ok) {
-        const errorText = await statusRes.text().catch(() => "");
-        console.error("Failed to update processing status:", errorText);
-      }
+  //     if (!statusRes.ok) {
+  //       const errorText = await statusRes.text().catch(() => "");
+  //       console.error("Failed to update processing status:", errorText);
+  //     }
 
-      onUploadComplete();
+  //     onUploadComplete();
 
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+  //     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
-      // MEDIA: only if you enable media uploads later
-      if (isMediaFile(firstFile?.type || "")) {
-        if (!contentUrl) {
-          throw new Error("Missing contentUrl for media extraction");
-        }
+  //     // MEDIA: only if you enable media uploads later
+  //     if (isMediaFile(firstFile?.type || "")) {
+  //       if (!contentUrl) {
+  //         throw new Error("Missing contentUrl for media extraction");
+  //       }
 
-        const extractRes = await fetchWithAuth("/api/extract-and-analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileUrl: contentUrl, fileType: firstFile?.type, moduleId }),
-        });
+  //       const extractRes = await fetchWithAuth("/api/extract-and-analyze", {
+  //         method: "POST",
+  //         headers: { "Content-Type": "application/json" },
+  //         body: JSON.stringify({ fileUrl: contentUrl, fileType: firstFile?.type, moduleId }),
+  //       });
 
-        if (!extractRes.ok) throw new Error("Transcription failed");
-        const { extractedText } = await extractRes.json();
+  //       if (!extractRes.ok) throw new Error("Transcription failed");
+  //       const { extractedText } = await extractRes.json();
 
-        await fetchWithAuth(`${backendUrl}/api/openai-upload/text`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: extractedText, moduleId }),
-        });
+  //       await fetchWithAuth(`${backendUrl}/api/openai-upload/text`, {
+  //         method: "POST",
+  //         headers: { "Content-Type": "application/json" },
+  //         body: JSON.stringify({ text: extractedText, moduleId }),
+  //       });
 
-      } else {
-        // DOC/PDF: send actual File objects
-        const formData = new FormData();
-        uploadFiles.forEach((f) => formData.append("files", f));
-        if (!moduleId || moduleId === "undefined") {
-          throw new Error("Invalid moduleId passed to AI processing");
-        }
-        formData.append("moduleId", String(moduleId));
+  //     } else {
+  //       // DOC/PDF: send actual File objects
+  //       const formData = new FormData();
+  //       uploadFiles.forEach((f) => formData.append("files", f));
+  //       if (!moduleId || moduleId === "undefined") {
+  //         throw new Error("Invalid moduleId passed to AI processing");
+  //       }
+  //       formData.append("moduleId", String(moduleId));
 
-        const aiRes = await fetchWithAuth(`${backendUrl}/api/openai-upload/file`, {
-          method: "POST",
-          body: formData,
-        });
+  //       const aiRes = await fetchWithAuth(`${backendUrl}/api/openai-upload/file`, {
+  //         method: "POST",
+  //         body: formData,
+  //       });
 
-        // IMPORTANT: surface backend error text instead of silently failing
-        if (!aiRes.ok) {
-          const errText = await aiRes.text().catch(() => "");
-          throw new Error(errText || "AI processing failed");
-        }
-      }
+  //       // IMPORTANT: surface backend error text instead of silently failing
+  //       if (!aiRes.ok) {
+  //         const errText = await aiRes.text().catch(() => "");
+  //         throw new Error(errText || "AI processing failed");
+  //       }
+  //     }
 
-      // console.log(`[AI] Processing triggered successfully for Sprint: ${moduleId}`);
-      onUploadComplete();
-    } catch (err) {
-      console.error("[AI] Pipeline failed:", err);
+  //     // console.log(`[AI] Processing triggered successfully for Sprint: ${moduleId}`);
+  //     onUploadComplete();
+  //   } catch (err) {
+  //     console.error("[AI] Pipeline failed:", err);
 
-      const failRes = await fetchWithAuth(
-        `${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "X-User-ID": adminId,
-          },
-          body: JSON.stringify({ processing_status: "failed" }),
-        }
-      );
+  //     const failRes = await fetchWithAuth(
+  //       `${API_URL}/api/training-modules/${encodeURIComponent(moduleId)}/processing-status`,
+  //       {
+  //         method: "PATCH",
+  //         headers: {
+  //           "Content-Type": "application/json",
+  //           "X-User-ID": adminId,
+  //         },
+  //         body: JSON.stringify({ processing_status: "failed" }),
+  //       }
+  //     );
 
-      if (!failRes.ok) {
-        console.error("Failed to update failed status:", await failRes.text().catch(() => ""));
-      }
+  //     if (!failRes.ok) {
+  //       console.error("Failed to update failed status:", await failRes.text().catch(() => ""));
+  //     }
 
-      onUploadComplete();
-      console.warn(`AI processing pending: ${(err as any)?.message || err}`);
-    }
-  };
+  //     onUploadComplete();
+  //     console.warn(`AI processing pending: ${(err as any)?.message || err}`);
+  //   }
+  // };
 
   const handleUpload = async () => {
-    if (files.length === 0  || !title){
+
+    if (files.length === 0 || !title) {
       alert("Data is not sufficient");
       return;
-    } 
+    }
 
     setUploading(true);
-    const uploadFiles = [...files];
+
     try {
+
       const formData = new FormData();
+
+      formData.append(
+        "company_id",
+        companyId
+      );
+
+      formData.append(
+        "title",
+        title
+      );
+
+      formData.append(
+        "description",
+        description
+      );
+
+      formData.append(
+        "threshold_value",
+        String(thresholdValue)
+      );
+
+      if (retrievedReviewerId) {
+        formData.append(
+          "reviewer_id",
+          retrievedReviewerId
+        );
+      }
+
+      formData.append(
+        "additional_readings",
+        JSON.stringify(additionalLinks)
+      );
+
       files.forEach((file) => {
-        formData.append('file', file);
-      });
-      formData.append('title', title);
-      formData.append('description', description);
-
-      const response = await fetchWithAuth('/api/content-library/upload', {
-        method: 'POST',
-        headers: {
-          'x-company-id': companyId,
-          'x-admin-id': adminId
-        },
-        body: formData,
+        formData.append(
+          "files",
+          file
+        );
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Creation failed');
-      }
-
-      const result = await response.json();
-      // console.log('Creation successful:', result);
-
-      const uploadedFileRaw = result.inserted?.[0]?.module;
-
-      if (!uploadedFileRaw) {
-        throw new Error("Creation succeeded but no file URL returned from API");
-      }
-
-      const uploadedFile = uploadedFileRaw.replace("/object/sign","/object/public");
-      
-      // Extract individual file info from the API response
-      const individualFileUrls = (result.inserted || []).map((item: any) => {
-        const moduleUrl = item.module || '';
-        // Extract storage path from the URL (just the path after the bucket name)
-        let storagePath = '';
-        try {
-          const url = new URL(moduleUrl);
-          const pathname = decodeURIComponent(url.pathname);
-          
-          // Pattern 1: /object/public/content library/uploads/...
-          // Pattern 2: /object/sign/content library/uploads/...
-          // We want just "uploads/..." part
-          const pathMatch = pathname.match(/\/object\/(?:public|sign)\/content library\/(.+)$/) ||
-                           pathname.match(/content library\/(.+)$/);
-          
-          if (pathMatch && pathMatch[1]) {
-            storagePath = pathMatch[1];
-            // console.log('[Upload] Extracted storage path:', storagePath, 'from URL:', moduleUrl);
-          } else {
-            console.warn('[Upload] Could not extract storage path from URL:', moduleUrl);
-          }
-        } catch (e) {
-          console.warn('[Upload] Failed to parse URL:', moduleUrl, e);
+      const res = await fetchWithAuth(
+        `${API_URL}/api/admin/uploads/create-sprint`,
+        {
+          method: "POST",
+          body: formData
         }
-        
-        return {
-          name: item.title || 'Unknown',
-          url: moduleUrl.replace("/object/sign", "/object/public") || '',
-          path: storagePath
-        };
-      });
-      
-      // console.log('[Upload] Individual file URLs extracted:', individualFileUrls);
-      
-      if (uploadedFile) {
-        // Create training module via backend API
-        const createRes = await fetchWithAuth(`${API_URL}/api/training-modules/`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-ID': adminId
-          },
-          body: JSON.stringify({
-            company_id: companyId,
-            title: title,
-            description: description,
-            content_url: uploadedFile,
-            content_type: files[0]?.type || "application/pdf",
-            processing_status: 'pending',
-            threshold_value: thresholdValue,
-            reviewer_id: retrievedReviewerId,
-            additional_readings: additionalLinks.length > 0 ? additionalLinks : null,
-            source_files: individualFileUrls.map((f: { path: string }) => f.path)
-          })
-        });
+      );
 
-        if (!createRes.ok) {
-          const errorText = await createRes.text().catch(() => '');
-          console.error('Failed to create training module entry:', errorText);
-          alert('Failed to create training module: ' + errorText);
-        } else {
-          const createPayload = await createRes.json().catch(() => ({}));
-          // console.log('[Upload] Backend response:', createPayload);
-          
-          // Backend returns {message: "...", module: [{...}]}
-          // The module is an array from Supabase insert
-          let moduleData = null;
-          if (createPayload.module) {
-            if (Array.isArray(createPayload.module)) {
-              moduleData = createPayload.module[0];
-            } else {
-              moduleData = createPayload.module;
-            }
-          }
-          
-          // console.log('[Upload] Extracted moduleData:', moduleData);
-          
-          if (moduleData && moduleData.module_id) {
-            // console.log('[Upload] Created module with ID:', moduleData.module_id);
-            
-            // Store source file names and URLs in localStorage (frontend-only solution)
-            const sourceFilesMap = JSON.parse(localStorage.getItem('moduleSourceFiles') || '{}');
-            sourceFilesMap[moduleData.module_id] = individualFileUrls.length > 0 
-              ? individualFileUrls 
-              : files.map(f => ({ name: f.name, url: '' }));
-            localStorage.setItem('moduleSourceFiles', JSON.stringify(sourceFilesMap));
-            // console.log('[Upload] Stored source files in localStorage:', sourceFilesMap[moduleData.module_id]);
-            
-            // Refresh UI immediately to show the new module card
-            onUploadComplete();
-            
-            // Trigger AI background processing
-            await triggerAIProcessing( moduleData.module_id, uploadFiles, uploadedFile);
-            // console.log("Triggering AI with:");
-            // console.log("moduleId:", moduleData.module_id);
-            // console.log("files count:", uploadFiles.length);
-            // console.log("file names:", uploadFiles.map(f => f.name));
-          } else {
-            console.error('[Upload] No module_id in response. Full payload:', createPayload);
-            alert('Module created but ID not found in response');
-          }
-        }
+      if (!res.ok) {
+        throw new Error(
+          await res.text()
+        );
       }
+
+      const data = await res.json();
+
+      onUploadComplete();
+
+      alert(
+        "Sprint created successfully"
+      );
 
       setFiles([]);
-      setTitle('');
-      setDescription('');
+      setTitle("");
+      setDescription("");
       setAdditionalLinks([]);
-      setLinkTitle('');
-      setLinkUrl('');
-      
-      // Final refresh and notification
-      onUploadComplete();
-      alert('Sprint material uploaded. AI processing has started!');
-    } catch (error: any) {
-      console.error('Upload failed:', error);
-      // alert(`Upload failed: ${error.message}`);
+      setLinkTitle("");
+      setLinkUrl("");
+
+    } catch (err) {
+
+      console.error(
+        "Sprint creation failed",
+        err
+      );
+
     } finally {
+
       setUploading(false);
+
     }
   };
 
@@ -800,6 +739,37 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const [zoom, setZoom] = useState(1.25);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [moduleToDelete, setModuleToDelete] = useState<any | null>(null);
+  const [assignedUserCount, setAssignedUserCount] = useState(0);
+
+const fetchAssignmentCount = async (moduleId: string) => {
+  try {
+
+    const res = await fetchWithAuth(
+      `${API_URL}/api/admin/uploads/modules/${moduleId}/assignment-count`
+    );
+
+    if (!res.ok) {
+      throw new Error("Failed to fetch assignment count");
+    }
+
+    const data = await res.json();
+
+    setAssignedUserCount(
+      data.count || 0
+    );
+
+  } catch (err) {
+
+    console.error(
+      "Failed to fetch assignment count",
+      err
+    );
+
+    setAssignedUserCount(0);
+  }
+};
 
   const files = (() => {
     if (!selectedModule) return [];
@@ -902,99 +872,40 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   }, [companyId]);
 
   const loadTrainingModules = async () => {
+
     try {
-      // Fetch training modules via backend API
-      const modulesRes = await fetchWithAuth(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
-        headers: { 'X-User-ID': adminId }
-      });
 
-      if (!modulesRes.ok) {
-        const errorText = await modulesRes.text().catch(() => '');
-        throw new Error(`Failed to fetch modules: ${modulesRes.status} ${errorText}`);
+      const res = await fetchWithAuth(
+        `${API_URL}/api/admin/uploads/company/${companyId}/modules`
+      );
+
+      if (!res.ok) {
+        throw new Error(
+          "Failed to load modules"
+        );
       }
 
-      const modulesPayload = await modulesRes.json().catch(() => ({}));
-      // console.log("Backend response");
-      // console.log(modulesPayload);
+      const data = await res.json();
 
-      const data = modulesPayload.modules || [];
+      setTrainingModules(
+        data.modules || []
+      );
 
-      // Fetch ALL content jobs in ONE batch call (much faster than per-module)
-      let jobsMap = new Map<string, any>();
-      try {
-        const jobsRes = await fetchWithAuth(`${API_URL}/api/content-jobs/?limit=1000`, {
-          headers: { 'X-User-ID': adminId }
-        });
-        
-        if (jobsRes.ok) {
-          const jobsPayload = await jobsRes.json().catch(() => null);
-          const jobs = jobsPayload?.jobs ?? jobsPayload?.data ?? jobsPayload.data.data ?? jobsPayload ?? [];
-          
-          // Create a map of module_id -> job for fast lookup
-          (jobs || []).forEach((job: any) => {
-            if (job.module_id) {
-              jobsMap.set(job.module_id, job);
-            }
-          });
-          // console.log(`[uploads] Loaded ${jobsMap.size} content jobs in batch`);
-        } else {
-          const errorText = await jobsRes.text().catch(() => '');
-          console.error('[uploads] Failed to fetch content jobs batch:', jobsRes.status, errorText);
-          console.error('[uploads] Using adminId:', adminId);
-        }
-      } catch (e) {
-        console.error('[uploads] Error fetching content jobs batch:', e);
-      }
+    } catch (error) {
 
-      // Map modules with their job status (no async operations, just lookups)
-      const modulesWithStatus = (data || []).map((module: any) => {
+      console.error(
+        "Failed to load training modules",
+        error
+      );
 
-        // console.log("Logging each module source file");
-        // console.log("MODULE ID:",module.module_id);
-        // console.log("Source files:", module.source_files);
-        // console.log("Type:", typeof module.source_files);
+      setError(
+        "Failed to load Sprints"
+      );
 
-
-        let finalStatus = module.processing_status;
-        
-        const job = jobsMap.get(module.module_id);
-        if (job) {
-          // Map backend job status to frontend status
-          if (job.status === 'completed') finalStatus = 'completed';
-          else if (job.status === 'failed') finalStatus = 'failed';
-          else if (job.status === 'in_progress' || job.status === 'in-progress') finalStatus = 'processing';
-          else finalStatus = 'pending';
-        } else {
-          // No job found, keep existing status or default
-          finalStatus = finalStatus || 'processing';
-        }
-
-        // Update module status in database if it changed (fire and forget via backend API)
-        if (finalStatus !== module.processing_status) {
-          fetchWithAuth(`${API_URL}/api/training-modules/${encodeURIComponent(module.module_id)}/processing-status`, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-User-ID': adminId
-            },
-            body: JSON.stringify({ processing_status: finalStatus })
-          })
-            .then(() => {})
-            .catch((err) => console.warn('[uploads] Failed to update module status:', err));
-        }
-
-        return {
-          ...module,
-          processing_status: finalStatus
-        };
-      });
-
-      setTrainingModules(modulesWithStatus);
-    } catch (error: any) {
-      console.error('Failed to load training modules:', error);
-      setError('Failed to load Sprints');
     } finally {
+
       setLoading(false);
+
     }
   };
 
@@ -1098,7 +1009,7 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   };
 
   const handleDeleteModule = async (moduleId: string) => {
-    if (!confirm("Are you sure you want to delete this Sprint?")) return;
+    
 
     try {
       // Delete module via backend API
@@ -1321,6 +1232,75 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
 
   </DialogContent>
 </Dialog>
+      <Dialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+      >
+        <DialogContent className="max-w-lg rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl text-red-600 flex items-center gap-2">
+              <Trash2 className="w-5 h-5" />
+              Delete Training Module
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700 leading-relaxed">
+              Are you sure you want to delete the training module{" "}
+              <span className="font-semibold text-slate-900">
+                "{moduleToDelete?.title}"
+                <div className="p-4 rounded-lg border border-amber-200 bg-amber-50">
+                  <p className="text-sm font-medium text-amber-800">
+                    This sprint is currently assigned to
+                    <span className="font-bold">
+                      {" "}{assignedUserCount} users
+                    </span>.
+                  </p>
+
+                  {assignedUserCount > 0 && (
+                    <p className="text-xs text-amber-700 mt-1">
+                      {/* Deleting this sprint may impact those users' learning plans. */}
+                    </p>
+                  )}
+                </div>
+              </span>
+              
+            </p>
+
+            <div className="p-4 rounded-lg border border-red-200 bg-red-50">
+              <p className="text-sm text-red-700">
+                Warning: This action cannot be undone. The sprint will be removed from all assigned users, and all related content and data will be permanently deleted from the database.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDeleteDialogOpen(false);
+                  setModuleToDelete(null);
+                }}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  if (!moduleToDelete) return;
+
+                  await handleDeleteModule(moduleToDelete.module_id);
+
+                  setDeleteDialogOpen(false);
+                  setModuleToDelete(null);
+                }}
+              >
+                Delete Permanently
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       
 
       
@@ -1460,7 +1440,11 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleDeleteModule(module.module_id)}
+                    onClick={async() => {
+                      setModuleToDelete(module);
+                      await fetchAssignmentCount(module.module_id);
+                      setDeleteDialogOpen(true);
+                    }}
                     className="text-red-600"
                   >
                     <Trash2 className="w-4 h-4 mr-1" />

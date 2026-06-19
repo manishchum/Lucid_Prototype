@@ -1,6 +1,7 @@
 from typing import Dict, Any, Optional
 import bcrypt
 from ..supabase_client import supabase
+from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
 # Default password for new users
@@ -8,52 +9,54 @@ DEFAULT_PASSWORD = "workfloww@2025"
 
 # ==================== USER/EMPLOYEE OPERATIONS ====================
 
-async def get_user_by_email(requesting_user_id: Optional[str], email: str) -> Dict[str, Any]:
+async def get_user_by_email(requesting_user_id: Optional[str], email: str, auth_claims: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Return user by email. If requesting_user_id is None, allow lookup for auth bootstrap.
     """
     try:
+        query_client = supabase
+        if auth_claims:
+            token_email = (auth_claims.get("email") or "").strip().lower()
+            requested_email = (email or "").strip().lower()
+            if token_email and requested_email and token_email != requested_email:
+                return {"data": None, "error": "Permission denied"}
+            query_client = get_service_supabase_client()
+
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
-        resp = supabase.table('users').select('*').eq('email', email).eq('is_active', True).limit(1).execute()
+        resp = query_client.table('users').select('*').eq('email', email).eq('is_active', True).limit(1).execute()
         rows = resp.data if hasattr(resp, 'data') else []
         user = rows[0] if rows else None
         if not user:
             print(f"[get_user_by_email] No active user found for email: {email}")
             return {"data": None, "error": "User not found"}
-        # If a requesting user is provided, perform a permission check; otherwise allow lookup.
-        if requesting_user_id:
-            has_permission = await check_user_permission(requesting_user_id, 'user')
-            if not has_permission:
-                return {"data": None, "error": "Permission denied"}
-            # strip sensitive fields before returning (only when not used for auth)
-            user.pop('password', None)
-        # For authentication (requesting_user_id is None), keep password for validation
+        # Strip sensitive fields before returning.
+        user.pop('password', None)
         return {"data": user, "error": None}
     except Exception as e:
         print(f"[get_user_by_email] Exception for {email}: {e}")
         return {"data": None, "error": str(e)}
 
 
-async def get_user_by_phone(requesting_user_id: Optional[str], phone: str) -> Dict[str, Any]:
+async def get_user_by_phone(requesting_user_id: Optional[str], phone: str, auth_claims: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Return user by phone. If requesting_user_id is None, allow lookup for auth bootstrap.
     """
     try:
+        query_client = supabase
+        if auth_claims:
+            query_client = get_service_supabase_client()
+
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
-        resp = supabase.table('users').select('*').eq('phone', phone).eq('is_active', True).limit(1).execute()
+        resp = query_client.table('users').select('*').eq('phone', phone).eq('is_active', True).limit(1).execute()
         rows = resp.data if hasattr(resp, 'data') else []
         user = rows[0] if rows else None
+        if auth_claims and user and requesting_user_id and str(user.get("user_id")) != str(requesting_user_id):
+            return {"data": None, "error": "Permission denied"}
         if not user:
             print(f"[get_user_by_phone] No active user found for phone: {phone}")
             return {"data": None, "error": "User not found"}
-        # If a requesting user is provided, perform a permission check; otherwise allow lookup.
-        if requesting_user_id:
-            has_permission = await check_user_permission(requesting_user_id, 'user')
-            if not has_permission:
-                return {"data": None, "error": "Permission denied"}
-            # strip sensitive fields before returning (only when not used for auth)
-            user.pop('password', None)
-        # For authentication (requesting_user_id is None), keep password for validation
+        # Strip sensitive fields before returning.
+        user.pop('password', None)
         return {"data": user, "error": None}
     except Exception as e:
         print(f"[get_user_by_number] Exception for {phone}: {e}")
@@ -64,7 +67,7 @@ async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[s
     Return single user. Permission: self OR manager+ in same company.
     """
     try:
-        resp = supabase.table('users').select('*').eq('user_id', target_user_id).single().execute()
+        resp = supabase.table('users').select().eq('user_id', target_user_id).single().execute()
         if not resp.data:
             return {"data": None, "error": "User not found"}
         user = resp.data
@@ -81,7 +84,8 @@ async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[s
 
 async def get_users_by_company(
     requesting_user_id: str,
-    company_id: str
+    company_id: str,
+    auth_claims: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Fetch all users for a company.
@@ -98,8 +102,24 @@ async def get_users_by_company(
         }
     
     try:
-        response = supabase.table('users').select(
-            '*'
+        query_client = supabase
+        if auth_claims:
+            query_client = get_service_supabase_client()
+
+        response = query_client.table('users').select(
+            '''
+            user_id,
+            company_id,
+            name,
+            email,
+            phone,
+            position,
+            hire_date,
+            employment_status,
+            department_id,
+            is_active,
+            created_at
+            '''
         ).eq('company_id', company_id).eq('is_active', True).order('name').execute()
         
         return {"data": response.data, "error": None}
@@ -115,6 +135,7 @@ async def create_user(
     Permission: Must be company_admin+ in the same company.
     """
     company_id = user_data.get('company_id')
+    service_client = get_service_supabase_client()
     
     if not company_id:
         return {"data": None, "error": "company_id is required"}
@@ -133,7 +154,7 @@ async def create_user(
 
         # Check for an existing inactive user with the same email in this company
         if email:
-            existing_resp = supabase.table('users').select('*').ilike('email', email).eq(
+            existing_resp = service_client.table('users').select('*').ilike('email', email).eq(
                 'company_id', company_id
             ).eq('is_active', False).execute()
             existing_data = existing_resp.data[0] if existing_resp.data else None
@@ -146,7 +167,7 @@ async def create_user(
                     'is_active': True,
                     'employment_status': user_data.get('employment_status', 'ACTIVE'),
                 }
-                resp = supabase.table('users').update(reactivation_fields).eq(
+                resp = service_client.table('users').update(reactivation_fields).eq(
                     'user_id', existing_data['user_id']
                 ).execute()
                 return {"data": resp.data, "error": None, "reactivated": True}
@@ -169,9 +190,11 @@ async def create_user(
             user_data['password'] = hashed_password
         # If it already looks like a bcrypt hash, leave it as-is
 
-        response = supabase.table('users').insert(user_data).execute()
+        response = service_client.table('users').insert(user_data).execute()
         return {"data": response.data, "error": None}
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {"data": None, "error": str(e)}
 
 
@@ -195,7 +218,7 @@ async def create_user_signup(
 
         # Check for an existing inactive user with the same email in this company
         if email:
-            existing_resp = supabase.table('users').select('*').ilike('email', email).eq(
+            existing_resp = supabase.table('users').select().ilike('email', email).eq(
                 'company_id', company_id
             ).eq('is_active', False).maybe_single().execute()
             # existing_data = existing_resp.data[0] if existing_resp.data else None
@@ -248,46 +271,53 @@ async def update_user(
     Update an existing user.
     Permission: company_admin+ OR the user updating themselves (limited fields).
     """
-    # Get target user's company
-    target_user = supabase.table('users').select('company_id').eq(
-        'user_id', target_user_id
-    ).single().execute()
-    
-    if not target_user.data:
-        return {"data": None, "error": "User not found"}
-    
-    target_company = target_user.data['company_id']
-    
-    # Check if user is updating themselves
-    is_self_update = requesting_user_id == target_user_id
-    
-    # Check if requesting user is an admin
-    is_admin = await check_user_permission(requesting_user_id, 'company_admin')
-    
-    if is_self_update and not is_admin:
-        # Non-admin users can only update certain fields for themselves
-        allowed_fields = {'name', 'email', 'phone', 'profile_picture'}
-        if not set(updates.keys()).issubset(allowed_fields):
-            return {
-                "data": None,
-                "error": "Can only update name, email, phone, profile_picture for yourself"
-            }
-    elif not is_self_update:
-        # Updating someone else - must be company_admin in same company
-        has_access = await check_company_access(requesting_user_id, target_company)
-        
-        if not is_admin or not has_access:
-            return {
-                "data": None,
-                "error": "Permission denied: Only company admins can update other users"
-            }
-    # If is_self_update and is_admin, allow all fields (no restrictions)
-    
     try:
-        response = supabase.table('users').update(updates).eq(
+        db = get_service_supabase_client()
+
+        # Get target user's company without raising on 0 rows.
+        target_user = db.table('users').select('company_id').eq(
+            'user_id', target_user_id
+        ).maybe_single().execute()
+
+        if not target_user.data:
+            return {"data": None, "error": "User not found"}
+
+        target_company = target_user.data.get('company_id')
+
+        # Check if user is updating themselves
+        is_self_update = requesting_user_id == target_user_id
+
+        # Check if requesting user is an admin
+        is_admin = await check_user_permission(requesting_user_id, 'company_admin')
+
+        if is_self_update and not is_admin:
+            # Non-admin users can only update certain fields for themselves
+            allowed_fields = {'name', 'email', 'phone', 'position', 'profile_picture'}
+            if not set(updates.keys()).issubset(allowed_fields):
+                return {
+                    "data": None,
+                    "error": "Can only update name, email, phone, position, profile_picture for yourself"
+                }
+        elif not is_self_update:
+            # Updating someone else - must be company_admin in same company
+            has_access = await check_company_access(requesting_user_id, target_company)
+
+            if not is_admin or not has_access:
+                return {
+                    "data": None,
+                    "error": "Permission denied: Only company admins can update other users"
+                }
+        # If is_self_update and is_admin, allow all fields (no restrictions)
+
+        response = db.table('users').update(updates).eq(
             'user_id', target_user_id
         ).execute()
-        return {"data": response.data, "error": None}
+
+        updated = response.data[0] if isinstance(response.data, list) and response.data else response.data
+        if not updated:
+            return {"data": None, "error": "User not found or no changes applied"}
+
+        return {"data": updated, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -299,44 +329,45 @@ async def delete_user(
     Delete a user (soft delete by setting employment_status = 'terminated').
     Permission: Must be company_admin+ in the same company.
     """
-    # Get target user's company
-    target_user = supabase.table('users').select('company_id').eq(
-        'user_id', target_user_id
-    ).single().execute()
-    
-    if not target_user.data:
-        return {"data": None, "error": "User not found"}
-    
-    target_company = target_user.data['company_id']
-    
-    has_permission = await check_user_permission(requesting_user_id, 'company_admin')
-    has_access = await check_company_access(requesting_user_id, target_company)
-    
-    if not has_permission or not has_access:
-        return {
-            "data": None,
-            "error": "Permission denied: Only company admins can delete users"
-        }
-    
+    service_client = get_service_supabase_client()
     try:
+        # Get target user's company
+        target_user = service_client.table('users').select('company_id').eq(
+            'user_id', target_user_id
+        ).maybe_single().execute()
+
+        if not target_user.data:
+            return {"data": None, "error": "User not found"}
+
+        target_company = target_user.data['company_id']
+
+        has_permission = await check_user_permission(requesting_user_id, 'company_admin')
+        has_access = await check_company_access(requesting_user_id, target_company)
+
+        if not has_permission or not has_access:
+            return {
+                "data": None,
+                "error": "Permission denied: Only company admins can delete users"
+            }
+
         # Deactivate all role assignments for the user first
-        supabase.table('user_role_assignments').update({'is_active': False}).eq(
+        service_client.table('user_role_assignments').update({'is_active': False}).eq(
             'user_id', target_user_id
         ).execute()
-        
+
         # Soft delete: mark user inactive instead of removing the row
-        response = supabase.table('users').update({
+        response = service_client.table('users').update({
             'is_active': False,
             'employment_status': 'INACTIVE'
         }).eq('user_id', target_user_id).execute()
-        
+
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
 async def get_users_by_filter(filters: dict):
     try:
-        query = supabase.table("users").select("*")
+        query = supabase.table("users").select()
 
         if "function_id" in filters:
             query = query.eq("function_id", filters["function_id"])
@@ -353,3 +384,7 @@ async def get_users_by_filter(filters: dict):
         return {"data": result.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
+
+# async def bulk_create_user(
+#     users:list[dict]
+# ):

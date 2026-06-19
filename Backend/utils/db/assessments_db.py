@@ -1,6 +1,8 @@
 from typing import Dict, Any, Optional, List
-from ..supabase_client import supabase
+from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
+from ..supabase_client import supabase
+from ..redis_client import get_cache, set_cache, delete_cache_pattern
 
 # ==================== ASSESSMENT OPERATIONS ====================
 
@@ -41,7 +43,7 @@ async def get_assessment_by_id(
     Permission: User must have access to the company.
     """
     try:
-        resp = supabase.table('assessments').select('*').eq('assessment_id', assessment_id).single().execute()
+        resp = supabase.table('assessments').select('*').eq('assessment_id', assessment_id).maybe_single().execute()
         if not resp.data:
             return {"data": None, "error": "Assessment not found"}
         
@@ -58,6 +60,55 @@ async def get_assessment_by_id(
     except Exception as e:
         return {"data": None, "error": str(e)}
 
+async def get_assessments_batch(
+    requesting_user_id: str,
+    assessment_ids: List[str]
+) -> Dict[str, Any]:
+
+    if not assessment_ids:
+        cache_key = (
+            "assessment_batch:"
+            + ":".join(
+                sorted(assessment_ids)
+            )
+        )
+
+        cached = get_cache(cache_key)
+
+        if cached:
+            print(
+                "Assessment Batch Cache Hit"
+            )
+
+            return {
+                "data": cached,
+                "error": None
+            }
+        return {"data": [], "error": None}
+
+    try:
+        resp = (
+            supabase
+            .table("assessments")
+            .select("*")
+            .in_("assessment_id", assessment_ids)
+            .execute()
+        )
+
+        assessments = resp.data or []
+        
+        set_cache(cache_key, assessments, ttl=600)
+
+        return {
+            "data": assessments,
+            "error": None
+        }
+
+    except Exception as e:
+        return {
+            "data": None,
+            "error": str(e)
+        }
 
 async def get_assessments_by_company(
     requesting_user_id: str,
@@ -217,7 +268,7 @@ async def update_assessment(
     """
     # First get the assessment to check company
     try:
-        resp = supabase.table('assessments').select('company_id').eq('assessment_id', assessment_id).single().execute()
+        resp = supabase.table('assessments').select('company_id').eq('assessment_id', assessment_id).maybe_single().execute()
         if not resp.data:
             return {"data": None, "error": "Assessment not found"}
         
@@ -244,7 +295,7 @@ async def delete_assessment(
     Permission: Admin+ in the same company.
     """
     try:
-        resp = supabase.table('assessments').select('company_id').eq('assessment_id', assessment_id).single().execute()
+        resp = supabase.table('assessments').select('company_id').eq('assessment_id', assessment_id).maybe_single().execute()
         if not resp.data:
             return {"data": None, "error": "Assessment not found"}
         

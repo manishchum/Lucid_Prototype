@@ -1,9 +1,26 @@
 from typing import Dict, Any, Optional, List
 from urllib.parse import urlparse, unquote
 import re
-from ..supabase_client import supabase
+from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
+def get_module_assignment_count(module_id: str):
+    """
+    Count distinct users assigned to a training module
+    through the learning_plan table.
+    """
+
+    result = (
+        supabase
+        .table("learning_plan")
+        .select("user_id")
+        .eq("module_id", module_id)
+        .execute()
+    )
+
+    assignments = result.data or []
+
+    return len(set(row["user_id"] for row in assignments if row.get("user_id")))
 
 def extract_storage_path_from_url(content_url: str) -> Optional[str]:
     """
@@ -66,8 +83,9 @@ async def find_timestamped_uploads(base_filenames: List[str]) -> List[str]:
     matching_paths = []
     
     try:
+        db = get_service_supabase_client()
         # List all files in the uploads folder (not recursive)
-        list_response = supabase.storage.from_("content library").list("uploads")
+        list_response = db.storage.from_("content library").list("uploads")
         
         if list_response:
             for file_info in list_response:
@@ -102,7 +120,8 @@ async def get_training_modules_by_company(
     requesting_user_id: str,
     company_id: str,
     processing_status: Optional[str] = None,
-    review_stage: Optional[str] = None
+    review_stage: Optional[str] = None,
+    auth_claims: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Fetch all training modules for a company.
@@ -118,7 +137,8 @@ async def get_training_modules_by_company(
         }
     
     try:
-        query = supabase.table('training_modules').select('*').eq('company_id', company_id)
+        query_client = get_service_supabase_client()
+        query = query_client.table('training_modules').select('*').eq('company_id', company_id)
         
         if processing_status:
             query = query.eq('processing_status', processing_status)
@@ -135,14 +155,16 @@ async def get_training_modules_by_company(
 
 async def get_training_module_by_id(
     requesting_user_id: str,
-    module_id: str
+    module_id: str,
+    auth_claims: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Fetch a specific training module by ID.
     Permission: Any user in the company can view modules.
     """
     try:
-        response = supabase.table('training_modules').select('*').eq(
+        query_client = get_service_supabase_client()
+        response = query_client.table('training_modules').select('*').eq(
             'module_id', module_id
         ).maybe_single().execute()
         
@@ -168,7 +190,8 @@ async def get_training_module_by_id(
 
 async def create_training_module(
     requesting_user_id: str,
-    module_data: Dict[str, Any]
+    module_data: Dict[str, Any],
+    auth_claims: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Create a new training module.
@@ -195,8 +218,9 @@ async def create_training_module(
 
     # Enforce company content-generation rate limit before creating a new module.
     try:
+        db = get_service_supabase_client()
         company_limit_resp = (
-            supabase
+            db
             .table('companies')
             .select('rate_limit_content_generation')
             .eq('company_id', company_id)
@@ -208,7 +232,7 @@ async def create_training_module(
         company_limit = int(company_limit_value) if company_limit_value is not None else 5
 
         company_modules_resp = (
-            supabase
+            db
             .table('training_modules')
             .select('module_id')
             .eq('company_id', company_id)
@@ -234,7 +258,8 @@ async def create_training_module(
         module_data['uploaded_by'] = requesting_user_id
     
     try:
-        response = supabase.table('training_modules').insert(module_data).execute()
+        query_client = get_service_supabase_client()
+        response = query_client.table('training_modules').insert(module_data).execute()
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -251,7 +276,8 @@ async def update_training_module(
     """
     # Get the module to check company and uploader
     try:
-        module_response = supabase.table('training_modules').select('company_id, uploaded_by').eq(
+        db = get_service_supabase_client()
+        module_response = db.table('training_modules').select('company_id, uploaded_by').eq(
             'module_id', module_id
         ).maybe_single().execute()
         
@@ -283,7 +309,8 @@ async def update_training_module(
         updates.pop(field, None)
     
     try:
-        response = supabase.table('training_modules').update(updates).eq(
+        db = get_service_supabase_client()
+        response = db.table('training_modules').update(updates).eq(
             'module_id', module_id
         ).execute()
         return {"data": response.data, "error": None}
@@ -306,7 +333,8 @@ async def delete_training_module(
     """
     # Get the module with content_url and source_files for storage cleanup
     try:
-        module_response = supabase.table('training_modules').select(
+        db = get_service_supabase_client()
+        module_response = db.table('training_modules').select(
             'company_id, content_url, source_files'
         ).eq(
             'module_id', module_id
@@ -375,7 +403,8 @@ async def delete_training_module(
     if storage_paths_to_delete:
         try:
             # Remove files from 'content library' bucket
-            supabase.storage.from_("content library").remove(storage_paths_to_delete)
+            db = get_service_supabase_client()
+            db.storage.from_("content library").remove(storage_paths_to_delete)
             print(f"[DELETE] Removed {len(storage_paths_to_delete)} files from storage: {storage_paths_to_delete}")
         except Exception as storage_error:
             # Log but don't fail the entire operation if storage deletion fails
@@ -383,7 +412,8 @@ async def delete_training_module(
     
     # Delete the module from database
     try:
-        response = supabase.table('training_modules').delete().eq(
+        db = get_service_supabase_client()
+        response = db.table('training_modules').delete().eq(
             'module_id', module_id
         ).execute()
         return {"data": response.data, "error": None}
@@ -409,7 +439,8 @@ async def get_training_modules_by_uploader(
         }
     
     try:
-        response = supabase.table('training_modules').select('*').eq(
+        db = get_service_supabase_client()
+        response = db.table('training_modules').select('*').eq(
             'company_id', company_id
         ).eq('uploaded_by', uploader_id).order('created_at', desc=True).execute()
         
@@ -431,7 +462,8 @@ async def update_module_processing_status(
     """
     # Get the module to check company
     try:
-        module_response = supabase.table('training_modules').select('company_id').eq(
+        db = get_service_supabase_client()
+        module_response = db.table('training_modules').select('company_id').eq(
             'module_id', module_id
         ).single().execute()
         
@@ -458,7 +490,8 @@ async def update_module_processing_status(
         updates.update(additional_updates)
     
     try:
-        response = supabase.table('training_modules').update(updates).eq(
+        db = get_service_supabase_client()
+        response = db.table('training_modules').update(updates).eq(
             'module_id', module_id
         ).execute()
         return {"data": response.data, "error": None}
@@ -478,7 +511,8 @@ async def update_module_review_stage(
     """
     # Get the module to check company
     try:
-        module_response = supabase.table('training_modules').select('company_id').eq(
+        db = get_service_supabase_client()
+        module_response = db.table('training_modules').select('company_id').eq(
             'module_id', module_id
         ).single().execute()
         
@@ -505,7 +539,8 @@ async def update_module_review_stage(
         updates['reviewer_id'] = reviewer_id
     
     try:
-        response = supabase.table('training_modules').update(updates).eq(
+        db = get_service_supabase_client()
+        response = db.table('training_modules').update(updates).eq(
             'module_id', module_id
         ).execute()
         return {"data": response.data, "error": None}

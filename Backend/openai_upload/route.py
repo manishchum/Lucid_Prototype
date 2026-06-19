@@ -1,3 +1,4 @@
+from email.header import Header
 import os
 import re
 import json
@@ -6,16 +7,28 @@ import shutil
 import asyncio
 import platform
 from typing import Any, Dict, List, Optional, Union
-from PyPDF2 import PdfMerger
+from ingestion.ingestion_sales_tool import ingest_by_document_id
+from PyPDF2 import PdfMerger, PdfReader
+import io
+from fastapi import BackgroundTasks
+from fastapi import Header
+import tempfile
+from lucid_tools.stage_one import create_tool_generation_jobs
+# ... (rest of your existing imports)
 import httpx
 import pandas as pd
 from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import JSONResponse
 from ingestion import ingest_from_upload
 from fastapi import UploadFile, File, Form
-import tempfile
+# ... (rest of your existing imports)
 # from supabase import create_client, Client
-from utils.supabase_client import supabase
+from utils.auth_bridge import get_service_supabase_client
+supabase = get_service_supabase_client()
+print("=" * 80)
+print("SUPABASE_URL =", os.getenv("SUPABASE_URL"))
+print("NEXT_PUBLIC_SUPABASE_URL =", os.getenv("NEXT_PUBLIC_SUPABASE_URL"))
+print("=" * 80)
 from ingestion.parser import parse_excel_first_sheet
 
 # ✅ Gemini v1 SDK
@@ -41,6 +54,141 @@ def get_cloudconvert_client():
 
 router = APIRouter()
 
+@router.post("/lucid_tool_upload")
+async def lucid_tool_upload(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    category: str = Form(...),
+    contextText: str = Form(None), # Optional context from the textarea
+    user_id: str = Header(..., alias="X-User-ID"),
+    company_id: str = Header(..., alias="X-Company-ID"),
+):
+    """
+    This endpoint handles the document upload for Lucid Tools.
+    It will:
+    1. Save the uploaded document to the 'sales tool document' table.
+    2. Kick off the Stage 1 background task to generate retrieval queries.
+    """
+    try:
+        if not user_id or not company_id:
+            return JSONResponse(
+                status_code=401,
+                content={"error": "User authentication is required."},
+            )
+        
+
+        # --- 2. Get the Category ID ---
+        category_res = supabase.table("salestool_categories").select("id").eq("name", category).single().execute()
+        if not category_res.data:
+            return JSONResponse(status_code=400, content={"error": f"Category '{category}' not found."})
+        category_id = category_res.data['id']
+
+        # Read uploaded file
+        file_contents = await file.read()
+        file_name = file.filename
+
+        document_text = ""
+
+        if file.content_type == "application/pdf":
+            pdf_reader = PdfReader(io.BytesIO(file_contents))
+            for page in pdf_reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    document_text += page_text
+        else:
+            try:
+                document_text = file_contents.decode("utf-8")
+            except UnicodeDecodeError:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "File is not a valid PDF or plain text file."}
+                )
+        if contextText:
+            document_text += "\n\n--- Additional Context ---\n" + contextText
+
+        # --- 3. Save the uploaded document as a new 'training_module' ---
+        sales_doc_res = supabase.table("sales_tool_documents").insert({
+            "company_id": company_id,
+            "user_id": user_id,
+            "category_id": category_id,
+            "file_name": file_name   
+        }).execute()
+
+        if not sales_doc_res.data:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Failed to save document"}
+            )
+        source_document_id = sales_doc_res.data[0]["document_id"]
+        
+        # Upload to Storage
+        storage_path = f"sales-tool/{source_document_id}/{file_name}"
+
+        upload_res = supabase.storage.from_("content library").upload(
+            storage_path,
+            file_contents,
+            {
+                "content-type": file.content_type or "application/octet-stream"
+            }
+        )
+        if hasattr(upload_res, "error") and upload_res.error:
+            raise Exception(f"Storage upload failed: {upload_res.error}")
+
+        # Generate url
+        url_res = supabase.storage.from_("content library").get_public_url(storage_path)
+
+        if isinstance(url_res, str):
+            context_url = url_res
+        elif isinstance(url_res, dict):
+            context_url = (
+                url_res.get("publicUrl")
+                or url_res.get("public_url")
+            )
+        else:
+            context_url = None
+        if not context_url:
+            raise Exception("Failed to generate storage URL")
+
+        # Save url in database
+        supabase.table("sales_tool_documents").update({
+            "context_url": context_url
+        }).eq(
+            "document_id",
+            source_document_id
+        ).execute()
+
+
+        print(f"[lucid_tool_upload] Created source document record: {source_document_id}")
+        # --- 4. Start the Stage 1 background task ---
+        background_tasks.add_task(
+            create_tool_generation_jobs,
+            source_document_id=source_document_id,
+            document_content= document_text,
+            category_id=category_id,
+            user_id=user_id,
+            company_id=company_id
+        )
+
+        background_tasks.add_task(
+            ingest_by_document_id,
+            source_document_id
+        )
+
+        return JSONResponse(
+            status_code=202, # 202 Accepted is appropriate for a background job
+            content={
+                "message": "Tool generation process started successfully.",
+                "source_document_id": source_document_id
+            }
+        )
+
+    except Exception as e:
+        print(f"❌ Fatal Error in /lucid_tool_upload: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Internal server error", "detail": str(e)},
+        )
 # -------------------------
 # CloudConvert setup
 # -------------------------
@@ -717,11 +865,18 @@ async def openai_upload_file(
 
             supabase.storage.from_("content library").remove([source_storage_path])
 
+            print("ATTEMPTING SOURCE FILE UPLOAD")
+            print("PATH:", source_storage_path)
+            print("FILENAME:", file.filename)
+
             upload_source = supabase.storage.from_("content library").upload(
                 source_storage_path,
                 file_bytes,
                 {"content-type": file.content_type or "application/octet-stream"}
             )
+            
+            print("STEP 2")
+            print(upload_source)    
 
             if hasattr(upload_source, "error") and upload_source.error:
                 raise Exception(f"Failed to upload source file: {upload_source.error}")

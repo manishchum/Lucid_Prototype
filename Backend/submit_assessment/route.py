@@ -6,6 +6,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from utils.auth import get_request_auth_required_from_request
+from utils.auth_bridge import get_service_supabase_client
 
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
@@ -36,6 +37,9 @@ async def POST(request: Request):
     assessmentRes = None
     try:
         auth_ctx = get_request_auth_required_from_request(request)
+        user_supabase = supabase
+        if auth_ctx.claims:
+            user_supabase = get_service_supabase_client()
         body = await request.json()
 
         user_id = body.get("user_id")
@@ -57,7 +61,7 @@ async def POST(request: Request):
 
         # Fetch the assessment questions
         assessmentRes = (
-            supabase
+            user_supabase
             .table("assessments")
             .select("questions, type, processed_module_id")
             .eq("assessment_id", assessment_id)
@@ -274,7 +278,7 @@ Review the questions you missed and study the related concepts to improve your u
 
     # Prefer deterministic upsert if a suitable unique constraint exists.
     upsertRes = (
-        supabase
+        user_supabase
         .table("employee_assessments")
         .upsert(rowToSave)
         .execute()
@@ -287,7 +291,7 @@ Review the questions you missed and study the related concepts to improve your u
         print("⚠️ employee_assessments upsert fell back (missing unique constraint):", saveError)
 
         existingRes = (
-            supabase
+            user_supabase
             .table("employee_assessments")
             .select("employee_assessment_id")
             .eq("user_id", user_id)
@@ -304,7 +308,7 @@ Review the questions you missed and study the related concepts to improve your u
             saveError = existingErr
         elif isinstance(existing, dict) and existing.get("employee_assessment_id"):
             updRes = (
-                supabase
+                user_supabase
                 .table("employee_assessments")
                 .update(rowToSave)
                 .eq("employee_assessment_id", existing.get("employee_assessment_id"))
@@ -314,7 +318,7 @@ Review the questions you missed and study the related concepts to improve your u
             saveError = getattr(updRes, "error", None)
         else:
             insRes = (
-                supabase
+                user_supabase
                 .table("employee_assessments")
                 .insert(rowToSave)
                 .execute()
@@ -325,6 +329,57 @@ Review the questions you missed and study the related concepts to improve your u
     if saveError:
         print("❌ Error saving assessment result:", saveError)
         return JSONResponse(content={"error": "Failed to save assessment result"}, status_code=500)
+
+    is_baseline_assessment = str(assessment.get("type") or "").lower() == "baseline"
+    module_id_for_plan = body.get("module_id") or assessment.get("processed_module_id")
+
+    # Record baseline completion in learning_plan once per user/module.
+    # We keep the original assigned plan row intact and add a dedicated
+    # completion marker row so the UI can disable Baseline after first use.
+    if is_baseline_assessment and module_id_for_plan:
+        try:
+            existingBaselinePlanRes = (
+                supabase
+                .table("learning_plan")
+                .select("learning_plan_id")
+                .eq("user_id", user_id)
+                .eq("module_id", module_id_for_plan)
+                .eq("status", "BASELINE_COMPLETED")
+                .order("assigned_on", desc=True)
+                .limit(1)
+                .maybe_single()
+                .execute()
+            )
+            existingBaselinePlan = getattr(existingBaselinePlanRes, "data", None)
+            existingBaselinePlanError = getattr(existingBaselinePlanRes, "error", None)
+
+            if existingBaselinePlanError:
+                print("⚠️ Error checking existing baseline completion plan:", existingBaselinePlanError)
+            elif not existingBaselinePlan:
+                baselinePlanRow = {
+                    "user_id": user_id,
+                    "module_id": module_id_for_plan,
+                    "status": "BASELINE_COMPLETED",
+                    "baseline_assessment": False,
+                    "reasoning": {
+                        "source": "baseline_assessment",
+                        "assessment_id": assessment_id,
+                        "completed_at": __import__("datetime").datetime.utcnow().isoformat(),
+                    },
+                    "assigned_on": __import__("datetime").datetime.utcnow().isoformat(),
+                }
+
+                baselinePlanInsertRes = (
+                    supabase
+                    .table("learning_plan")
+                    .insert(baselinePlanRow)
+                    .execute()
+                )
+                baselinePlanInsertError = getattr(baselinePlanInsertRes, "error", None)
+                if baselinePlanInsertError:
+                    print("⚠️ Failed to create baseline completion learning_plan row:", baselinePlanInsertError)
+        except Exception as baselinePlanError:
+            print("⚠️ Unexpected error while recording baseline completion in learning_plan:", baselinePlanError)
 
     # Extract employee_assessment_id from savedResult (supabase-py returns list usually)
     employee_assessment_id = None

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -16,10 +17,11 @@ interface Module {
 interface ModuleSideNavProps {
   userId: string;
   currentModuleId: string;
-  sprintModuleId?: string; // The original module_id from training_modules (sprint level)
+  sprintModuleId?: string;
+  originalModuleId?: string;
 }
 
-export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId }: ModuleSideNavProps) {
+export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId, originalModuleId }: ModuleSideNavProps) {
   const [modules, setModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(false);
   const [resolvedOriginalModuleId, setResolvedOriginalModuleId] = useState<string | null>(null);
@@ -39,10 +41,10 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
       }
 
       // Determine the original_module_id (sprint-level module_id)
-      let originalModuleId = sprintModuleId || resolvedOriginalModuleId;
+      let resolvedOriginalModuleId = originalModuleId || sprintModuleId;
 
       // If sprintModuleId is not provided, get it from the current processed module
-      if (!originalModuleId && currentModuleId) {
+      if (!resolvedOriginalModuleId && currentModuleId) {
         try {
           const currentModuleResult = await sharedDataClient.query<any>(
             createCacheKey({
@@ -52,9 +54,8 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
               path: `/api/processed-modules/${currentModuleId}`,
             }),
             async () => {
-              const pmRes = await fetch(
+              const pmRes = await fetchWithAuth(
                 `${API_BASE}/api/processed-modules/${currentModuleId}`,
-                { headers: { "X-User-ID": userId } },
               );
               if (!pmRes.ok) {
                 throw new Error("Failed to fetch current module");
@@ -70,7 +71,7 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
             return;
           }
 
-          originalModuleId = currentModule.original_module_id;
+          resolvedOriginalModuleId = currentModule.original_module_id;
           setResolvedOriginalModuleId(String(currentModule.original_module_id));
         } catch (error) {
           console.error("[ModuleSideNav] Error fetching current module:", error);
@@ -78,7 +79,7 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
         }
       }
 
-      if (!originalModuleId) {
+      if (!resolvedOriginalModuleId) {
         return;
       }
 
@@ -89,12 +90,11 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
             namespace: "processed-modules",
             tenantId: "public",
             userId,
-            path: `/api/processed-modules/original-module/${originalModuleId}`,
+            path: `/api/processed-modules/original-module/${resolvedOriginalModuleId}`,
           }),
           async () => {
-            const modulesRes = await fetch(
-              `${API_BASE}/api/processed-modules/original-module/${originalModuleId}`,
-              { headers: { "X-User-ID": userId } },
+            const modulesRes = await fetchWithAuth(
+              `${API_BASE}/api/processed-modules/original-module/${resolvedOriginalModuleId}`,
             );
             if (!modulesRes.ok) {
               throw new Error("Failed to fetch sprint modules");
@@ -108,7 +108,7 @@ export default function ModuleSideNav({ userId, currentModuleId, sprintModuleId 
         
         if (Array.isArray(modules) && modules.length > 0) {
           setModules(modules);
-          setResolvedOriginalModuleId(String(originalModuleId));
+          setResolvedOriginalModuleId(String(resolvedOriginalModuleId));
         }
       } catch (error) {
         console.error("[ModuleSideNav] Error fetching modules:", error);

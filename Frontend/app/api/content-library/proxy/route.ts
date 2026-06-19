@@ -6,9 +6,9 @@ import { NextRequest } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
+const SUPABASE_SERVER_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 
-const supabaseService = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+const supabaseService = createClient(SUPABASE_URL, SUPABASE_SERVER_KEY, {
   auth: { persistSession: false },
 });
 

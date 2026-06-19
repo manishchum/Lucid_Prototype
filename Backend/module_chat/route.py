@@ -2,9 +2,9 @@ from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import JSONResponse
 from google.generativeai import GenerativeModel
 import google.generativeai as genai
-from supabase import create_client, Client
 import os
 import asyncio
+from utils.supabase_client import supabase
 
 from utils.auth import RequestAuth, get_request_auth_optional
 
@@ -13,12 +13,6 @@ router = APIRouter()
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
 ai = GenerativeModel("gemini-3.1-pro-preview")
-
-supabase: Client = create_client(
-    os.environ["NEXT_PUBLIC_SUPABASE_URL"],
-    os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-)
-
 
 # WebSocket connections store
 connections = set()

@@ -462,15 +462,15 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
 
         if language == "hinglish":
             voice = (
-                {"languageCode": "hi-IN", "name": "hi-IN-Chirp3-HD-Autonoe", "ssmlGender": "FEMALE"}
+                {"languageCode": "hi-IN", "name": "en-IN-Wavenet-C", "ssmlGender": "FEMALE"}
                 if segment["speaker"] == "pooja"
-                else {"languageCode": "hi-IN", "name": "hi-IN-Chirp3-HD-Enceladus", "ssmlGender": "MALE"}
+                else {"languageCode": "hi-IN", "name": "hi-IN-Wavenet-C", "ssmlGender": "MALE"}
             )
         else:
             voice = (
-                {"languageCode": "en-IN", "name": "en-IN-Chirp3-HD-Callirrhoe", "ssmlGender": "FEMALE"}
+                {"languageCode": "en-IN", "name": "en-IN-Wavenet-C", "ssmlGender": "FEMALE"}
                 if segment["speaker"] == "sarah"
-                else {"languageCode": "en-IN", "name": "en-IN-Chirp3-HD-Enceladus", "ssmlGender": "MALE"}
+                else {"languageCode": "en-IN", "name": "en-IN-Wavenet-C", "ssmlGender": "MALE"}
             )
 
         requestBody = {
@@ -550,7 +550,7 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
 
     if not ensured.get("ok"):
         return {
-            "error": f"Bucket not found and could not be created: {ensured.get('error')}. Ensure SUPABASE_SERVICE_ROLE_KEY is set or create the bucket manually.",
+            "error": f"Bucket not found and could not be created: {ensured.get('error')}. Ensure Supabase server key env vars are set or create the bucket manually.",
             "status": 500,
         }
 

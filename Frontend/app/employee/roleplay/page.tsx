@@ -78,7 +78,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       
       const { data, error } = await fetchScenariosForUserAPI(userId, isAdmin || false);
 
-      //console.log('Fetched scenarios:', data);
+      console.log('Fetched scenarios:', data);
       if (data) {
         setAllScenarios(data);
       }
@@ -97,6 +97,21 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
       if (!user) router.push("/login");
     }
   }, [user, authLoading, router]);
+
+  const fetchAppUserByEmail = async (email?: string | null) => {
+    if (!email) return null;
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(email)}`);
+      if (!res.ok) return null;
+      const payload = await res.json();
+      let appUser = payload?.user ?? payload;
+      if (Array.isArray(appUser)) appUser = appUser[0];
+      return appUser?.user_id ? appUser : null;
+    } catch (error) {
+      console.error("Error fetching app user by email:", error);
+      return null;
+    }
+  };
 
   // Load custom scenario from sessionStorage if custom=true
   useEffect(() => {
@@ -127,24 +142,19 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     }
   }, [isCustom]);
 
-  // Fetch employee ID from Supabase
+  // Fetch employee profile via backend auth-aware endpoint
   useEffect(() => {
     const fetchEmployeeId = async () => {
       if (user?.email) {
         try {
-          const { data, error } = await supabase
-            .from('users')
-            .select('user_id, company_id')
-            .eq('email', user.email)
-            .single();
-
-          if (error) {
-            console.error('Error fetching employee ID:', error);
-          } else if (data) {
-            setEmployeeId(data.user_id);
-            setUserId(data.user_id);
-            setCompanyId(data.company_id);
+          const appUser = await fetchAppUserByEmail(user.email);
+          if (!appUser) {
+            console.error("Error fetching employee ID: user not found");
+            return;
           }
+          setEmployeeId(appUser.user_id);
+          setUserId(appUser.user_id);
+          setCompanyId(appUser.company_id);
         } catch (error) {
           console.error('Exception fetching employee ID:', error);
         }
@@ -158,16 +168,9 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     const fetchUserDataAndCheckAdmin = async () => {
       if (user?.email) {
         try {
-          // Get user data
-          const { data: userData, error: userError } = await supabase
-            .from('users')
-            .select('user_id, company_id')
-            .eq('email', user.email)
-            .eq('is_active', true)
-            .single();
-
-          if (userError || !userData) {
-            console.error('Error fetching user data:', userError);
+          const userData = await fetchAppUserByEmail(user.email);
+          if (!userData) {
+            console.error('Error fetching user data: user not found');
             setIsAdmin(false);
             return;
           }
@@ -177,26 +180,32 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
           setCompanyId(userData.company_id);
 
           // Check user role assignments
-          const { data: roleData, error: roleError } = await supabase
-            .from('user_role_assignments')
-            .select(`
-              role_id,
-              roles!inner(name)
-            `)
-            .eq('user_id', userData.user_id)
-            .eq('is_active', true)
-            .eq('scope_type', 'COMPANY');
+          const roleRes = await fetchWithAuth(`${API_URL}/api/roles/users/${encodeURIComponent(userData.user_id)}`, {
+            headers: { 'X-User-ID': userData.user_id }
+          });
 
-          if (roleError || !roleData || roleData.length === 0) {
-            //console.log('No admin role found');
+          if (!roleRes.ok) {
+            console.error('Failed to fetch role assignments:', roleRes.status);
+            setIsAdmin(false);
+            return;
+          }
+
+          const rolePayload = await roleRes.json().catch(() => null);
+          const roleData = rolePayload?.assignments ?? rolePayload?.data ?? rolePayload ?? [];
+          if (!Array.isArray(roleData) || roleData.length === 0) {
+            console.log('No admin role found');
             setIsAdmin(false);
             return;
           }
 
           // Check if user has Admin role
-          const hasAdminRole = roleData.some((assignment: any) => 
-            ['admin', 'super_admin', 'ceo'].includes(assignment.roles?.name?.toLowerCase())
-          );
+          const hasAdminRole = roleData.some((assignment: any) => {
+            const roleObj = assignment?.role ?? assignment?.roles ?? assignment ?? {};
+            const roleNode = Array.isArray(roleObj) ? roleObj[0] : roleObj;
+            const roleName = String(roleNode?.name || '').toLowerCase().replace(/[-_\s]/g, '');
+            const roleLevel = Number(roleNode?.level ?? assignment?.level ?? -1);
+            return roleLevel >= 3 || ['admin', 'companyadmin', 'superadmin', 'ceo'].includes(roleName);
+          });
 
           //console.log('User is admin:', hasAdminRole);
           setIsAdmin(hasAdminRole);

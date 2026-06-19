@@ -51,37 +51,37 @@ interface Admin {
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 // helper: fetch users for a company via backend (do not query users table from frontend)
-const fetchCompanyUsers = async (companyId: string, adminUserId?: string) => {
-  try {
-    const res = await fetchWithAuth(`${API_URL}/api/users/company/${companyId}`, {
-      headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
-    });
-    if (!res.ok) return [];
-    const payload = await res.json();
-    const users = payload?.data?.users ?? payload?.users ?? payload;
-    return Array.isArray(users) ? users : users ? [users] : [];
-  } catch (e) {
-    console.error('[fetchCompanyUsers] error', e);
-    return [];
-  }
-};
+// const fetchCompanyUsers = async (companyId: string, adminUserId?: string) => {
+//   try {
+//     const res = await fetchWithAuth(`${API_URL}/api/users/company/${companyId}`, {
+//       headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
+//     });
+//     if (!res.ok) return [];
+//     const payload = await res.json();
+//     const users = payload?.data?.users ?? payload?.users ?? payload;
+//     return Array.isArray(users) ? users : users ? [users] : [];
+//   } catch (e) {
+//     console.error('[fetchCompanyUsers] error', e);
+//     return [];
+//   }
+// };
 
-const loadModules = async (companyId: string, adminUserId?: string) => {
-  try {
-    const res = await fetchWithAuth(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
-      headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
-    });
-    if (!res.ok) {
-      console.warn('[loadModules] backend returned', res.status);
-      return [];
-    }
-    const payload = await res.json().catch(() => ({}));
-    return payload?.data?.modules ?? payload?.modules ?? [];
-  } catch (e) {
-    console.error('[loadModules] error', e);
-    return [];
-  }
-};
+// const loadModules = async (companyId: string, adminUserId?: string) => {
+//   try {
+//     const res = await fetchWithAuth(`${API_URL}/api/training-modules/company/${encodeURIComponent(companyId)}`, {
+//       headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
+//     });
+//     if (!res.ok) {
+//       console.warn('[loadModules] backend returned', res.status);
+//       return [];
+//     }
+//     const payload = await res.json().catch(() => ({}));
+//     return payload?.data?.modules ?? payload?.modules ?? [];
+//   } catch (e) {
+//     console.error('[loadModules] error', e);
+//     return [];
+//   }
+// };
 
 function UserDetailPanel({ user, onBack, allProgressData }: { user: any; onBack: () => void; allProgressData?: any[] }) {
   const sprintsOpened = user.completedItems ?? 0;
@@ -217,47 +217,50 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
 
   // Memoize loadAnalyticsData to avoid recreating it on every render
   const loadAnalyticsDataHandler = async () => {
-    if (!companyId || !adminUserId) {
-      console.warn('[Analytics] Missing companyId or adminUserId', { companyId, adminUserId });
-      return;
-    }
-    
-    // console.log('[Analytics] Starting data load for company:', companyId);
-    setLoading(true);
-    try {
-      try{
-        const compRes = await fetchWithAuth(`${API_URL}/api/companies/${encodeURIComponent(companyId)}`);
-        if (compRes.ok) {
-          const compPayload = await compRes.json().catch(() => null);
-          const companyData = compPayload?.data?.company ?? compPayload?.data ?? compPayload?.company ?? compPayload;
-          setCompanyLearningStyleEnabled(companyData?.learning_style_enabled ?? true);
-          // console.log('[Analytics] Company data loaded:', companyData?.learning_style_enabled);
-        } else {
-          console.warn('Failed to fetch company data for learning style setting');
-          setCompanyLearningStyleEnabled(false);
-        }
-      } catch (e) {
-        console.error('Error fetching company data:', e);
-        setCompanyLearningStyleEnabled(false);
-      }
 
-      // Load modules from backend then other analytics (other loaders may depend on modules/state)
-      // console.log('[Analytics] Loading modules...');
-      const mods = await loadModules(companyId, adminUserId);
-      // console.log('[Analytics] Modules loaded:', mods?.length || 0);
-      setModules(mods);
-      
-      // console.log('[Analytics] Loading all analytics data in parallel...');
-      await Promise.all([
-        loadLearningPlanData(mods),
-        loadAssessmentData(),
-        loadLearningStyleData(),
-        loadKpiData(),
-        loadOverallStatistics()
-      ]);
-      // console.log('[Analytics] All data loaded successfully');
-    } catch (error) {
-      console.error('Failed to load analytics data:', error);
+    if (!companyId || !adminUserId) return;
+
+    setLoading(true);
+
+    try {
+
+      const response = await fetchWithAuth(
+        `${API_URL}/api/analytics/dashboard/${companyId}`,
+        {
+          headers: {
+            "X-User-ID": adminUserId
+          }
+        }
+      );
+
+      const data = await response.json();
+
+      console.log("TYPE", typeof data);
+      console.log("RAW", data);
+      console.log("FULL RESPONSE", data);
+      console.log("data.overallStats", data?.overallStats);
+      console.log("data.data?.overallStats", data?.data?.overallStats);
+      setOverallStats(data.overallStats);
+      console.log('Overall stats set:', data.overallStats);
+
+      const learningStyleArray =
+        Object.entries(data.learningStyles || {})
+        .map(([style, count]: any) => ({
+          style,
+          count
+        }));
+
+      setLearningStyleStats(learningStyleArray);
+
+      setModules(data.modules || []);
+
+      setModuleStats(data.moduleStats || []);
+      setAssessmentStats(data.assessmentStats || []);
+      setProgressData(data.progressData || []);
+      setKpiStats(data.kpiStats || []);
+
+    } catch (err) {
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -267,705 +270,711 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
     if (companyId && adminUserId) {
       loadAnalyticsDataHandler();
     }
-  }, [companyId, adminUserId, selectedModule, selectedTimeRange, selectedAssessmentType]);
+  }, [companyId, adminUserId]);
 
-  const loadAnalyticsData = async () => {
-    setLoading(true);
-    try {
-      try{
-        const compRes = await fetchWithAuth(`${API_URL}/api/companies/${encodeURIComponent(companyId)}`);
-        if (compRes.ok) {
-          const compPayload = await compRes.json().catch(() => null);
-          const companyData = compPayload?.data?.company ?? compPayload?.data ?? compPayload?.company ?? compPayload;
-          setCompanyLearningStyleEnabled(companyData?.learning_style_enabled ?? true);
-        } else {
-          console.warn('Failed to fetch company data for learning style setting');
-          setCompanyLearningStyleEnabled(false);
-        }
-      } catch (e) {
-        console.error('Error fetching company data:', e);
-        setCompanyLearningStyleEnabled(false);
-      }
+  // const loadAnalyticsData = async () => {
+  //   setLoading(true);
+  //   try {
+  //     try{
+  //       const compRes = await fetchWithAuth(`${API_URL}/api/companies/${encodeURIComponent(companyId)}`);
+  //       if (compRes.ok) {
+  //         const compPayload = await compRes.json().catch(() => null);
+  //         const companyData = compPayload?.data?.company ?? compPayload?.data ?? compPayload?.company ?? compPayload;
+  //         setCompanyLearningStyleEnabled(companyData?.learning_style_enabled ?? true);
+  //       } else {
+  //         console.warn('Failed to fetch company data for learning style setting');
+  //         setCompanyLearningStyleEnabled(false);
+  //       }
+  //     } catch (e) {
+  //       console.error('Error fetching company data:', e);
+  //       setCompanyLearningStyleEnabled(false);
+  //     }
 
-      // Load modules from backend then other analytics (other loaders may depend on modules/state)
-      const mods = await loadModules(companyId, adminUserId);
-      setModules(mods);
-      await Promise.all([
-        loadLearningPlanData(),
-        loadAssessmentData(),
-        loadLearningStyleData(),
-        loadKpiData(),
-        loadOverallStatistics()
-      ]);
-    } catch (error) {
-      console.error('Failed to load analytics data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  //     // Load modules from backend then other analytics (other loaders may depend on modules/state)
+  //     const mods = await loadModules(companyId, adminUserId);
+  //     setModules(mods);
+  //     // await Promise.all([
+  //     //   loadLearningPlanData(),
+  //     //   loadAssessmentData(),
+  //     //   loadLearningStyleData(),
+  //     //   loadKpiData(),
+  //     //   loadOverallStatistics()
+  //     // ]);
+  //   } catch (error) {
+  //     console.error('Failed to load analytics data:', error);
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
 
-  const loadLearningPlanData = async (modulesData?: any[]) => {
-    try {
-      // Use passed modules or fall back to state
-      const modsToUse = modulesData || modules;
+  // const loadLearningPlanData = async (modulesData?: any[]) => {
+  //   console.time('loadLearningPlanData');
+  //   try {
+  //     // Use passed modules or fall back to state
+  //     const modsToUse = modulesData || modules;
       
-      // Fetch company users via backend and build userId list
-      const companyUsers = await fetchCompanyUsers(companyId, adminUserId);
-      const companyUserIds = (companyUsers || []).map((u: any) => u.user_id).filter(Boolean);
-      if (companyUserIds.length === 0) {
-        // console.log('[LP] No company users found');
-        setProgressData([]);
-        return;
-      }
+  //     // Fetch company users via backend and build userId list
+  //     const companyUsers = await fetchCompanyUsers(companyId, adminUserId);
+  //     const companyUserIds = (companyUsers || []).map((u: any) => u.user_id).filter(Boolean);
+  //     if (companyUserIds.length === 0) {
+  //       // console.log('[LP] No company users found');
+  //       setProgressData([]);
+  //       return;
+  //     }
 
-      // Query learning_plan for users in this company via backend API
-      const lpRes = await fetchWithAuth(
-        `${API_URL}/api/learning-plans/?limit=5000`,
-        { headers: { 'X-User-ID': adminUserId || '' } }
-      );
+  //     // Query learning_plan for users in this company via backend API
+  //     const lpRes = await fetchWithAuth(
+  //       `${API_URL}/api/learning-plans/?limit=5000`,
+  //       { headers: { 'X-User-ID': adminUserId || '' } }
+  //     );
 
-      if (!lpRes.ok) {
-        console.error('[analytics] Error fetching learning plans');
-        setProgressData([]);
-        return;
-      }
+  //     if (!lpRes.ok) {
+  //       console.error('[analytics] Error fetching learning plans');
+  //       setProgressData([]);
+  //       return;
+  //     }
 
-      const lpData = await lpRes.json();
-      console.log('[LP] raw response count:', lpData?.plans?.length, 'companyUsers count:', companyUserIds?.length);
-      let allPlans = lpData?.data?.plans ?? lpData?.plans ?? [];
+  //     const lpData = await lpRes.json();
+  //     console.log('[LP] raw response count:', lpData?.plans?.length, 'companyUsers count:', companyUserIds?.length);
+  //     let allPlans = lpData?.data?.plans ?? lpData?.plans ?? [];
 
-      // Filter by company users
-      let learningPlans = allPlans.filter((lp: any) => companyUserIds.includes(lp.user_id));
+  //     // Filter by company users
+  //     let learningPlans = allPlans.filter((lp: any) => companyUserIds.includes(lp.user_id));
 
-      // Apply module filter
-      if (selectedModule !== 'all') {
-        learningPlans = learningPlans.filter((lp: any) => lp.module_id === selectedModule);
-      }
+  //     // Apply module filter
+  //     if (selectedModule !== 'all') {
+  //       learningPlans = learningPlans.filter((lp: any) => lp.module_id === selectedModule);
+  //     }
 
-      // Apply time range filter
-      if (selectedTimeRange !== 'all') {
-        const daysAgo = new Date();
-        daysAgo.setDate(daysAgo.getDate() - parseInt(selectedTimeRange));
-        learningPlans = learningPlans.filter((lp: any) =>
-          lp.assigned_on && new Date(lp.assigned_on) >= daysAgo
-        );
-      }
+  //     // Apply time range filter
+  //     if (selectedTimeRange !== 'all') {
+  //       const daysAgo = new Date();
+  //       daysAgo.setDate(daysAgo.getDate() - parseInt(selectedTimeRange));
+  //       learningPlans = learningPlans.filter((lp: any) =>
+  //         lp.assigned_on && new Date(lp.assigned_on) >= daysAgo
+  //       );
+  //     }
 
-      // Enrich learning plans with training module data
-      const moduleMap = new Map((modsToUse || []).map((m: any) => [m.module_id, m]));
-      // console.log('[LP] Module map has', moduleMap.size, 'modules');
+  //     // Enrich learning plans with training module data
+  //     const moduleMap = new Map((modsToUse || []).map((m: any) => [m.module_id, m]));
+  //     // console.log('[LP] Module map has', moduleMap.size, 'modules');
       
-      let enrichedResults = learningPlans.map((lp: any) => {
-        const mod = moduleMap.get(lp.module_id);
-        // console.log('[LP] Enriching plan for module', lp.module_id, '- found:', !!mod);
-        return {
-          ...lp,
-          training_modules: mod || { 
-            module_id: lp.module_id, 
-            title: 'Unknown Module',
-            processing_status: 'UNKNOWN'
-          }
-        };
-      });
-      // const { data: progressResults, error } = await query.order('assigned_on', { ascending: false });
+  //     let enrichedResults = learningPlans.map((lp: any) => {
+  //       const mod = moduleMap.get(lp.module_id);
+  //       // console.log('[LP] Enriching plan for module', lp.module_id, '- found:', !!mod);
+  //       return {
+  //         ...lp,
+  //         training_modules: mod || { 
+  //           module_id: lp.module_id, 
+  //           title: 'Unknown Module',
+  //           processing_status: 'UNKNOWN'
+  //         }
+  //       };
+  //     });
+  //     // const { data: progressResults, error } = await query.order('assigned_on', { ascending: false });
 
-      // if (error) throw error;
+  //     // if (error) throw error;
 
-      // let enrichedResults = progressResults || [];
+  //     // let enrichedResults = progressResults || [];
 
-      if (enrichedResults.length > 0) {
-        // Get original module ids and processed modules as before
-        const moduleIds = [...new Set(enrichedResults.map(r => r.module_id))];
+  //     if (enrichedResults.length > 0) {
+  //       // Get original module ids and processed modules as before
+  //       const moduleIds = [...new Set(enrichedResults.map(r => r.module_id))];
 
-        // Fetch processed_modules via backend route per original_module_id (frontend should not query DB directly)
-        const processedModulesData: any[] = [];
-        for (const origId of moduleIds) {
-          try {
-            const pmRes = await fetchWithAuth(`${API_URL}/api/processed-modules/original-module/${encodeURIComponent(origId)}`, {
-              headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
-            });
-            if (!pmRes.ok) {
-              const txt = await pmRes.text().catch(()=> '');
-              console.warn(`[analytics] failed to fetch processed modules for ${origId}:`, pmRes.status, txt);
-              continue;
-            }
-            const pmPayload = await pmRes.json().catch(()=> ({}));
-            const pms = pmPayload?.data?.modules ?? pmPayload?.data ?? pmPayload?.modules ?? pmPayload ?? [];
-            (Array.isArray(pms) ? pms : []).forEach((pm: any) => {
-              processedModulesData.push({
-                processed_module_id: pm.processed_module_id,
-                original_module_id: pm.original_module_id
-              });
-            });
-          } catch (e) {
-            console.error('[analytics] error fetching processed modules for', origId, e);
-          }
-        }
+  //       // Fetch processed_modules via backend route per original_module_id (frontend should not query DB directly)
+  //       const processedModulesData: any[] = [];
+  //       for (const origId of moduleIds) {
+  //         try {
+  //           const pmRes = await fetchWithAuth(`${API_URL}/api/processed-modules/original-module/${encodeURIComponent(origId)}`, {
+  //             headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
+  //           });
+  //           if (!pmRes.ok) {
+  //             const txt = await pmRes.text().catch(()=> '');
+  //             console.warn(`[analytics] failed to fetch processed modules for ${origId}:`, pmRes.status, txt);
+  //             continue;
+  //           }
+  //           const pmPayload = await pmRes.json().catch(()=> ({}));
+  //           const pms = pmPayload?.data?.modules ?? pmPayload?.data ?? pmPayload?.modules ?? pmPayload ?? [];
+  //           (Array.isArray(pms) ? pms : []).forEach((pm: any) => {
+  //             processedModulesData.push({
+  //               processed_module_id: pm.processed_module_id,
+  //               original_module_id: pm.original_module_id
+  //             });
+  //           });
+  //         } catch (e) {
+  //           console.error('[analytics] error fetching processed modules for', origId, e);
+  //         }
+  //       }
  
-         const moduleIdToProcessedIds = new Map();
-         processedModulesData?.forEach(pm => {
-           if (!moduleIdToProcessedIds.has(pm.original_module_id)) {
-             moduleIdToProcessedIds.set(pm.original_module_id, []);
-           }
-           moduleIdToProcessedIds.get(pm.original_module_id).push(pm.processed_module_id);
-         });
+  //        const moduleIdToProcessedIds = new Map();
+  //        processedModulesData?.forEach(pm => {
+  //          if (!moduleIdToProcessedIds.has(pm.original_module_id)) {
+  //            moduleIdToProcessedIds.set(pm.original_module_id, []);
+  //          }
+  //          moduleIdToProcessedIds.get(pm.original_module_id).push(pm.processed_module_id);
+  //        });
 
-         const allProcessedModuleIds = Array.from(moduleIdToProcessedIds.values()).flat();
+  //        const allProcessedModuleIds = Array.from(moduleIdToProcessedIds.values()).flat();
 
-         const moduleProgressData : any[] = [];
-          for (const pmId of allProcessedModuleIds) {
-            try {
-              const mpRes = await fetchWithAuth(`${API_URL}/api/module-progress/module/${encodeURIComponent(pmId)}`, {
-                headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
-              });
+  //        const moduleProgressData : any[] = [];
+  //         for (const pmId of allProcessedModuleIds) {
+  //           try {
+  //             const mpRes = await fetchWithAuth(`${API_URL}/api/module-progress/module/${encodeURIComponent(pmId)}`, {
+  //               headers: adminUserId ? { 'X-User-ID': adminUserId } : undefined
+  //             });
 
-              if (!mpRes.ok) {
-                const txt = await mpRes.text().catch(()=> '');
-                console.warn(`[analytics] failed to fetch module progress for ${pmId}:`, mpRes.status, txt);
-                continue;
-              }
+  //             if (!mpRes.ok) {
+  //               const txt = await mpRes.text().catch(()=> '');
+  //               console.warn(`[analytics] failed to fetch module progress for ${pmId}:`, mpRes.status, txt);
+  //               continue;
+  //             }
 
-              const mpPayload = await mpRes.json().catch(()=> ({}));
-              const items = mpPayload?.data?.progress ?? mpPayload?.data ?? mpPayload?.progress ?? mpPayload ?? [];
-              (Array.isArray(items) ? items : [items]).forEach((rec: any) => {
-                if (rec.user_id && rec.processed_module_id) {
-                  moduleProgressData.push({
-                    user_id: rec.user_id,
-                    processed_module_id: rec.processed_module_id,
-                    completed_at: rec.completed_at
-                  });
-                }
-              });
-            } catch (e) {
-              console.error('[analytics] error fetching module progress for', pmId, e);
-            }
-          }
+  //             const mpPayload = await mpRes.json().catch(()=> ({}));
+  //             const items = mpPayload?.data?.progress ?? mpPayload?.data ?? mpPayload?.progress ?? mpPayload ?? [];
+  //             (Array.isArray(items) ? items : [items]).forEach((rec: any) => {
+  //               if (rec.user_id && rec.processed_module_id) {
+  //                 moduleProgressData.push({
+  //                   user_id: rec.user_id,
+  //                   processed_module_id: rec.processed_module_id,
+  //                   completed_at: rec.completed_at
+  //                 });
+  //               }
+  //             });
+  //           } catch (e) {
+  //             console.error('[analytics] error fetching module progress for', pmId, e);
+  //           }
+  //         }
 
-         const progressMap = new Map();
-         moduleProgressData.forEach(mp => {
-           const key = `${mp.user_id}-${mp.processed_module_id}`;
-           progressMap.set(key, mp);
-         });
-         // Merge user info from companyUsers (avoid direct users table calls)
-         const userMap = new Map((companyUsers || []).map((u: any) => [u.user_id, u]));
+  //        const progressMap = new Map();
+  //        moduleProgressData.forEach(mp => {
+  //          const key = `${mp.user_id}-${mp.processed_module_id}`;
+  //          progressMap.set(key, mp);
+  //        });
+  //        // Merge user info from companyUsers (avoid direct users table calls)
+  //        const userMap = new Map((companyUsers || []).map((u: any) => [u.user_id, u]));
 
-         enrichedResults = enrichedResults.map(record => {
-           const processedModuleIds = moduleIdToProcessedIds.get(record.module_id) || [];
-           const completedProcessedModules = processedModuleIds.filter(pmId => {
-             const key = `${record.user_id}-${pmId}`;
-             return progressMap.has(key);
-           });
+  //        enrichedResults = enrichedResults.map(record => {
+  //          const processedModuleIds = moduleIdToProcessedIds.get(record.module_id) || [];
+  //          const completedProcessedModules = processedModuleIds.filter(pmId => {
+  //            const key = `${record.user_id}-${pmId}`;
+  //            return progressMap.has(key);
+  //          });
 
-           const user = userMap.get(record.user_id) || { name: 'Unknown', email: '', department_id: null };
+  //          const user = userMap.get(record.user_id) || { name: 'Unknown', email: '', department_id: null };
 
-           return {
-             ...record,
-             users: user,
-             status: (completedProcessedModules.length === 0) ? 'ASSIGNED' :
-                     (completedProcessedModules.length === processedModuleIds.length) ? 'COMPLETED' : 'IN_PROGRESS',
-             completedItems: completedProcessedModules.length,
-             totalItems: processedModuleIds.length
-           };
-         });
+  //          return {
+  //            ...record,
+  //            users: user,
+  //            status: (completedProcessedModules.length === 0) ? 'ASSIGNED' :
+  //                    (completedProcessedModules.length === processedModuleIds.length) ? 'COMPLETED' : 'IN_PROGRESS',
+  //            completedItems: completedProcessedModules.length,
+  //            totalItems: processedModuleIds.length
+  //          };
+  //        });
          
-         // Fetch and enrich with assessment scores
-         try {
-          //  console.log('[LP] Fetching assessment scores for quiz data enrichment...');
-           const assessmentRes = await fetchWithAuth(
-             `${API_URL}/api/employee-assessments/company/${encodeURIComponent(companyId)}`,
-             { headers: { 'X-User-ID': adminUserId || '' } }
-           );
+  //        // Fetch and enrich with assessment scores
+  //        try {
+  //         //  console.log('[LP] Fetching assessment scores for quiz data enrichment...');
+  //          const assessmentRes = await fetchWithAuth(
+  //            `${API_URL}/api/employee-assessments/company/${encodeURIComponent(companyId)}`,
+  //            { headers: { 'X-User-ID': adminUserId || '' } }
+  //          );
 
-           if (assessmentRes.ok) {
-             const assessmentPayload = await assessmentRes.json().catch(() => ({}));
-             const allAssessments = assessmentPayload?.data?.assessments || assessmentPayload?.assessments || [];
-            //  console.log('[LP] Assessment records fetched:', allAssessments.length);
+  //          if (assessmentRes.ok) {
+  //            const assessmentPayload = await assessmentRes.json().catch(() => ({}));
+  //            const allAssessments = assessmentPayload?.data?.assessments || assessmentPayload?.assessments || [];
+  //           //  console.log('[LP] Assessment records fetched:', allAssessments.length);
              
-             // Create a map of assessments by user_id for quick lookup
-             const assessmentsByUser = new Map();
-             allAssessments.forEach((assessment: any) => {
-               if (!assessmentsByUser.has(assessment.user_id)) {
-                 assessmentsByUser.set(assessment.user_id, []);
-               }
-               assessmentsByUser.get(assessment.user_id).push(assessment);
-             });
+  //            // Create a map of assessments by user_id for quick lookup
+  //            const assessmentsByUser = new Map();
+  //            allAssessments.forEach((assessment: any) => {
+  //              if (!assessmentsByUser.has(assessment.user_id)) {
+  //                assessmentsByUser.set(assessment.user_id, []);
+  //              }
+  //              assessmentsByUser.get(assessment.user_id).push(assessment);
+  //            });
 
-             // Enrich progressData with assessment scores
-             enrichedResults = enrichedResults.map(record => {
-               const userAssessments = assessmentsByUser.get(record.user_id) || [];
+  //            // Enrich progressData with assessment scores
+  //            enrichedResults = enrichedResults.map(record => {
+  //              const userAssessments = assessmentsByUser.get(record.user_id) || [];
                
-               // Get assessment scores for this user (calculate average if multiple)
-               const scores = userAssessments
-                 .filter((a: any) => a.score !== null && a.max_score && a.max_score > 0)
-                 .map((a: any) => (a.score / a.max_score) * 100);
+  //              // Get assessment scores for this user (calculate average if multiple)
+  //              const scores = userAssessments
+  //                .filter((a: any) => a.score !== null && a.max_score && a.max_score > 0)
+  //                .map((a: any) => (a.score / a.max_score) * 100);
                
-               const avgScore = scores.length > 0
-                 ? Math.round(scores.reduce((sum: number, s: number) => sum + s, 0) / scores.length)
-                 : 0;
+  //              const avgScore = scores.length > 0
+  //                ? Math.round(scores.reduce((sum: number, s: number) => sum + s, 0) / scores.length)
+  //                : 0;
 
-              //  console.log(`[LP] User ${record.user_id} - ${scores.length} assessments, avg score: ${avgScore}%`);
+  //             //  console.log(`[LP] User ${record.user_id} - ${scores.length} assessments, avg score: ${avgScore}%`);
 
-               return {
-                 ...record,
-                 score: avgScore,
-                 max_score: 100,
-                 assessments: userAssessments
-               };
-             });
-           } else {
-             console.warn('[LP] Failed to fetch assessments:', assessmentRes.status);
-           }
-         } catch (e) {
-           console.error('[LP] Error fetching assessments for score enrichment:', e);
-         }
-      }
+  //              return {
+  //                ...record,
+  //                score: avgScore,
+  //                max_score: 100,
+  //                assessments: userAssessments
+  //              };
+  //            });
+  //          } else {
+  //            console.warn('[LP] Failed to fetch assessments:', assessmentRes.status);
+  //          }
+  //        } catch (e) {
+  //          console.error('[LP] Error fetching assessments for score enrichment:', e);
+  //        }
+  //     }
 
-      setProgressData(enrichedResults);
-      // DEBUG
-      // console.log('[LP] enrichedResults count:', enrichedResults.length, 'sample:', enrichedResults[0]);
-      calculateModuleStatistics(enrichedResults);
-    } catch (err) {
-      console.error('loadLearningPlanData error', err);
-    }
-  };
+  //     setProgressData(enrichedResults);
+  //     // DEBUG
+  //     // console.log('[LP] enrichedResults count:', enrichedResults.length, 'sample:', enrichedResults[0]);
+  //     calculateModuleStatistics(enrichedResults);
+  //   } catch (err) {
+  //     console.error('loadLearningPlanData error', err);
+  //   }
+  //   console.timeEnd('loadLearningPlanData');
+  // };
 
-  const loadAssessmentData = async () => {
-    try {
-      if (!adminUserId) {
-        console.warn('[loadAssessmentData] No adminUserId available');
-        calculateAssessmentStatistics([]);
-        return;
-      }
+  // const loadAssessmentData = async () => {
+  //   console.time('loadAssessmentData');
+  //   try {
+  //     if (!adminUserId) {
+  //       console.warn('[loadAssessmentData] No adminUserId available');
+  //       calculateAssessmentStatistics([]);
+  //       return;
+  //     }
 
-      // Build query parameters
-      const params = new URLSearchParams();
-      params.append('limit', '500');
+  //     // Build query parameters
+  //     const params = new URLSearchParams();
+  //     params.append('limit', '500');
       
-      // Note: The backend filters by company when we use the company endpoint
-      // but we'll fetch assessment details separately if needed
+  //     // Note: The backend filters by company when we use the company endpoint
+  //     // but we'll fetch assessment details separately if needed
 
-      // Fetch employee assessments from backend
-      const assessmentRes = await fetchWithAuth(
-        `${API_URL}/api/employee-assessments/company/${encodeURIComponent(companyId)}?${params.toString()}`,
-        {
-          headers: {
-            'X-User-ID': adminUserId
-          }
-        }
-      );
+  //     // Fetch employee assessments from backend
+  //     const assessmentRes = await fetchWithAuth(
+  //       `${API_URL}/api/employee-assessments/company/${encodeURIComponent(companyId)}?${params.toString()}`,
+  //       {
+  //         headers: {
+  //           'X-User-ID': adminUserId
+  //         }
+  //       }
+  //     );
 
-      if (!assessmentRes.ok) {
-        const error = await assessmentRes.text().catch(() => 'Unknown error');
-        console.error('[loadAssessmentData] Failed to fetch assessments:', assessmentRes.status, error);
-        calculateAssessmentStatistics([]);
-        return;
-      }
+  //     if (!assessmentRes.ok) {
+  //       const error = await assessmentRes.text().catch(() => 'Unknown error');
+  //       console.error('[loadAssessmentData] Failed to fetch assessments:', assessmentRes.status, error);
+  //       calculateAssessmentStatistics([]);
+  //       return;
+  //     }
 
-      const assessmentPayload = await assessmentRes.json().catch(() => ({ assessments: [] }));
-      let assessmentResults = assessmentPayload?.data?.assessments || assessmentPayload?.assessments || [];
-      // DEBUG
-      // console.log('[Assessments] raw payload:', assessmentPayload);
-      // console.log('[Assessments] results count:', assessmentResults.length);
+  //     const assessmentPayload = await assessmentRes.json().catch(() => ({ assessments: [] }));
+  //     let assessmentResults = assessmentPayload?.data?.assessments || assessmentPayload?.assessments || [];
+  //     // DEBUG
+  //     // console.log('[Assessments] raw payload:', assessmentPayload);
+  //     // console.log('[Assessments] results count:', assessmentResults.length);
 
-      // Apply time range filter on frontend since backend doesn't support it yet
-      if (selectedTimeRange !== 'all') {
-        const daysAgo = new Date();
-        daysAgo.setDate(daysAgo.getDate() - parseInt(selectedTimeRange));
-        const cutoffDate = daysAgo.toISOString();
-        assessmentResults = assessmentResults.filter((a: any) => 
-          a.completed_at && a.completed_at >= cutoffDate
-        );
-      }
+  //     // Apply time range filter on frontend since backend doesn't support it yet
+  //     if (selectedTimeRange !== 'all') {
+  //       const daysAgo = new Date();
+  //       daysAgo.setDate(daysAgo.getDate() - parseInt(selectedTimeRange));
+  //       const cutoffDate = daysAgo.toISOString();
+  //       assessmentResults = assessmentResults.filter((a: any) => 
+  //         a.completed_at && a.completed_at >= cutoffDate
+  //       );
+  //     }
 
-      // Enrich assessment results with additional data
-      // Get unique assessment IDs
-      const assessmentIds = [...new Set(assessmentResults.map((a: any) => a.assessment_id).filter(Boolean))];
+  //     // Enrich assessment results with additional data
+  //     // Get unique assessment IDs
+  //     const assessmentIds = [...new Set(assessmentResults.map((a: any) => a.assessment_id).filter(Boolean))];
       
-      // Fetch assessment details for all assessments
-      const assessmentDetailsMap = new Map();
-      for (const assessId of assessmentIds) {
-        try {
-          const res = await fetchWithAuth(`${API_URL}/api/assessments/${encodeURIComponent(assessId)}`, {
-            headers: { 'X-User-ID': adminUserId }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const assessment = data?.data?.assessment ?? data?.data ?? data?.assessment ?? data;
-            assessmentDetailsMap.set(assessId, assessment);
-          }
-        } catch (e) {
-          console.error(`[loadAssessmentData] Failed to fetch assessment ${assessId}:`, e);
-        }
-      }
+  //     // Fetch assessment details for all assessments
+  //     const assessmentDetailsMap = new Map();
+  //     for (const assessId of assessmentIds) {
+  //       try {
+  //         const res = await fetchWithAuth(`${API_URL}/api/assessments/${encodeURIComponent(assessId)}`, {
+  //           headers: { 'X-User-ID': adminUserId }
+  //         });
+  //         if (res.ok) {
+  //           const data = await res.json();
+  //           const assessment = data?.data?.assessment ?? data?.data ?? data?.assessment ?? data;
+  //           assessmentDetailsMap.set(assessId, assessment);
+  //         }
+  //       } catch (e) {
+  //         console.error(`[loadAssessmentData] Failed to fetch assessment ${assessId}:`, e);
+  //       }
+  //     }
 
-      // Get unique processed_module_ids from assessments
-      const processedModuleIds = [...new Set(
-        Array.from(assessmentDetailsMap.values())
-          .map((a: any) => a.processed_module_id)
-          .filter(Boolean)
-      )];
+  //     // Get unique processed_module_ids from assessments
+  //     const processedModuleIds = [...new Set(
+  //       Array.from(assessmentDetailsMap.values())
+  //         .map((a: any) => a.processed_module_id)
+  //         .filter(Boolean)
+  //     )];
 
-      // Fetch processed module details
-      const processedModulesMap = new Map();
-      for (const pmId of processedModuleIds) {
-        try {
-          const res = await fetchWithAuth(`${API_URL}/api/processed-modules/${encodeURIComponent(pmId)}`, {
-            headers: { 'X-User-ID': adminUserId }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const pm = data?.data?.module ?? data?.data ?? data?.module ?? data;
-            processedModulesMap.set(pmId, pm);
-          }
-        } catch (e) {
-          console.error(`[loadAssessmentData] Failed to fetch processed module ${pmId}:`, e);
-        }
-      }
+  //     // Fetch processed module details
+  //     const processedModulesMap = new Map();
+  //     for (const pmId of processedModuleIds) {
+  //       try {
+  //         const res = await fetchWithAuth(`${API_URL}/api/processed-modules/${encodeURIComponent(pmId)}`, {
+  //           headers: { 'X-User-ID': adminUserId }
+  //         });
+  //         if (res.ok) {
+  //           const data = await res.json();
+  //           const pm = data?.data?.module ?? data?.data ?? data?.module ?? data;
+  //           processedModulesMap.set(pmId, pm);
+  //         }
+  //       } catch (e) {
+  //         console.error(`[loadAssessmentData] Failed to fetch processed module ${pmId}:`, e);
+  //       }
+  //     }
 
-      // Get unique original_module_ids
-      const originalModuleIds = [...new Set(
-        Array.from(processedModulesMap.values())
-          .map((pm: any) => pm.original_module_id)
-          .filter(Boolean)
-      )];
+  //     // Get unique original_module_ids
+  //     const originalModuleIds = [...new Set(
+  //       Array.from(processedModulesMap.values())
+  //         .map((pm: any) => pm.original_module_id)
+  //         .filter(Boolean)
+  //     )];
 
-      // Fetch training module details
-      const trainingModulesMap = new Map();
-      for (const modId of originalModuleIds) {
-        try {
-          const res = await fetchWithAuth(`${API_URL}/api/training-modules/${encodeURIComponent(modId)}`, {
-            headers: { 'X-User-ID': adminUserId }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const module = data?.data?.module ?? data?.data ?? data?.module ?? data;
-            trainingModulesMap.set(modId, module);
-          }
-        } catch (e) {
-          console.error(`[loadAssessmentData] Failed to fetch training module ${modId}:`, e);
-        }
-      }
+  //     // Fetch training module details
+  //     const trainingModulesMap = new Map();
+  //     for (const modId of originalModuleIds) {
+  //       try {
+  //         const res = await fetchWithAuth(`${API_URL}/api/training-modules/${encodeURIComponent(modId)}`, {
+  //           headers: { 'X-User-ID': adminUserId }
+  //         });
+  //         if (res.ok) {
+  //           const data = await res.json();
+  //           const module = data?.data?.module ?? data?.data ?? data?.module ?? data;
+  //           trainingModulesMap.set(modId, module);
+  //         }
+  //       } catch (e) {
+  //         console.error(`[loadAssessmentData] Failed to fetch training module ${modId}:`, e);
+  //       }
+  //     }
 
-      // Enrich assessment results with nested data
-      const enrichedResults = assessmentResults.map((empAssessment: any) => {
-        const assessment = assessmentDetailsMap.get(empAssessment.assessment_id) || {};
-        const processedModule = processedModulesMap.get(assessment.processed_module_id) || {};
-        const trainingModule = trainingModulesMap.get(processedModule.original_module_id) || {};
+  //     // Enrich assessment results with nested data
+  //     const enrichedResults = assessmentResults.map((empAssessment: any) => {
+  //       const assessment = assessmentDetailsMap.get(empAssessment.assessment_id) || {};
+  //       const processedModule = processedModulesMap.get(assessment.processed_module_id) || {};
+  //       const trainingModule = trainingModulesMap.get(processedModule.original_module_id) || {};
 
-        return {
-          ...empAssessment,
-          assessments: {
-            assessment_id: assessment.assessment_id,
-            type: assessment.type,
-            created_at: assessment.created_at,
-            company_id: assessment.company_id,
-            learning_style: assessment.learning_style,
-            processed_module_id: assessment.processed_module_id,
-            processed_modules: {
-              title: processedModule.title,
-              learning_style: processedModule.learning_style,
-              original_module_id: processedModule.original_module_id,
-              training_modules: {
-                title: trainingModule.title
-              }
-            }
-          }
-        };
-      });
+  //       return {
+  //         ...empAssessment,
+  //         assessments: {
+  //           assessment_id: assessment.assessment_id,
+  //           type: assessment.type,
+  //           created_at: assessment.created_at,
+  //           company_id: assessment.company_id,
+  //           learning_style: assessment.learning_style,
+  //           processed_module_id: assessment.processed_module_id,
+  //           processed_modules: {
+  //             title: processedModule.title,
+  //             learning_style: processedModule.learning_style,
+  //             original_module_id: processedModule.original_module_id,
+  //             training_modules: {
+  //               title: trainingModule.title
+  //             }
+  //           }
+  //         }
+  //       };
+  //     });
 
-      // Apply assessment type filter
-      let filteredResults = enrichedResults;
-      if (selectedAssessmentType !== 'all') {
-        filteredResults = enrichedResults.filter((a: any) => 
-          a.assessments?.type === selectedAssessmentType
-        );
-      }
+  //     // Apply assessment type filter
+  //     let filteredResults = enrichedResults;
+  //     if (selectedAssessmentType !== 'all') {
+  //       filteredResults = enrichedResults.filter((a: any) => 
+  //         a.assessments?.type === selectedAssessmentType
+  //       );
+  //     }
 
-      calculateAssessmentStatistics(filteredResults);
-    } catch (error) {
-      console.error('[loadAssessmentData] Error:', error);
-      calculateAssessmentStatistics([]);
-    }
-  };
+  //     calculateAssessmentStatistics(filteredResults);
+  //   } catch (error) {
+  //     console.error('[loadAssessmentData] Error:', error);
+  //     calculateAssessmentStatistics([]);
+  //   }
+  //   console.timeEnd('loadAssessmentData');
+  // };
 
-  const loadLearningStyleData = async () => {
-    try {
-      const { data: learningStyleResults, error: styleError } = await supabase
-        .from('employee_learning_style')
-        .select('user_id, learning_style, created_at, updated_at');
+  // const loadLearningStyleData = async () => {
+  //   try {
+  //     const { data: learningStyleResults, error: styleError } = await supabase
+  //       .from('employee_learning_style')
+  //       .select('user_id, learning_style, created_at, updated_at');
 
-      if (styleError) {
-        console.error('Error fetching learning styles:', styleError);
-        return;
-      }
+  //     if (styleError) {
+  //       console.error('Error fetching learning styles:', styleError);
+  //       return;
+  //     }
 
-      // Get users for this company via backend
-      const companyUsers = await fetchCompanyUsers(companyId, adminUserId);
+  //     // Get users for this company via backend
+  //     const companyUsers = await fetchCompanyUsers(companyId, adminUserId);
 
-      const userIds = new Set((companyUsers || []).map(u => u.user_id));
-      const filteredResults = (learningStyleResults || []).filter((ls: any) => userIds.has(ls.user_id));
+  //     const userIds = new Set((companyUsers || []).map(u => u.user_id));
+  //     const filteredResults = (learningStyleResults || []).filter((ls: any) => userIds.has(ls.user_id));
 
-      const mergedResults = filteredResults.map((ls: any) => {
-        const user = (companyUsers || []).find((u: any) => u.user_id === ls.user_id);
-        return {
-          ...ls,
-          users: user || { name: 'Unknown', email: '', company_id: companyId, department_id: null }
-        };
-      });
+  //     const mergedResults = filteredResults.map((ls: any) => {
+  //       const user = (companyUsers || []).find((u: any) => u.user_id === ls.user_id);
+  //       return {
+  //         ...ls,
+  //         users: user || { name: 'Unknown', email: '', company_id: companyId, department_id: null }
+  //       };
+  //     });
 
-      calculateLearningStyleStatistics(mergedResults);
-    } catch (error) {
-      console.error('Failed to load learning style data:', error);
-    }
-  };
+  //     calculateLearningStyleStatistics(mergedResults);
+  //   } catch (error) {
+  //     console.error('Failed to load learning style data:', error);
+  //   }
+  // };
 
-  const loadKpiData = async () => {
-    let kpiQuery = supabase
-      .from('employee_kpi')
-      .select(`
-        employee_kpi_id,
-        score,
-        scored_at,
-        user_id,
-        users!inner(name, email, company_id, department_id),
-        kpis!inner(name, description, benchmark, datatype)
-      `)
-      .eq('company_id', companyId);
+  // const loadKpiData = async () => {
+  //   let kpiQuery = supabase
+  //     .from('employee_kpi')
+  //     .select(`
+  //       employee_kpi_id,
+  //       score,
+  //       scored_at,
+  //       user_id,
+  //       users!inner(name, email, company_id, department_id),
+  //       kpis!inner(name, description, benchmark, datatype)
+  //     `)
+  //     .eq('company_id', companyId);
 
-    // Apply time range filter
-    if (selectedTimeRange !== 'all') {
-      const daysAgo = new Date();
-      daysAgo.setDate(daysAgo.getDate() - parseInt(selectedTimeRange));
-      kpiQuery = kpiQuery.gte('scored_at', daysAgo.toISOString());
-    }
+  //   // Apply time range filter
+  //   if (selectedTimeRange !== 'all') {
+  //     const daysAgo = new Date();
+  //     daysAgo.setDate(daysAgo.getDate() - parseInt(selectedTimeRange));
+  //     kpiQuery = kpiQuery.gte('scored_at', daysAgo.toISOString());
+  //   }
 
-    const { data: kpiResults, error } = await kpiQuery.order('scored_at', { ascending: false });
+  //   const { data: kpiResults, error } = await kpiQuery.order('scored_at', { ascending: false });
 
-    if (error) throw error;
+  //   if (error) throw error;
 
-    calculateKpiStatistics(kpiResults || []);
-  };
+  //   calculateKpiStatistics(kpiResults || []);
+  // };
 
-  const loadOverallStatistics = async () => {
-    try {
-      // Get company users via backend
-      const companyUsers = await fetchCompanyUsers(companyId, adminUserId);
-      const totalEmployees = companyUsers.length;
-      const activeEmployees = companyUsers.filter(emp => emp.employment_status === 'ACTIVE').length;
+  // const loadOverallStatistics = async () => {
+  //   console.time('loadOverallStatistics');
+  //   try {
+  //     // Get company users via backend
+  //     const companyUsers = await fetchCompanyUsers(companyId, adminUserId);
+  //     const totalEmployees = companyUsers.length;
+  //     const activeEmployees = companyUsers.filter(emp => emp.employment_status === 'ACTIVE').length;
 
-      // Other stats remain the same (modules, assessments, kpIs, learning style counts)
-      const moduleList = await loadModules(companyId, adminUserId);
-      const totalModules = moduleList.length;
+  //     // Other stats remain the same (modules, assessments, kpIs, learning style counts)
+  //     const moduleList = await loadModules(companyId, adminUserId);
+  //     const totalModules = moduleList.length;
 
-      // Fetch employee assessments from backend
-      let assessmentData: any[] = [];
-      try {
-        if (adminUserId) {
-          const assessmentRes = await fetchWithAuth(
-            `${API_URL}/api/employee-assessments/company/${encodeURIComponent(companyId)}?limit=500`,
-            {
-              headers: {
-                'X-User-ID': adminUserId
-              }
-            }
-          );
-          // console.log("Assessment response status:", assessmentRes);
-          if (assessmentRes.ok) {
-            const payload = await assessmentRes.json().catch(() => ({ assessments: [] }));
-            assessmentData = payload?.data?.assessments || payload?.assessments || [];
-          } else {
-            // console.log("Failed in else");
-            console.warn('[loadOverallStatistics] Failed to fetch assessments:', assessmentRes.status);
-          }
-        }
-      } catch (e) {
-        console.error('[loadOverallStatistics] Error fetching assessments:', e);
-      }
+  //     // Fetch employee assessments from backend
+  //     let assessmentData: any[] = [];
+  //     try {
+  //       if (adminUserId) {
+  //         const assessmentRes = await fetchWithAuth(
+  //           `${API_URL}/api/employee-assessments/company/${encodeURIComponent(companyId)}?limit=500`,
+  //           {
+  //             headers: {
+  //               'X-User-ID': adminUserId
+  //             }
+  //           }
+  //         );
+  //         // console.log("Assessment response status:", assessmentRes);
+  //         if (assessmentRes.ok) {
+  //           const payload = await assessmentRes.json().catch(() => ({ assessments: [] }));
+  //           assessmentData = payload?.data?.assessments || payload?.assessments || [];
+  //         } else {
+  //           // console.log("Failed in else");
+  //           console.warn('[loadOverallStatistics] Failed to fetch assessments:', assessmentRes.status);
+  //         }
+  //       }
+  //     } catch (e) {
+  //       console.error('[loadOverallStatistics] Error fetching assessments:', e);
+  //     }
 
-      // DEBUG
-      // console.log('[Overall] totalEmployees:', totalEmployees, 'assessmentData count:', assessmentData.length);
-      const totalAssessments = assessmentData?.length || 0;
-      const completedAssessments = assessmentData?.filter(assessment => assessment.score !== null).length || 0;
-      const averageAssessmentScore = assessmentData && assessmentData.length > 0
-        ? Math.round(assessmentData
-            .filter(assessment => assessment.score !== null && assessment.max_score > 0)
-            .reduce((sum: number, assessment: any) => sum + (assessment.score / assessment.max_score * 100), 0) /
-              assessmentData.filter((assessment: any) => assessment.score !== null && assessment.max_score > 0).length)
-        : 0;
+  //     // DEBUG
+  //     // console.log('[Overall] totalEmployees:', totalEmployees, 'assessmentData count:', assessmentData.length);
+  //     const totalAssessments = assessmentData?.length || 0;
+  //     const completedAssessments = assessmentData?.filter(assessment => assessment.score !== null).length || 0;
+  //     const averageAssessmentScore = assessmentData && assessmentData.length > 0
+  //       ? Math.round(assessmentData
+  //           .filter(assessment => assessment.score !== null && assessment.max_score > 0)
+  //           .reduce((sum: number, assessment: any) => sum + (assessment.score / assessment.max_score * 100), 0) /
+  //             assessmentData.filter((assessment: any) => assessment.score !== null && assessment.max_score > 0).length)
+  //       : 0;
 
-      const { data: kpiData } = await supabase
-        .from('employee_kpi')
-        .select('score')
-        .eq('company_id', companyId);
+  //     const { data: kpiData } = await supabase
+  //       .from('employee_kpi')
+  //       .select('score')
+  //       .eq('company_id', companyId);
 
-      const averageKpiScore = kpiData && kpiData.length > 0
-        ? Math.round(kpiData.reduce((sum: number, kpi: any) => sum + Number(kpi.score), 0) / kpiData.length)
-        : 0;
+  //     const averageKpiScore = kpiData && kpiData.length > 0
+  //       ? Math.round(kpiData.reduce((sum: number, kpi: any) => sum + Number(kpi.score), 0) / kpiData.length)
+  //       : 0;
 
-      const { data: learningStyleData } = await supabase
-        .from('employee_learning_style')
-        .select(`
-          user_id
-        `);
+  //     const { data: learningStyleData } = await supabase
+  //       .from('employee_learning_style')
+  //       .select(`
+  //         user_id
+  //       `);
 
-      const learningStylesCompleted = (learningStyleData || []).filter((ls: any) => userIdsHas(companyUsers, ls.user_id)).length;
+  //     const learningStylesCompleted = (learningStyleData || []).filter((ls: any) => userIdsHas(companyUsers, ls.user_id)).length;
 
-      // Calculate assignment counts from progressData
-      const totalAssignments = progressData.length;
-      const completedAssignments = progressData.filter((p: any) => p.status === 'COMPLETED').length;
-      const inProgressAssignments = progressData.filter((p: any) => p.status === 'IN_PROGRESS').length;
-      const notStartedAssignments = progressData.filter((p: any) => p.status === 'ASSIGNED').length;
+  //     // Calculate assignment counts from progressData
+  //     const totalAssignments = progressData.length;
+  //     const completedAssignments = progressData.filter((p: any) => p.status === 'COMPLETED').length;
+  //     const inProgressAssignments = progressData.filter((p: any) => p.status === 'IN_PROGRESS').length;
+  //     const notStartedAssignments = progressData.filter((p: any) => p.status === 'ASSIGNED').length;
 
-      setOverallStats(prevStats => ({
-        ...prevStats,
-        totalEmployees,
-        activeEmployees,
-        totalModules,
-        totalAssignments,
-        completedAssignments,
-        inProgressAssignments,
-        notStartedAssignments,
-        totalAssessments,
-        completedAssessments,
-        averageAssessmentScore,
-        averageKpiScore,
-        learningStylesCompleted
-      }));
-    } catch (error) {
-      console.error('Failed to load overall statistics:', error);
-    }
-  };
+  //     setOverallStats(prevStats => ({
+  //       ...prevStats,
+  //       totalEmployees,
+  //       activeEmployees,
+  //       totalModules,
+  //       totalAssignments,
+  //       completedAssignments,
+  //       inProgressAssignments,
+  //       notStartedAssignments,
+  //       totalAssessments,
+  //       completedAssessments,
+  //       averageAssessmentScore,
+  //       averageKpiScore,
+  //       learningStylesCompleted
+  //     }));
+  //   } catch (error) {
+  //     console.error('Failed to load overall statistics:', error);
+  //   }
+  //   console.timeEnd('loadOverallStatistics');
+  // };
 
   // helper to check if a user_id exists in company users
-  const userIdsHas = (companyUsers: any[], userId: string) => {
-    return companyUsers.some((u: any) => u.user_id === userId);
-  };
+  // const userIdsHas = (companyUsers: any[], userId: string) => {
+  //   return companyUsers.some((u: any) => u.user_id === userId);
+  // };
 
-  const calculateModuleStatistics = (data: any[]) => {
-    const moduleMap = new Map();
-    const assessmentScores = new Map(); // Track assessment scores per module
-    const videoData = new Map(); // Track video data per module
+  // const calculateModuleStatistics = (data: any[]) => {
+  //   const moduleMap = new Map();
+  //   const assessmentScores = new Map(); // Track assessment scores per module
+  //   const videoData = new Map(); // Track video data per module
 
-    data.forEach(item => {
-      const moduleId = item.training_modules.module_id;
-      const moduleTitle = item.training_modules.title;
+  //   data.forEach(item => {
+  //     const moduleId = item.training_modules.module_id;
+  //     const moduleTitle = item.training_modules.title;
 
-      if (!moduleMap.has(moduleId)) {
-        moduleMap.set(moduleId, {
-          moduleId,
-          title: moduleTitle,
-          totalAssigned: 0,
-          completed: 0,
-          inProgress: 0,
-          notStarted: 0,
-          completionTimes: [],
-          baselineRequired: 0,
-          processingStatus: item.training_modules.processing_status,
-          scores: [] // Track assessment scores
-        });
-      }
+  //     if (!moduleMap.has(moduleId)) {
+  //       moduleMap.set(moduleId, {
+  //         moduleId,
+  //         title: moduleTitle,
+  //         totalAssigned: 0,
+  //         completed: 0,
+  //         inProgress: 0,
+  //         notStarted: 0,
+  //         completionTimes: [],
+  //         baselineRequired: 0,
+  //         processingStatus: item.training_modules.processing_status,
+  //         scores: [] // Track assessment scores
+  //       });
+  //     }
 
-      const moduleStats = moduleMap.get(moduleId);
-      moduleStats.totalAssigned++;
+  //     const moduleStats = moduleMap.get(moduleId);
+  //     moduleStats.totalAssigned++;
 
-      if (item.baseline_assessment === 1) {
-        moduleStats.baselineRequired++;
-      }
+  //     if (item.baseline_assessment === 1) {
+  //       moduleStats.baselineRequired++;
+  //     }
 
-      // Track assessment scores from progressData
-      if (item.score !== null && item.max_score > 0) {
-        const scorePercent = (item.score / item.max_score) * 100;
-        moduleStats.scores.push(scorePercent);
-      }
+  //     // Track assessment scores from progressData
+  //     if (item.score !== null && item.max_score > 0) {
+  //       const scorePercent = (item.score / item.max_score) * 100;
+  //       moduleStats.scores.push(scorePercent);
+  //     }
 
-      switch (item.status) {
-        case 'COMPLETED':
-          moduleStats.completed++;
-          if (item.assigned_on && item.completed_at) {
-            const completionTime = new Date(item.completed_at).getTime() - new Date(item.assigned_on).getTime();
-            moduleStats.completionTimes.push(completionTime / (1000 * 60 * 60 * 24));
-          }
-          break;
-        case 'IN_PROGRESS':
-          moduleStats.inProgress++;
-          break;
-        case 'ASSIGNED':
-          moduleStats.notStarted++;
-          break;
-      }
-    });
+  //     switch (item.status) {
+  //       case 'COMPLETED':
+  //         moduleStats.completed++;
+  //         if (item.assigned_on && item.completed_at) {
+  //           const completionTime = new Date(item.completed_at).getTime() - new Date(item.assigned_on).getTime();
+  //           moduleStats.completionTimes.push(completionTime / (1000 * 60 * 60 * 24));
+  //         }
+  //         break;
+  //       case 'IN_PROGRESS':
+  //         moduleStats.inProgress++;
+  //         break;
+  //       case 'ASSIGNED':
+  //         moduleStats.notStarted++;
+  //         break;
+  //     }
+  //   });
 
-    const moduleStatsArray = Array.from(moduleMap.values()).map(stats => ({
-      ...stats,
-      completionRate: stats.totalAssigned > 0 ? Math.round((stats.completed / stats.totalAssigned) * 100) : 0,
-      averageCompletionTime: stats.completionTimes.length > 0
-        ? Math.round(stats.completionTimes.reduce((sum, time) => sum + time, 0) / stats.completionTimes.length)
-        : 0,
-      baselineCompletionRate: stats.baselineRequired > 0 ? Math.round((stats.baselineRequired / stats.totalAssigned) * 100) : 0,
-      averageScore: stats.scores.length > 0
-        ? Math.round(stats.scores.reduce((sum, score) => sum + score, 0) / stats.scores.length)
-        : 0,
-      video_seconds_total: 0, // Placeholder - may be populated from video data if available
-      video_seconds_watched: 0 // Placeholder - may be populated from video data if available
-    }));
+  //   const moduleStatsArray = Array.from(moduleMap.values()).map(stats => ({
+  //     ...stats,
+  //     completionRate: stats.totalAssigned > 0 ? Math.round((stats.completed / stats.totalAssigned) * 100) : 0,
+  //     averageCompletionTime: stats.completionTimes.length > 0
+  //       ? Math.round(stats.completionTimes.reduce((sum, time) => sum + time, 0) / stats.completionTimes.length)
+  //       : 0,
+  //     baselineCompletionRate: stats.baselineRequired > 0 ? Math.round((stats.baselineRequired / stats.totalAssigned) * 100) : 0,
+  //     averageScore: stats.scores.length > 0
+  //       ? Math.round(stats.scores.reduce((sum, score) => sum + score, 0) / stats.scores.length)
+  //       : 0,
+  //     video_seconds_total: 0, // Placeholder - may be populated from video data if available
+  //     video_seconds_watched: 0 // Placeholder - may be populated from video data if available
+  //   }));
 
-    setModuleStats(moduleStatsArray);
+  //   setModuleStats(moduleStatsArray);
 
-    // Update overall stats from learning plan data
-    const totalAssignments = data.length;
-    const completedAssignments = data.filter(item => item.status === 'COMPLETED').length;
-    const inProgressAssignments = data.filter(item => item.status === 'IN_PROGRESS').length;
-    const notStartedAssignments = data.filter(item => item.status === 'ASSIGNED').length;
+  //   // Update overall stats from learning plan data
+  //   const totalAssignments = data.length;
+  //   const completedAssignments = data.filter(item => item.status === 'COMPLETED').length;
+  //   const inProgressAssignments = data.filter(item => item.status === 'IN_PROGRESS').length;
+  //   const notStartedAssignments = data.filter(item => item.status === 'ASSIGNED').length;
 
-    setOverallStats(prev => ({
-      ...prev,
-      totalAssignments,
-      completedAssignments,
-      inProgressAssignments,
-      notStartedAssignments
-    }));
-  };
+  //   setOverallStats(prev => ({
+  //     ...prev,
+  //     totalAssignments,
+  //     completedAssignments,
+  //     inProgressAssignments,
+  //     notStartedAssignments
+  //   }));
+  // };
 
-  const calculateAssessmentStatistics = (data: any[]) => {
-    const assessmentMap = new Map();
+  // const calculateAssessmentStatistics = (data: any[]) => {
+  //   const assessmentMap = new Map();
 
-    data.forEach(item => {
-      const assessmentType = item.assessments.type;
-      const moduleTitle = item.assessments.processed_modules?.training_modules?.title || 'Unknown Module';
-      const key = `${assessmentType}-${moduleTitle}`;
+  //   data.forEach(item => {
+  //     const assessmentType = item.assessments.type;
+  //     const moduleTitle = item.assessments.processed_modules?.training_modules?.title || 'Unknown Module';
+  //     const key = `${assessmentType}-${moduleTitle}`;
 
-      if (!assessmentMap.has(key)) {
-        assessmentMap.set(key, {
-          type: assessmentType,
-          moduleTitle,
-          totalAttempts: 0,
-          completed: 0,
-          averageScore: 0,
-          scores: [],
-          learningStyle: item.assessments.learning_style
-        });
-      }
+  //     if (!assessmentMap.has(key)) {
+  //       assessmentMap.set(key, {
+  //         type: assessmentType,
+  //         moduleTitle,
+  //         totalAttempts: 0,
+  //         completed: 0,
+  //         averageScore: 0,
+  //         scores: [],
+  //         learningStyle: item.assessments.learning_style
+  //       });
+  //     }
 
-      const stats = assessmentMap.get(key);
-      stats.totalAttempts++;
+  //     const stats = assessmentMap.get(key);
+  //     stats.totalAttempts++;
 
-      if (item.score !== null && item.max_score > 0) {
-        stats.completed++;
-        const scorePercent = (item.score /item.max_score) * 100;
-        stats.scores.push(scorePercent);
-      }
-    });
+  //     if (item.score !== null && item.max_score > 0) {
+  //       stats.completed++;
+  //       const scorePercent = (item.score /item.max_score) * 100;
+  //       stats.scores.push(scorePercent);
+  //     }
+  //   });
 
-    const assessmentStatsArray = Array.from(assessmentMap.values()).map(stats => ({
-      ...stats,
-      completionRate: stats.totalAttempts > 0 ? Math.round((stats.completed / stats.totalAttempts) * 100) : 0,
-      averageScore: stats.scores.length > 0 
-        ? Math.round(stats.scores.reduce((sum, score) => sum + score, 0) / stats.scores.length)
-        : 0
-    }));
+  //   const assessmentStatsArray = Array.from(assessmentMap.values()).map(stats => ({
+  //     ...stats,
+  //     completionRate: stats.totalAttempts > 0 ? Math.round((stats.completed / stats.totalAttempts) * 100) : 0,
+  //     averageScore: stats.scores.length > 0 
+  //       ? Math.round(stats.scores.reduce((sum, score) => sum + score, 0) / stats.scores.length)
+  //       : 0
+  //   }));
 
-    setAssessmentStats(assessmentStatsArray);
-  };
+  //   setAssessmentStats(assessmentStatsArray);
+  // };
 
   const calculateLearningStyleStatistics = (data: any[]) => {
     // console.log('Calculating learning style statistics for:', data);
@@ -1004,51 +1013,51 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
     setLearningStyleStats(learningStyleStatsArray);
   };
 
-  const calculateKpiStatistics = (data: any[]) => {
-    const kpiMap = new Map();
+  // const calculateKpiStatistics = (data: any[]) => {
+  //   const kpiMap = new Map();
 
-    data.forEach(item => {
-      const kpiName = item.kpis.name;
-      const benchmark = item.kpis.benchmark;
+  //   data.forEach(item => {
+  //     const kpiName = item.kpis.name;
+  //     const benchmark = item.kpis.benchmark;
 
-      if (!kpiMap.has(kpiName)) {
-        kpiMap.set(kpiName, {
-          kpiName,
-          benchmark,
-          totalScores: 0,
-          scores: [],
-          aboveBenchmark: 0,
-          belowBenchmark: 0,
-          averageScore: 0
-        });
-      }
+  //     if (!kpiMap.has(kpiName)) {
+  //       kpiMap.set(kpiName, {
+  //         kpiName,
+  //         benchmark,
+  //         totalScores: 0,
+  //         scores: [],
+  //         aboveBenchmark: 0,
+  //         belowBenchmark: 0,
+  //         averageScore: 0
+  //       });
+  //     }
 
-      const stats = kpiMap.get(kpiName);
-      const score = Number(item.score);
-      stats.scores.push(score);
-      stats.totalScores++;
+  //     const stats = kpiMap.get(kpiName);
+  //     const score = Number(item.score);
+  //     stats.scores.push(score);
+  //     stats.totalScores++;
 
-      if (benchmark) {
-        if (score >= benchmark) {
-          stats.aboveBenchmark++;
-        } else {
-          stats.belowBenchmark++;
-        }
-      }
-    });
+  //     if (benchmark) {
+  //       if (score >= benchmark) {
+  //         stats.aboveBenchmark++;
+  //       } else {
+  //         stats.belowBenchmark++;
+  //       }
+  //     }
+  //   });
 
-    const kpiStatsArray = Array.from(kpiMap.values()).map(stats => ({
-      ...stats,
-      averageScore: stats.scores.length > 0 
-        ? Math.round(stats.scores.reduce((sum, score) => sum + score, 0) / stats.scores.length)
-        : 0,
-      benchmarkAchievementRate: stats.benchmark && stats.totalScores > 0
-        ? Math.round((stats.aboveBenchmark / stats.totalScores) * 100)
-        : null
-    }));
+  //   const kpiStatsArray = Array.from(kpiMap.values()).map(stats => ({
+  //     ...stats,
+  //     averageScore: stats.scores.length > 0 
+  //       ? Math.round(stats.scores.reduce((sum, score) => sum + score, 0) / stats.scores.length)
+  //       : 0,
+  //     benchmarkAchievementRate: stats.benchmark && stats.totalScores > 0
+  //       ? Math.round((stats.aboveBenchmark / stats.totalScores) * 100)
+  //       : null
+  //   }));
 
-    setKpiStats(kpiStatsArray);
-  };
+  //   setKpiStats(kpiStatsArray);
+  // };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -1159,13 +1168,13 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
               <div className="grid grid-cols-2 border border-gray-200 rounded-xl overflow-hidden bg-white mb-8">
                 <div className="p-6 border-r border-gray-200">
                   <p className="text-sm text-gray-500">Total learners</p>
-                  <p className="text-4xl font-bold text-gray-900 mt-1">{overallStats.totalEmployees}</p>
+                  <p className="text-4xl font-bold text-gray-900 mt-1">{overallStats?.totalEmployees ?? 0}</p>
                 </div>
                 <div className="p-6 border-r border-gray-200">
                   <p className="text-sm text-gray-500">Completion Rate</p>
                   <p className="text-4xl font-bold text-gray-900 mt-1">
-                    {overallStats.totalAssignments > 0
-                      ? Math.round(overallStats.completedAssignments / overallStats.totalAssignments * 100)
+                    {overallStats?.totalAssignments > 0
+                      ? Math.round(overallStats?.completedAssignments / overallStats?.totalAssignments * 100)
                       : 0}%
                   </p>
                 </div>
@@ -1217,13 +1226,13 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                           <span className="w-2 h-2 bg-green-500 rounded-full"></span>
                           Completed
                         </span>
-                        <span className="font-bold text-gray-900">{overallStats.completedAssignments}</span>
+                        <span className="font-bold text-gray-900">{overallStats?.completedAssignments}</span>
                       </div>
                       <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-green-500"
                           style={{
-                            width: `${overallStats.totalAssignments > 0 ? (overallStats.completedAssignments / overallStats.totalAssignments * 100) : 0}%`
+                            width: `${overallStats?.totalAssignments > 0 ? (overallStats?.completedAssignments / overallStats?.totalAssignments * 100) : 0}%`
                           }}
                         />
                       </div>
@@ -1234,13 +1243,13 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                           <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
                           In Progress
                         </span>
-                        <span className="font-bold text-gray-900">{overallStats.inProgressAssignments}</span>
+                        <span className="font-bold text-gray-900">{overallStats?.inProgressAssignments}</span>
                       </div>
                       <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-blue-500"
                           style={{
-                            width: `${overallStats.totalAssignments > 0 ? (overallStats.inProgressAssignments / overallStats.totalAssignments * 100) : 0}%`
+                            width: `${overallStats?.totalAssignments > 0 ? (overallStats?.inProgressAssignments / overallStats?.totalAssignments * 100) : 0}%`
                           }}
                         />
                       </div>
@@ -1251,13 +1260,13 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                           <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
                           Not Started
                         </span>
-                        <span className="font-bold text-gray-900">{overallStats.notStartedAssignments}</span>
+                        <span className="font-bold text-gray-900">{overallStats?.notStartedAssignments}</span>
                       </div>
                       <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-amber-500"
                           style={{
-                            width: `${overallStats.totalAssignments > 0 ? (overallStats.notStartedAssignments / overallStats.totalAssignments * 100) : 0}%`
+                            width: `${overallStats?.totalAssignments > 0 ? (overallStats?.notStartedAssignments / overallStats?.totalAssignments * 100) : 0}%`
                           }}
                         />
                       </div>
@@ -1530,9 +1539,9 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                           labels: ['Completed', 'In Progress', 'Not Started'],
                           datasets: [{
                             data: [
-                              overallStats.completedAssignments,
-                              overallStats.inProgressAssignments,
-                              overallStats.notStartedAssignments
+                              overallStats?.completedAssignments,
+                              overallStats?.inProgressAssignments,
+                              overallStats?.notStartedAssignments
                             ],
                             backgroundColor: [
                               'rgb(34, 197, 94)', // green-500
@@ -1563,7 +1572,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                                 label: function(context) {
                                   const label = context.label || '';
                                   const value = context.parsed;
-                                  const total = overallStats.totalAssignments;
+                                  const total = overallStats?.totalAssignments;
                                   const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
                                   return `${label}: ${value} (${percentage}%)`;
                                 }
@@ -1574,7 +1583,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                       />
                     </div>
                     <div className="mt-4 text-center text-sm text-gray-600">
-                      Total Assignments: {overallStats.totalAssignments}
+                      Total Assignments: {overallStats?.totalAssignments}
                     </div>
                   </CardContent>
                 </Card>

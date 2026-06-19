@@ -24,10 +24,12 @@ from utils.auth import (
     RequestAuth,
     get_request_auth_optional,
     get_request_auth_required,
+    get_effective_company_id,
 )
 from utils.firebase_provisioning import ensure_firebase_user
 from utils.welcome_notifications import send_welcome_email
 from utils.supabase_client import supabase
+from utils.auth_bridge import get_service_supabase_client
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -53,15 +55,12 @@ def _ensure_firebase_and_persist_uid(created_payload, request_password: Optional
         raise HTTPException(status_code=500, detail="Created user row missing email or user_id")
 
     plain_password = request_password or DEFAULT_PASSWORD
-    try:
-        firebase_uid = ensure_firebase_user(email, name, plain_password)
-    except Exception as exc:
-        print(f"[users] Firebase provisioning skipped for {email}: {exc}")
-        return [created_user]
+    firebase_uid = ensure_firebase_user(email, name, plain_password)
+    service_client = get_service_supabase_client()
 
     try:
         update_res = (
-            supabase
+            service_client
             .table("users")
             .update({"firebase_uid": firebase_uid})
             .eq("user_id", user_id)
@@ -181,10 +180,11 @@ async def list_users_by_filter(
 async def list_users(
     company_id: str,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id),
     status: Optional[str] = Query(None),
     department_id: Optional[str] = Query(None)
 ):
-    result = await get_users_by_company(auth_ctx.user_id, company_id)
+    result = await get_users_by_company(auth_ctx.user_id, effective_company_id, auth_ctx.claims)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     users = result["data"] or []
@@ -321,7 +321,7 @@ async def get_user_by_email_route(
     auth_ctx: RequestAuth = Depends(get_request_auth_optional),
 ):
     requesting_user_id = auth_ctx.user_id
-    result = await get_user_by_email(requesting_user_id, email)
+    result = await get_user_by_email(requesting_user_id, email, auth_ctx.claims)
     
     # result is {"data": user, "error": ...} from the service layer
     user_data = result.get("data")
@@ -333,6 +333,11 @@ async def get_user_by_email_route(
     }
 
 
+# @router.port("/bulk-create")
+# async def bulk_create_users(
+#     payload: dict,
+#     auth: RequestAuth = Depends(get_request_auth_required)
+# ):
 
 @router.get("/by-phone/{phone}")
 async def get_user_by_phone_route(
@@ -340,7 +345,7 @@ async def get_user_by_phone_route(
     auth_ctx: RequestAuth = Depends(get_request_auth_optional),
 ):
     requesting_user_id = auth_ctx.user_id
-    result = await get_user_by_phone(requesting_user_id, phone)
+    result = await get_user_by_phone(requesting_user_id, phone, auth_ctx.claims)
     
     # result is {"data": user, "error": ...} from the service layer
     user_data = result.get("data")
