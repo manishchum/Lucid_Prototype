@@ -262,7 +262,7 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
                     if module_id:
                         threshold_resp = ( 
                             supabase.table('training_modules')
-                            .select(                          'threshold_value')
+                            .select('threshold_value')
                             .eq('module_id', module_id)
                             .maybe_single()
                             .execute()
