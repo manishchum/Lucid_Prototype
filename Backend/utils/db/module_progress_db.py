@@ -91,7 +91,7 @@ async def get_progress_by_processed_module(requesting_user_id: str, processed_mo
             'training_modules!inner(company_id)'
         ).eq('processed_module_id', processed_module_id).maybe_single().execute()
         
-        if not module_resp.data:
+        if not module_resp or not getattr(module_resp, "data", None):
             return {"data": None, "error": "Processed module not found"}
         
         module_company = module_resp.data.get('training_modules', {}).get('company_id')
@@ -194,7 +194,7 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
         # Get user's company
         user_resp = supabase.table('users').select('company_id').eq('user_id', user_id).maybe_single().execute()
         
-        if not user_resp.data:
+        if not user_resp or not getattr(user_resp, "data", None):
             return {"data": None, "error": "User not found"}
         
         user_company = user_resp.data.get('company_id')
@@ -214,7 +214,7 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
         
         view_only = progress_data.get('viewOnly', False)
         
-        if existing.data:
+        if existing and getattr(existing, "data", None):
             # Record exists
             if view_only:
                 # Don't update, just return existing
@@ -328,7 +328,7 @@ async def update_progress(requesting_user_id: str, progress_id: str,
             '*, users!inner(company_id)'
         ).eq('module_progress_id', progress_id).maybe_single().execute()
         
-        if not existing.data:
+        if not existing or not getattr(existing, "data", None):
             return {"data": None, "error": "Progress record not found"}
         
         progress_user_id = existing.data.get('user_id')
@@ -412,7 +412,7 @@ async def get_completion_stats(requesting_user_id: str, company_id: str) -> Dict
             'module_progress_id, completed_at, pass_status, users!inner(company_id)'
         ).eq('users.company_id', company_id).execute()
         
-        if not resp.data:
+        if not resp or not getattr(resp, "data", None):
             return {"data": {"total": 0, "completed": 0, "passed": 0, "failed": 0}, "error": None}
         
         total = len(resp.data)
