@@ -256,15 +256,21 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
                             'original_module_id'
                         ).eq('processed_module_id', processed_module_id).maybe_single().execute()
                         
-                        if pm_resp.data:
+                        if pm_resp and getattr(pm_resp, "data", None):
                             module_id = pm_resp.data.get('original_module_id')
                     
                     if module_id:
-                        threshold_resp = supabase.table('training_modules').select(
-                            'threshold_value'
-                        ).eq('module_id', module_id).maybe_single().execute()
-                        
-                        if threshold_resp.data and threshold_resp.data.get('threshold_value'):
+                        threshold_resp = ( 
+                            supabase.table('training_modules')
+                            .select(                          'threshold_value')
+                            .eq('module_id', module_id)
+                            .maybe_single()
+                            .execute()
+                        )
+                        if (
+                            threshold_resp and getattr(threshold_resp, "data", None)
+                            and threshold_resp.data.get("threshold_value") is not None
+                        ):
                             score_percentage = (quiz_score / max_score) * 100
                             update_data['pass_status'] = score_percentage >= threshold_resp.data['threshold_value']
             
