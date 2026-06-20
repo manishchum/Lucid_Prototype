@@ -16,7 +16,7 @@ async def get_progress_by_id(requesting_user_id: str, progress_id: str) -> Dict[
             '*, users!inner(company_id, name, email), processed_modules(title, original_module_id)'
         ).eq('module_progress_id', progress_id).maybe_single().execute()
         
-        if not resp.data:
+        if not resp or not getattr(resp, 'data', None):
             return {"data": None, "error": "Progress record not found"}
         
         progress = resp.data
@@ -55,7 +55,7 @@ async def get_progress_by_user(requesting_user_id: str, target_user_id: str,
         if not is_self:
             # We must use service client for authorization lookups to bypass RLS walls
             user_resp = supabase.table('users').select('company_id').eq('user_id', target_user_id).maybe_single().execute()
-            if not user_resp.data:
+            if not user_resp or not getattr(user_resp, 'data', None):
                 return {"data": None, "error": "User not found"}
             
             target_company = user_resp.data.get('company_id')
@@ -74,7 +74,7 @@ async def get_progress_by_user(requesting_user_id: str, target_user_id: str,
             query = query.not_('completed_at', 'is', None)
         
         resp = query.execute()
-        return {"data": resp.data, "error": None}
+        return {"data": getattr(resp, 'data', None), "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -91,7 +91,7 @@ async def get_progress_by_processed_module(requesting_user_id: str, processed_mo
             'training_modules!inner(company_id)'
         ).eq('processed_module_id', processed_module_id).maybe_single().execute()
         
-        if not module_resp.data:
+        if not module_resp or not getattr(module_resp, 'data', None):
             return {"data": None, "error": "Processed module not found"}
         
         module_company = module_resp.data.get('training_modules', {}).get('company_id')
@@ -107,7 +107,7 @@ async def get_progress_by_processed_module(requesting_user_id: str, processed_mo
             '*, users!inner(name, email)'
         ).eq('processed_module_id', processed_module_id).order('started_at', desc=True).execute()
         
-        return {"data": resp.data, "error": None}
+        return {"data": getattr(resp, 'data', None), "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -125,7 +125,7 @@ async def get_progress_by_user_and_module(requesting_user_id: str, user_id: str,
         if not is_self:
             # Get user's company
             user_resp = supabase.table('users').select('company_id').eq('user_id', user_id).maybe_single().execute()
-            if not user_resp.data:
+            if not user_resp or not getattr(user_resp, 'data', None):
                 return {"data": None, "error": "User not found"}
             
             user_company = user_resp.data.get('company_id')
@@ -139,7 +139,7 @@ async def get_progress_by_user_and_module(requesting_user_id: str, user_id: str,
             '*, processed_modules(title, original_module_id)'
         ).eq('user_id', user_id).eq('processed_module_id', processed_module_id).maybe_single().execute()
         
-        return {"data": resp.data, "error": None}
+        return {"data": getattr(resp, 'data', None), "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -171,7 +171,7 @@ async def get_progress_by_company(requesting_user_id: str, company_id: str,
             query = query.not_('completed_at', 'is', None)
         
         resp = query.execute()
-        return {"data": resp.data, "error": None}
+        return {"data": getattr(resp, 'data', None), "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -194,7 +194,7 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
         # Get user's company
         user_resp = supabase.table('users').select('company_id').eq('user_id', user_id).maybe_single().execute()
         
-        if not user_resp.data:
+        if not user_resp or not getattr(user_resp, 'data', None):
             return {"data": None, "error": "User not found"}
         
         user_company = user_resp.data.get('company_id')
@@ -214,14 +214,16 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
         
         view_only = progress_data.get('viewOnly', False)
         
-        if existing.data:
+        existing_data = getattr(existing, 'data', None)
+        
+        if existing_data:
             # Record exists
             if view_only:
                 # Don't update, just return existing
-                return {"data": existing.data, "error": None, "action": "view"}
+                return {"data": existing_data, "error": None, "action": "view"}
             
             # Update existing record
-            progress_id = existing.data['module_progress_id']
+            progress_id = existing_data['module_progress_id']
             
             # Build update data
             update_data = {}
@@ -275,13 +277,13 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
                             update_data['pass_status'] = score_percentage >= threshold_resp.data['threshold_value']
             
             if not update_data:
-                return {"data": existing.data, "error": None, "action": "no_change"}
+                return {"data": existing_data, "error": None, "action": "no_change"}
             
             resp = supabase.table('module_progress').update(update_data).eq(
                 'module_progress_id', progress_id
             ).execute()
             
-            return {"data": resp.data, "error": None, "action": "updated"}
+            return {"data": getattr(resp, 'data', None), "error": None, "action": "updated"}
         
         else:
             # Create new record
@@ -309,7 +311,7 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
             
             resp = supabase.table('module_progress').insert(insert_data).execute()
             
-            return {"data": resp.data, "error": None, "action": "created"}
+            return {"data": getattr(resp, 'data', None), "error": None, "action": "created"}
     
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -328,7 +330,7 @@ async def update_progress(requesting_user_id: str, progress_id: str,
             '*, users!inner(company_id)'
         ).eq('module_progress_id', progress_id).maybe_single().execute()
         
-        if not existing.data:
+        if not existing or not getattr(existing, 'data', None):
             return {"data": None, "error": "Progress record not found"}
         
         progress_user_id = existing.data.get('user_id')
@@ -356,7 +358,7 @@ async def update_progress(requesting_user_id: str, progress_id: str,
             'module_progress_id', progress_id
         ).execute()
         
-        return {"data": resp.data, "error": None}
+        return {"data": getattr(resp, 'data', None), "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -373,7 +375,7 @@ async def delete_progress(requesting_user_id: str, progress_id: str) -> Dict[str
             '*, users!inner(company_id)'
         ).eq('module_progress_id', progress_id).maybe_single().execute()
         
-        if not existing.data:
+        if not existing or not getattr(existing, 'data', None):
             return {"data": None, "error": "Progress record not found"}
         
         user_company = existing.data.get('users', {}).get('company_id')
@@ -389,7 +391,7 @@ async def delete_progress(requesting_user_id: str, progress_id: str) -> Dict[str
             'module_progress_id', progress_id
         ).execute()
         
-        return {"data": resp.data, "error": None}
+        return {"data": getattr(resp, 'data', None), "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -412,13 +414,14 @@ async def get_completion_stats(requesting_user_id: str, company_id: str) -> Dict
             'module_progress_id, completed_at, pass_status, users!inner(company_id)'
         ).eq('users.company_id', company_id).execute()
         
-        if not resp.data:
+        if not resp or not getattr(resp, 'data', None):
             return {"data": {"total": 0, "completed": 0, "passed": 0, "failed": 0}, "error": None}
         
-        total = len(resp.data)
-        completed = len([r for r in resp.data if r.get('completed_at')])
-        passed = len([r for r in resp.data if r.get('pass_status') is True])
-        failed = len([r for r in resp.data if r.get('completed_at') and r.get('pass_status') is False])
+        resp_data = getattr(resp, 'data', [])
+        total = len(resp_data)
+        completed = len([r for r in resp_data if r.get('completed_at')])
+        passed = len([r for r in resp_data if r.get('pass_status') is True])
+        failed = len([r for r in resp_data if r.get('completed_at') and r.get('pass_status') is False])
         
         stats = {
             "total": total,
