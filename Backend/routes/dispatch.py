@@ -19,6 +19,7 @@ from utils.db.dispatch_db import (
     get_sub_modules_by_sprint,
     get_assigned_users_for_sprint,
     get_sprint_image,
+    get_dispatch_bootstrap,
 )
 from utils.db.whatsapp_db import (
     create_scheduled_whatsapp,
@@ -1678,6 +1679,20 @@ async def schedule_multi_module(
             detail=f"schedule-multi-module failed: {str(exc)}",
         )
 
+@router.get("/bootstrap/{module_id}")
+async def dispatch_bootstrap(
+    module_id: str,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    result = await get_dispatch_bootstrap(module_id)
+
+    if result["error"]:
+        raise HTTPException(
+            status_code=400,
+            detail=result["error"]
+        )
+
+    return result["data"]
 
 # ── WhatsApp Notification Endpoint ──────────────────────────────
 

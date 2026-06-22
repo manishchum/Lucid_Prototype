@@ -267,28 +267,44 @@ export default function AdminDispatchCenterPage() {
       setSendResult(null);
       setMultiModuleResult(null);
       try {
-        const [subRes, usersRes, imageRes] = await Promise.all([
-          fetchWithAuth(`${API_BASE}/api/dispatch/sub-modules/${selectedSprintId}`, {
-            headers: { 'X-User-ID': currentUser.user_id },
-          }),
-          fetchWithAuth(`${API_BASE}/api/dispatch/assigned-users/${selectedSprintId}`, {
-            headers: { 'X-User-ID': currentUser.user_id },
-          }),
-          fetchWithAuth(`${API_BASE}/api/dispatch/sprint-image/${selectedSprintId}`, {
-            headers: { 'X-User-ID': currentUser.user_id },
-          }),
-        ]);
-        if (subRes.ok) {
-          const subData = await subRes.json();
-          setSubModules(subData.sub_modules || []);
-        }
-        if (usersRes.ok) {
-          const usersData = await usersRes.json();
-          setAssignedUsers(usersData.users || []);
-        }
-        if (imageRes.ok) {
-          const imageData = await imageRes.json();
-          setSprintImageUrl(imageData.image_url || '');
+        // const [subRes, usersRes, imageRes] = await Promise.all([
+        //   fetchWithAuth(`${API_BASE}/api/dispatch/sub-modules/${selectedSprintId}`, {
+        //     headers: { 'X-User-ID': currentUser.user_id },
+        //   }),
+        //   fetchWithAuth(`${API_BASE}/api/dispatch/assigned-users/${selectedSprintId}`, {
+        //     headers: { 'X-User-ID': currentUser.user_id },
+        //   }),
+        //   fetchWithAuth(`${API_BASE}/api/dispatch/sprint-image/${selectedSprintId}`, {
+        //     headers: { 'X-User-ID': currentUser.user_id },
+        //   }),
+        // ]);
+        // if (subRes.ok) {
+        //   const subData = await subRes.json();
+        //   setSubModules(subData.sub_modules || []);
+        // }
+        // if (usersRes.ok) {
+        //   const usersData = await usersRes.json();
+        //   setAssignedUsers(usersData.users || []);
+        // }
+        // if (imageRes.ok) {
+        //   const imageData = await imageRes.json();
+        //   setSprintImageUrl(imageData.image_url || '');
+        // }
+        const bootstrapRes = await fetchWithAuth(
+          `${API_BASE}/api/dispatch/bootstrap/${selectedSprintId}`,
+          {
+            headers: {
+              'X-User-ID': currentUser.user_id,
+            },
+          }
+        );
+
+        if (bootstrapRes.ok) {
+          const data = await bootstrapRes.json();
+
+          setSubModules(data.sub_modules || []);
+          setAssignedUsers(data.users || []);
+          setSprintImageUrl(data.image_url || '');
         }
       } catch (e) {
         console.error('Error fetching sub-modules / users / image:', e);
@@ -720,13 +736,27 @@ export default function AdminDispatchCenterPage() {
           setSending(false);
           return;
         }
+        // Convert local browser time to UTC before saving
+
+        const [localH, localM] = scheduledTime.split(':').map(Number);
+
+        const localDate = new Date();
+        localDate.setHours(localH, localM, 0, 0);
+
+        const utcTime =
+          `${String(localDate.getUTCHours()).padStart(2, '0')}:` +
+          `${String(localDate.getUTCMinutes()).padStart(2, '0')}`;
+
         const res = await fetchWithAuth(`${API_BASE}/api/dispatch/schedule-email`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': currentUser.user_id,
+          },
           body: JSON.stringify({
             ...notifyPayload,
             scheduled_date: scheduledDate,
-            scheduled_time: scheduledTime,
+            scheduled_time: utcTime,
           }),
         });
         if (res.ok) {
