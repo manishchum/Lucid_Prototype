@@ -52,6 +52,24 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str, auth_
         if not user:
             print(f"[get_user_by_email] No active user found for email: {email}")
             return {"data": None, "error": "User not found"}
+        
+        # Enrich user with company subscription data
+        company_id = user.get("company_id")
+
+        if company_id:
+            company_resp = query_client.table("companies") \
+                .select("subscription_tier, subscription_addons") \
+                .eq("company_id", company_id) \
+                .limit(1) \
+                .execute()
+
+            company_rows = company_resp.data if hasattr(company_resp, "data") else []
+
+            if company_rows:
+                company = company_rows[0]
+
+                user["subscription_tier"] = company.get("subscription_tier")
+                user["subscription_addons"] = company.get("subscription_addons", [])
         # Strip sensitive fields before returning.
         user.pop('password', None)
         return {"data": user, "error": None}
@@ -124,6 +142,22 @@ async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[s
             has_access = await check_company_access(requesting_user_id, user.get('company_id'))
             if not has_perm or not has_access:
                 return {"data": None, "error": "Permission denied"}
+        company_id = user.get("company_id")
+
+        if company_id:
+            company_resp = supabase.table("companies") \
+                .select("subscription_tier, subscription_addons") \
+                .eq("company_id", company_id) \
+                .limit(1) \
+                .execute()
+
+            company_rows = company_resp.data if hasattr(company_resp, "data") else []
+
+            if company_rows:
+                company = company_rows[0]
+
+                user["subscription_tier"] = company.get("subscription_tier")
+                user["subscription_addons"] = company.get("subscription_addons", [])
         user.pop('password', None)
         return {"data": user, "error": None}
     except Exception as e:
