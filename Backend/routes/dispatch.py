@@ -471,7 +471,7 @@ Engagement question: {request.engagement_question or "none"}
 """
 
     try:
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-3.1-pro-preview")
         response = model.generate_content(prompt)
         text = response.text.strip()
 
@@ -787,7 +787,7 @@ Engagement question: {request.engagement_question or "none"}
 """
 
     try:
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-3.1-pro-preview")
         response = model.generate_content(prompt)
         text = response.text.strip()
 

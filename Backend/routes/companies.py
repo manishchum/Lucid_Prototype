@@ -1,5 +1,4 @@
-from utils.auth import RequestAuth, get_request_auth_required
-from fastapi import APIRouter, Header, Query, Depends
+from fastapi import APIRouter, Header, Query, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List
 
@@ -18,6 +17,8 @@ from utils.db.companies_db import (
 
 from utils.exceptions import NotFoundError, ValidationError, ConflictError
 from utils.redis_client import redis_client, set_cache, get_cache
+from utils.db.permissions import check_user_permission
+from utils.auth import get_request_auth_required, RequestAuth
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
@@ -34,6 +35,8 @@ class UpdateCompanyRequest(BaseModel):
     domain: Optional[str] = None
     company_logo: Optional[str] = None
     learning_style: Optional[bool] = None
+    subscription_tier: Optional[str] = None
+    subscription_addons: Optional[List[str]] = None
 
 
 class CustomFunctionEntry(BaseModel):
@@ -250,6 +253,42 @@ async def update_company_route(
     Permission: Admin+ of the company.
     """
     update_data = request.dict(exclude_none=True)
+
+    allowed_tiers = {"tier_1", "tier_2", "tier_3"}
+    allowed_addons = {
+        "lucid_studio",
+        "chat_in_studio",
+        "task_management",
+        "kpi",
+        "role_play",
+    }
+
+    if "subscription_tier" in update_data:
+        normalized_tier = str(update_data["subscription_tier"]).strip().lower()
+        if normalized_tier not in allowed_tiers:
+            raise HTTPException(
+                status_code=400,
+                detail="subscription_tier must be one of: tier_1, tier_2, tier_3"
+            )
+        update_data["subscription_tier"] = normalized_tier
+
+    if "subscription_addons" in update_data:
+        raw_addons = update_data.get("subscription_addons") or []
+        normalized_addons = []
+        for addon in raw_addons:
+            normalized = str(addon).strip().lower().replace("-", "_").replace(" ", "_")
+            if normalized in allowed_addons and normalized not in normalized_addons:
+                normalized_addons.append(normalized)
+        update_data["subscription_addons"] = normalized_addons
+
+    if "subscription_tier" in update_data or "subscription_addons" in update_data:
+        is_developer = await check_user_permission(user_id, "developer")
+        if not is_developer:
+            raise HTTPException(
+                status_code=403,
+                detail="Permission denied: Developer access required for company access plans"
+            )
+
     result = await update_company(user_id, company_id, update_data)
     
     redis_client.delete(f"company:{company_id}")  # Invalidate cache on update

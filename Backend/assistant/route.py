@@ -10,7 +10,7 @@ from utils.supabase_client import supabase
 
 router = APIRouter()
 
-COMMON_GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-pro"]
+COMMON_GEMINI_MODELS = ["gemini-3.1-pro-preview", "gemini-1.5-pro"]
 
 
 # -----------------------------------------------------
@@ -269,7 +269,7 @@ Do not include citations.
             gResp = await callGemini(
                 synthUser,
                 {
-                    "candidateModels": ["gemini-2.0-flash", "gemini-1.5-pro"],
+                    "candidateModels": ["gemini-3.1-pro-preview", "gemini-1.5-pro"],
                     "maxOutputTokens": 1500
                 }
             )
@@ -285,7 +285,7 @@ Do not include citations.
 
                 return JSONResponse({
                     "answer": finalAnswer,
-                    "llm_model_used": "gemini-2.0-flash",
+                    "llm_model_used": "gemini-3.1-pro-preview",
                     "llm_error": None
                 })
 
