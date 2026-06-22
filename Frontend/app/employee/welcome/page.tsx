@@ -1636,7 +1636,6 @@ import { useTasks } from "@/hooks/useTasks";
 import { submitTaskResponse } from "@/lib/taskApi";
 import type { SubmitTaskPayload, Task } from "@/lib/taskApi";
 import type { AssignedTask, AssignmentLevel, SubmissionFormat } from "@/types/task";
-import { FeatureGate } from "@/components/feature-gate";
 import { FEATURES } from "@/contexts/tenant-context";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -1756,8 +1755,9 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
 
 export default function EmployeeWelcome() {
   const { user, loading: authLoading, logout, employeeData, isAdmin, isSuperAdmin, isDeveloper, isManager } = useAuth();
-  const { activeCompanyId, isDeveloperMode } = useTenant();
+  const { activeCompanyId, isDeveloperMode, hasFeature } = useTenant();
   const router = useRouter();
+  const hasTaskManagementAccess = hasFeature(FEATURES.TASK_MANAGEMENT);
 
   // --- Logic State ---
   const [employee, setEmployee] = useState<Employee | null>(null);
@@ -1797,6 +1797,12 @@ export default function EmployeeWelcome() {
     setShowLoadingProgress(authLoading || loading);
   }, [authLoading, loading]);
 
+  useEffect(() => {
+    if (!hasTaskManagementAccess && activeHomeTab === "tasks") {
+      setActiveHomeTab("sprints");
+    }
+  }, [hasTaskManagementAccess, activeHomeTab]);
+
   const toastShownRef = useRef(false);
   const prevUserRef = useRef<any>(null);
   const certificateRef = useRef<HTMLDivElement | null>(null);
@@ -1809,7 +1815,7 @@ export default function EmployeeWelcome() {
     loading: tasksLoading,
     error: tasksError,
     refetch: refetchTasks
-  } = useTasks(taskUserId, isAdminUser, effectiveCompanyId);
+  } = useTasks(taskUserId, isAdminUser, effectiveCompanyId, hasTaskManagementAccess);
 
   const assignedTaskItems = useMemo(() => mapBackendTasksToAssignedTasks(tasks), [tasks]);
   // const { tasks: _tasks, loading: _loading, error: _error, refetch: refetchTasks } = useTasks(taskUserId, isAdminUser, effectiveCompanyId);
@@ -2829,28 +2835,30 @@ const handleGenerateCertificate = (sprintId: string) => {
                   {assignedModules.length}
                 </span>
               </button>
-              <button
-                onClick={() => setActiveHomeTab("tasks")}
-                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold border transition-colors ${
-                  activeHomeTab === "tasks"
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                }`}
-              >
-                Assigned Tasks
-                <span
-                  className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+              {hasTaskManagementAccess && (
+                <button
+                  onClick={() => setActiveHomeTab("tasks")}
+                  className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold border transition-colors ${
                     activeHomeTab === "tasks"
-                      ? "bg-white/20 text-white"
-                      : "bg-slate-100 text-slate-700"
+                      ? "bg-slate-900 text-white border-slate-900"
+                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
                   }`}
                 >
-                  {tasks.length}
-                </span>
-              </button>
+                  Assigned Tasks
+                  <span
+                    className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      activeHomeTab === "tasks"
+                        ? "bg-white/20 text-white"
+                        : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {tasks.length}
+                  </span>
+                </button>
+              )}
             </div>
 
-            {activeHomeTab === "sprints" ? (
+            {activeHomeTab === "sprints" || !hasTaskManagementAccess ? (
             <AssignedSprintsSection
               assignedModules={assignedModules}
               moduleProgress={moduleProgress}

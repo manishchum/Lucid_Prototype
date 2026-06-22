@@ -472,9 +472,9 @@ export default function CompanyAccessPage() {
                     <p className="font-semibold text-slate-900">Frontend tier preview</p>
                     <p className="text-sm text-slate-500">This is only for display. Save actions write add-ons only.</p>
                   </div>
-                  <Badge variant="outline">
+                  {/* <Badge variant="outline">
                     {frontendTierLabel ? frontendTierLabel.toUpperCase() : "CUSTOM"}
-                  </Badge>
+                  </Badge> */}
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {selectedFeatures.length === 0 ? (
@@ -511,7 +511,7 @@ export default function CompanyAccessPage() {
                     type="button"
                     onClick={handleSave}
                     disabled={!selectedCompanyId || saving}
-                    className="shrink-0"
+                    className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {saving ? "Saving..." : "Save Access"}
                   </Button>
