@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from fastapi.concurrency import run_in_threadpool
 
 # from supabase import create_client, Client
-from utils.supabase_client import supabase
+from utils.supabase_client import supabase, supabase_admin
 
 from google.cloud import texttospeech
 
@@ -101,7 +101,7 @@ else:
 async def ensureBucketExists():
     try:
         # listBuckets equivalent
-        buckets = supabase.storage.list_buckets()
+        buckets = supabase_admin.storage.list_buckets()
         if buckets is None:
             return {"ok": False, "error": "List buckets failed: empty response"}
 
@@ -116,7 +116,7 @@ async def ensureBucketExists():
 
         # createBucket equivalent
         # supabase-py storage API differs, but this tries to mimic behavior.
-        supabase.storage.create_bucket(BUCKET, options={
+        supabase_admin.storage.create_bucket(BUCKET, options={
             "public": True,
             "file_size_limit": "200MB"
         })
@@ -318,7 +318,7 @@ async def generateAvatarImage(dir: str) -> str:
 # ------------------------------------------------------------------
 # GOOGLE TTS
 # ------------------------------------------------------------------
-async def generateTTSAudio(script: str, outFile: str, language_code: str = "en-IN", voice_name: str = "en-IN-Wavenet-C") -> float:
+async def generateTTSAudio(script: str, outFile: str, language_code: str = "en-IN", voice_name: str = "en-IN-Chirp3-HD-Callirrhoe") -> float:
     ttsClient = texttospeech.TextToSpeechClient()
 
     response = ttsClient.synthesize_speech(
@@ -582,7 +582,7 @@ async def generateVideo(processedModuleId: str) -> dict:
         
         # English audio
         print(f"[VIDEO] Scene {i + 1} - English Script: {scene.get('spoken_script', '')}")
-        duration_en = await generateTTSAudio(scene["spoken_script"], audio_en, "en-IN", "en-IN-Wavenet-C")
+        duration_en = await generateTTSAudio(scene["spoken_script"], audio_en, "en-IN", "en-IN-Chirp3-HD-Callirrhoe")
 
         # Hinglish audio
         hinglish_script = scene.get("hinglish_script", scene["spoken_script"])
@@ -662,7 +662,7 @@ async def generateVideo(processedModuleId: str) -> dict:
     uploadPath_hi = f"{actualId}/{str(uuid_lib.uuid4())}_notebooklm_video_hi.mp4"
 
     try:
-        supabase.storage.from_(BUCKET).upload(
+        supabase_admin.storage.from_(BUCKET).upload(
             path=uploadPath_en,
             file=buffer_en,
             file_options={"content-type": "video/mp4", "upsert": "true"}
@@ -671,7 +671,7 @@ async def generateVideo(processedModuleId: str) -> dict:
         with open(finalVideo_hi, "rb") as f:
             buffer_hi = f.read()
 
-        supabase.storage.from_(BUCKET).upload(
+        supabase_admin.storage.from_(BUCKET).upload(
             path=uploadPath_hi,
             file=buffer_hi,
             file_options={"content-type": "video/mp4", "upsert": "true"}
@@ -679,8 +679,8 @@ async def generateVideo(processedModuleId: str) -> dict:
     except Exception as e:
         print(f"[VIDEO] Upload exception caught: {type(e).__name__}: {e}")
     
-    videoUrl_en = supabase.storage.from_(BUCKET).get_public_url(uploadPath_en)
-    videoUrl_hi = supabase.storage.from_(BUCKET).get_public_url(uploadPath_hi)
+    videoUrl_en = supabase_admin.storage.from_(BUCKET).get_public_url(uploadPath_en)
+    videoUrl_hi = supabase_admin.storage.from_(BUCKET).get_public_url(uploadPath_hi)
     
     if isinstance(videoUrl_en, dict):
         videoUrl_en = videoUrl_en.get("publicURL") or videoUrl_en.get("publicUrl") or videoUrl_en.get("signedURL")
