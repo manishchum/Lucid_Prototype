@@ -58,15 +58,24 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str, auth_
 
         if company_id:
             company_resp = query_client.table("companies") \
-                .select("subscription_tier, subscription_addons") \
-                .eq("company_id", company_id) \
-                .limit(1) \
-                .execute()
+            .select("""
+                company_id,
+                name,
+                company_logo,
+                subscription_tier,
+                subscription_addons
+            """) \
+            .eq("company_id", company_id) \
+            .limit(1) \
+            .execute()
 
             company_rows = company_resp.data if hasattr(company_resp, "data") else []
 
             if company_rows:
                 company = company_rows[0]
+
+                user["company_name"] = company.get("name")
+                user["company_logo"] = company.get("company_logo")
 
                 user["subscription_tier"] = company.get("subscription_tier")
                 user["subscription_addons"] = company.get("subscription_addons", [])
