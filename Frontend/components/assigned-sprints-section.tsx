@@ -88,7 +88,9 @@ export function AssignedSprintsSection({
           const plan = plansByModuleId[module.id];
           const dueDate = plan?.due_date;
 
-          const totalQuizzes = module.modules?.length > 0 ? module.modules.length : 1;
+          // Number of assigned modules from learning_plan.plan_json.modules
+          const totalQuizzes =
+            plan?.plan_json?.modules?.length || 0;
 
                     const processedModuleIdsInSprint = new Set(module.modules.map(m => m.id));
           const attemptedProcessedModuleIds = new Set(moduleProgress.map(p => p.processed_module_id));
