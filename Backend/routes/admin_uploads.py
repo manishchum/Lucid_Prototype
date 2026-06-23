@@ -2,7 +2,10 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from utils.supabase_client import supabase_admin
 from typing import List, Optional
 import asyncio, httpx
-
+from utils.auth import (
+    RequestAuth,
+    get_request_auth_required
+)
 router = APIRouter(
     prefix="/api/admin/uploads",
     tags=["Admin Uploads"]
@@ -191,6 +194,7 @@ async def get_company_modules(
         
 @router.post("/create-sprint")
 async def create_sprint(
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
     company_id: str = Form(...),
     title: str = Form(...),
     description: str = Form(""),
@@ -222,6 +226,7 @@ async def create_sprint(
                 "description": description,
                 "processing_status": "pending",
                 "threshold_value": threshold_value,
+                "uploaded_by": auth_ctx.user_id,
                 "reviewer_id": reviewer_id,
                 "additional_readings": additional_readings,
                 "source_files": source_files
