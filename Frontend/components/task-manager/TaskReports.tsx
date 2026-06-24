@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { fetchTaskSubmissions } from '@/lib/taskApi';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
+import { useAuth } from '@/contexts/auth-context';
 import { 
   ChevronDown, 
   ChevronUp, 
@@ -279,6 +281,75 @@ interface TaskReportsProps {
 }
 
 export default function TaskReports({ reportsList = INITIAL_REPORTS, onAddSimulatedReport, isLoading = false, defaultActiveSubTab = 'assessment', employeeId = null }: TaskReportsProps) {
+  const { user, isAdmin, isSuperAdmin, isDeveloper, isManager, employeeData } = useAuth();
+  const isUserAdmin = isAdmin || isSuperAdmin || isDeveloper || isManager;
+
+  const [adminTasks, setAdminTasks] = useState<{ task_id: string; title: string }[]>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState('');
+  const [selectedDuration, setSelectedDuration] = useState('30_days');
+  const [adminEmail, setAdminEmail] = useState('');
+  const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [pdfFeedback, setPdfFeedback] = useState('');
+
+  useEffect(() => {
+    if (!isUserAdmin) return;
+    const fetchTasks = async () => {
+      try {
+        const { data, error } = await supabase.table('tasks').select('task_id, title').execute();
+        if (data) {
+          setAdminTasks(data);
+          if (data.length > 0) setSelectedTaskId(data[0].task_id);
+        }
+      } catch (err) {
+        console.error("Failed to fetch tasks for admin dropdown:", err);
+      }
+    };
+    fetchTasks();
+  }, [isUserAdmin]);
+
+  const handleGeneratePdf = async () => {
+    if (!selectedTaskId) return;
+    setGeneratingPdf(true);
+    setPdfFeedback('');
+    try {
+      const url = `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/reports/generate`;
+      const response = await fetchWithAuth(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(employeeData?.company_id ? { 'X-Company-ID': employeeData.company_id } : {}),
+        },
+        body: JSON.stringify({
+          task_id: selectedTaskId,
+          duration: selectedDuration,
+          admin_email: adminEmail || undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || 'Failed to generate report');
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.setAttribute('download', `Lucid_Team_Report_${selectedTaskId.slice(0, 8)}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+      
+      setPdfFeedback('Report generated and downloaded successfully!');
+    } catch (err: any) {
+      console.error(err);
+      setPdfFeedback(`Generation failed: ${err.message}`);
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
   const [activeSubTab, setActiveSubTab] = useState<'assessment' | 'roleplay' | 'tasks'>(defaultActiveSubTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
@@ -298,7 +369,7 @@ export default function TaskReports({ reportsList = INITIAL_REPORTS, onAddSimula
         const apiRes = await fetchTaskSubmissions({ userId: employeeId });
         // Debug: show raw API response
         // eslint-disable-next-line no-console
-        console.log('REPORT SUBMISSIONS', apiRes);
+        // console.log('REPORT SUBMISSIONS', apiRes);
 
         if (!cancelled) {
           const rows = apiRes.submissions || [];
@@ -414,7 +485,7 @@ export default function TaskReports({ reportsList = INITIAL_REPORTS, onAddSimula
           setFetchedReports(mapped);
         }
       } catch (e) {
-        console.error('[TaskReports] fetch exception', e);
+        // console.error('[TaskReports] fetch exception', e);
         setFetchedReports([]);
       } finally {
         if (!cancelled) setFetching(false);
@@ -440,13 +511,13 @@ export default function TaskReports({ reportsList = INITIAL_REPORTS, onAddSimula
           .limit(20);
 
         if (error) {
-          console.error('[TaskReports] summaries fetch error', error);
+          // console.error('[TaskReports] summaries fetch error', error);
           setSummaries([]);
         } else if (!cancelled) {
           setSummaries(data || []);
         }
       } catch (e) {
-        console.error('[TaskReports] summaries exception', e);
+        // console.error('[TaskReports] summaries exception', e);
         setSummaries([]);
       }
     };
@@ -549,6 +620,75 @@ export default function TaskReports({ reportsList = INITIAL_REPORTS, onAddSimula
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto font-sans" id="task-reports-container">
+      
+      {isUserAdmin && (
+        <div className="bg-white p-6 rounded-3xl border border-[#E2E8F0] shadow-sm space-y-4">
+          <div className="flex items-center space-x-2">
+            <span className="text-lg">📊</span>
+            <div>
+              <h3 className="text-sm font-bold text-[#0F172A]">Synthesized AI Admin Reports</h3>
+              <p className="text-[11px] text-gray-500">Generate team-wide performance analysis and email report copy.</p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Select Task</label>
+              <select
+                value={selectedTaskId}
+                onChange={(e) => setSelectedTaskId(e.target.value)}
+                className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] text-[#0F172A] cursor-pointer"
+              >
+                {adminTasks.map((t) => (
+                  <option key={t.task_id} value={t.task_id}>
+                    {t.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Duration</label>
+              <select
+                value={selectedDuration}
+                onChange={(e) => setSelectedDuration(e.target.value)}
+                className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] text-[#0F172A] cursor-pointer"
+              >
+                <option value="30_days">Past 30 Days</option>
+                <option value="90_days">Past 90 Days</option>
+                <option value="all">All-Time</option>
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Send Email Copy (Optional)</label>
+              <input
+                type="email"
+                placeholder="admin@company.com"
+                value={adminEmail}
+                onChange={(e) => setAdminEmail(e.target.value)}
+                className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] text-[#0F172A] placeholder-gray-400"
+              />
+            </div>
+          </div>
+          
+          <div className="flex items-center justify-between pt-2">
+            <button
+              onClick={handleGeneratePdf}
+              disabled={generatingPdf || !selectedTaskId}
+              className="bg-[#2F63FF] hover:bg-blue-700 disabled:bg-gray-300 text-white text-xs font-semibold px-5 py-2.5 rounded-xl transition-all cursor-pointer shadow-sm flex items-center space-x-1.5"
+            >
+              <span>{generatingPdf ? 'Generating PDF...' : 'Download Admin PDF Report'}</span>
+            </button>
+            
+            {pdfFeedback && (
+              <span className={`text-xs font-semibold ${pdfFeedback.includes('failed') ? 'text-red-500' : 'text-emerald-600'}`}>
+                {pdfFeedback}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
       
       {/* Dynamic Header Block mirroring exact styling */}
       {/* <div className="bg-white px-8 py-7 rounded-3xl border border-[#E2E8F0] shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">

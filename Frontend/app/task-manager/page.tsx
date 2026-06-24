@@ -39,11 +39,31 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
   return backendTasks.map((task) => {
     const level = mapBackendLevel(task.level);
     const audienceName = task.audience_display_name || "";
-    const normalizeSubmissionFormat = (taskObj: any) => {
-      const raw = taskObj.submission_format;
-      if (Array.isArray(raw)) return (raw[0] as string) || 'text';
-      return (raw as string) || (taskObj.submissionFormat as string) || 'text';
-    };
+    const rawFormats = task.submission_format;
+    let formats: string[] = [];
+    if (Array.isArray(rawFormats)) {
+      formats = rawFormats;
+    } else if (typeof rawFormats === 'string') {
+      if (rawFormats.startsWith('[')) {
+        try {
+          formats = JSON.parse(rawFormats);
+        } catch (e) {
+          formats = [rawFormats];
+        }
+      } else {
+        formats = [rawFormats];
+      }
+    } else {
+      formats = ['text'];
+    }
+
+    const subtasks = formats.map((fmt, index) => ({
+      id: index === 0 ? task.task_id : `${task.task_id}-${fmt}`,
+      title: task.title,
+      description: task.description ?? "",
+      submissionFormat: fmt as SubmissionFormat,
+      questions: task.questions || [],
+    }));
 
   const submission = (task as any).submission || null;
   const statusNormalized = String(task.status || "").toLowerCase();
@@ -54,15 +74,7 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
   id: task.assignment_id || task.task_id,
       level,
       mode: "single" as const,
-      tasks: [
-        {
-          id: task.task_id,
-          title: task.title,
-          description: task.description ?? "",
-            submissionFormat: normalizeSubmissionFormat(task) as SubmissionFormat,
-            questions: task.questions || [],
-        },
-      ],
+      tasks: subtasks,
       targetSprints: level === "sprint" ? [audienceName].filter(Boolean) : [],
       targetOrgs: level === "org" ? [audienceName].filter(Boolean) : [],
       targetFunctions: level === "function" ? [audienceName].filter(Boolean) : [],
@@ -80,7 +92,7 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
 
     try {
       // eslint-disable-next-line no-console
-      console.log("CHECK SUBMISSION MAP", mapped.id, { id: mapped.id, status: mapped.status, submitted: mapped.submitted, submission: mapped.submission });
+      // console.log("CHECK SUBMISSION MAP", mapped.id, { id: mapped.id, status: mapped.status, submitted: mapped.submitted, submission: mapped.submission });
     } catch (e) {}
 
     return mapped;
@@ -182,7 +194,7 @@ function TaskManagerContent() {
 
           setReports(mapped);
         } catch (e) {
-          console.warn('Failed to fetch submissions for admin reports', e);
+          // console.warn('Failed to fetch submissions for admin reports', e);
         }
       }
 
@@ -246,7 +258,7 @@ function TaskManagerContent() {
           : t
       )
     );
-    console.log("Task submitted:", { assignmentId, primaryTitle, score, maxScore });
+    // console.log("Task submitted:", { assignmentId, primaryTitle, score, maxScore });
   };
 
   const handleBackendSubmit = async (

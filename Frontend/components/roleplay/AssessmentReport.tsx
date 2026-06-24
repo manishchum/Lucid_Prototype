@@ -122,7 +122,7 @@ export default function AssessmentReportComponent({ report, scenarioTitle, passi
       <div className="flex justify-center">
         <Button
           onClick={onStartNew}
-          className="px-8 py-3 text-lg"
+          className="px-8 py-3 text-lg bg-purple-600 hover:bg-purple-700 text-white"
         >
           Start New Role-Play
         </Button>

@@ -21,6 +21,7 @@ class QuizQuestion(BaseModel):
 class TaskCreate(BaseModel):
     title: str = Field(..., min_length=5)
     description: Optional[str] = None
+    expected_answer: Optional[str] = None
     submission_format: Union[str, List[str]]
     questions: Optional[List[QuizQuestion]] = []
     level: str
@@ -39,6 +40,7 @@ class TaskResponse(BaseModel):
     company_id: str
     title: str
     description: Optional[str]
+    expected_answer: Optional[str] = None
     submission_format: List[str]
     questions: List[dict]
     status: str

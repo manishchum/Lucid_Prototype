@@ -84,27 +84,42 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
   return backendTasks.map((task) => {
     const level = mapBackendLevel(task.level);
     const audienceName = task.audience_display_name || "";
-    const submission = (task as any).submission || null;
+    const rawFormats = task.submission_format;
+    let formats: string[] = [];
+    if (Array.isArray(rawFormats)) {
+      formats = rawFormats;
+    } else if (typeof rawFormats === 'string') {
+      if (rawFormats.startsWith('[')) {
+        try {
+          formats = JSON.parse(rawFormats);
+        } catch (e) {
+          formats = [rawFormats];
+        }
+      } else {
+        formats = [rawFormats];
+      }
+    } else {
+      formats = ['text'];
+    }
 
-  const statusNormalized = String(task.status || "").toLowerCase();
-  const statusIsCompleted = statusNormalized.includes("completed") || statusNormalized.includes("submitted") || statusNormalized.includes("reviewed");
-  const hasSubmission = task.submitted === true || Boolean(submission) || statusIsCompleted;
+    const subtasks = formats.map((fmt, index) => ({
+      id: index === 0 ? task.task_id : `${task.task_id}-${fmt}`,
+      title: task.title,
+      description: task.description ?? "",
+      submissionFormat: fmt as SubmissionFormat,
+      questions: task.questions || [],
+    }));
+
+    const submission = (task as any).submission || null;
+    const statusNormalized = String(task.status || "").toLowerCase();
+    const statusIsCompleted = statusNormalized.includes("completed") || statusNormalized.includes("submitted") || statusNormalized.includes("reviewed");
+    const hasSubmission = task.submitted === true || Boolean(submission) || statusIsCompleted;
 
     const mapped = {
       id: task.assignment_id || task.task_id,
       level,
       mode: "single" as const,
-      tasks: [
-        {
-          id: task.task_id,
-          title: task.title,
-          description: task.description ?? "",
-          submissionFormat: Array.isArray(task.submission_format)
-            ? (task.submission_format[0] as SubmissionFormat)
-            : (task.submission_format as SubmissionFormat) || ((task as any).submissionFormat as SubmissionFormat) || 'text',
-          questions: task.questions || [],
-        },
-      ],
+      tasks: subtasks,
       targetSprints: level === "sprint" ? [audienceName].filter(Boolean) : [],
       targetOrgs: level === "org" ? [audienceName].filter(Boolean) : [],
       targetFunctions: level === "function" ? [audienceName].filter(Boolean) : [],
@@ -123,16 +138,16 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
     // Temporary debug to verify mapping contains submissions
     try {
       // eslint-disable-next-line no-console
-      console.log(
-        "CHECK SUBMISSION MAP",
-        mapped.id,
-        {
-          id: mapped.id,
-          status: mapped.status,
-          submitted: mapped.submitted,
-          submission: mapped.submission,
-        }
-      );
+      // console.log(
+      //   "CHECK SUBMISSION MAP",
+      //   mapped.id,
+      //   {
+      //     id: mapped.id,
+      //     status: mapped.status,
+      //     submitted: mapped.submitted,
+      //     submission: mapped.submission,
+      //   }
+      // );
     } catch (e) {}
 
     return mapped;
@@ -198,8 +213,8 @@ export default function EmployeeWelcome() {
   // when necessary. Replace references below to use `assignedTaskItems` which
   // is derived from `_tasks`.
   useEffect(() => {
-    console.log("RAW BACKEND TASKS:", _tasks);
-    console.log("MAPPED DASHBOARD TASKS:", assignedTaskItems);
+    // console.log("RAW BACKEND TASKS:", _tasks);
+    // console.log("MAPPED DASHBOARD TASKS:", assignedTaskItems);
   }, [_tasks, assignedTaskItems]);
 
   const handleTaskSubmitResponse = async (payload: Omit<SubmitTaskPayload, "user_id">) => {
@@ -1219,6 +1234,7 @@ const handleGenerateCertificate = (sprintId: string) => {
                     userRole="employee"
                     onSubmitTaskResponse={handleTaskSubmitResponse}
                     onTaskSubmitted={handleTaskSubmitted}
+                    isWelcomePage={true}
                   />
                 )}
 
