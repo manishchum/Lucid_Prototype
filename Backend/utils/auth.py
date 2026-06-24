@@ -230,10 +230,37 @@ def get_request_auth_optional(
 			if _is_uuid(val):
 				return val
 			try:
-				resp = supabase.table('users').select('user_id').eq('firebase_uid', val).maybe_single().execute()
-				data = getattr(resp, 'data', None)
-				if isinstance(data, dict) and data.get('user_id'):
-					return str(data.get('user_id'))
+
+				# NEW: lookup through mapping table first
+				mapping_resp = (
+					supabase
+					.table("user_firebase_uids")
+					.select("user_id")
+					.eq("firebase_uid", val)
+					.maybe_single()
+					.execute()
+				)
+
+				mapping_data = getattr(mapping_resp, "data", None)
+
+				if isinstance(mapping_data, dict) and mapping_data.get("user_id"):
+					return str(mapping_data.get("user_id"))
+
+				# Fallback to legacy users.firebase_uid
+				resp = (
+					supabase
+					.table("users")
+					.select("user_id")
+					.eq("firebase_uid", val)
+					.maybe_single()
+					.execute()
+				)
+
+				data = getattr(resp, "data", None)
+
+				if isinstance(data, dict) and data.get("user_id"):
+					return str(data.get("user_id"))
+
 			except Exception as e:
 				print(f"[auth] firebase_uid lookup failed: {e}")
 			return val

@@ -110,3 +110,18 @@ async def get_sprint_image(module_id: str) -> Dict[str, Any]:
         return {"data": None, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
+    
+async def get_dispatch_bootstrap(module_id: str):
+    sub_modules = await get_sub_modules_by_sprint(module_id)
+    users = await get_assigned_users_for_sprint(module_id)
+    image = await get_sprint_image(module_id)
+
+    return {
+        "data": {
+            "sub_modules": sub_modules.get("data", []),
+            "users": users.get("data", []),
+            "user_count": len(users.get("data", [])),
+            "image_url": image.get("data")
+        },
+        "error": None
+    }

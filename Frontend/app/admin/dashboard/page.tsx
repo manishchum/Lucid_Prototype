@@ -1,9 +1,14 @@
-import React from 'react'
+"use client"
 
-export default function page() {
-  return (
-    <div>
-      
-    </div>
-  )
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
+
+export default function AdminDashboardPage() {
+  const router = useRouter()
+
+  useEffect(() => {
+    router.replace("/admin/dashboard/analytics")
+  }, [router])
+
+  return null
 }

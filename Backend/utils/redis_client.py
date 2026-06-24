@@ -41,10 +41,28 @@ def set_cache(key: str, value, ttl: int = 300) -> None:
     except Exception:
         return None
     
-def delete_cache_pattern(patter:str):
+def delete_cache_pattern(pattern: str):
     try:
-        keys = redis_client.keys(patter)
-        if keys:
-            redis_client.delete(*keys)
+
+        cursor = 0
+
+        while True:
+
+            cursor, keys = redis_client.scan(
+                cursor=cursor,
+                match=pattern,
+                count=100
+            )
+
+            if keys:
+
+                try:
+                    redis_client.unlink(*keys)
+                except Exception:
+                    redis_client.delete(*keys)
+
+            if cursor == 0:
+                break
+
     except Exception:
         return None

@@ -13,6 +13,52 @@ type Company = {
   name?: string
   domain?: string
   company_logo?: string
+  subscription_tier?: string
+  subscription_addons?: string[]
+}
+
+export type Tier = 'tier_1' | 'tier_2' | 'tier_3'
+export type Addon =
+  | 'lucid_studio'
+  | 'chat_in_studio'
+  | 'task_management'
+  | 'kpi'
+  | 'role_play'
+
+// Feature constants - single source of truth for feature names
+export const FEATURES = {
+  LUCID_STUDIO: "lucidStudio",
+  CHAT_IN_STUDIO: "chatInStudio",
+  TASK_MANAGEMENT: "taskManagement",
+  KPI: "kpi",
+  ROLE_PLAY: "rolePlay",
+} as const
+
+export type FeatureName = typeof FEATURES[keyof typeof FEATURES]
+
+// Feature to requirement mapping
+const FEATURE_CONFIG: Record<FeatureName, { requiredAddons?: Addon[] }> = {
+  [FEATURES.LUCID_STUDIO]: { requiredAddons: ["lucid_studio"] },
+  [FEATURES.CHAT_IN_STUDIO]: { requiredAddons: ["chat_in_studio"] },
+  [FEATURES.TASK_MANAGEMENT]: { requiredAddons: ["task_management"] },
+  [FEATURES.KPI]: { requiredAddons: ["kpi"] },
+  [FEATURES.ROLE_PLAY]: { requiredAddons: ["role_play"] },
+}
+
+// Tier hierarchy - which tiers can ACCESS each tier level
+// To access tier_1 features: anyone (tier_1, tier_2, tier_3)
+// To access tier_2 features: only tier_2 and tier_3
+// To access tier_3 features: only tier_3
+const TIER_ACCESS: Record<Tier, Tier[]> = {
+  tier_1: ["tier_1", "tier_2", "tier_3"],  // All tiers can access tier_1
+  tier_2: ["tier_2", "tier_3"],             // Only tier_2+ can access tier_2
+  tier_3: ["tier_3"],                       // Only tier_3 can access tier_3
+}
+
+interface FeatureConfig {
+  requiredTier?: Tier
+  requiredAddons?: Addon[]
+  requiresAnyAddon?: boolean
 }
 
 type TenantContextType = {
@@ -22,6 +68,11 @@ type TenantContextType = {
   loadingCompanies: boolean
   isDeveloperMode: boolean
   setActiveCompanyId: (companyId: string) => void
+  // Feature gating methods
+  getAvailableTier: () => Tier | null
+  getAvailableAddons: () => Addon[]
+  isFeatureAvailable: (config: FeatureConfig) => boolean
+  hasFeature: (featureName: FeatureName | string) => boolean
 }
 
 const TenantContext = createContext<TenantContextType>({
@@ -31,6 +82,10 @@ const TenantContext = createContext<TenantContextType>({
   loadingCompanies: false,
   isDeveloperMode: false,
   setActiveCompanyId: () => {},
+  getAvailableTier: () => null,
+  getAvailableAddons: () => [],
+  isFeatureAvailable: () => false,
+  hasFeature: () => false,
 })
 
 export const useTenant = () => {
@@ -42,6 +97,25 @@ export const useTenant = () => {
 }
 
 const normalizeRole = (value: string) => value.toLowerCase().replace(/[-_\s]/g, "")
+const normalizeAddonKey = (value: string) => String(value || "").trim().toLowerCase().replace(/[-\s]+/g, "_")
+
+const isAddon = (value: string): value is Addon => {
+  return [
+    "lucid_studio",
+    "chat_in_studio",
+    "task_management",
+    "kpi",
+    "role_play",
+  ].includes(value)
+}
+
+const deriveFrontendTier = (addons: Addon[]): Tier | null => {
+  const current = new Set(addons)
+  if (current.has("task_management")) return "tier_3"
+  if (current.has("chat_in_studio")) return "tier_2"
+  if (current.has("lucid_studio")) return "tier_1"
+  return null
+}
 
 export function TenantProvider({ children }: { children: React.ReactNode }) {
   const { userId, employeeData, userRoles, loading: authLoading, isDeveloper } = useAuth()
@@ -74,6 +148,10 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         company_id: String(employeeData.company_id),
         name: employeeData.company_name || "My Company",
         company_logo: employeeData.company_logo || undefined,
+        subscription_tier: employeeData.subscription_tier || undefined,
+        subscription_addons: Array.isArray(employeeData.subscription_addons)
+          ? employeeData.subscription_addons
+          : undefined,
       }
 
       if (!isDeveloperMode) {
@@ -86,8 +164,8 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       try {
         const res = await fetchWithAuth(`${API_BASE}/api/companies`)
         const payload = res.ok ? await res.json() : null
-        const companiesList = payload?.data?.companies || payload?.companies || []
-        const companies = companiesList.filter((c: Company) => c?.company_id)
+        console.log(payload)
+        const companies = (payload?.companies || payload?.data?.companies || []).filter((c: Company) => c?.company_id)
         const resolvedCompanies: Company[] = companies.length > 0 ? companies : [fallbackCompany]
 
         if (ignore) return
@@ -171,6 +249,53 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     return availableCompanies.find((c) => c.company_id === activeCompanyId) || null
   }, [activeCompanyId, availableCompanies])
 
+  // Feature gating helpers
+  const getAvailableTier = () => {
+    const derivedTier = deriveFrontendTier(getAvailableAddons())
+    return derivedTier
+  }
+
+  const getAvailableAddons = () => {
+    const subscriptionAddons = (activeCompany?.subscription_addons || [])
+      .map((addon) => normalizeAddonKey(String(addon)))
+      .filter((addon): addon is Addon => isAddon(addon))
+    return Array.from(new Set(subscriptionAddons))
+  }
+
+  const isFeatureAvailable = (config: FeatureConfig) => {
+    const currentTier = getAvailableTier()
+    const currentAddons = getAvailableAddons()
+
+    // Check tier requirement
+    if (config.requiredTier) {
+      if (!currentTier) return false
+      const accessibleTiers = TIER_ACCESS[config.requiredTier]
+      if (!accessibleTiers.includes(currentTier)) return false
+    }
+
+    // Check addon requirement
+    if (config.requiredAddons && config.requiredAddons.length > 0) {
+      if (config.requiresAnyAddon) {
+        // Requires at least one of the specified addons
+        return config.requiredAddons.some((addon) => currentAddons.includes(addon))
+      } else {
+        // Requires all specified addons
+        return config.requiredAddons.every((addon) => currentAddons.includes(addon))
+      }
+    }
+
+    return true
+  }
+
+  const hasFeature = (featureName: FeatureName | string) => {
+    const config = FEATURE_CONFIG[featureName as FeatureName]
+    if (!config) {
+      console.warn(`Unknown feature: ${featureName}`)
+      return false
+    }
+    return isFeatureAvailable(config)
+  }
+
   return (
     <TenantContext.Provider
       value={{
@@ -180,6 +305,10 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         loadingCompanies,
         isDeveloperMode,
         setActiveCompanyId,
+        getAvailableTier,
+        getAvailableAddons,
+        isFeatureAvailable,
+        hasFeature,
       }}
     >
       {children}

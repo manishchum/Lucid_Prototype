@@ -11,7 +11,7 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 # from supabase import create_client, Client
-from utils.supabase_client import supabase
+from utils.supabase_client import supabase_admin, supabase
 
 import google.generativeai as genai
 
@@ -140,7 +140,7 @@ async def ensureBucketExists():
     """
     try:
         # If bucket does not exist / no permission -> it errors
-        res = supabase.storage.from_(BUCKET).list("")
+        res = supabase_admin.storage.from_(BUCKET).list("")
 
         # supabase-py versions vary:
         if isinstance(res, dict):
@@ -462,15 +462,15 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
 
         if language == "hinglish":
             voice = (
-                {"languageCode": "hi-IN", "name": "en-IN-Wavenet-C", "ssmlGender": "FEMALE"}
+                {"languageCode": "hi-IN", "name": "hi-IN-Chirp3-HD-Autonoe", "ssmlGender": "FEMALE"}
                 if segment["speaker"] == "pooja"
-                else {"languageCode": "hi-IN", "name": "hi-IN-Wavenet-C", "ssmlGender": "MALE"}
+                else {"languageCode": "hi-IN", "name": "hi-IN-Chirp3-HD-Enceladus", "ssmlGender": "MALE"}
             )
         else:
             voice = (
-                {"languageCode": "en-IN", "name": "en-IN-Wavenet-C", "ssmlGender": "FEMALE"}
+                {"languageCode": "en-IN", "name": "en-IN-Chirp3-HD-Callirrhoe", "ssmlGender": "FEMALE"}
                 if segment["speaker"] == "sarah"
-                else {"languageCode": "en-IN", "name": "en-IN-Wavenet-C", "ssmlGender": "MALE"}
+                else {"languageCode": "en-IN", "name": "en-IN-Chirp3-HD-Enceladus", "ssmlGender": "MALE"}
             )
 
         requestBody = {
@@ -550,7 +550,7 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
 
     if not ensured.get("ok"):
         return {
-            "error": f"Bucket not found and could not be created: {ensured.get('error')}. Ensure Supabase server key env vars are set or create the bucket manually.",
+            "error": f"Bucket not found and could not be created: {ensured.get('error')}. Ensure SUPABASE_SERVICE_ROLE_KEY is set or create the bucket manually.",
             "status": 500,
         }
 
@@ -558,7 +558,7 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
 
     # Upload
     print("[TTS][DEBUG] uploading to storage... bucket=", BUCKET, "file=", fileName)
-    uploadRes = supabase.storage.from_(BUCKET).upload(
+    uploadRes = supabase_admin.storage.from_(BUCKET).upload(
         fileName,
         wavBuffer,
         file_options={"content-type": "audio/wav", "upsert": "true"}
@@ -578,7 +578,7 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
 
     # ✅ Public URL (fixed)
     print("[TTS][DEBUG] get public url... bucket=", BUCKET, "file=", fileName)
-    publicUrlData = supabase.storage.from_(BUCKET).get_public_url(fileName)
+    publicUrlData = supabase_admin.storage.from_(BUCKET).get_public_url(fileName)
 
     audioUrl = None
 

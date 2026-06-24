@@ -5,13 +5,20 @@ import { fetchActiveTasks, fetchUserTasks, Task } from "@/lib/taskApi";
 export function useTasks(
   userId?: string,
   isAdmin?: boolean,
-  companyId?: string
+  companyId?: string,
+  enabled: boolean = true
 ) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+  if (!enabled) {
+    setTasks([]);
+    setLoading(false);
+    setError(null);
+    return;
+  }
 
   // console.log("useTasks called with:", {
   //   userId,
@@ -43,7 +50,7 @@ export function useTasks(
     setLoading(false);
   }
 
-}, [userId, isAdmin, companyId]);
+}, [userId, isAdmin, companyId, enabled]);
 
   useEffect(() => {
     load();

@@ -38,7 +38,7 @@ from routes.analytics_export import router as analytics_export_router
 from routes.career_journeys import router as career_journeys_router
 from routes.employee_dashboard import router as employee_dashboard_router
 from routes.analytics import router as analytics_router
-from routes.reports import router as reports_router
+from routes.admin_uploads import router as admin_uploads_router
 
 # Import user routes
 # from routes.users import router as users_router
@@ -211,8 +211,8 @@ app.include_router(photo_analysis_router, prefix="/api/photo-analysis", tags=["p
 app.include_router(text_analysis_router, prefix="/api/text-analysis", tags=["text-analysis"])
 app.include_router(employee_dashboard_router)  # employee dashboard summary router
 app.include_router(analytics_router)  # analytics router with dashboard and other analytics endpoints
-app.include_router(video_router)  # video analysis router
-app.include_router(reports_router)
+app.include_router(admin_uploads_router)  # admin uploads router
+
 
 # Router Includes are here
 # app.include_router(users_router, prefix="/api/users", tags=["users Router"])
