@@ -319,8 +319,8 @@ async def update_employee_assessment(
         response = supabase.table('employee_assessments').update(update_data).eq(
             'employee_assessment_id', employee_assessment_id
         ).execute()
-        delete_cache_pattern(f"employee_assessments:{assessment_user_id}:*")
-        delete_cache_pattern(f"dashboard_summary:{assessment_user_id}*")
+        delete_cache_pattern(f"employee_assessments:{requesting_user_id}:*")
+        delete_cache_pattern(f"dashboard_summary:{requesting_user_id}*")
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -351,9 +351,9 @@ async def delete_employee_assessment(
         response = supabase.table('employee_assessments').delete().eq(
             'employee_assessment_id', employee_assessment_id
         ).execute()
-        delete_cache_pattern(f"employee_assessments:{assessment_user_id}:*")
+        delete_cache_pattern(f"employee_assessments:{requesting_user_id}:*")
 
-        delete_cache_pattern(f"dashboard_summary:{assessment_user_id}*")
+        delete_cache_pattern(f"dashboard_summary:{requesting_user_id}*")
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
