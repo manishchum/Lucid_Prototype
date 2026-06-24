@@ -18,8 +18,8 @@ interface Sprint {
   dueDate?: string;
   status: "Not Started" | "In Progress" | "Completed" | "Not Assigned";
   completionPercentage: number;
-  quizzesAttempted: number;
-  totalQuizzes: number;
+  completedModules: number;
+  totalModules: number;
   hasBaseline: boolean;
   baselineCompleted: boolean;
   baselineScore?: number | null;
@@ -88,20 +88,24 @@ export function AssignedSprintsSection({
           const plan = plansByModuleId[module.id];
           const dueDate = plan?.due_date;
 
-          // Number of assigned modules from learning_plan.plan_json.modules
-          const totalQuizzes =
-            plan?.plan_json?.modules?.length || 0;
+          const totalModules = module.modules.length;
 
-                    const processedModuleIdsInSprint = new Set(module.modules.map(m => m.id));
-          const attemptedProcessedModuleIds = new Set(moduleProgress.map(p => p.processed_module_id));
-          
-          const quizzesAttempted = [...processedModuleIdsInSprint].filter(id => attemptedProcessedModuleIds.has(id)).length;
+          const completedProcessedModuleIds = new Set(
+            moduleProgress
+              .filter((entry) => Boolean(entry?.completed_at))
+              .map((entry) => String(entry?.processed_module_id || "").trim())
+              .filter(Boolean),
+          );
 
-          // Determine status based on quiz attempts
+          const completedModules = module.modules.filter((assignedModule: any) =>
+            completedProcessedModuleIds.has(String(assignedModule.id)),
+          ).length;
+
+          // Determine status from assigned modules versus completed modules.
           let status: Sprint["status"] = "Not Started";
-          if (quizzesAttempted === 0) {
+          if (completedModules === 0) {
             status = "Not Started";
-          } else if (quizzesAttempted >= totalQuizzes) {
+          } else if (totalModules > 0 && completedModules === totalModules) {
             status = "Completed";
           } else {
             status = "In Progress";
@@ -109,8 +113,8 @@ export function AssignedSprintsSection({
 
           // Calculate completion percentage
           const completionPercentage =
-            totalQuizzes > 0
-              ? Math.round((quizzesAttempted / totalQuizzes) * 100)
+            totalModules > 0
+              ? Math.round((completedModules / totalModules) * 100)
               : 0;
 
           // console.log(`Module: ${module.title}, Quizzes Attempted: ${quizzesAttempted}, Total Quizzes: ${totalQuizzes}, Status: ${status}, Completion: ${completionPercentage}%`);
@@ -121,8 +125,8 @@ export function AssignedSprintsSection({
             dueDate,
             status,
             completionPercentage,
-            quizzesAttempted,
-            totalQuizzes,
+            completedModules,
+            totalModules,
             hasBaseline: module.hasBaseline,
             baselineCompleted: Boolean(module.baselineCompleted),
             baselineScore: module.baselineScore ?? null,
@@ -144,8 +148,8 @@ export function AssignedSprintsSection({
         dueDate: undefined,
         status: "Not Assigned",
         completionPercentage: 0,
-        quizzesAttempted: 0,
-        totalQuizzes: 1,
+        completedModules: 0,
+        totalModules: module.modules.length,
         hasBaseline: module.hasBaseline,
         baselineCompleted: Boolean(module.baselineCompleted),
         baselineScore: module.baselineScore ?? null,
@@ -405,7 +409,7 @@ export function AssignedSprintsSection({
                       />
                     </div>
                     <p className="text-xs text-slate-500 mt-2">
-                      {sprint.quizzesAttempted} / {sprint.totalQuizzes} quizzes
+                      {sprint.completedModules} / {sprint.totalModules} modules
                     </p>
                   </div>
 
@@ -561,7 +565,7 @@ export function AssignedSprintsSection({
                         </div>
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-xs text-slate-600">
-                            {sprint.quizzesAttempted} / {sprint.totalQuizzes}
+                            {sprint.completedModules} / {sprint.totalModules}
                           </span>
                           <span className="text-xs font-bold text-blue-600">
                             {sprint.completionPercentage}%
