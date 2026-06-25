@@ -145,33 +145,20 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                 "session": {
                     "type": "realtime",
                     "model": OPENAI_REALTIME_MODEL,
+                    "modalities": ["text", "audio"],
                     "instructions": build_system_prompt(scenario_context),
-
-                    "output_modalities": ["audio"],
-                    "audio": {
-                        "input": {
-                            "format": {
-                                "type": "audio/pcm",
-                                "rate": 24000,
-                            },
-                            "turn_detection": {
-                                "type": "server_vad",
-                                "threshold": 0.6,  # Higher threshold to avoid interruptions
-                                "silence_duration_ms": 800,  # Longer silence required before turn ends (slower speech)
-                                "prefix_padding_ms": 500,  # More prefix padding for clarity
-                            },
-                            "transcription": {
-                                "model": "whisper-1",
-                            },
-                        },
-                        "output": {
-                            "format": {
-                                "type": "audio/pcm",
-                                "rate": 24000,
-                            },
-                            "voice": voice,  # Dynamic voice selection based on gender
-                        },
-
+                    "voice": voice,
+                    "input_audio_format": "pcm16",
+                    "output_audio_format": "pcm16",
+                    "temperature": 0.6,
+                    "turn_detection": {
+                        "type": "server_vad",
+                        "threshold": 0.6,
+                        "silence_duration_ms": 800,
+                        "prefix_padding_ms": 500,
+                    },
+                    "input_audio_transcription": {
+                        "model": "whisper-1"
                     }
                 }
             }))

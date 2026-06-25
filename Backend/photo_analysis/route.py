@@ -101,15 +101,17 @@ async def analyze_photo(payload: PhotoRequest):
 
         # YOLO objects
         object_evidence = detect_objects(image_path)
+        print("working object evidence:", object_evidence)
 
         # CLIP validation
         clip_evidence = validate_image_with_task(
             image_path,
             payload.instruction
         )
-
+        print("working clip evidence:", clip_evidence)
         # MediaPipe hand/body detection
         pose_evidence = detect_pose(image_path)
+        print("working pose evidence:", pose_evidence)
 
         # Rule validation
         object_validation = validate_objects_with_task(
@@ -120,6 +122,7 @@ async def analyze_photo(payload: PhotoRequest):
             if image_path:
                 ocr_res = extract_text(image_path)
                 # Ensure returned structure
+                print("working OCR evidence:", ocr_res)
                 if isinstance(ocr_res, dict):
                     ocr_evidence = ocr_res
                 else:
@@ -129,59 +132,117 @@ async def analyze_photo(payload: PhotoRequest):
         except Exception:
             ocr_evidence = {"detected_text": [], "error": "OCR unavailable"}
 
+        gemini_context = {
+    "task": payload.instruction,
+
+    "objects": list(set([
+    obj["label"]
+    for obj in object_evidence
+    if obj.get("confidence",0) > 0.5
+]))[:20],
+
+    "clip_match": (
+    clip_evidence.get("score")
+    or clip_evidence.get("similarity")
+),
+
+
+    "pose":
+        pose_evidence.get("activity"),
+
+    "ocr":
+        ocr_evidence.get(
+            "detected_text",
+            []
+        )[:5],
+
+    "validation":
+        object_validation
+}
         # Build instruction incorporating OCR evidence
-        instruction_text = (
-    "You are an enterprise task verification AI.\n\n"
+        instruction_text = f"""
+You are an enterprise task verification AI.
 
-    "User Task:\n"
-    f"{payload.instruction}\n\n"
+Analyze whether the uploaded task proof satisfies the task.
 
-    "OCR Evidence:\n"
-    f"{json.dumps(ocr_evidence)}\n\n"
+Evidence summary:
+{json.dumps(gemini_context)}
 
-    "YOLO Object Detection Evidence:\n"
-    f"{json.dumps(object_evidence)}\n\n"
+Rules:
+- Use detected objects as visual proof
+- Use CLIP score for semantic similarity
+- Use OCR only when text matters
+- Use pose/activity when relevant
+- Missing required objects should reduce score
+- Reject fake or unrelated submissions
 
-    "CLIP Semantic Match Evidence:\n"
-    f"{json.dumps(clip_evidence)}\n\n"
+Return STRICT JSON ONLY:
 
-    "Pose / Hand Detection Evidence:\n"
-    f"{json.dumps(pose_evidence)}\n\n"
+{{
+ "passed": true/false,
+ "score": 0-100,
+ "feedback": "short explanation"
+}}
+"""
 
-    "Object Validation Result:\n"
-    f"{json.dumps(object_validation)}\n\n"
+        print("\n========== GEMINI TOKEN DEBUG ==========")
 
-    "Analyze image + OCR + YOLO evidence together.\n\n"
+        print(
+            "instruction_text chars:",
+            len(instruction_text)
+        )
 
-    "Rules:\n"
-    "- Image understanding is primary\n"
-    "- YOLO detected objects are strong evidence\n"
-    "- If required object is missing, fail submission\n"
-    "- If wrong object is present, reject\n"
-    "- Explain missing requirements clearly\n"
-    "- Use pose evidence for left/right hand validation\n"
-    "- If required hand side is wrong, reject\n"
-    "- If required expression/action missing, reject\n\n"
+        print(
+            "gemini_context chars:",
+            len(json.dumps(gemini_context))
+        )
 
-    "Return STRICT JSON ONLY:\n"
-    "{\n"
-    " \"passed\": true/false,\n"
-    " \"score\": 0-100,\n"
-    " \"feedback\": \"short explanation\"\n"
-    "}\n"
-)
+        print(
+            "OCR chars:",
+            len(json.dumps(ocr_evidence))
+        )
 
-        # Call Gemini Vision via generate_content
+        print(
+            "YOLO chars:",
+            len(json.dumps(object_evidence))
+        )
+
+        print(
+            "CLIP chars:",
+            len(json.dumps(clip_evidence))
+        )
+
+        print(
+            "POSE chars:",
+            len(json.dumps(pose_evidence))
+        )
+
+        print("ACTUAL PROMPT SENT TO GEMINI:")
+        print(instruction_text[:3000])
+
+        print("========================================\n")
+
+
+        # Call Gemini (TEXT ONLY)
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[
-                types.Part.from_bytes(
-                    data=image_bytes,
-                    mime_type=mime_type,
-                ),
-                types.Part(text=instruction_text),
+                types.Part(text=instruction_text)
             ]
         )
+
+        # ---- TOKEN USAGE LOGGING ----
+        if hasattr(response, 'usage_metadata') and response.usage_metadata:
+            meta = response.usage_metadata
+            print("\n========== GEMINI TOKEN USAGE (photo_analysis/route.py) ==========")
+            print(f"  Input tokens:    {getattr(meta, 'prompt_token_count', 'N/A')}")
+            print(f"  Output tokens:   {getattr(meta, 'candidates_token_count', 'N/A')}")
+            print(f"  Thinking tokens: {getattr(meta, 'thoughts_token_count', 'N/A')}")
+            print(f"  TOTAL tokens:    {getattr(meta, 'total_token_count', 'N/A')}")
+            print("==================================================================\n")
+        else:
+            print("[photo_analysis] WARNING: No usage_metadata in Gemini response")
+        # ---- END TOKEN USAGE LOGGING ----
 
         # The SDK usually exposes text on response.text
         result_text = getattr(response, "text", None) or None
@@ -199,6 +260,7 @@ async def analyze_photo(payload: PhotoRequest):
                 parsed,
                 object_validation
         )
+            print("working parsed result:", parsed)
         except Exception:
             # Try to extract JSON substring
             try:

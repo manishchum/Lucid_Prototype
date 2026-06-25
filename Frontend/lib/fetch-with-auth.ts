@@ -135,6 +135,25 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
         refreshErr
       );
 
+      // Provide clearer diagnostics when securetoken API is blocked by API key restrictions.
+      try {
+        const msg = (refreshErr as any)?.message || (refreshErr as any)?.code || String(refreshErr);
+        if (typeof msg === "string" && msg.toLowerCase().includes("securetoken")) {
+          console.error(
+            "[fetch-with-auth] Token refresh blocked. Check Google Cloud API key restrictions:\n" +
+              " - Console: Credentials -> API keys -> select key\n" +
+              " - Either remove API restrictions or add identitytoolkit.googleapis.com\n" +
+              " - If using HTTP referrer restrictions, add http://localhost:3000 (and any other dev hosts)\n" +
+              " - Ensure Identity Toolkit API (Secure Token) is enabled for the Firebase project."
+          );
+
+          // Dispatch a specific event so UI can surface a friendly modal if desired.
+          window.dispatchEvent(new CustomEvent("lucid:auth:securetoken-blocked", { detail: { message: msg } }));
+        }
+      } catch (diagErr) {
+        // ignore diagnostic errors
+      }
+
       window.dispatchEvent(
         new Event("lucid:auth:force-logout")
       );

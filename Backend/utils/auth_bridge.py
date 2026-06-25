@@ -601,4 +601,3 @@ def create_user_scoped_supabase_client_from_claims(
         refresh_window_seconds=refresh_window_seconds,
         now=now,
     )
-    return client, context, token, expires_at, refreshed

@@ -68,7 +68,7 @@ def _build_welcome_email(
     <div class=\"card\">
       <div class=\"header\">
         <h1>Your account is ready</h1>
-        <p>Welcome to the learning platform.</p>
+        <p>Welcome To The Lucid Platform.</p>
       </div>
       <div class=\"content\">
         <p>Hello {display_name},</p>

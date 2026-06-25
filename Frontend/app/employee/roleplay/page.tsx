@@ -709,7 +709,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
               <p className="text-blue-800 font-medium mb-4">No assessment data available.</p>
               <Button
                 onClick={handleCreateCustomRoleplay}
-                className="bg-purple-600 hover:bg-purple-700"
+                className="bg-purple-600 hover:bg-purple-700 text-white"
               >
                 Start New Role-play
               </Button>

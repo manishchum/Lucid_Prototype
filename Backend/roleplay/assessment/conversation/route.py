@@ -83,12 +83,7 @@ Background:
             "role": "user",
             "parts": [{"text": message}],
         })
-        contents.append(
-                {
-                    "role": "user",
-                    "parts": [{"text": message}],
-                }
-            )
+
 
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             response = await client.post(

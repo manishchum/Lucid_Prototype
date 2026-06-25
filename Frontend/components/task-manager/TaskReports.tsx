@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { fetchTaskSubmissions } from '@/lib/taskApi';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
+import { useAuth } from '@/contexts/auth-context';
 import { 
   ChevronDown, 
   ChevronUp, 
@@ -279,6 +281,11 @@ interface TaskReportsProps {
 }
 
 export default function TaskReports({ reportsList = INITIAL_REPORTS, onAddSimulatedReport, isLoading = false, defaultActiveSubTab = 'assessment', employeeId = null }: TaskReportsProps) {
+  const { user, isAdmin, isSuperAdmin, isDeveloper, isManager, employeeData } = useAuth();
+  const isUserAdmin = isAdmin || isSuperAdmin || isDeveloper || isManager;
+
+
+
   const [activeSubTab, setActiveSubTab] = useState<'assessment' | 'roleplay' | 'tasks'>(defaultActiveSubTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
@@ -298,7 +305,7 @@ export default function TaskReports({ reportsList = INITIAL_REPORTS, onAddSimula
         const apiRes = await fetchTaskSubmissions({ userId: employeeId });
         // Debug: show raw API response
         // eslint-disable-next-line no-console
-        console.log('REPORT SUBMISSIONS', apiRes);
+        // console.log('REPORT SUBMISSIONS', apiRes);
 
         if (!cancelled) {
           const rows = apiRes.submissions || [];
@@ -312,6 +319,19 @@ export default function TaskReports({ reportsList = INITIAL_REPORTS, onAddSimula
               confidence: r.ai_validation_confidence,
               status: r.ai_status,
             };
+
+              let audioAnalysis: any = null;
+              if (r.submission_type === 'audio' && typeof aiValidationObj.suggestion === 'string') {
+                try {
+                  audioAnalysis = JSON.parse(aiValidationObj.suggestion);
+                  aiValidationObj.audioAnalysis = audioAnalysis;
+                  aiValidationObj.suggestion = Array.isArray(audioAnalysis.improvement_suggestions)
+                    ? audioAnalysis.improvement_suggestions.join(' ')
+                    : '';
+                } catch {
+                  audioAnalysis = null;
+                }
+              }
 
               // Derive a category for the report from joined task metadata or submission fields.
               const taskObj = r.tasks && (Array.isArray(r.tasks) ? r.tasks[0] : r.tasks);
@@ -401,7 +421,7 @@ export default function TaskReports({ reportsList = INITIAL_REPORTS, onAddSimula
           setFetchedReports(mapped);
         }
       } catch (e) {
-        console.error('[TaskReports] fetch exception', e);
+        // console.error('[TaskReports] fetch exception', e);
         setFetchedReports([]);
       } finally {
         if (!cancelled) setFetching(false);
@@ -427,13 +447,13 @@ export default function TaskReports({ reportsList = INITIAL_REPORTS, onAddSimula
           .limit(20);
 
         if (error) {
-          console.error('[TaskReports] summaries fetch error', error);
+          // console.error('[TaskReports] summaries fetch error', error);
           setSummaries([]);
         } else if (!cancelled) {
           setSummaries(data || []);
         }
       } catch (e) {
-        console.error('[TaskReports] summaries exception', e);
+        // console.error('[TaskReports] summaries exception', e);
         setSummaries([]);
       }
     };
@@ -899,6 +919,18 @@ export default function TaskReports({ reportsList = INITIAL_REPORTS, onAddSimula
                                   <span className="text-[12px] text-gray-500">Confidence: <strong className="text-gray-700">{activeReport.aiValidation.confidence || 'medium'}</strong></span>
                                 </div>
                                 <div className="mt-2"><strong>Remark:</strong> {activeReport.aiValidation.reason || 'No remarks'}</div>
+                                {activeReport.aiValidation.audioAnalysis && (
+                                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-[12px]">
+                                    <div className="rounded-lg bg-slate-50 border border-slate-100 p-2">
+                                      <strong>Transcript:</strong> {activeReport.aiValidation.audioAnalysis.transcript || 'No transcript available'}
+                                    </div>
+                                    <div className="rounded-lg bg-slate-50 border border-slate-100 p-2">
+                                      <strong>Tone:</strong> {activeReport.aiValidation.audioAnalysis.tone || 'Not available'}
+                                      <br />
+                                      <strong>Overall:</strong> {activeReport.aiValidation.audioAnalysis.scores?.overall ?? 'N/A'} / 100
+                                    </div>
+                                  </div>
+                                )}
                                 {activeReport.aiValidation.suggestion && (
                                   <div className="mt-2 text-sm text-gray-600"><strong>Suggestion:</strong> {activeReport.aiValidation.suggestion}</div>
                                 )}

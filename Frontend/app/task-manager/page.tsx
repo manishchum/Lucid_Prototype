@@ -27,6 +27,7 @@ import type {
   Sprint,
   SubmissionFormat,
   TeamMember,
+  QuizQuestion,
 } from "@/types/task";
 
 function mapBackendLevel(level?: string): AssignmentLevel {
@@ -39,30 +40,67 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
   return backendTasks.map((task) => {
     const level = mapBackendLevel(task.level);
     const audienceName = task.audience_display_name || "";
-    const normalizeSubmissionFormat = (taskObj: any) => {
-      const raw = taskObj.submission_format;
-      if (Array.isArray(raw)) return (raw[0] as string) || 'text';
-      return (raw as string) || (taskObj.submissionFormat as string) || 'text';
-    };
+    let subtasks: {
+      id: string;
+      title: string;
+      description: string;
+      submissionFormat: SubmissionFormat;
+      questions: QuizQuestion[];
+    }[] = [];
+    let isMultiple = false;
 
-  const submission = (task as any).submission || null;
-  const statusNormalized = String(task.status || "").toLowerCase();
-  const statusIsCompleted = statusNormalized.includes("completed") || statusNormalized.includes("submitted") || statusNormalized.includes("reviewed");
-  const hasSubmission = task.submitted === true || Boolean(submission) || statusIsCompleted;
+    if (task.bundle_tasks && Array.isArray(task.bundle_tasks) && task.bundle_tasks.length > 0) {
+      isMultiple = true;
+      const normalizeFormat = (val: any): SubmissionFormat => {
+        if (Array.isArray(val)) return (val[0] || 'text') as SubmissionFormat;
+        return (val || 'text') as SubmissionFormat;
+      };
 
-  const mapped = {
-  id: task.assignment_id || task.task_id,
+      subtasks = task.bundle_tasks.map((sub, index) => ({
+        id: index === 0 ? task.task_id : `${task.task_id}-${index}`,
+        title: sub.title || "",
+        description: sub.description || "",
+        submissionFormat: normalizeFormat(sub.submission_format),
+        questions: (sub.questions || []) as QuizQuestion[],
+      }));
+    } else {
+      const rawFormats = task.submission_format;
+      let formats: string[] = [];
+      if (Array.isArray(rawFormats)) {
+        formats = rawFormats;
+      } else if (typeof rawFormats === 'string') {
+        if (rawFormats.startsWith('[')) {
+          try {
+            formats = JSON.parse(rawFormats);
+          } catch (e) {
+            formats = [rawFormats];
+          }
+        } else {
+          formats = [rawFormats];
+        }
+      } else {
+        formats = ['text'];
+      }
+
+      subtasks = formats.map((fmt, index) => ({
+        id: index === 0 ? task.task_id : `${task.task_id}-${fmt}`,
+        title: task.title,
+        description: task.description ?? "",
+        submissionFormat: fmt as SubmissionFormat,
+        questions: task.questions || [],
+      }));
+    }
+
+    const submission = (task as any).submission || null;
+    const statusNormalized = String(task.status || "").toLowerCase();
+    const statusIsCompleted = statusNormalized.includes("completed") || statusNormalized.includes("submitted") || statusNormalized.includes("reviewed");
+    const hasSubmission = task.submitted === true || Boolean(submission) || statusIsCompleted;
+
+    const mapped = {
+      id: task.assignment_id || task.task_id,
       level,
-      mode: "single" as const,
-      tasks: [
-        {
-          id: task.task_id,
-          title: task.title,
-          description: task.description ?? "",
-            submissionFormat: normalizeSubmissionFormat(task) as SubmissionFormat,
-            questions: task.questions || [],
-        },
-      ],
+      mode: isMultiple ? ("multiple" as const) : ("single" as const),
+      tasks: subtasks,
       targetSprints: level === "sprint" ? [audienceName].filter(Boolean) : [],
       targetOrgs: level === "org" ? [audienceName].filter(Boolean) : [],
       targetFunctions: level === "function" ? [audienceName].filter(Boolean) : [],
@@ -76,15 +114,10 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
       recurrence: task.recurrence as AssignedTask["recurrence"],
       submitted: hasSubmission,
       submission: submission,
+      bundle_tasks: task.bundle_tasks || [],
     } as AssignedTask;
 
-    try {
-      // eslint-disable-next-line no-console
-      console.log("CHECK SUBMISSION MAP", mapped.id, { id: mapped.id, status: mapped.status, submitted: mapped.submitted, submission: mapped.submission });
-    } catch (e) {}
-
     return mapped;
-    
   });
 }
 
@@ -182,7 +215,7 @@ function TaskManagerContent() {
 
           setReports(mapped);
         } catch (e) {
-          console.warn('Failed to fetch submissions for admin reports', e);
+          // console.warn('Failed to fetch submissions for admin reports', e);
         }
       }
 
@@ -218,6 +251,9 @@ function TaskManagerContent() {
 
   const handleTaskCreated = (newTask: AssignedTask) => {
     setAssignedTasks((prev) => {
+      if (effectiveUserId && newTask.id.startsWith("task-assigned-")) {
+        return prev;
+      }
       if (prev.some((task) => task.id === newTask.id)) return prev;
       return [newTask, ...prev];
     });
@@ -229,17 +265,24 @@ function TaskManagerContent() {
     primaryTitle: string,
     score: number,
     maxScore: number,
-    questionsList: any[]
+    questionsList: any[],
+    submission?: any
   ) => {
-    // Minimal local update for UI: increment completionCount and log event
+    // Minimal local update for UI: mark the current assignment completed immediately
     setAssignedTasks((prev) =>
       prev.map((t) =>
         t.id === assignmentId
-          ? { ...t, completionCount: (t.completionCount || 0) + 1 }
+          ? {
+              ...t,
+              completionCount: (t.completionCount || 0) + 1,
+              status: "Completed",
+              submitted: true,
+              submission: submission || t.submission,
+            }
           : t
       )
     );
-    console.log("Task submitted:", { assignmentId, primaryTitle, score, maxScore });
+    // console.log("Task submitted:", { assignmentId, primaryTitle, score, maxScore });
   };
 
   const handleBackendSubmit = async (
@@ -269,7 +312,21 @@ function TaskManagerContent() {
 
       companyId,
     }
-  );
+  ).then((response) => {
+    setAssignedTasks((prev) =>
+      prev.map((task) =>
+        task.id === payload.assignment_id
+          ? {
+              ...task,
+              status: "Completed",
+              submitted: true,
+              submission: response?.submission || { submission_id: response?.submission_id },
+            }
+          : task
+      )
+    );
+    return response;
+  });
 };
 
   const handleTaskReassigned = async (

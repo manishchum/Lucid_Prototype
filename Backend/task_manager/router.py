@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, BackgroundTasks
 
 from utils.auth import RequestAuth, get_request_auth_required
 from .models import SubmissionCreate, TaskCreate, TaskListResponse, TaskReassignPayload
@@ -26,7 +26,7 @@ def list_tasks(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     try:
-        tasks = service.get_active_tasks(company_id)
+        tasks = service.get_active_tasks(company_id, auth_ctx.user_id)
         return {"tasks": tasks, "total": len(tasks)}
     except Exception as exc:
         # Enhanced logging to assist debugging when browser requests produce 500.
@@ -76,6 +76,7 @@ def create_task(
 @router.post("/task-manager/tasks/submit", status_code=201)
 def submit_task(
     payload: SubmissionCreate,
+    background_tasks: BackgroundTasks,
     company_id: str = Depends(get_company_id),
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
@@ -88,7 +89,8 @@ def submit_task(
     try:
         result = service.submit_task_response(
             payload,
-            company_id
+            company_id,
+            background_tasks
         )
 
         return result
@@ -126,16 +128,17 @@ def list_submissions(
     company_id: str = Depends(get_company_id),
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    # Validate user_id if provided — ensure caller is requesting their own data
-    if user_id and auth_ctx.user_id and str(user_id) != str(auth_ctx.user_id):
-        # Allow admins/managers in future, but for now enforce same-user access
+    caller_is_admin = service.is_user_admin(auth_ctx.user_id)
+    # Validate user_id if provided — ensure caller is requesting their own data unless they are an admin
+    if user_id and auth_ctx.user_id and str(user_id) != str(auth_ctx.user_id) and not caller_is_admin:
         raise HTTPException(status_code=403, detail="user_id does not match authenticated token")
 
     try:
-        rows = service.fetch_task_submissions(company_id, assignment_id, user_id)
+        rows = service.fetch_task_submissions(company_id, assignment_id, user_id, caller_is_admin)
         return {"submissions": rows, "total": len(rows)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
 
 
 @router.get("/task-manager/audience/functions")
@@ -222,5 +225,4 @@ def reassign_task(
         return updated
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-
 
