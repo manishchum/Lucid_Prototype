@@ -2120,10 +2120,27 @@ const handleGenerateCertificate = (sprintId: string) => {
       const threshold =
         toNumberOrNull(p.quiz_threshold ?? p.quizThreshold) ?? DEFAULT_QUIZ_THRESHOLD;
 
-      // processed_module_ids on the plan are positionally aligned with p.modules
-      const processedModuleIds = normalizeProcessedModuleIds(p?.processed_module_ids);
+      const modulesInPlan: any[] = Array.isArray(p?.plan_json?.modules)
+        ? p.plan_json.modules
+        : [];
 
-      const modulesInPlan: any[] = Array.isArray(p.modules) ? p.modules : [];
+      const baselineEnabled =
+        p?.baseline_assessment === true || p?.baseline_assessment === 1;
+      const planJsonProcessedModuleIds = modulesInPlan
+        .map((mod: any) => String(mod?.processed_module_id ?? "").trim())
+        .filter(Boolean);
+
+      // Baseline plans assign a personalized subset in plan_json.modules.
+      // Non-baseline plans assign the full processed_module_ids collection.
+      // Set preserves the source order while protecting the denominator from
+      // accidental duplicate IDs.
+      const processedModuleIds = Array.from(
+        new Set(
+          baselineEnabled
+            ? planJsonProcessedModuleIds
+            : normalizeProcessedModuleIds(p?.processed_module_ids),
+        ),
+      );
 
       // ── Determine if the backend already says "COMPLETED" ─────────────
       const isBackendCompleted = Boolean(
@@ -2327,6 +2344,38 @@ const handleGenerateCertificate = (sprintId: string) => {
       //     ALL modules have completed === true
       //   OR the backend explicitly says COMPLETED
       
+      // Canonical progress rule: assigned IDs come only from
+      // learning_plan.processed_module_ids; completed_at alone marks completion.
+      // plan_json supplies display metadata, not assignment membership.
+      const metadataByProcessedId = new Map<string, any>();
+      modulesInPlan.forEach((mod: any) => {
+        const id = String(mod?.processed_module_id ?? "").trim();
+        if (id) metadataByProcessedId.set(id, mod);
+      });
+
+      sprintModules = processedModuleIds.map((processedModuleId, index) => {
+        const mod =
+          metadataByProcessedId.get(processedModuleId) ??
+          modulesInPlan[index] ??
+          null;
+        const pr = findBestProgress(processedModuleId);
+
+        return {
+          id: processedModuleId,
+          name: String(
+            mod?.name ??
+              mod?.title ??
+              pr?.processed_modules?.title ??
+              pr?.module_title ??
+              `Module ${index + 1}`,
+          ),
+          completed: Boolean(pr?.completed_at),
+          quizScore: computePercentScore(pr),
+          passStatus: Boolean(pr?.pass_status),
+          completedAt: toIso(pr?.completed_at),
+        };
+      });
+
       const hasModules = sprintModules.length > 0;
 
       const allModulesComplete =
@@ -2351,17 +2400,14 @@ const handleGenerateCertificate = (sprintId: string) => {
       //   "completed"   → certificate earned
       //   "in_progress" → at least one module has been touched
       //   "not_started" → nothing done yet
-      const hasAnyProgress = sprintModules.some(
-        (mod) =>
-          mod.completed ||
-          (mod.quizScore !== null && mod.quizScore !== undefined) ||
-          mod.passStatus === true,
-      );
+      const completedModuleCount = sprintModules.filter(
+        (mod) => mod.completed,
+      ).length;
 
       let status: SprintStatus;
       if (certificateEarned) {
         status = "completed";
-      } else if (hasAnyProgress || normalizeStatus(p?.status) === "IN_PROGRESS") {
+      } else if (completedModuleCount > 0) {
         status = "in_progress";
       } else {
         status = "not_started";
@@ -2589,6 +2635,7 @@ const handleGenerateCertificate = (sprintId: string) => {
       const data = await fetchDashboardData(emp, selectedCompanyId);
       const plans = data?.plans || [];
       setPlans(plans);
+      console.log("RAW PLANS", plans);
       const modules = data?.modules || [];
       const progress = Array.isArray(data?.progress) ? data.progress : [];
       const assessmentEvidenceByModuleId =
