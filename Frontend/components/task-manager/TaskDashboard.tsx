@@ -6,6 +6,9 @@
 import React, { useState } from 'react';
 import { analyzePhoto } from '@/lib/photoAnalysisApi';
 import AIFeedbackModal from '../AIFeedbackModal';
+import { useAuth } from '@/contexts/auth-context';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
+import { useToast } from "@/hooks/use-toast";
 import { 
   Plus, 
   Search, 
@@ -52,15 +55,17 @@ interface TaskDashboardProps {
 }
 
 export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSubmitTaskResponse, onTaskSubmitted, onTaskReassigned, onTaskDeleted, teamMembers = [], isWelcomePage = false }: TaskDashboardProps) {
+  const { toast } = useToast();
+  const { employeeData } = useAuth();
   // Debug: print a compact summary (id, status, submitted, submission) for easier inspection
   try {
-    console.log(
-      "TASK DASHBOARD RECEIVED:",
-      assignedTasks.map((t) => ({ id: t.id, status: t.status, submitted: (t as any).submitted, submission: (t as any).submission }))
-    );
+    // console.log(
+    //   "TASK DASHBOARD RECEIVED:",
+    //   assignedTasks.map((t) => ({ id: t.id, status: t.status, submitted: (t as any).submitted, submission: (t as any).submission }))
+    // );
   } catch (e) {
     // fallback to full object if mapping fails
-    console.log("TASK DASHBOARD RECEIVED:", assignedTasks);
+    // console.log("TASK DASHBOARD RECEIVED:", assignedTasks);
   }
   const [searchQuery, setSearchQuery] = useState('');
   const [levelFilter, setLevelFilter] = useState<'all' | 'sprint' | 'individual'>('all');
@@ -84,6 +89,63 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 
   // AI Feedback Modal State
   const [selectedFeedbackSubmission, setSelectedFeedbackSubmission] = useState<any>(null);
+
+  // AI Report Generation Modal State
+  const [selectedReportTask, setSelectedReportTask] = useState<AssignedTask | null>(null);
+  const [selectedSubtaskId, setSelectedSubtaskId] = useState<string>('');
+  const [reportDuration, setReportDuration] = useState('30_days');
+  const [reportEmail, setReportEmail] = useState('');
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const [reportFeedback, setReportFeedback] = useState('');
+
+  const handleGenerateAIReport = async () => {
+    if (!selectedReportTask) return;
+    setGeneratingReport(true);
+    setReportFeedback('');
+    try {
+      const activeTaskId = selectedSubtaskId || selectedReportTask.tasks[0]?.id || selectedReportTask.id;
+      const url = `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/reports/generate`;
+      const response = await fetchWithAuth(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(employeeData?.company_id ? { 'X-Company-ID': employeeData.company_id } : {}),
+        },
+        body: JSON.stringify({
+          task_id: activeTaskId,
+          duration: reportDuration,
+          email: reportEmail || undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || 'Failed to generate report');
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      const activeSubtask = selectedReportTask.tasks.find(t => t.id === activeTaskId);
+      const taskTitleClean = (activeSubtask?.title || 'report').slice(0, 15).replace(/\s+/g, '_');
+      link.setAttribute('download', `AI_Report_${taskTitleClean}_${Date.now()}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+      
+      toast({
+        description: "Report generated successfully",
+      });
+      setSelectedReportTask(null);
+    } catch (err: any) {
+      console.error(err);
+      setReportFeedback(`Generation failed: ${err.message}`);
+    } finally {
+      setGeneratingReport(false);
+    }
+  };
 
   // Reassignment Form State
   const [reassigningTaskId, setReassigningTaskId] = useState<string | null>(null);
@@ -201,7 +263,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
     return matchesLevel && matchesSearch;
   });
 
-  console.log("FILTERED TASKS:", filteredTasks);
+  // console.log("FILTERED TASKS:", filteredTasks);
 
   // Calculate cumulative stats for the Progress Card
   const totalCreatedTasks = assignedTasks.length;
@@ -633,20 +695,18 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                 "completed";
 
 
-              console.log(
-                "IMAGE AI SAVING PAYLOAD:",
-                {
-                  pass: payload.ai_validation_pass,
-                  verdict: payload.ai_validation_verdict,
-                  reason: payload.ai_validation_reason,
-                  suggestion: payload.ai_validation_suggestion,
-                  confidence: payload.ai_validation_confidence,
-                  status: payload.ai_status
-                }
-              );
+              // console.log(
+              //   "IMAGE AI SAVING PAYLOAD:",
+              //   {
+              //     pass: payload.ai_validation_pass,
+              //     verdict: payload.ai_validation_verdict,
+              //     reason: payload.ai_validation_reason,
+              //     suggestion: payload.ai_validation_suggestion,
+              //     confidence: payload.ai_validation_confidence,
+              //     status: payload.ai_status
+              //   }
+              // );
             }
-            // Log the final payload for this submission before sending to backend
-            console.log("FINAL SUBMISSION PAYLOAD SENT:", payload);
           } else if (sub.submissionFormat === 'audio') {
             payload.audio_url = audioFiles[taskId];
           } else if (sub.submissionFormat === 'video') {
@@ -968,6 +1028,20 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                             </div>
                           ) : (
                             <div className="flex items-center space-x-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedReportTask(task);
+                                  setSelectedSubtaskId(task.tasks[0]?.id || '');
+                                  setReportFeedback('');
+                                  setReportDuration('30_days');
+                                  setReportEmail('');
+                                }}
+                                className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#2F63FF]/20 bg-[#EEF2FF]/40 text-[#2F63FF] hover:bg-[#EEF2FF] hover:border-[#2F63FF]/30 transition-all flex items-center space-x-1 cursor-pointer"
+                              >
+                                <span>Generate AI Report 📊</span>
+                              </button>
+
                               <button
                                 type="button"
                                 onClick={() => startReassigning(task)}
@@ -1566,26 +1640,28 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                         </button>
                                       </div>
                                     ) : (
-                                      <div className="grid grid-cols-2 gap-3">
-                                        <button
-                                          type="button"
-                                          onClick={() => simulateMockAudio(task.id)}
-                                          className="flex flex-col items-center justify-center text-center border border-dashed border-[#CBD5E1] bg-white hover:bg-[#EEF2FF] hover:border-[#2F63FF] p-4 rounded-xl cursor-pointer transition-all duration-150 active:scale-[0.98]"
-                                        >
-                                          <VolumeIcon className="text-[#2F63FF] mb-1.5" size={20} />
-                                          <span className="text-xs font-semibold text-gray-755 block">Preset Audio</span>
-                                          <span className="text-[9px] text-gray-400 mt-1 max-w-[130px] leading-snug">Simulate recorded voice response</span>
-                                        </button>
+                                      <div className="flex justify-center w-full">
+  
 
                                         <button
-                                          type="button"
-                                          onClick={() => startAudioRecording(task.id)}
-                                          className="flex flex-col items-center justify-center text-center border border-dashed border-sky-200 bg-sky-50/20 hover:bg-sky-50 hover:border-sky-400 p-4 rounded-xl cursor-pointer transition-all duration-150 active:scale-[0.98]"
-                                        >
-                                          <Mic className="text-sky-600 mb-1.5 animate-pulse" size={20} />
-                                          <span className="text-xs font-semibold text-sky-955 block">Live Microphone</span>
-                                          <span className="text-[9px] text-sky-400 mt-1 max-w-[130px] leading-snug">Record live audio speech verification</span>
-                                        </button>
+  type="button"
+  onClick={() => startAudioRecording(task.id)}
+  className="flex flex-col items-center justify-center text-center 
+  border border-dashed border-sky-200 bg-sky-50/20 
+  hover:bg-sky-50 hover:border-sky-400 
+  p-4 w-64 rounded-xl cursor-pointer 
+  transition-all duration-150 active:scale-[0.98]"
+>
+  <Mic className="text-sky-600 mb-1.5 animate-pulse" size={20} />
+
+  <span className="text-xs font-semibold text-sky-955 block">
+    Live Microphone
+  </span>
+
+  <span className="text-[9px] text-sky-400 mt-1 max-w-[200px] leading-snug">
+    Record live audio speech verification
+  </span>
+</button>
                                       </div>
                                     )}
                                   </div>
@@ -1755,6 +1831,107 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
           data={selectedFeedbackSubmission}
           simplified={isWelcomePage}
         />
+      )}
+
+      {selectedReportTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in font-sans">
+          <div className="bg-white w-full max-w-md rounded-3xl p-6 border border-[#E2E8F0] shadow-xl space-y-6 relative animate-scale-in">
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="text-xl">📊</span>
+                <div>
+                  <h3 className="text-sm font-bold text-[#0F172A]">Generate AI Performance Report</h3>
+                  <p className="text-[11px] text-gray-500">Synthesize completed submission analysis into a PDF report.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {selectedReportTask.tasks.length > 1 ? (
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Select Subtask</label>
+                  <select
+                    value={selectedSubtaskId}
+                    onChange={(e) => setSelectedSubtaskId(e.target.value)}
+                    className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] text-[#0F172A] cursor-pointer"
+                  >
+                    {selectedReportTask.tasks.map((sub) => (
+                      <option key={sub.id} value={sub.id}>
+                        {sub.title} ({sub.submissionFormat})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Selected Task</label>
+                  <input
+                    type="text"
+                    value={selectedReportTask.tasks[0]?.title || selectedReportTask.id}
+                    disabled
+                    className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs text-gray-500 focus:outline-none"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Duration</label>
+                <select
+                  value={reportDuration}
+                  onChange={(e) => setReportDuration(e.target.value)}
+                  className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] text-[#0F172A] cursor-pointer"
+                >
+                  <option value="7_days">Last 7 days</option>
+                  <option value="30_days">Last 30 days</option>
+                  <option value="90_days">Last 90 days</option>
+                  <option value="all">All Time</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Send Email Copy (Optional)</label>
+                <input
+                  type="email"
+                  placeholder="admin@company.com"
+                  value={reportEmail}
+                  onChange={(e) => setReportEmail(e.target.value)}
+                  className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] text-[#0F172A] placeholder-gray-400"
+                />
+              </div>
+            </div>
+
+            {reportFeedback && (
+              <div className={`p-2.5 border rounded-xl text-[11px] font-semibold text-center ${
+                reportFeedback.includes('failed') || reportFeedback.includes('No submissions')
+                  ? 'border-red-200 bg-red-50 text-red-650'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              }`}>
+                {reportFeedback}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-[#F1F5F9]">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedReportTask(null);
+                  setReportFeedback('');
+                }}
+                className="bg-white border border-gray-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-4 py-2.5 rounded-xl cursor-pointer transition-all shadow-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleGenerateAIReport}
+                disabled={generatingReport}
+                className="bg-[#2F63FF] hover:bg-blue-700 disabled:bg-gray-300 text-white text-xs font-semibold px-5 py-2.5 rounded-xl transition-all cursor-pointer shadow-sm flex items-center space-x-1.5"
+              >
+                <span>{generatingReport ? 'Generating...' : 'Generate Report'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

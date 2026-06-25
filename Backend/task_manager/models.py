@@ -24,6 +24,7 @@ class TaskCreate(BaseModel):
     expected_answer: Optional[str] = None
     submission_format: Union[str, List[str]]
     questions: Optional[List[QuizQuestion]] = []
+    bundle_tasks: Optional[List[dict]] = []
     level: str
     target_module_id: Optional[str] = None
     target_function_id: Optional[str] = None
@@ -43,6 +44,7 @@ class TaskResponse(BaseModel):
     expected_answer: Optional[str] = None
     submission_format: List[str]
     questions: List[dict]
+    bundle_tasks: Optional[List[dict]] = []
     status: str
     due_date: str
     recurrence: str

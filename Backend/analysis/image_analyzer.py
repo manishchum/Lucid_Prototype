@@ -1,115 +1,43 @@
 import os
-from PIL import Image
-import torch
-from analysis.models import yolo_model, clip_model, clip_processor
+import json
 
-def detect_objects_yolo(image_path: str) -> list:
-    """
-    Detect objects using cached YOLO model.
-    """
-    if not yolo_model:
-        print("[Image Analyzer] YOLO model not initialized")
-        return []
-    
-    try:
-        results = yolo_model(image_path)
-        objects = []
-        for result in results:
-            for box in result.boxes:
-                confidence = float(box.conf[0])
-                if confidence < 0.25:
-                    continue
-                class_id = int(box.cls[0])
-                label = result.names[class_id]
-                objects.append({
-                    "label": label,
-                    "confidence": round(confidence, 4)
-                })
-        return objects
-    except Exception as e:
-        print("[Image Analyzer] YOLO detection error:", e)
-        return []
+from google import genai
+from google.genai import types
 
-def calculate_clip_similarity(image_path: str, instruction: str) -> float:
-    """
-    Calculate image-instruction similarity using cached CLIP model.
-    """
-    if not clip_model or not clip_processor:
-        print("[Image Analyzer] CLIP model or processor not initialized")
-        return 0.0
-    
-    try:
-        image = Image.open(image_path)
-        labels = [
-            instruction,
-            "unrelated image",
-            "random selfie",
-            "wrong object"
-        ]
-        
-        inputs = clip_processor(
-            text=labels,
-            images=image,
-            return_tensors="pt",
-            padding=True
-        )
-        
-        with torch.no_grad():
-            outputs = clip_model(**inputs)
-            
-        scores = outputs.logits_per_image.softmax(dim=1)
-        confidence = float(scores[0][0])
-        return round(confidence, 4)
-    except Exception as e:
-        print("[Image Analyzer] CLIP similarity error:", e)
-        return 0.0
+# Import the FULL photo_analysis services pipeline
+from photo_analysis.services.yolo import detect_objects
+from photo_analysis.services.clip import validate_image_with_task
+from photo_analysis.services.pose import detect_pose
+from photo_analysis.services.validator import validate_objects_with_task
+from photo_analysis.services.scoring import apply_verification_rules
+from photo_analysis.services.ocr import extract_text
 
-def validate_objects_with_task(instruction: str, detected_objects_list: list) -> dict:
-    instruction_lower = instruction.lower()
-    detected_labels = [obj["label"].lower() for obj in detected_objects_list]
-    
-    aliases = {
-        "phone": "cell phone",
-        "mobile": "cell phone",
-        "smartphone": "cell phone",
-        "water bottle": "bottle",
-        "teddy": "teddy bear",
-    }
-    
-    detectable_items = [
-        "bottle",
-        "cell phone",
-        "laptop",
-        "book",
-        "cup",
-        "chair",
-        "person",
-        "teddy bear",
-    ]
-    
-    required_objects = []
-    for item in detectable_items:
-        if item in instruction_lower:
-            required_objects.append(item)
-            
-    for word, mapped in aliases.items():
-        if word in instruction_lower:
-            required_objects.append(mapped)
-            
-    required_objects = list(set(required_objects))
-    missing = [obj for obj in required_objects if obj not in detected_labels]
-    
-    return {
-        "required_objects": required_objects,
-        "detected_objects": detected_labels,
-        "missing_objects": missing,
-        "passed": len(missing) == 0
-    }
+
+def _get_gemini_client():
+    api_key = os.getenv("GEMINI_API_KEY") or ""
+    if not api_key:
+        return None
+    return genai.Client(api_key=api_key)
+
 
 def analyze_image(image_path: str, instruction: str) -> dict:
     """
-    Silent image submission analyzer.
+    Full image analysis pipeline using photo_analysis services.
+
+    Flow:
+      1. YOLO   → detect objects
+      2. CLIP   → semantic similarity with task
+      3. Pose   → hand/body detection
+      4. Validator → check required objects vs detected
+      5. OCR    → extract text from image
+      6. Build compact evidence context (text only)
+      7. Send evidence to Gemini → get pass/fail/score/feedback
+      8. Apply scoring verification rules as final authority
+
+    Only a small text summary (~200-500 tokens) goes to Gemini.
+    No image bytes are sent.
     """
+
     if not os.path.exists(image_path):
         return {
             "overall_score": 0,
@@ -127,44 +55,192 @@ def analyze_image(image_path: str, instruction: str) -> dict:
             "model_output": {}
         }
 
-    # 1. YOLOv8 Detections
-    objects = detect_objects_yolo(image_path)
-    
-    # 2. CLIP Similarity
-    clip_similarity = calculate_clip_similarity(image_path, instruction)
-    
-    # 3. Object validation
-    obj_val = validate_objects_with_task(instruction, objects)
-    
-    # 4. Score logic
-    clip_score = int(clip_similarity * 100)
-    score = clip_score
-    
-    issues = []
-    recommendations = []
+    # ──────────────────────────────────────────────
+    # 1. YOLO — object detection
+    # ──────────────────────────────────────────────
+    object_evidence = detect_objects(image_path)
+    print("[image_analyzer] YOLO evidence:", object_evidence)
+
+    # ──────────────────────────────────────────────
+    # 2. CLIP — semantic similarity
+    # ──────────────────────────────────────────────
+    clip_evidence = validate_image_with_task(image_path, instruction)
+    print("[image_analyzer] CLIP evidence:", clip_evidence)
+
+    # ──────────────────────────────────────────────
+    # 3. Pose — hand/body detection
+    # ──────────────────────────────────────────────
+    pose_evidence = detect_pose(image_path)
+    print("[image_analyzer] Pose evidence:", pose_evidence)
+
+    # ──────────────────────────────────────────────
+    # 4. Validator — required vs detected objects
+    # ──────────────────────────────────────────────
+    object_validation = validate_objects_with_task(instruction, object_evidence)
+    print("[image_analyzer] Validation:", object_validation)
+
+    # ──────────────────────────────────────────────
+    # 5. OCR — text extraction
+    # ──────────────────────────────────────────────
+    ocr_evidence = {"detected_text": []}
+    try:
+        ocr_res = extract_text(image_path)
+        if isinstance(ocr_res, dict):
+            ocr_evidence = ocr_res
+        else:
+            ocr_evidence = {"detected_text": []}
+        print("[image_analyzer] OCR evidence:", ocr_evidence)
+    except Exception:
+        ocr_evidence = {"detected_text": [], "error": "OCR unavailable"}
+
+    # ──────────────────────────────────────────────
+    # 6. Build compact evidence context (TEXT ONLY)
+    #    This is the ONLY thing sent to Gemini
+    # ──────────────────────────────────────────────
+    gemini_context = {
+        "task": instruction,
+
+        "objects": list(set([
+            obj["label"]
+            for obj in object_evidence.get("objects", [])
+            if obj.get("confidence", 0) > 0.5
+        ]))[:20],
+
+        "clip_match": (
+            clip_evidence.get("clip_score")
+            or clip_evidence.get("score")
+            or clip_evidence.get("similarity")
+        ),
+
+        "pose": pose_evidence.get("activity"),
+
+        "ocr": ocr_evidence.get("detected_text", [])[:5],
+
+        "validation": object_validation
+    }
+
+    instruction_text = f"""
+You are an enterprise task verification AI.
+
+Analyze whether the uploaded task proof satisfies the task.
+
+Evidence summary:
+{json.dumps(gemini_context)}
+
+Rules:
+- Use detected objects as visual proof
+- Use CLIP score for semantic similarity
+- Use OCR only when text matters
+- Use pose/activity when relevant
+- Missing required objects should reduce score
+- Reject fake or unrelated submissions
+
+Return STRICT JSON ONLY:
+
+{{
+ "passed": true/false,
+ "score": 0-100,
+ "feedback": "short explanation"
+}}
+"""
+
+    # ──────────────────────────────────────────────
+    # 7. Send to Gemini (TEXT ONLY — no image bytes)
+    # ──────────────────────────────────────────────
+    gemini_result = None
+    client = _get_gemini_client()
+
+    if client:
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    types.Part(text=instruction_text)
+                ],
+                config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(thinking_budget=0)
+                ),
+            )
+
+            # ---- TOKEN USAGE LOGGING ----
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                meta = response.usage_metadata
+                print("\n========== GEMINI TOKEN USAGE (image_analyzer.py) ==========")
+                print(f"  Input tokens:    {getattr(meta, 'prompt_token_count', 'N/A')}")
+                print(f"  Output tokens:   {getattr(meta, 'candidates_token_count', 'N/A')}")
+                print(f"  Thinking tokens: {getattr(meta, 'thoughts_token_count', 'N/A')}")
+                print(f"  TOTAL tokens:    {getattr(meta, 'total_token_count', 'N/A')}")
+                print("============================================================\n")
+            # ---- END TOKEN USAGE LOGGING ----
+
+            result_text = getattr(response, "text", None) or ""
+            try:
+                gemini_result = json.loads(result_text)
+            except Exception:
+                # Try to extract JSON substring
+                start = result_text.find('{')
+                end = result_text.rfind('}')
+                if start != -1 and end != -1:
+                    try:
+                        gemini_result = json.loads(result_text[start:end + 1])
+                    except Exception:
+                        pass
+
+        except Exception as e:
+            print(f"[image_analyzer] Gemini call failed: {e}")
+
+    # ──────────────────────────────────────────────
+    # 8. Apply scoring verification rules
+    # ──────────────────────────────────────────────
+    clip_score_val = clip_evidence.get("clip_score", 0)
+
+    if gemini_result and isinstance(gemini_result, dict):
+        # Apply verification rules as final authority
+        gemini_result = apply_verification_rules(gemini_result, object_validation)
+        overall_score = gemini_result.get("score", 0)
+        passed = gemini_result.get("passed", False)
+        feedback = gemini_result.get("feedback", "")
+    else:
+        # Fallback: score locally if Gemini fails
+        overall_score = int(clip_score_val * 100)
+        if not object_validation.get("object_check_passed", True):
+            overall_score = min(overall_score, 45)
+        passed = overall_score >= 60
+        feedback = "Evaluated using local models (Gemini unavailable)."
+
+    # Build strengths/weaknesses from evidence
     strengths = []
     weaknesses = []
-    
-    if not obj_val["passed"]:
-        # Penalize if required objects are missing
-        score = min(score, 45)
-        for missing_obj in obj_val["missing_objects"]:
-            issues.append(f"Required object '{missing_obj}' was not detected in the image.")
-            recommendations.append(f"Ensure that the '{missing_obj}' is clearly visible in the image frame.")
-            weaknesses.append(f"Missing required item: {missing_obj}")
+    issues = []
+    recommendations = []
+
+    # Object validation
+    if object_validation.get("object_check_passed", True):
+        required = object_validation.get("required_objects", [])
+        if required:
+            strengths.append(f"Verified presence of: {', '.join(required)}.")
     else:
-        if obj_val["required_objects"]:
-            strengths.append(f"Verified presence of: {', '.join(obj_val['required_objects'])}.")
-            
-    if clip_similarity >= 0.55:
+        for missing_obj in object_validation.get("missing_objects", []):
+            issues.append(f"Required object '{missing_obj}' was not detected.")
+            recommendations.append(f"Ensure '{missing_obj}' is clearly visible.")
+            weaknesses.append(f"Missing required item: {missing_obj}")
+
+    # CLIP similarity
+    if clip_score_val >= 0.55:
         strengths.append("High visual similarity with task requirements.")
     else:
-        weaknesses.append("Image does not structurally match the expected task scene.")
+        weaknesses.append("Image does not match the expected task scene.")
         issues.append("Low semantic match score.")
-        recommendations.append("Make sure the scene composition matches the task prompt instructions.")
-        score = min(score, 55)
+        recommendations.append("Make sure the scene matches the task prompt.")
 
-    if score >= 60:
+    # Pose
+    hands = pose_evidence.get("hands", [])
+    if hands:
+        hand_labels = [h.get("side", "unknown") for h in hands]
+        strengths.append(f"Detected hands: {', '.join(hand_labels)}.")
+
+    # Overall
+    if passed:
         strengths.append("Fulfillment verification criteria passed.")
     else:
         weaknesses.append("Verification criteria check failed.")
@@ -172,14 +248,22 @@ def analyze_image(image_path: str, instruction: str) -> dict:
     if not strengths:
         strengths.append("Image submission received and analyzed.")
 
-    score = max(0, min(100, score))
+    if feedback:
+        strengths.insert(0, feedback)
+
+    overall_score = max(0, min(100, overall_score))
+
+    detected_objects_list = [
+        obj["label"]
+        for obj in object_evidence.get("objects", [])
+    ]
 
     return {
-        "overall_score": score,
+        "overall_score": overall_score,
         "metrics": {
-            "detected_objects": [obj["label"] for obj in objects],
-            "clip_similarity": clip_similarity,
-            "score": score,
+            "detected_objects": detected_objects_list,
+            "clip_similarity": clip_score_val,
+            "score": overall_score,
             "issues": issues,
             "recommendations": recommendations
         },
@@ -188,7 +272,12 @@ def analyze_image(image_path: str, instruction: str) -> dict:
         "detected_issues": issues,
         "improvement_points": recommendations,
         "model_output": {
-            "yolo_objects": objects,
-            "clip_score": clip_similarity
+            "yolo_objects": object_evidence.get("objects", []),
+            "clip_score": clip_score_val,
+            "clip_matched": clip_evidence.get("matched", False),
+            "pose": pose_evidence,
+            "ocr": ocr_evidence,
+            "object_validation": object_validation,
+            "gemini_verdict": gemini_result
         }
     }

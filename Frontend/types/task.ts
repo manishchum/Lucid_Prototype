@@ -74,6 +74,12 @@ export interface AssignedTask {
   submitted?: boolean;
   // raw submission object attached from backend (if any)
   submission?: any;
+  bundle_tasks?: {
+    title: string;
+    description: string;
+    submission_format: string | string[];
+    questions?: any[];
+  }[];
 }
 
 export type WizardStep = 'level' | 'details' | 'audience' | 'schedule';

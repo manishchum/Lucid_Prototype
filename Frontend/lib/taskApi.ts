@@ -21,6 +21,12 @@ export interface Task {
   // optional fields attached by backend when returning user-specific tasks
   submitted?: boolean;
   submission?: any;
+  bundle_tasks?: {
+    title: string;
+    description: string;
+    submission_format: string | string[];
+    questions?: any[];
+  }[];
 }
 
 export interface CreateTaskPayload {
@@ -36,6 +42,7 @@ export interface CreateTaskPayload {
   due_date: string;
   recurrence: string;
   created_by?: string;
+  bundle_tasks?: any[];
 }
 
 export interface SubmitTaskPayload {

@@ -35,23 +35,27 @@ async def submit_video_task(
         video_path = tmp.name
 
     # get task details (graceful if missing)
-    task_row = (
-        supabase.table("tasks").select("*").eq("task_id", task_id).single().execute()
-    )
-    task = task_row.data or {}
+    from utils.task_resolver import resolve_task_details
+    task = resolve_task_details(task_id, auth.company_id)
     task_description = task.get("description", "")
+
+    resolved_task_id = task.get("parent_task_id") or task_id
+    db_answers = []
+    if task.get("parent_task_id"):
+        db_answers.append({"child_task_id": task_id})
 
     result = analyze_video(video_path, task_description)
 
     # save result
     supabase.table("task_submissions").insert(
         {
-            "task_id": task_id,
+            "task_id": resolved_task_id,
             "user_id": auth.user_id,
             "submission_type": "video",
             "score": result.get("overall_score", 0),
-            "ai_result": result,
+            "ai_analysis": result,
             "status": "completed",
+            "answers": db_answers,
         }
     ).execute()
 

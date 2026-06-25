@@ -230,27 +230,32 @@ export default function TaskCreatorWizard({
     }));
   };
   const updateQuestionType = (
- taskId:string,
- questionId:string,
- type:'single'|'multiple'|'written'
-)=>{
-
-setTasks(prev =>
- prev.map(task => ({
- ...task,
- questions: task.questions.map(q =>
- q.id === questionId
- ? {
-    ...q,
-    type,
-    correctAnswer:'',
-    correctAnswers:[]
-   }
- : q
- )
- }))
-);
-
+  taskId: string,
+  questionId: string,
+  type: 'single' | 'multiple' | 'written'
+) => {
+  setTasks(prev =>
+    prev.map(task =>
+      task.id === taskId
+        ? {
+            ...task,
+            questions: task.questions.map(q =>
+              q.id === questionId
+                ? {
+                    ...q,
+                    type,
+                    correctAnswer: '',
+                    correctAnswers:
+                      type === 'multiple'
+                        ? []
+                        : []
+                  }
+                : q
+            )
+          }
+        : task
+    )
+  );
 };
 const updateCorrectAnswer = (
   taskId: string,
@@ -279,25 +284,29 @@ const toggleCorrectAnswer = (
   answer: string
 ) => {
   setTasks(prev =>
-    prev.map(task => ({
-      ...task,
-      questions: task.questions.map(q =>
-        q.id === questionId
-          ? {
-              ...q,
-              correctAnswers:
-                q.correctAnswers?.includes(answer)
-                  ? q.correctAnswers.filter(
-                      item => item !== answer
-                    )
-                  : [
-                      ...(q.correctAnswers || []),
-                      answer
-                    ]
-            }
-          : q
-      )
-    }))
+    prev.map(task =>
+      task.id === taskId
+        ? {
+            ...task,
+            questions: task.questions.map(q =>
+              q.id === questionId
+                ? {
+                    ...q,
+                    correctAnswers:
+                      q.correctAnswers?.includes(answer)
+                        ? q.correctAnswers.filter(
+                            item => item !== answer
+                          )
+                        : [
+                            ...(q.correctAnswers || []),
+                            answer
+                          ]
+                  }
+                : q
+            )
+          }
+        : task
+    )
   );
 };
 
@@ -496,39 +505,72 @@ const toggleCorrectAnswer = (
     };
 
     if (onBackendCreate) {
-      const primaryTask = tasks[0];
       try {
         const normalizeFormat = (val: any) => (Array.isArray(val) ? val : String(val || 'text'));
 
-        const payloadBase = {
-          title: primaryTask.title.trim(),
-          description: primaryTask.description.trim(),
-          submission_format: normalizeFormat(primaryTask.submissionFormat),
-          questions:
-          (primaryTask.submissionFormat === 'multiple_choice' || (Array.isArray(primaryTask.submissionFormat) && primaryTask.submissionFormat.includes('multiple_choice')))
-            ? primaryTask.questions.map(q => ({
-                ...q,
-                question: q.question.trim(),
-                options: q.options.map(option => option.trim()).filter(Boolean)
-              }))
-            : [],
-          level: 'individual',
-          target_user_ids: selectedIndividualIds,
-          due_date: dueDate,
-          recurrence
-        };
+        if (taskMode === 'multiple') {
+          const payloadBase = {
+            title: `Task Bundle (${tasks.length} tasks)`,
+            description: 'Multiple task bundle',
+            submission_format: 'bundle',
+            bundle_tasks: tasks.map(t => ({
+              title: t.title.trim(),
+              description: t.description.trim(),
+              submission_format: normalizeFormat(t.submissionFormat),
+              questions: (t.submissionFormat === 'multiple_choice' || (Array.isArray(t.submissionFormat) && t.submissionFormat.includes('multiple_choice')))
+                ? t.questions.map(q => ({
+                    ...q,
+                    question: q.question.trim(),
+                    options: q.options.map(option => option.trim()).filter(Boolean)
+                  }))
+                : []
+            })),
+            level: 'individual',
+            target_user_ids: selectedIndividualIds,
+            due_date: dueDate,
+            recurrence
+          };
 
-        if (associateWithSprint && selectedSprintIds.length > 0) {
-          // Loop over selected sprints and create one task assignment for each
-          for (const sprintId of selectedSprintIds) {
-            await onBackendCreate({
-              ...payloadBase,
-              target_module_id: sprintId
-            });
+          if (associateWithSprint && selectedSprintIds.length > 0) {
+            for (const sprintId of selectedSprintIds) {
+              await onBackendCreate({
+                ...payloadBase,
+                target_module_id: sprintId
+              });
+            }
+          } else {
+            await onBackendCreate(payloadBase);
           }
         } else {
-          // No sprint association, create one task assignment
-          await onBackendCreate(payloadBase);
+          // single task
+          const primaryTask = tasks[0];
+          const payloadBase = {
+            title: primaryTask.title.trim(),
+            description: primaryTask.description.trim(),
+            submission_format: normalizeFormat(primaryTask.submissionFormat),
+            questions: (primaryTask.submissionFormat === 'multiple_choice' || (Array.isArray(primaryTask.submissionFormat) && primaryTask.submissionFormat.includes('multiple_choice')))
+              ? primaryTask.questions.map(q => ({
+                  ...q,
+                  question: q.question.trim(),
+                  options: q.options.map(option => option.trim()).filter(Boolean)
+                }))
+              : [],
+            level: 'individual',
+            target_user_ids: selectedIndividualIds,
+            due_date: dueDate,
+            recurrence
+          };
+
+          if (associateWithSprint && selectedSprintIds.length > 0) {
+            for (const sprintId of selectedSprintIds) {
+              await onBackendCreate({
+                ...payloadBase,
+                target_module_id: sprintId
+              });
+            }
+          } else {
+            await onBackendCreate(payloadBase);
+          }
         }
       } catch (error: any) {
         alert(error?.message || 'Task could not be created. Please review the task details and try again.');
@@ -559,7 +601,6 @@ const toggleCorrectAnswer = (
             <h2 className="font-display font-medium text-lg tracking-tight">Task Flow Configuration Console</h2>
           </div>
           <div className="bg-white/10 px-3 py-1 rounded-full text-xs font-mono font-medium flex items-center space-x-1.5 backdrop-blur-md">
-            <Sparkles size={13} />
             <span>Designer Mode</span>
           </div>
         </div>
@@ -978,10 +1019,6 @@ className="border rounded-lg text-xs p-2"
 <option value="multiple">
  Multiple Answer
 </option>
-
-<option value="written">
- Written Answer
-</option>
 </select>
                                       </div>
 
@@ -997,31 +1034,35 @@ className="border rounded-lg text-xs p-2"
     {/* Correct answer selector */}
     {quizQ.type !== 'written' && (
       <input
-        type={quizQ.type === 'multiple' ? "checkbox" : "radio"}
-        name={quizQ.id}
+  type={quizQ.type === 'multiple' ? "checkbox" : "radio"}
+  name={
+    quizQ.type === "single"
+      ? quizQ.id
+      : undefined
+  }
 
-        checked={
-          quizQ.type === 'multiple'
-            ? quizQ.correctAnswers?.includes(opt)
-            : quizQ.correctAnswer === opt
-        }
+  checked={
+    quizQ.type === 'multiple'
+      ? quizQ.correctAnswers?.includes(opt)
+      : quizQ.correctAnswer === opt
+  }
 
-        onChange={() => {
-          if (quizQ.type === 'multiple') {
-            toggleCorrectAnswer(
-              taskItem.id,
-              quizQ.id,
-              opt
-            );
-          } else {
-            updateCorrectAnswer(
-              taskItem.id,
-              quizQ.id,
-              opt
-            );
-          }
-        }}
-      />
+  onChange={() => {
+    if (quizQ.type === 'multiple') {
+      toggleCorrectAnswer(
+        taskItem.id,
+        quizQ.id,
+        opt
+      );
+    } else {
+      updateCorrectAnswer(
+        taskItem.id,
+        quizQ.id,
+        opt
+      );
+    }
+  }}
+/>
     )}
 
 
@@ -1110,7 +1151,6 @@ className="border rounded-lg text-xs p-2"
                       Define target parameters below to assign direct business divisions, departments, or custom individual employees.
                     </p>
                   </div>
-                    /* COMPREHENSIVE SEGMENTATION ROUTER (Non-Sprint) */
                     <div className="space-y-4">
                       
                       {/* Presets and filters bar */}
