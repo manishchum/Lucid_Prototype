@@ -137,6 +137,7 @@ async def list_submissions(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+
 @router.get("/task-manager/audience/functions")
 async def list_functions(
     company_id: str = Depends(get_effective_company_id), 

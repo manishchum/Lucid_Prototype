@@ -266,16 +266,8 @@ export default function ScoreHistoryPage() {
    useEffect(() => {
         if (!authLoading) {
           if (!user) router.push("/login");
-          else {
-            fetchAllData();
-            if (typeof window !== "undefined") {
-              const params = new URLSearchParams(window.location.search);
-              const tab = params.get("tab");
-              if (tab === "tasks" || tab === "roleplay" || tab === "assessments") {
-                setActiveTab(tab as any);
-              }
-            }
-          }
+          else fetchAllData();
+          
         }
       }, [user, authLoading, router]);
 

@@ -345,15 +345,6 @@ async def get_effective_company_id(
 		raise HTTPException(status_code=401, detail="Unauthorized")
 
 	requested_company_id = request.path_params.get("company_id") or x_company_id
-	
-	# Sanitize requested_company_id format
-	if requested_company_id:
-		import uuid
-		try:
-			uuid.UUID(str(requested_company_id))
-		except ValueError:
-			requested_company_id = None
-
 	home_company_id = auth_ctx.company_id
 
 	# Attempting to query fallback if missing from auth_ctx
