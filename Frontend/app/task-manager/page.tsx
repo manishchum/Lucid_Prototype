@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import TaskDashboard from "@/components/task-manager/TaskDashboard";
@@ -175,8 +175,15 @@ function TaskManagerContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const lastFetchedRef = useRef<string | null>(null);
+
   const loadTaskManagerData = useCallback(async () => {
     if (authLoading || !user || !effectiveUserId || !companyId) return;
+
+    const fetchKey = `${effectiveUserId}-${companyId}-${role}`;
+    if (lastFetchedRef.current === fetchKey) return;
+    
+    lastFetchedRef.current = fetchKey;
 
     setIsLoading(true);
     setError(null);
@@ -223,11 +230,12 @@ function TaskManagerContent() {
       setSprints(mapCohortsToSprints(cohorts));
       setTeamMembers(mapMembersToTeamMembers(members));
     } catch (err: any) {
+      lastFetchedRef.current = null;
       setError(err?.message ?? "Failed to load task manager data.");
     } finally {
       setIsLoading(false);
     }
-  }, [authLoading, companyId, effectiveUserId, user]);
+  }, [authLoading, companyId, effectiveUserId, user, role]);
 
   useEffect(() => {
     loadTaskManagerData();
@@ -377,12 +385,9 @@ function TaskManagerContent() {
 
   if (authLoading || isLoading) {
     return (
-      <main className="min-h-screen px-6 py-16 md:px-8">
-        <div className="mx-auto max-w-7xl space-y-4">
-          <div className="h-24 rounded-3xl bg-white/70 border border-slate-100 animate-pulse" />
-          <div className="h-72 rounded-3xl bg-white/70 border border-slate-100 animate-pulse" />
-        </div>
-      </main>
+      <LoadingProgress
+        label="Loading task manager"
+      />
     );
   }
 
@@ -422,15 +427,30 @@ function TaskManagerContent() {
   );
 }
 
+function LoadingProgress({
+  label,
+}: {
+  label: string;
+}) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 flex flex-col items-center justify-center space-y-4">
+        <div className="w-8 h-8 md:w-10 md:h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-sm font-semibold text-slate-700">{label}</p>
+        <p className="text-xs text-slate-500 font-medium">
+          Loading your data securely...
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function TaskManagerPage() {
   return (
     <Suspense fallback={
-      <main className="min-h-screen px-6 py-16 md:px-8">
-        <div className="mx-auto max-w-7xl space-y-4">
-          <div className="h-24 rounded-3xl bg-white/70 border border-slate-100 animate-pulse" />
-          <div className="h-72 rounded-3xl bg-white/70 border border-slate-100 animate-pulse" />
-        </div>
-      </main>
+      <LoadingProgress
+        label="Loading task manager"
+      />
     }>
       <TaskManagerContent />
     </Suspense>

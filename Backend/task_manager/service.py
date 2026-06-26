@@ -10,6 +10,9 @@ from uuid import uuid4
 import google.generativeai as genai
 
 from utils.supabase_client import supabase
+from utils.auth_bridge import get_service_supabase_client
+from utils.db.permissions import check_user_permission, check_company_access
+from utils.exceptions import AuthorizationError, NotFoundError
 
 from .models import SubmissionCreate, TaskCreate
 from audio_analysis.scoring import generate_audio_score
@@ -333,12 +336,13 @@ def resolve_company_id(user_id: str | None, fallback_company_id: Optional[str]) 
     return None
 
 
-def is_user_admin(user_id: str | None) -> bool:
+async def is_user_admin(user_id: str | None) -> bool:
     if not user_id:
         return False
     try:
+        db = get_service_supabase_client()
         res = (
-            supabase.table("user_role_assignments")
+            db.table("user_role_assignments")
             .select("role:roles(name)")
             .eq("user_id", user_id)
             .eq("is_active", True)
@@ -400,15 +404,21 @@ def _format_submission_row(sub: dict, caller_is_admin: bool = False) -> dict:
     return sub
 
 
-def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
+async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
     """
     Returns active tasks with audience resolved and completion count.
     Uses v_active_assignments view (created in migration).
     """
+    if user_id:
+        if not await check_company_access(user_id, company_id):
+            raise AuthorizationError("Access denied to this company")
+
+    db = get_service_supabase_client()
+
     def _select_assignments(source_name: str, table_name: str) -> list:
         try:
             response = (
-                supabase.table(table_name)
+                db.table(table_name)
                 .select("*")
                 .eq("company_id", company_id)
                 .execute()
@@ -426,7 +436,7 @@ def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
             if assignment_ids:
                 try:
                     ta_res = (
-                        supabase.table("task_assignments")
+                        db.table("task_assignments")
                         .select("assignment_id, target_user_ids, target_function_id, target_sub_function_id, target_module_id")
                         .in_("assignment_id", assignment_ids)
                         .execute()
@@ -452,7 +462,7 @@ def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
     if not assignments:
         return []
 
-    caller_is_admin = is_user_admin(user_id) if user_id else False
+    caller_is_admin = await is_user_admin(user_id) if user_id else False
 
     # Secure role visibility mapping
     if user_id and not caller_is_admin:
@@ -460,14 +470,14 @@ def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
         user_subfunc = None
         assigned_modules = set()
         try:
-            user_res = supabase.table("users").select("function_id, sub_function_id").eq("user_id", user_id).maybe_single().execute()
+            user_res = db.table("users").select("function_id, sub_function_id").eq("user_id", user_id).maybe_single().execute()
             user_data = user_res.data if (user_res and hasattr(user_res, 'data')) else {}
             if not user_data:
                 user_data = {}
             user_func = user_data.get("function_id")
             user_subfunc = user_data.get("sub_function_id")
             
-            lp_res = supabase.table("learning_plan").select("module_id").eq("user_id", user_id).execute()
+            lp_res = db.table("learning_plan").select("module_id").eq("user_id", user_id).execute()
             if lp_res.data:
                 assigned_modules = {row["module_id"] for row in lp_res.data}
         except Exception as e:
@@ -506,7 +516,7 @@ def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
 
     try:
         tasks = (
-            supabase.table("tasks")
+            db.table("tasks")
             .select(
                 "task_id, assignment_id, title, description, expected_answer, submission_format, questions, status, bundle_tasks"
             )
@@ -518,7 +528,7 @@ def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
         print("[task-manager] tasks query with company filter failed, retrying without company_id:", task_error)
         try:
             tasks = (
-                supabase.table("tasks")
+                db.table("tasks")
                 .select(
                     "task_id, assignment_id, title, description, expected_answer, submission_format, questions, status, bundle_tasks"
                 )
@@ -531,7 +541,7 @@ def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
 
     try:
         submission_query = (
-            supabase.table("task_submissions")
+            db.table("task_submissions")
             .select("*")
             .in_("assignment_id", assignment_ids)
             .eq("company_id", company_id)
@@ -542,7 +552,7 @@ def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
     except Exception as submission_error:
         print("[task-manager] submissions query with company filter failed, retrying without company_id:", submission_error)
         try:
-            submission_query = supabase.table("task_submissions").select("*").in_("assignment_id", assignment_ids)
+            submission_query = db.table("task_submissions").select("*").in_("assignment_id", assignment_ids)
             if user_id and not caller_is_admin:
                 submission_query = submission_query.eq("user_id", user_id)
             submissions = submission_query.execute().data or []
@@ -623,14 +633,25 @@ def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
     return result
 
 
-def get_tasks_for_user(user_id: str, company_id: str) -> list:
+async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: str | None = None) -> list:
     """Employee view — tasks assigned to this user."""
-    caller_is_admin = is_user_admin(user_id)
+    req_uid = requesting_user_id or user_id
+    if not await check_company_access(req_uid, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    if req_uid != user_id:
+        if not await check_user_permission(req_uid, 'manager'):
+            raise AuthorizationError("Permission denied: Manager role required to view other user's tasks")
+        if not await check_company_access(user_id, company_id):
+            raise AuthorizationError("Target user does not belong to this company")
+
+    db = get_service_supabase_client()
+    caller_is_admin = await is_user_admin(user_id)
 
     # 1. Fetch active assignments to determine assigned_ids for the employee
     try:
         assignments_res = (
-            supabase.table("task_assignments")
+            db.table("task_assignments")
             .select("*")
             .eq("company_id", company_id)
             .eq("status", "active")
@@ -646,14 +667,14 @@ def get_tasks_for_user(user_id: str, company_id: str) -> list:
     assigned_modules = set()
     if not caller_is_admin:
         try:
-            user_res = supabase.table("users").select("function_id, sub_function_id").eq("user_id", user_id).maybe_single().execute()
+            user_res = db.table("users").select("function_id, sub_function_id").eq("user_id", user_id).maybe_single().execute()
             user_data = user_res.data if (user_res and hasattr(user_res, 'data')) else {}
             if not user_data:
                 user_data = {}
             user_func = user_data.get("function_id")
             user_subfunc = user_data.get("sub_function_id")
             
-            lp_res = supabase.table("learning_plan").select("module_id").eq("user_id", user_id).execute()
+            lp_res = db.table("learning_plan").select("module_id").eq("user_id", user_id).execute()
             if lp_res.data:
                 assigned_modules = {row["module_id"] for row in lp_res.data}
         except Exception as e:
@@ -700,7 +721,7 @@ def get_tasks_for_user(user_id: str, company_id: str) -> list:
     # 2. Fetch tasks corresponding to assigned_ids directly from tasks table
     try:
         tasks_res = (
-            supabase.table("tasks")
+            db.table("tasks")
             .select("task_id, assignment_id, company_id, title, description, submission_format, questions, status, bundle_tasks")
             .in_("assignment_id", list(assigned_ids))
             .eq("company_id", company_id)
@@ -714,7 +735,7 @@ def get_tasks_for_user(user_id: str, company_id: str) -> list:
     # 3. Fetch existing submissions for this user (group by assignment_id)
     try:
         submissions_res = (
-            supabase.table("task_submissions")
+            db.table("task_submissions")
             .select("*")
             .eq("company_id", company_id)
             .eq("user_id", user_id)
@@ -770,9 +791,13 @@ def get_tasks_for_user(user_id: str, company_id: str) -> list:
     return filtered
 
 
-def resolve_audience_count(payload: TaskCreate, company_id: str) -> int:
+async def resolve_audience_count(payload: TaskCreate, company_id: str, requesting_user_id: str) -> int:
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    db = get_service_supabase_client()
     base = (
-        supabase.table("users")
+        db.table("users")
         .select("user_id", count="exact")
         .eq("company_id", company_id)
         .eq("is_active", True)
@@ -781,7 +806,7 @@ def resolve_audience_count(payload: TaskCreate, company_id: str) -> int:
 
     if payload.level == "cohort" and payload.target_module_id:
         learning_plan = (
-            supabase.table("learning_plan")
+            db.table("learning_plan")
             .select("user_id")
             .eq("module_id", payload.target_module_id)
             .in_("status", ["ASSIGNED", "IN_PROGRESS"])
@@ -808,10 +833,15 @@ def resolve_audience_count(payload: TaskCreate, company_id: str) -> int:
     return 0
 
 
-def create_task_and_assignment(payload: TaskCreate, company_id: str) -> dict:
+async def create_task_and_assignment(payload: TaskCreate, company_id: str, requesting_user_id: str) -> dict:
+    if not await check_user_permission(requesting_user_id, 'manager'):
+        raise AuthorizationError("Permission denied: Manager role required to create tasks")
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
     assignment_id = str(uuid4())
     task_id = str(uuid4())
-    audience_count = resolve_audience_count(payload, company_id)
+    audience_count = await resolve_audience_count(payload, company_id, requesting_user_id)
     # Storing list as JSON string or single string
     db_submission_format = payload.submission_format
     if isinstance(db_submission_format, list):
@@ -820,7 +850,9 @@ def create_task_and_assignment(payload: TaskCreate, company_id: str) -> dict:
         else:
             db_submission_format = json.dumps(db_submission_format)
 
-    supabase.table("task_assignments").insert({
+    db = get_service_supabase_client()
+
+    db.table("task_assignments").insert({
         "assignment_id": assignment_id,
         "company_id": company_id,
         "created_by": payload.created_by,
@@ -845,7 +877,7 @@ def create_task_and_assignment(payload: TaskCreate, company_id: str) -> dict:
     if is_bundle:
         db_bundle_tasks = [t for t in (payload.bundle_tasks or [])]
 
-    supabase.table("tasks").insert({
+    db.table("tasks").insert({
         "task_id": task_id,
         "company_id": company_id,
         "assignment_id": assignment_id,
@@ -882,9 +914,12 @@ def create_task_and_assignment(payload: TaskCreate, company_id: str) -> dict:
     }
 
 
-def submit_task_response(payload: SubmissionCreate, company_id: str, background_tasks) -> dict:
+async def submit_task_response(payload: SubmissionCreate, company_id: str, background_tasks, requesting_user_id: str) -> dict:
     from datetime import datetime
     from analysis.background import run_ai_pipeline_bg
+
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
 
     submission_id = str(uuid4())
 
@@ -897,11 +932,13 @@ def submit_task_response(payload: SubmissionCreate, company_id: str, background_
             resolved_task_id = parts[0]
             is_bundle_submission = True
 
+    db = get_service_supabase_client()
+
     # Fetch existing submission to check if already completed for this format
     existing_row = None
     if payload.task_id and payload.user_id:
         existing_res = (
-            supabase
+            db
             .table("task_submissions")
             .select("*")
             .eq("task_id", resolved_task_id)
@@ -939,7 +976,7 @@ def submit_task_response(payload: SubmissionCreate, company_id: str, background_
 
     # Fetch task details for AI evaluation
     task_res = (
-        supabase
+        db
         .table("tasks")
         .select(
             "task_id, assignment_id, title, description, submission_format, questions"
@@ -1050,7 +1087,7 @@ def submit_task_response(payload: SubmissionCreate, company_id: str, background_
     if not existing_row:
         try:
             result = (
-                supabase
+                db
                 .table("task_submissions")
                 .insert(insert_data)
                 .execute()
@@ -1060,7 +1097,7 @@ def submit_task_response(payload: SubmissionCreate, company_id: str, background_
             if "duplicate key" in err_msg or "23505" in err_msg or "already exists" in err_msg:
                 # Retrieve the row that was just inserted by the concurrent request
                 existing_res = (
-                    supabase
+                    db
                     .table("task_submissions")
                     .select("*")
                     .eq("task_id", resolved_task_id)
@@ -1093,7 +1130,7 @@ def submit_task_response(payload: SubmissionCreate, company_id: str, background_
                 update_data[field] = val
         
         result = (
-            supabase
+            db
             .table("task_submissions")
             .update(update_data)
             .eq("submission_id", existing_row["submission_id"])
@@ -1118,10 +1155,15 @@ def submit_task_response(payload: SubmissionCreate, company_id: str, background_
     }
 
 
+async def get_report_summary(assignment_id: str, company_id: str, requesting_user_id: str) -> dict:
+    if not await check_user_permission(requesting_user_id, 'manager'):
+        raise AuthorizationError("Permission denied: Manager role required to view reports")
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
 
-def get_report_summary(assignment_id: str, company_id: str) -> dict:
+    db = get_service_supabase_client()
     result = (
-        supabase.table("task_report_summaries")
+        db.table("task_report_summaries")
         .select("*")
         .eq("assignment_id", assignment_id)
         .eq("company_id", company_id)
@@ -1131,9 +1173,13 @@ def get_report_summary(assignment_id: str, company_id: str) -> dict:
     return result.data or {}
 
 
-def get_audience_functions(company_id: str) -> list:
+async def get_audience_functions(company_id: str, requesting_user_id: str) -> list:
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    db = get_service_supabase_client()
     return (
-        supabase.table("function")
+        db.table("function")
         .select("function_id, function_name")
         .eq("company_id", company_id)
         .eq("is_active", True)
@@ -1141,9 +1187,23 @@ def get_audience_functions(company_id: str) -> list:
     ).data or []
 
 
-def get_audience_sub_functions(function_id: str) -> list:
+async def get_audience_sub_functions(function_id: str, requesting_user_id: str) -> list:
+    db = get_service_supabase_client()
+    func_res = (
+        db.table("function")
+        .select("company_id")
+        .eq("function_id", function_id)
+        .maybe_single()
+        .execute()
+    )
+    if not func_res.data:
+        raise NotFoundError("Function", function_id)
+    company_id = func_res.data.get("company_id")
+    if not company_id or not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
     return (
-        supabase.table("sub_function")
+        db.table("sub_function")
         .select("sub_function_id, sub_function_name")
         .eq("function_id", function_id)
         .eq("is_active", True)
@@ -1151,9 +1211,13 @@ def get_audience_sub_functions(function_id: str) -> list:
     ).data or []
 
 
-def get_audience_cohorts(company_id: str) -> list:
+async def get_audience_cohorts(company_id: str, requesting_user_id: str) -> list:
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    db = get_service_supabase_client()
     return (
-        supabase.table("training_modules")
+        db.table("training_modules")
         .select("module_id, title")
         .eq("company_id", company_id)
         .in_("processing_status", ["completed", "ready"])
@@ -1161,9 +1225,13 @@ def get_audience_cohorts(company_id: str) -> list:
     ).data or []
 
 
-def get_audience_members(company_id: str) -> list:
+async def get_audience_members(company_id: str, requesting_user_id: str) -> list:
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    db = get_service_supabase_client()
     users = (
-        supabase.table("users")
+        db.table("users")
         .select("user_id, name, email, company_id, function_id, sub_function_id")
         .eq("company_id", company_id)
         .eq("is_active", True)
@@ -1176,7 +1244,7 @@ def get_audience_members(company_id: str) -> list:
     functions = {}
     if function_ids:
         function_rows = (
-            supabase.table("function")
+            db.table("function")
             .select("function_id, function_name")
             .in_("function_id", function_ids)
             .execute()
@@ -1186,7 +1254,7 @@ def get_audience_members(company_id: str) -> list:
     sub_functions = {}
     if sub_function_ids:
         sub_function_rows = (
-            supabase.table("sub_function")
+            db.table("sub_function")
             .select("sub_function_id, sub_function_name")
             .in_("sub_function_id", sub_function_ids)
             .execute()
@@ -1209,24 +1277,31 @@ def get_audience_members(company_id: str) -> list:
     ]
 
 
-def delete_task_assignment(assignment_id: str, company_id: str) -> bool:
+async def delete_task_assignment(assignment_id: str, company_id: str, requesting_user_id: str) -> bool:
     """
     Deletes a task assignment, its associated tasks, and any submissions for it.
     """
+    if not await check_user_permission(requesting_user_id, 'manager'):
+        raise AuthorizationError("Permission denied: Manager role required to delete task assignments")
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    db = get_service_supabase_client()
     # 1. Delete associated submissions
-    supabase.table("task_submissions").delete().eq("assignment_id", assignment_id).eq("company_id", company_id).execute()
+    db.table("task_submissions").delete().eq("assignment_id", assignment_id).eq("company_id", company_id).execute()
     # 2. Delete tasks
-    supabase.table("tasks").delete().eq("assignment_id", assignment_id).eq("company_id", company_id).execute()
+    db.table("tasks").delete().eq("assignment_id", assignment_id).eq("company_id", company_id).execute()
     # 3. Delete the assignment
-    supabase.table("task_assignments").delete().eq("assignment_id", assignment_id).eq("company_id", company_id).execute()
+    db.table("task_assignments").delete().eq("assignment_id", assignment_id).eq("company_id", company_id).execute()
     return True
 
 
-def fetch_task_submissions(
+async def fetch_task_submissions(
     company_id: str,
     assignment_id: str | None = None,
     user_id: str | None = None,
-    caller_is_admin: bool = False
+    caller_is_admin: bool = False,
+    requesting_user_id: str | None = None
 ) -> list:
     """
     Fetch task submissions for reports.
@@ -1236,6 +1311,16 @@ def fetch_task_submissions(
     - task details
     - user details
     """
+    if not requesting_user_id:
+        raise AuthorizationError("Authentication required")
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    if user_id and str(user_id) != str(requesting_user_id):
+        if not await check_user_permission(requesting_user_id, 'manager'):
+            raise AuthorizationError("Permission denied: Manager role required to view other user's submissions")
+
+    db = get_service_supabase_client()
 
     try:
         print("========== REPORT DEBUG ==========")
@@ -1245,7 +1330,7 @@ def fetch_task_submissions(
 
         # 1. Fetch submissions only
         query = (
-            supabase
+            db
             .table("task_submissions")
             .select("*")
         )
@@ -1298,7 +1383,7 @@ def fetch_task_submissions(
             if task_id:
                 try:
                     task_res = (
-                        supabase
+                        db
                         .table("tasks")
                         .select("*")
                         .eq(
@@ -1326,7 +1411,7 @@ def fetch_task_submissions(
             if uid:
                 try:
                     user_res = (
-                        supabase
+                        db
                         .table("users")
                         .select("*")
                         .eq(
@@ -1360,7 +1445,7 @@ def fetch_task_submissions(
         return []
 
 
-def reassign_task_assignment(
+async def reassign_task_assignment(
     company_id: str,
     original_assignment_id: str,
     mode: str,
@@ -1374,6 +1459,15 @@ def reassign_task_assignment(
     recurrence: str,
     created_by: str | None = None
 ) -> dict:
+    if not created_by:
+        raise AuthorizationError("Authentication required")
+    if not await check_user_permission(created_by, 'manager'):
+        raise AuthorizationError("Permission denied: Manager role required to reassign tasks")
+    if not await check_company_access(created_by, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    db = get_service_supabase_client()
+
     # 1. Resolve database level and target IDs
     db_level = "individual"
     target_module_id = None
@@ -1385,7 +1479,7 @@ def reassign_task_assignment(
         db_level = "cohort"
         if target_sprints:
             modules = (
-                supabase.table("training_modules")
+                db.table("training_modules")
                 .select("module_id")
                 .eq("company_id", company_id)
                 .in_("title", target_sprints)
@@ -1397,7 +1491,7 @@ def reassign_task_assignment(
         if target_individuals:
             db_level = "individual"
             users = (
-                supabase.table("users")
+                db.table("users")
                 .select("user_id")
                 .eq("company_id", company_id)
                 .in_("name", target_individuals)
@@ -1408,7 +1502,7 @@ def reassign_task_assignment(
         elif target_sub_functions:
             db_level = "sub_function"
             sub_funcs = (
-                supabase.table("sub_function")
+                db.table("sub_function")
                 .select("sub_function_id")
                 .in_("sub_function_name", target_sub_functions)
                 .execute()
@@ -1418,7 +1512,7 @@ def reassign_task_assignment(
         elif target_functions:
             db_level = "function"
             funcs = (
-                supabase.table("function")
+                db.table("function")
                 .select("function_id")
                 .eq("company_id", company_id)
                 .in_("function_name", target_functions)
@@ -1438,11 +1532,11 @@ def reassign_task_assignment(
         target_sub_function_id=target_sub_function_id,
         target_user_ids=target_user_ids
     )
-    audience_count = resolve_audience_count(mock_payload, company_id)
+    audience_count = await resolve_audience_count(mock_payload, company_id, created_by)
 
     if mode == "copy":
         orig_assign = (
-            supabase.table("task_assignments")
+            db.table("task_assignments")
             .select("*")
             .eq("assignment_id", original_assignment_id)
             .eq("company_id", company_id)
@@ -1453,7 +1547,7 @@ def reassign_task_assignment(
             raise Exception("Original assignment not found")
 
         orig_tasks = (
-            supabase.table("tasks")
+            db.table("tasks")
             .select("*")
             .eq("assignment_id", original_assignment_id)
             .eq("company_id", company_id)
@@ -1461,7 +1555,7 @@ def reassign_task_assignment(
         ).data or []
 
         new_assignment_id = str(uuid4())
-        supabase.table("task_assignments").insert({
+        db.table("task_assignments").insert({
             "assignment_id": new_assignment_id,
             "company_id": company_id,
             "created_by": created_by or orig_assign.get("created_by"),
@@ -1480,7 +1574,7 @@ def reassign_task_assignment(
         for t in orig_tasks:
             new_task_id = str(uuid4())
             t_inserted = (
-                supabase.table("tasks").insert({
+                db.table("tasks").insert({
                     "task_id": new_task_id,
                     "company_id": company_id,
                     "assignment_id": new_assignment_id,
@@ -1519,7 +1613,7 @@ def reassign_task_assignment(
 
     else:
         # Update existing assignment
-        supabase.table("task_assignments").update({
+        db.table("task_assignments").update({
             "level": db_level,
             "target_module_id": target_module_id,
             "target_function_id": target_function_id,
@@ -1531,10 +1625,10 @@ def reassign_task_assignment(
         }).eq("assignment_id", original_assignment_id).eq("company_id", company_id).execute()
 
         # Delete any existing submissions for this assignment so it becomes active again
-        supabase.table("task_submissions").delete().eq("assignment_id", original_assignment_id).eq("company_id", company_id).execute()
+        db.table("task_submissions").delete().eq("assignment_id", original_assignment_id).eq("company_id", company_id).execute()
 
         updated_tasks = (
-            supabase.table("tasks")
+            db.table("tasks")
             .select("*")
             .eq("assignment_id", original_assignment_id)
             .eq("company_id", company_id)
