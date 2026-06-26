@@ -2,10 +2,10 @@
 
 import type React from "react"
 import { createContext, useContext, useEffect, useState } from "react"
+import { type User, onAuthStateChanged, signOut } from "firebase/auth"
+import { auth } from "@/lib/firebase"
 import { createCacheKey, sharedDataClient } from "@/lib/data-client"
 import { fetchWithAuth } from "@/lib/fetch-with-auth"
-import { supabase } from "@/lib/supabase"
-import type { AuthChangeEvent, Session } from "@supabase/supabase-js"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL
 const MANUAL_AUTH_STORAGE_KEY = "lucid:manual-auth-user"
@@ -19,7 +19,7 @@ type AuthUserLike = {
 }
 
 interface AuthContextType {
-  user: AuthUserLike | null
+  user: User | null
   loading: boolean
   rolesLoaded: boolean
   userRoles: string[]
@@ -286,7 +286,7 @@ const readCachedProfile = (): any | null => {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUserLike | null>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [rolesLoaded, setRolesLoaded] = useState(false)
   const [userRoles, setUserRoles] = useState<string[]>([])
@@ -297,80 +297,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null)
   const [employeeData, setEmployeeData] = useState<any | null>(null)
 
-  const applyProfile = (profile: any | null) => {
-    if (profile) {
-      writeCachedProfile(profile)
-      setEmployeeData(profile.employeeData)
-      setUserId(profile.userId)
-      setUserRoles(profile.userRoles)
-      setIsAdmin(profile.isAdmin)
-      setIsSuperAdmin(profile.isSuperAdmin)
-      setIsDeveloper(Boolean(profile.isDeveloper))
-      setIsManager(Boolean(profile.isManager))
-      setRolesLoaded(true)
-      return
-    }
-
-    setEmployeeData(null)
-    setUserId(null)
-    setUserRoles([])
-    setIsAdmin(false)
-    setIsSuperAdmin(false)
-    setIsDeveloper(false)
-    setIsManager(false)
-    setRolesLoaded(false)
-  }
-
-  const toAuthUserLike = (supabaseUser: any): AuthUserLike | null => {
-    if (!supabaseUser?.id || !supabaseUser?.email) return null
-
-    const displayName =
-      supabaseUser.user_metadata?.full_name ??
-      supabaseUser.user_metadata?.name ??
-      supabaseUser.email
-
-    return {
-      uid: supabaseUser.id,
-      email: supabaseUser.email,
-      displayName,
-      name: displayName,
-    }
-  }
-
-  const hydrateUser = async (authUser: AuthUserLike | null) => {
-    setUser(authUser)
-
-    if (!authUser?.email) {
-      clearManualAuthUser()
-      sharedDataClient.clear()
-      applyProfile(null)
-      setLoading(false)
-      return
-    }
-
-    setRolesLoaded(false)
-    writeManualAuthUser(authUser)
-
-    const cachedProfile = readCachedProfile()
-    if (cachedProfile) {
-      applyProfile(cachedProfile)
-    }
-
-    const profile = await loadCachedFullProfile(authUser)
-    if (profile !== undefined) {
-      applyProfile(profile)
-    }
-
-    setLoading(false)
-  }
-
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }: { data: { user: any | null } }) => {
-      hydrateUser(toAuthUserLike(data.user))
-    })
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      const effectiveUser = firebaseUser ?? readManualAuthUser()
+      setUser((effectiveUser as User) || null)
+      
+      if (effectiveUser?.email) {
+        setRolesLoaded(false)
+        const profile = await loadCachedFullProfile(effectiveUser)
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
-      hydrateUser(toAuthUserLike(session?.user))
+        if (profile !== undefined) {
+          if (profile) {
+            writeCachedProfile(profile)
+            setEmployeeData(profile.employeeData)
+            setUserId(profile.userId)
+            setUserRoles(profile.userRoles)
+            setIsAdmin(profile.isAdmin)
+            setIsSuperAdmin(profile.isSuperAdmin)
+            setIsDeveloper(Boolean(profile.isDeveloper))
+            setIsManager(Boolean(profile.isManager))
+            setRolesLoaded(true)
+          } else {
+            setEmployeeData(null)
+            setUserId(null)
+            setUserRoles([])
+            setIsAdmin(false)
+            setIsSuperAdmin(false)
+            setIsDeveloper(false)
+            setIsManager(false)
+            setRolesLoaded(false)
+          }
+        }
+
+        if (!firebaseUser) {
+          writeManualAuthUser(effectiveUser)
+        }
+      } else {
+        // Reset all data on logout
+        clearManualAuthUser()
+        sharedDataClient.clear()
+        setEmployeeData(null)
+        setUserId(null)
+        setUserRoles([])
+        setIsAdmin(false)
+        setIsSuperAdmin(false)
+        setIsDeveloper(false)
+        setIsManager(false)
+        setRolesLoaded(false)
+      }
+      
+      setLoading(false)
     })
 
     const forceLogoutListener = async () => {
@@ -381,33 +357,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
     
-    const secureTokenBlockedListener = (ev: any) => {
-      try {
-        const detail = ev?.detail ?? {};
-        console.warn('[auth-context] securetoken blocked event received', detail);
-      } catch {
-        // ignore
-      }
-      // Force logout and navigate to login so UI can show a friendly modal
-      (async () => {
-        await logout();
-        if (typeof window !== 'undefined') {
-          // append query so login page can display a helpful message
-          window.location.href = '/login?securetoken_blocked=1';
-        }
-      })();
-    };
-    
     if (typeof window !== 'undefined') {
       window.addEventListener('lucid:auth:force-logout', forceLogoutListener);
-      window.addEventListener('lucid:auth:securetoken-blocked', secureTokenBlockedListener as EventListener);
     }
 
     return () => {
-      authListener.subscription.unsubscribe();
+      unsubscribe();
       if (typeof window !== 'undefined') {
         window.removeEventListener('lucid:auth:force-logout', forceLogoutListener);
-        window.removeEventListener('lucid:auth:securetoken-blocked', secureTokenBlockedListener as EventListener);
       }
     };
   }, [])
@@ -416,7 +373,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (userData: any) => {
     try {
       // Set user data in state for email/password login
-      setUser(userData as AuthUserLike)
+      // This simulates what Firebase does automatically for Google sign-in
+      setUser(userData as User)
       
       if (userData?.email && userData?.uid) {
         writeManualAuthUser({
@@ -435,9 +393,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (profile !== undefined) {
           if (profile) {
-            applyProfile(profile)
+            writeCachedProfile(profile)
+            setEmployeeData(profile.employeeData)
+            setUserId(profile.userId)
+            setUserRoles(profile.userRoles)
+            setIsAdmin(profile.isAdmin)
+            setIsSuperAdmin(profile.isSuperAdmin)
+            setIsDeveloper(Boolean(profile.isDeveloper))
+            setIsManager(Boolean(profile.isManager))
+            setRolesLoaded(true)
           } else {
-            applyProfile(null)
+            setEmployeeData(null)
+            setUserId(null)
+            setUserRoles([])
+            setIsAdmin(false)
+            setIsSuperAdmin(false)
+            setIsDeveloper(false)
+            setIsManager(false)
+            setRolesLoaded(false)
           }
         }
       }
@@ -450,7 +423,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const logout = async () => {
-    await supabase.auth.signOut()
+    await signOut(auth)
     clearManualAuthUser()
     sharedDataClient.invalidateByPrefix("v1|auth")
     sharedDataClient.clear()
@@ -470,16 +443,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sharedDataClient.invalidateByPrefix("v1|auth")
       sharedDataClient.invalidateByPrefix("v1|users")
       
-      const effectiveUser = user.email ? user : readManualAuthUser()
+      const authUserLike = user as AuthUserLike
+      const effectiveUser = authUserLike.email ? authUserLike : readManualAuthUser()
       
       if (effectiveUser && effectiveUser.email) {
         const profile = await loadCachedFullProfile(effectiveUser)
         
         if (profile !== undefined) {
           if (profile) {
-            applyProfile(profile)
+            writeCachedProfile(profile)
+            setEmployeeData(profile.employeeData)
+            setUserId(profile.userId)
+            setUserRoles(profile.userRoles)
+            setIsAdmin(profile.isAdmin)
+            setIsSuperAdmin(profile.isSuperAdmin)
+            setIsDeveloper(Boolean(profile.isDeveloper))
+            setIsManager(Boolean(profile.isManager))
+            setRolesLoaded(true)
           } else {
-            applyProfile(null)
+            setEmployeeData(null)
+            setUserId(null)
+            setUserRoles([])
+            setIsAdmin(false)
+            setIsSuperAdmin(false)
+            setIsDeveloper(false)
+            setIsManager(false)
+            setRolesLoaded(false)
           }
         }
       }

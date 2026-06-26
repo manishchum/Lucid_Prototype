@@ -75,7 +75,6 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
   const [submittedTaskIds, setSubmittedTaskIds] = useState<Record<string, boolean>>({});
   const [submittingTaskIds, setSubmittingTaskIds] = useState<Record<string, boolean>>({});
   const [submitError, setSubmitError] = useState<Record<string, string>>({});
-  const [pingedTaskIds, setPingedTaskIds] = useState<Record<string, boolean>>({});
   const [confirmDeleteTaskId, setConfirmDeleteTaskId] = useState<string | null>(null);
   
   // Form responses
@@ -266,11 +265,11 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
   // console.log("FILTERED TASKS:", filteredTasks);
 
   // Calculate cumulative stats for the Progress Card
-  const totalCreatedTasks = assignedTasks.length;
-  const completedTaskCount = assignedTasks.filter(t => t.status === 'Completed' || submittedTaskIds[t.id]).length;
-  const completionPercentage = totalCreatedTasks > 0 
-    ? Math.round((completedTaskCount / totalCreatedTasks) * 100) 
-    : 0;
+  // const totalCreatedTasks = assignedTasks.length;
+  // const completedTaskCount = assignedTasks.filter(t => t.status === 'Completed' || submittedTaskIds[t.id]).length;
+  // const completionPercentage = totalCreatedTasks > 0 
+  //   ? Math.round((completedTaskCount / totalCreatedTasks) * 100) 
+  //   : 0;
 
   // Handle employee interactions
   const handleAnswerQuiz = (taskId: string, questionId: string, option: string) => {
@@ -283,23 +282,23 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
     }));
   };
 
-  const handleImageUploadSimulated = (taskId: string) => {
-    // Inject a simulated image path
-    const mockImages = [
-      'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=400&q=85',
-      'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=400&q=85',
-      'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=400&q=85'
-    ];
-    const chosenImg = mockImages[Math.floor(Math.random() * mockImages.length)];
-    setImageFiles(prev => ({
-      ...prev,
-      [taskId]: chosenImg
-    }));
-    // Run analysis on mock image (only for admin/testing)
-    if (userRole === 'admin') {
-      runPhotoAnalysis(taskId, chosenImg);
-    }
-  };
+  // const handleImageUploadSimulated = (taskId: string) => {
+  //   // Inject a simulated image path
+  //   const mockImages = [
+  //     'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=400&q=85',
+  //     'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=400&q=85',
+  //     'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=400&q=85'
+  //   ];
+  //   const chosenImg = mockImages[Math.floor(Math.random() * mockImages.length)];
+  //   setImageFiles(prev => ({
+  //     ...prev,
+  //     [taskId]: chosenImg
+  //   }));
+  //   // Run analysis on mock image (only for admin/testing)
+  //   if (userRole === 'admin') {
+  //     runPhotoAnalysis(taskId, chosenImg);
+  //   }
+  // };
 
   const startCamera = async (taskId: string) => {
     try {
@@ -1049,19 +1048,6 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                               >
                                 <span>Reassign 🔄</span>
                               </button>
-
-                              <button
-                                type="button"
-                                onClick={() => setPingedTaskIds(prev => ({ ...prev, [task.id]: true }))}
-                                className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-all cursor-pointer ${
-                                  pingedTaskIds[task.id]
-                                    ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
-                                    : 'text-gray-500 hover:text-indigo-600 border-gray-200 bg-white shadow-sm'
-                                }`}
-                              >
-                                {pingedTaskIds[task.id] ? 'Sent! ' : 'Send Reminder 🔔'}
-                              </button>
-
                               <button
                                 type="button"
                                 onClick={() => setConfirmDeleteTaskId(task.id)}
@@ -1391,7 +1377,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                            <div className="space-y-4 pt-1">
                                 {task.tasks.map((subTask) => (
                               <div key={subTask.id} className="p-3.5 bg-slate-50 border border-gray-100 rounded-xl space-y-3">
-                                  {(() => { console.log("Submission Format:", subTask.submissionFormat); return null; })()}
+                                  {/* {(() => { console.log("Submission Format:", subTask.submissionFormat); return null; })()} */}
                                 <p className="text-[11px] font-semibold text-[#0F172A] leading-tight flex items-center space-x-1.5">
                                   <span>🚀</span>
                                   <span>{subTask.title}</span>

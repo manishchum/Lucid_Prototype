@@ -10,7 +10,6 @@ class QuizQuestion(BaseModel):
     type: Literal[
         "single",
         "multiple",
-        "written"
     ] = "single"
     options: List[str] = []
     correctAnswer: Optional[str] = None

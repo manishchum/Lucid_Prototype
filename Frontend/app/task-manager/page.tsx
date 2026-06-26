@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import TaskDashboard from "@/components/task-manager/TaskDashboard";
-import TaskCreatorWizard from "@/components/task-manager/TaskCreatorWizard";
-import type { ReportItem } from "@/components/task-manager/TaskReports";
+import TaskCreatorWizard, { type CorporateLevels } from "@/components/task-manager/TaskCreatorWizard";
+// import type { ReportItem } from "@/components/task-manager/TaskReports";
 import { useAuth } from "@/contexts/auth-context";
 import { useTenant } from "@/contexts/tenant-context";
 import {
@@ -17,6 +17,8 @@ import {
   fetchCohorts,
   submitTaskResponse,
   reassignTask,
+  fetchAudienceFunctions,
+  fetchAudienceSubFunctions,
   type CreateTaskPayload,
   type SubmitTaskPayload,
   type Task,
@@ -133,7 +135,7 @@ function mapCohortsToSprints(cohorts: { module_id: string; title: string }[]): S
   }));
 }
 
-function mapMembersToTeamMembers(members: any[]): TeamMember[] {
+function mapMembersToTeamMembers(members: any[], companyName?: string): TeamMember[] {
   return members.map((member) => {
     const name = member.name || member.email || "Unnamed User";
     return {
@@ -141,7 +143,7 @@ function mapMembersToTeamMembers(members: any[]): TeamMember[] {
       name,
       email: member.email || "",
       avatar: name.slice(0, 1).toUpperCase(),
-      org: member.company ?? "",
+      org: companyName || member.company || "Company",
       function: member.function_name ?? "",
       subFunction: member.sub_function_name ?? "",
     };
@@ -150,7 +152,7 @@ function mapMembersToTeamMembers(members: any[]): TeamMember[] {
 
 function TaskManagerContent() {
   const { user, loading: authLoading, userId, employeeData, isAdmin, isManager, isSuperAdmin, isDeveloper } = useAuth();
-  const { activeCompanyId, isDeveloperMode } = useTenant();
+  const { activeCompanyId, activeCompany, isDeveloperMode } = useTenant();
 
   const effectiveUserId = employeeData?.user_id || userId || "";
   const companyId = useMemo(
@@ -161,7 +163,7 @@ function TaskManagerContent() {
     isAdmin || isSuperAdmin || isDeveloper || isManager ? "admin" : "employee";
 
   const [assignedTasks, setAssignedTasks] = useState<AssignedTask[]>([]);
-  const [reports, setReports] = useState<ReportItem[]>([]);
+  // const [reports, setReports] = useState<ReportItem[]>([]);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const searchParams = useSearchParams();
   const createParam = searchParams.get("create");
@@ -172,62 +174,105 @@ function TaskManagerContent() {
 
   const [sprints, setSprints] = useState<Sprint[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [corporateLevels, setCorporateLevels] = useState<CorporateLevels | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const lastFetchedRef = useRef<string | null>(null);
 
   const loadTaskManagerData = useCallback(async () => {
     if (authLoading || !user || !effectiveUserId || !companyId) return;
 
+    const fetchKey = `${effectiveUserId}-${companyId}-${role}`;
+    if (lastFetchedRef.current === fetchKey) return;
+    
+    lastFetchedRef.current = fetchKey;
+
     setIsLoading(true);
     setError(null);
     try {
-      const [tasks, cohorts, members] = await Promise.all([
+      const [tasks, cohorts, members, apiFunctions] = await Promise.all([
         fetchActiveTasks({ userId: effectiveUserId, companyId }),
         fetchCohorts({ userId: effectiveUserId, companyId }),
         fetchAudienceMembers({ userId: effectiveUserId, companyId }),
+        fetchAudienceFunctions({ userId: effectiveUserId, companyId }),
       ]);
 
-      // If admin, also fetch submissions for reporting
-      if (role === 'admin') {
-        try {
-          const subsRes = await fetchTaskSubmissions({ companyId });
-          const mapped = (subsRes.submissions || []).map((r: any) => ({
-            id: r.submission_id,
-            title: (r.tasks && r.tasks[0] && r.tasks[0].title) || r.task_id || 'Task Submission',
-            category: 'tasks',
-            score: r.score || 0,
-            totalQuestions: r.max_score || 0,
-            dateCompleted: r.submitted_at ? new Date(r.submitted_at).toISOString().split('T')[0] : 'N/A',
-            status: r.status === 'submitted' ? 'Completed' : (r.status === 'reviewed' ? 'Completed' : 'In Progress'),
-            image_url: r.image_url,
-            video_url: r.video_url,
-            audio_url: r.audio_url,
-            aiValidation: {
-              pass: r.ai_validation_pass,
-              verdict: r.ai_validation_verdict,
-              reason: r.ai_validation_reason,
-              suggestion: r.ai_validation_suggestion,
-              confidence: r.ai_validation_confidence,
-              status: r.ai_status,
-            },
-            assignment_id: r.assignment_id,
-          })) as ReportItem[];
-
-          setReports(mapped);
-        } catch (e) {
-          // console.warn('Failed to fetch submissions for admin reports', e);
-        }
+      const subFunctionsMap: Record<string, string[]> = {};
+      if (apiFunctions && apiFunctions.length > 0) {
+        const subFuncsResults = await Promise.all(
+          apiFunctions.map(async (f) => {
+            try {
+              const subFuncs = await fetchAudienceSubFunctions(f.function_id, {
+                userId: effectiveUserId,
+                companyId,
+              });
+              return {
+                functionName: f.function_name,
+                subFunctionNames: subFuncs.map((sf) => sf.sub_function_name),
+              };
+            } catch (err) {
+              return {
+                functionName: f.function_name,
+                subFunctionNames: [],
+              };
+            }
+          })
+        );
+        subFuncsResults.forEach((res) => {
+          subFunctionsMap[res.functionName] = res.subFunctionNames;
+        });
       }
+
+      const companyName = activeCompany?.name || "Company";
+
+      // If admin, also fetch submissions for reporting
+      // if (role === 'admin') {
+      //   try {
+      //     const subsRes = await fetchTaskSubmissions({ companyId });
+      //     const mapped = (subsRes.submissions || []).map((r: any) => ({
+      //       id: r.submission_id,
+      //       title: (r.tasks && r.tasks[0] && r.tasks[0].title) || r.task_id || 'Task Submission',
+      //       category: 'tasks',
+      //       score: r.score || 0,
+      //       totalQuestions: r.max_score || 0,
+      //       dateCompleted: r.submitted_at ? new Date(r.submitted_at).toISOString().split('T')[0] : 'N/A',
+      //       status: r.status === 'submitted' ? 'Completed' : (r.status === 'reviewed' ? 'Completed' : 'In Progress'),
+      //       image_url: r.image_url,
+      //       video_url: r.video_url,
+      //       audio_url: r.audio_url,
+      //       aiValidation: {
+      //         pass: r.ai_validation_pass,
+      //         verdict: r.ai_validation_verdict,
+      //         reason: r.ai_validation_reason,
+      //         suggestion: r.ai_validation_suggestion,
+      //         confidence: r.ai_validation_confidence,
+      //         status: r.ai_status,
+      //       },
+      //       assignment_id: r.assignment_id,
+      //     })) as ReportItem[];
+
+      //     setReports(mapped);
+      //   } catch (e) {
+      //     // console.warn('Failed to fetch submissions for admin reports', e);
+      //   }
+      // }
 
       setAssignedTasks(mapBackendTasksToAssignedTasks(tasks));
       setSprints(mapCohortsToSprints(cohorts));
-      setTeamMembers(mapMembersToTeamMembers(members));
+      setTeamMembers(mapMembersToTeamMembers(members, companyName));
+      setCorporateLevels({
+        orgs: [companyName],
+        functions: apiFunctions.map((f) => f.function_name),
+        subFunctions: subFunctionsMap,
+      });
     } catch (err: any) {
+      lastFetchedRef.current = null;
       setError(err?.message ?? "Failed to load task manager data.");
     } finally {
       setIsLoading(false);
     }
-  }, [authLoading, companyId, effectiveUserId, user]);
+  }, [authLoading, companyId, effectiveUserId, user, role, activeCompany]);
 
   useEffect(() => {
     loadTaskManagerData();
@@ -377,12 +422,9 @@ function TaskManagerContent() {
 
   if (authLoading || isLoading) {
     return (
-      <main className="min-h-screen px-6 py-16 md:px-8">
-        <div className="mx-auto max-w-7xl space-y-4">
-          <div className="h-24 rounded-3xl bg-white/70 border border-slate-100 animate-pulse" />
-          <div className="h-72 rounded-3xl bg-white/70 border border-slate-100 animate-pulse" />
-        </div>
-      </main>
+      <LoadingProgress
+        label="Loading task manager"
+      />
     );
   }
 
@@ -404,6 +446,7 @@ function TaskManagerContent() {
           onCancel={() => setIsCreatingTask(false)}
           sprints={sprints}
           teamMembers={teamMembers}
+          corporateLevels={corporateLevels}
           onBackendCreate={handleBackendCreate}
         />
       ) : (
@@ -422,15 +465,30 @@ function TaskManagerContent() {
   );
 }
 
+function LoadingProgress({
+  label,
+}: {
+  label: string;
+}) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 flex flex-col items-center justify-center space-y-4">
+        <div className="w-8 h-8 md:w-10 md:h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-sm font-semibold text-slate-700">{label}</p>
+        <p className="text-xs text-slate-500 font-medium">
+          Loading your data securely...
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function TaskManagerPage() {
   return (
     <Suspense fallback={
-      <main className="min-h-screen px-6 py-16 md:px-8">
-        <div className="mx-auto max-w-7xl space-y-4">
-          <div className="h-24 rounded-3xl bg-white/70 border border-slate-100 animate-pulse" />
-          <div className="h-72 rounded-3xl bg-white/70 border border-slate-100 animate-pulse" />
-        </div>
-      </main>
+      <LoadingProgress
+        label="Loading task manager"
+      />
     }>
       <TaskManagerContent />
     </Suspense>
