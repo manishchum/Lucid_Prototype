@@ -39,7 +39,7 @@ import {
   WizardStep
 } from '@/types/task';
 
-type CorporateLevels = {
+export type CorporateLevels = {
   orgs: string[];
   functions: string[];
   subFunctions: Record<string, string[]>;
@@ -68,7 +68,7 @@ export default function TaskCreatorWizard({
   const [activeStep, setActiveStep] = useState<WizardStep>('level');
 
   // Draft Data State
-  const [level, setLevel] = useState<AssignmentLevel>('individual');
+  // const [level, setLevel] = useState<AssignmentLevel>('individual');
   const [associateWithSprint, setAssociateWithSprint] = useState<boolean>(true);
   const [taskMode, setTaskMode] = useState<'single' | 'multiple'>('single');
   const [dueDate, setDueDate] = useState<string>(() => {
@@ -410,26 +410,26 @@ const toggleCorrectAnswer = (
     }
   };
 
-  const handleSelectPresets = (preset: 'all-hq' | 'all-engineering' | 'clear') => {
-    if (preset === 'all-hq') {
-      setSelectedOrgs(['Workfloww HQ']);
-      setSelectedFunctions([]);
-      setSelectedSubFunctions([]);
-      const ids = teamMembers.filter(m => m.org === 'Workfloww HQ').map(m => m.id);
-      setSelectedIndividualIds(ids);
-    } else if (preset === 'all-engineering') {
-      setSelectedOrgs([]);
-      setSelectedFunctions(['Engineering']);
-      setSelectedSubFunctions(['Frontend Engine', 'Backend Engine']);
-      const ids = teamMembers.filter(m => m.function === 'Engineering').map(m => m.id);
-      setSelectedIndividualIds(ids);
-    } else if (preset === 'clear') {
-      setSelectedOrgs([]);
-      setSelectedFunctions([]);
-      setSelectedSubFunctions([]);
-      setSelectedIndividualIds([]);
-    }
-  };
+  // const handleSelectPresets = (preset: 'all-hq' | 'all-engineering' | 'clear') => {
+  //   if (preset === 'all-hq') {
+  //     setSelectedOrgs(['Workfloww HQ']);
+  //     setSelectedFunctions([]);
+  //     setSelectedSubFunctions([]);
+  //     const ids = teamMembers.filter(m => m.org === 'Workfloww HQ').map(m => m.id);
+  //     setSelectedIndividualIds(ids);
+  //   } else if (preset === 'all-engineering') {
+  //     setSelectedOrgs([]);
+  //     setSelectedFunctions(['Engineering']);
+  //     setSelectedSubFunctions(['Frontend Engine', 'Backend Engine']);
+  //     const ids = teamMembers.filter(m => m.function === 'Engineering').map(m => m.id);
+  //     setSelectedIndividualIds(ids);
+  //   } else if (preset === 'clear') {
+  //     setSelectedOrgs([]);
+  //     setSelectedFunctions([]);
+  //     setSelectedSubFunctions([]);
+  //     setSelectedIndividualIds([]);
+  //   }
+  // };
 
   // Validation function
   const isStepValid = (step: WizardStep): boolean => {
@@ -1157,7 +1157,7 @@ className="border rounded-lg text-xs p-2"
                       <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-[#E2E8F0]">
                         <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest font-mono">Audience Selection Shortcuts:</span>
                         <div className="flex items-center space-x-2">
-                          <button
+                          {/* <button
                             type="button"
                             onClick={() => handleSelectPresets('all-hq')}
                             className="bg-white hover:bg-[#EEF2FF] border border-gray-200 text-gray-700 text-[10px] font-semibold px-2 py-1 rounded transition-colors cursor-pointer"
@@ -1170,7 +1170,7 @@ className="border rounded-lg text-xs p-2"
                             className="bg-white hover:bg-[#EEF2FF] border border-gray-100 text-gray-700 text-[10px] font-semibold px-2 py-1 rounded transition-colors cursor-pointer"
                           >
                             All Builders Team
-                          </button>
+                          </button> */}
                           <button
                             type="button"
                             onClick={() => handleSelectPresets('clear')}
@@ -1730,14 +1730,14 @@ className="border rounded-lg text-xs p-2"
   );
 }
 
-export const CORPORATE_LEVELS_DEFAULT: CorporateLevels = {
-  orgs: ['Workfloww HQ', 'Workfloww Global'],
-  functions: ['Engineering', 'Operations', 'Product Management', 'Sales & Growth', 'Design'],
-  subFunctions: {
-    'Engineering': ['Frontend Engine', 'Backend Engine', 'System Ops'],
-    'Operations': ['Beverage Calibration', 'Inventory Management'],
-    'Product Management': ['UX Strategy', 'Feature Pipeline'],
-    'Sales & Growth': ['Corporate Outreach', 'Lead Gen'],
-    'Design': ['Visual Systems', 'Interactive Design']
-  }
-};
+// export const CORPORATE_LEVELS_DEFAULT: CorporateLevels = {
+//   orgs: ['Workfloww HQ', 'Workfloww Global'],
+//   functions: ['Engineering', 'Operations', 'Product Management', 'Sales & Growth', 'Design'],
+//   subFunctions: {
+//     'Engineering': ['Frontend Engine', 'Backend Engine', 'System Ops'],
+//     'Operations': ['Beverage Calibration', 'Inventory Management'],
+//     'Product Management': ['UX Strategy', 'Feature Pipeline'],
+//     'Sales & Growth': ['Corporate Outreach', 'Lead Gen'],
+//     'Design': ['Visual Systems', 'Interactive Design']
+//   }
+// };

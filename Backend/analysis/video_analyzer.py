@@ -1,7 +1,7 @@
 import os
 import cv2
-import tempfile
-import numpy as np
+# import tempfile
+# import numpy as np
 from analysis.models import yolo_model, whisper_pipeline, bge_model
 from analysis.text_analyzer import cosine_similarity
 from video_analysis.services.audio_extractor import extract_audio

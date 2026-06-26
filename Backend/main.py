@@ -51,7 +51,7 @@ from roleplay.scenario.route import router as roleplay_scenario_router
 from roleplay.page.route import router as roleplay_page_router
 from ingestion.embedder import router as embed_router
 from routes import sub_departments
-from video_analysis.router import router as video_router
+
 
 # Create FastAPI app
 app = FastAPI(

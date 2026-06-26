@@ -1,34 +1,28 @@
 import base64
 import json
 import os
-import re
 import tempfile
-import urllib.request
 from typing import Optional
 from uuid import uuid4
-
-import google.generativeai as genai
-
-from utils.supabase_client import supabase
+# from utils.supabase_client import supabase
 from utils.auth_bridge import get_service_supabase_client
 from utils.db.permissions import check_user_permission, check_company_access
 from utils.exceptions import AuthorizationError, NotFoundError
-
 from .models import SubmissionCreate, TaskCreate
-from audio_analysis.scoring import generate_audio_score
-from audio_analysis.services.acoustic_analysis import analyze_audio_features
-from audio_analysis.services.gemini_audio import analyze_audio_with_gemini
-from audio_analysis.services.speech_quality import analyze_speech_quality
-from video_analysis.services.video_analyzer import analyze_video
+# from audio_analysis.scoring import generate_audio_score
+# from audio_analysis.services.acoustic_analysis import analyze_audio_features
+# from audio_analysis.services.gemini_audio import analyze_audio_with_gemini
+# from audio_analysis.services.speech_quality import analyze_speech_quality
+# from video_analysis.services.video_analyzer import analyze_video
 
 
-def _gemini_model():
-    api_key = os.getenv("GEMINI_API_KEY") or ""
-    if not api_key:
-        return None
+# def _gemini_model():
+#     api_key = os.getenv("GEMINI_API_KEY") or ""
+#     if not api_key:
+#         return None
 
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-1.5-flash")
+#     genai.configure(api_key=api_key)
+#     return genai.GenerativeModel("gemini-1.5-flash")
 
 
 def _normalize_submission_format(raw_submission_format) -> list:
@@ -49,14 +43,14 @@ def _normalize_submission_format(raw_submission_format) -> list:
     return [str(raw_submission_format)]
 
 
-def _extract_audio_bytes(audio_input: str | None) -> tuple[bytes, str]:
-    if not audio_input:
-        raise ValueError("Missing audio payload")
+def _extract_media_bytes(media_input: str | None, default_mime: str) -> tuple[bytes, str]:
+    if not media_input:
+        raise ValueError("Missing media payload")
 
-    value = audio_input.strip()
+    value = media_input.strip()
     if value.startswith("data:"):
         header, encoded = value.split(",", 1)
-        mime_type = header.split("data:", 1)[1].split(";", 1)[0] or "audio/webm"
+        mime_type = header.split("data:", 1)[1].split(";", 1)[0] or default_mime
         return base64.b64decode(encoded), mime_type
 
     if value.startswith("http://") or value.startswith("https://"):
@@ -65,65 +59,35 @@ def _extract_audio_bytes(audio_input: str | None) -> tuple[bytes, str]:
         with httpx.Client(timeout=30.0, follow_redirects=True) as client:
             resp = client.get(value, headers=headers)
             resp.raise_for_status()
-            mime_type = resp.headers.get("content-type", "audio/mpeg").split(";")[0]
+            mime_type = resp.headers.get("content-type", default_mime).split(";")[0]
             return resp.content, mime_type
 
-    return base64.b64decode(value), "audio/webm"
+    return base64.b64decode(value), default_mime
 
 
-def _audio_suffix(mime_type: str) -> str:
-    if "mpeg" in mime_type or "mp3" in mime_type:
-        return ".mp3"
-    if "wav" in mime_type:
-        return ".wav"
-    if "ogg" in mime_type:
-        return ".ogg"
-    if "mp4" in mime_type or "m4a" in mime_type:
-        return ".m4a"
-    return ".webm"
+def _media_suffix(mime_type: str, fallback: str) -> str:
+    if "mpeg" in mime_type or "mp3" in mime_type: return ".mp3"
+    if "wav" in mime_type: return ".wav"
+    if "ogg" in mime_type: return ".ogg"
+    if "m4a" in mime_type: return ".m4a"
+    if "png" in mime_type: return ".png"
+    if "gif" in mime_type: return ".gif"
+    if "webp" in mime_type: return ".webp"
+    if "jpeg" in mime_type or "jpg" in mime_type: return ".jpg"
+    if "webm" in mime_type: return ".webm"
+    if "quicktime" in mime_type or "mov" in mime_type: return ".mov"
+    if "mp4" in mime_type: return ".mp4"
+    return fallback
 
 
-def _extract_image_bytes(image_input: str | None) -> tuple[bytes, str]:
-    if not image_input:
-        raise ValueError("Missing image payload")
-
-    value = image_input.strip()
-    if value.startswith("data:"):
-        header, encoded = value.split(",", 1)
-        mime_type = header.split("data:", 1)[1].split(";", 1)[0] or "image/jpeg"
-        return base64.b64decode(encoded), mime_type
-
-    if value.startswith("http://") or value.startswith("https://"):
-        import httpx
-        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
-            resp = client.get(value, headers=headers)
-            resp.raise_for_status()
-            mime_type = resp.headers.get("content-type", "image/jpeg").split(";")[0]
-            return resp.content, mime_type
-
-    return base64.b64decode(value), "image/jpeg"
-
-
-def _image_suffix(mime_type: str) -> str:
-    if "png" in mime_type:
-        return ".png"
-    if "gif" in mime_type:
-        return ".gif"
-    if "webp" in mime_type:
-        return ".webp"
-    return ".jpg"
-
-
-def _store_image_media(payload: SubmissionCreate, company_id: str, submission_id: str) -> str | None:
-    image_input = payload.image_url
-    if not image_input:
+def _store_media(payload: SubmissionCreate, company_id: str, submission_id: str, media_input: str | None, media_type: str, default_mime: str, fallback_suffix: str) -> str | None:
+    if not media_input:
         return None
 
     try:
-        image_bytes, mime_type = _extract_image_bytes(image_input)
+        media_bytes, mime_type = _extract_media_bytes(media_input, default_mime)
     except Exception as exc:
-        print("[task-manager] image storage decode failed:", exc)
+        print(f"[task-manager] {media_type} storage decode failed:", exc)
         return None
 
     bucket = os.getenv("TASK_SUBMISSIONS_BUCKET") or os.getenv("SUPABASE_TASK_SUBMISSIONS_BUCKET") or "task-submissions"
@@ -131,209 +95,84 @@ def _store_image_media(payload: SubmissionCreate, company_id: str, submission_id
         str(company_id),
         str(payload.assignment_id or "unassigned"),
         str(payload.user_id),
-        f"{submission_id}{_image_suffix(mime_type)}",
+        f"{submission_id}{_media_suffix(mime_type, fallback_suffix)}",
     ])
 
     try:
-        supabase.storage.from_(bucket).upload(
+        db = get_service_supabase_client()
+        db.storage.from_(bucket).upload(
             path,
-            image_bytes,
+            media_bytes,
             file_options={
                 "content-type": mime_type,
                 "upsert": "true",
             },
         )
-        public_url = supabase.storage.from_(bucket).get_public_url(path)
+        public_url = db.storage.from_(bucket).get_public_url(path)
         return str(public_url) if public_url else None
     except Exception as exc:
-        print("[task-manager] image storage upload failed:", exc)
+        print(f"[task-manager] {media_type} storage upload failed:", exc)
         return None
 
+
+def _extract_audio_bytes(audio_input: str | None) -> tuple[bytes, str]:
+    return _extract_media_bytes(audio_input, "audio/webm")
+
+def _audio_suffix(mime_type: str) -> str:
+    return _media_suffix(mime_type, ".webm")
 
 def _store_audio_media(payload: SubmissionCreate, company_id: str, submission_id: str) -> str | None:
     audio_input = payload.audio_url or payload.text_response
-    if not audio_input:
-        return None
-
-    try:
-        audio_bytes, mime_type = _extract_audio_bytes(audio_input)
-    except Exception as exc:
-        print("[task-manager] audio storage decode failed:", exc)
-        return None
-
-    bucket = os.getenv("TASK_SUBMISSIONS_BUCKET") or os.getenv("SUPABASE_TASK_SUBMISSIONS_BUCKET") or "task-submissions"
-    path = "/".join([
-        str(company_id),
-        str(payload.assignment_id or "unassigned"),
-        str(payload.user_id),
-        f"{submission_id}{_audio_suffix(mime_type)}",
-    ])
-
-    try:
-        supabase.storage.from_(bucket).upload(
-            path,
-            audio_bytes,
-            file_options={
-                "content-type": mime_type,
-                "upsert": "true",
-            },
-        )
-        public_url = supabase.storage.from_(bucket).get_public_url(path)
-        return str(public_url) if public_url else None
-    except Exception as exc:
-        print("[task-manager] audio storage upload failed:", exc)
-        return None
+    return _store_media(payload, company_id, submission_id, audio_input, "audio", "audio/webm", ".webm")
 
 
-def _analyze_audio_submission(payload: SubmissionCreate, task: dict) -> dict:
-    audio_input = payload.audio_url or payload.text_response
-    audio_bytes, mime_type = _extract_audio_bytes(audio_input)
-    prompt = (
-        "You are validating an employee audio task submission.\n\n"
-        f"Task title: {task.get('title', '')}\n"
-        f"Task description: {task.get('description', '')}\n\n"
-        "Transcribe the speech and evaluate whether the response satisfies the task. "
-        "Analyze tone, professionalism, communication quality, sentence structure, "
-        "language confidence, filler words, strengths, weaknesses, feedback, and "
-        "improvement suggestions. Return STRICT JSON ONLY with keys: transcript, "
-        "tone, communication_score, filler_words, strengths, weaknesses, feedback, "
-        "improvement_suggestions. Scores must be 0-100."
-    )
+def _extract_image_bytes(image_input: str | None) -> tuple[bytes, str]:
+    return _extract_media_bytes(image_input, "image/jpeg")
 
-    gemini_result = analyze_audio_with_gemini(audio_bytes, mime_type, prompt)
+def _image_suffix(mime_type: str) -> str:
+    return _media_suffix(mime_type, ".jpg")
 
-    temp_path = ""
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=_audio_suffix(mime_type)) as tmp:
-            tmp.write(audio_bytes)
-            temp_path = tmp.name
-
-        acoustic_result = analyze_audio_features(temp_path)
-        speech_result = analyze_speech_quality(temp_path)
-    finally:
-        if temp_path:
-            try:
-                os.unlink(temp_path)
-            except Exception:
-                pass
-
-    return generate_audio_score(gemini_result, acoustic_result, speech_result)
+def _store_image_media(payload: SubmissionCreate, company_id: str, submission_id: str) -> str | None:
+    return _store_media(payload, company_id, submission_id, payload.image_url, "image", "image/jpeg", ".jpg")
 
 
 def _extract_video_bytes(video_input: str | None) -> tuple[bytes, str]:
-    if not video_input:
-        raise ValueError("Missing video payload")
-
-    value = video_input.strip()
-    if value.startswith("data:"):
-        header, encoded = value.split(",", 1)
-        mime_type = header.split("data:", 1)[1].split(";", 1)[0] or "video/mp4"
-        return base64.b64decode(encoded), mime_type
-
-    if value.startswith("http://") or value.startswith("https://"):
-        import httpx
-        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
-            resp = client.get(value, headers=headers)
-            resp.raise_for_status()
-            mime_type = resp.headers.get("content-type", "video/mp4").split(";")[0]
-            return resp.content, mime_type
-
-    return base64.b64decode(value), "video/mp4"
-
+    return _extract_media_bytes(video_input, "video/mp4")
 
 def _video_suffix(mime_type: str) -> str:
-    if "webm" in mime_type:
-        return ".webm"
-    if "ogg" in mime_type:
-        return ".ogg"
-    if "quicktime" in mime_type or "mov" in mime_type:
-        return ".mov"
-    return ".mp4"
-
+    return _media_suffix(mime_type, ".mp4")
 
 def _store_video_media(payload: SubmissionCreate, company_id: str, submission_id: str) -> str | None:
     video_input = payload.video_url or payload.text_response
-    if not video_input:
-        return None
-
-    try:
-        video_bytes, mime_type = _extract_video_bytes(video_input)
-    except Exception as exc:
-        print("[task-manager] video storage decode failed:", exc)
-        return None
-
-    bucket = os.getenv("TASK_SUBMISSIONS_BUCKET") or os.getenv("SUPABASE_TASK_SUBMISSIONS_BUCKET") or "task-submissions"
-    path = "/".join([
-        str(company_id),
-        str(payload.assignment_id or "unassigned"),
-        str(payload.user_id),
-        f"{submission_id}{_video_suffix(mime_type)}",
-    ])
-
-    try:
-        supabase.storage.from_(bucket).upload(
-            path,
-            video_bytes,
-            file_options={
-                "content-type": mime_type,
-                "upsert": "true",
-            },
-        )
-        public_url = supabase.storage.from_(bucket).get_public_url(path)
-        return str(public_url) if public_url else None
-    except Exception as exc:
-        print("[task-manager] video storage upload failed:", exc)
-        return None
+    return _store_media(payload, company_id, submission_id, video_input, "video", "video/mp4", ".mp4")
 
 
-def _analyze_video_submission(payload: SubmissionCreate, task: dict) -> dict:
-    video_input = payload.video_url or payload.text_response
-    video_bytes, mime_type = _extract_video_bytes(video_input)
-    
-    temp_path = ""
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=_video_suffix(mime_type)) as tmp:
-            tmp.write(video_bytes)
-            temp_path = tmp.name
-        
-        task_description = task.get("description", "")
-        analysis_result = analyze_video(temp_path, task_description)
-        return analysis_result
-    finally:
-        if temp_path:
-            try:
-                os.unlink(temp_path)
-            except Exception:
-                pass
+# def resolve_company_id(user_id: str | None, fallback_company_id: Optional[str]) -> Optional[str]:
+#     if fallback_company_id:
+#         import uuid
+#         try:
+#             uuid.UUID(str(fallback_company_id))
+#             return fallback_company_id
+#         except ValueError:
+#             pass
 
+#     if not user_id:
+#         return None
 
-def resolve_company_id(user_id: str | None, fallback_company_id: Optional[str]) -> Optional[str]:
-    if fallback_company_id:
-        import uuid
-        try:
-            uuid.UUID(str(fallback_company_id))
-            return fallback_company_id
-        except ValueError:
-            pass
+#     try:
+#         company_res = (
+#             supabase.table("users")
+#             .select("company_id")
+#             .eq("user_id", user_id)
+#             .single()
+#             .execute()
+#         )
+#         if company_res.data:
+#             return company_res.data.get("company_id")
+#     except Exception as lookup_error:
+#         print("[task-manager] Failed to resolve company_id:", lookup_error)
 
-    if not user_id:
-        return None
-
-    try:
-        company_res = (
-            supabase.table("users")
-            .select("company_id")
-            .eq("user_id", user_id)
-            .single()
-            .execute()
-        )
-        if company_res.data:
-            return company_res.data.get("company_id")
-    except Exception as lookup_error:
-        print("[task-manager] Failed to resolve company_id:", lookup_error)
-
-    return None
+#     return None
 
 
 async def is_user_admin(user_id: str | None) -> bool:
@@ -884,6 +723,7 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
         "created_by": payload.created_by,
         "title": payload.title,
         "description": payload.description,
+        "expected_answer": payload.expected_answer,
         "submission_format": db_submission_format,
         "questions": [q.model_dump() for q in (payload.questions or [])],
         "status": "active",
@@ -1178,13 +1018,41 @@ async def get_audience_functions(company_id: str, requesting_user_id: str) -> li
         raise AuthorizationError("Access denied to this company")
 
     db = get_service_supabase_client()
-    return (
+    
+    # Fetch unique function_ids assigned to active users of this company
+    users_res = (
+        db.table("users")
+        .select("function_id")
+        .eq("company_id", company_id)
+        .eq("is_active", True)
+        .execute()
+    )
+    user_function_ids = list({u["function_id"] for u in (users_res.data or []) if u.get("function_id")})
+
+    # Fetch functions explicitly owned by this company
+    company_funcs_res = (
         db.table("function")
         .select("function_id, function_name")
         .eq("company_id", company_id)
         .eq("is_active", True)
         .execute()
-    ).data or []
+    )
+    funcs = company_funcs_res.data or []
+    existing_ids = {f["function_id"] for f in funcs}
+
+    # Fetch any additional functions that are referenced by the company's active users (e.g. global ones)
+    additional_ids = [fid for fid in user_function_ids if fid not in existing_ids]
+    if additional_ids:
+        additional_funcs_res = (
+            db.table("function")
+            .select("function_id, function_name")
+            .in_("function_id", additional_ids)
+            .eq("is_active", True)
+            .execute()
+        )
+        funcs.extend(additional_funcs_res.data or [])
+
+    return funcs
 
 
 async def get_audience_sub_functions(function_id: str, requesting_user_id: str) -> list:
@@ -1199,8 +1067,9 @@ async def get_audience_sub_functions(function_id: str, requesting_user_id: str) 
     if not func_res.data:
         raise NotFoundError("Function", function_id)
     company_id = func_res.data.get("company_id")
-    if not company_id or not await check_company_access(requesting_user_id, company_id):
-        raise AuthorizationError("Access denied to this company")
+    if company_id:
+        if not await check_company_access(requesting_user_id, company_id):
+            raise AuthorizationError("Access denied to this company")
 
     return (
         db.table("sub_function")
@@ -1372,65 +1241,36 @@ async def fetch_task_submissions(
         )
 
 
-        # 2. Attach task + user manually
+        # 2. Bulk fetch tasks and users
+        task_ids = list(set([s.get("task_id") for s in submissions if s.get("task_id")]))
+        user_ids = list(set([s.get("user_id") for s in submissions if s.get("user_id")]))
+
+        tasks_map = {}
+        if task_ids:
+            try:
+                task_res = db.table("tasks").select("*").in_("task_id", task_ids).execute()
+                for t in (task_res.data or []):
+                    tasks_map[t["task_id"]] = t
+            except Exception as e:
+                print("Bulk task fetch failed:", e)
+
+        users_map = {}
+        if user_ids:
+            try:
+                user_res = db.table("users").select("*").in_("user_id", user_ids).execute()
+                for u in (user_res.data or []):
+                    users_map[u["user_id"]] = u
+            except Exception as e:
+                print("Bulk user fetch failed:", e)
+
         for submission in submissions:
             _format_submission_row(submission, caller_is_admin)
 
+            tid = submission.get("task_id")
+            submission["tasks"] = tasks_map.get(tid) if tid else None
 
-            # attach task details
-            task_id = submission.get("task_id")
-
-            if task_id:
-                try:
-                    task_res = (
-                        db
-                        .table("tasks")
-                        .select("*")
-                        .eq(
-                            "task_id",
-                            task_id
-                        )
-                        .single()
-                        .execute()
-                    )
-
-                    submission["tasks"] = task_res.data
-
-                except Exception as e:
-                    print(
-                        "task fetch failed:",
-                        e
-                    )
-                    submission["tasks"] = None
-
-
-
-            # attach employee details
             uid = submission.get("user_id")
-
-            if uid:
-                try:
-                    user_res = (
-                        db
-                        .table("users")
-                        .select("*")
-                        .eq(
-                            "user_id",
-                            uid
-                        )
-                        .single()
-                        .execute()
-                    )
-
-                    submission["users"] = user_res.data
-
-                except Exception as e:
-                    print(
-                        "user fetch failed:",
-                        e
-                    )
-                    submission["users"] = None
-
+            submission["users"] = users_map.get(uid) if uid else None
 
         return submissions
 
@@ -1624,8 +1464,7 @@ async def reassign_task_assignment(
             "total_target_count": audience_count,
         }).eq("assignment_id", original_assignment_id).eq("company_id", company_id).execute()
 
-        # Delete any existing submissions for this assignment so it becomes active again
-        db.table("task_submissions").delete().eq("assignment_id", original_assignment_id).eq("company_id", company_id).execute()
+        # Bugfix: Removed silent deletion of task_submissions to prevent data loss.
 
         updated_tasks = (
             db.table("tasks")
