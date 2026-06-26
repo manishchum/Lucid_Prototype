@@ -129,6 +129,33 @@ async def get_user_by_phone(requesting_user_id: Optional[str], phone: str, auth_
         if not user:
             print(f"[get_user_by_phone] No active user found for phone: {phone}")
             return {"data": None, "error": "User not found"}
+                # Enrich user with company subscription data
+        company_id = user.get("company_id")
+
+        if company_id:
+            company_resp = (
+                query_client.table("companies")
+                .select("""
+                    company_id,
+                    name,
+                    company_logo,
+                    subscription_tier,
+                    subscription_addons
+                """)
+                .eq("company_id", company_id)
+                .limit(1)
+                .execute()
+            )
+
+            company_rows = company_resp.data if hasattr(company_resp, "data") else []
+
+            if company_rows:
+                company = company_rows[0]
+
+                user["company_name"] = company.get("name")
+                user["company_logo"] = company.get("company_logo")
+                user["subscription_tier"] = company.get("subscription_tier")
+                user["subscription_addons"] = company.get("subscription_addons", [])
         # Strip sensitive fields before returning.
         user.pop('password', None)
         return {"data": user, "error": None}

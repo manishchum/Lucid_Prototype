@@ -95,6 +95,14 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   const [voiceLoopActive, setVoiceLoopActive] = useState(false);
   const [autoStartMic, setAutoStartMic] = useState(false);
+  const { hasFeature } = useTenant();
+
+  const canUsePodcast = hasFeature(FEATURES.LUCID_STUDIO_PODCAST);
+  const canUseVideo = hasFeature(FEATURES.LUCID_STUDIO_VIDEO);
+  const canUseMindmap = hasFeature(FEATURES.LUCID_STUDIO_MINDMAP);
+  const canUseInfographic = hasFeature(FEATURES.LUCID_STUDIO_INFOGRAPHIC);
+  const canUseFlashcards = hasFeature(FEATURES.LUCID_STUDIO_FLASHCARDS);
+  // const canUseFlashcard
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -945,6 +953,13 @@ function ContentTransformer({
   onVideoGenerated,
 }: any) {
   // Check if audio exists for each language
+  const { hasFeature } = useTenant();
+
+  const canUsePodcast = hasFeature(FEATURES.LUCID_STUDIO_PODCAST);
+  const canUseVideo = hasFeature(FEATURES.LUCID_STUDIO_VIDEO);
+  const canUseMindmap = hasFeature(FEATURES.LUCID_STUDIO_MINDMAP);
+  const canUseInfographic = hasFeature(FEATURES.LUCID_STUDIO_INFOGRAPHIC);
+  const canUseFlashcards = hasFeature(FEATURES.LUCID_STUDIO_FLASHCARDS);
   const hasEnglishAudio = !!(module.audio_url && module.podcast_transcript && module.podcast_timeline);
   const hasHinglishAudio = !!(module.audio_url_hinglish && module.podcast_transcript_hinglish && module.podcast_timeline_hinglish);
   const hasAudio = hasEnglishAudio || hasHinglishAudio;
@@ -1167,217 +1182,226 @@ function ContentTransformer({
         </div>
 
   <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4 mb-6">
-          <div
-            onClick={() => {
-              if (selectedOption === 'audio') {
-                setAudioOpen((v) => !v);
-              } else {
-                setSelectedOption('audio');
-                setAudioOpen(true);
-              }
-            }}
-            className={clsx(
-              'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
-              selectedOption === 'audio'
-                ? 'bg-slate-50 border-blue-500 shadow-lg'
-                : 'bg-white border-slate-300 hover:border-slate-400'
-            )}
-          >
-            <div className="text-3xl mb-3">🎧</div>
-            <div className="font-bold text-slate-900 text-sm">Podcast</div>
-            <div className="text-slate-500 text-xs mt-1">Listen on the go</div>
-          </div>
+          {canUsePodcast && (
+            <div
+              onClick={() => {
+                if (selectedOption === 'audio') {
+                  setAudioOpen((v) => !v);
+                } else {
+                  setSelectedOption('audio');
+                  setAudioOpen(true);
+                }
+              }}
+              className={clsx(
+                'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
+                selectedOption === 'audio'
+                  ? 'bg-slate-50 border-blue-500 shadow-lg'
+                  : 'bg-white border-slate-300 hover:border-slate-400'
+              )}
+            >
+              <div className="text-3xl mb-3">🎧</div>
+              <div className="font-bold text-slate-900 text-sm">Podcast</div>
+              <div className="text-slate-500 text-xs mt-1">Listen on the go</div>
+            </div>
+          )}
 
-          <div
-            onClick={() => setSelectedOption('video')}
-            className={clsx(
-              'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
-              selectedOption === 'video'
-                ? 'bg-slate-50 border-red-500 shadow-lg'
-                : 'bg-white border-slate-300 hover:border-slate-400'
-            )}
-          >
-            <div className="text-3xl mb-3">🎬</div>
-            <div className="font-bold text-slate-900 text-sm">Explainer Video</div>
-            <div className="text-slate-500 text-xs mt-1">Video lesson</div>
-          </div>
+          {canUseVideo && (
+            <div
+              onClick={() => setSelectedOption('video')}
+              className={clsx(
+                'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
+                selectedOption === 'video'
+                  ? 'bg-slate-50 border-red-500 shadow-lg'
+                  : 'bg-white border-slate-300 hover:border-slate-400'
+              )}
+            >
+              <div className="text-3xl mb-3">🎬</div>
+              <div className="font-bold text-slate-900 text-sm">Explainer Video</div>
+              <div className="text-slate-500 text-xs mt-1">Video lesson</div>
+            </div>
+          )}
 
           {/* AI Chat (Voice assistant) button removed as requested */}
 
-          <div
-            onClick={async () => {
-              setSelectedOption('mindmap');
+          {canUseMindmap && (
+            <div
+              onClick={async () => {
+                setSelectedOption('mindmap');
 
-              if (mindmapData || module.mindmap_data) return;
+                if (mindmapData || module.mindmap_data) return;
 
-              setMindmapLoading(true);
-              try {
-                const studyText = module.content || '';
-                const res = await fetchWithAuth(`${API_BASE}/api/generate-mindmap`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ content: studyText, title: module.title }),
-                });
-
-                const data = await res.json();
-
-                if (res.ok && data && data.nodes && data.edges) {
-                  setMindmapData(data);
-
-                  if (employeeId) {
-                    await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
-                      body: JSON.stringify({ mindmap_data: data }),
-                    });
-
-                    if (onModuleUpdate) {
-                      onModuleUpdate((prev: any) => ({ ...prev, mindmap_data: data }));
-                    }
-                  }
-                }
-              } catch (e) {
-                console.error('Error generating mindmap', e);
-                setMindmapData(null);
-              } finally {
-                setMindmapLoading(false);
-              }
-            }}
-            className={clsx(
-              'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
-              selectedOption === 'mindmap'
-                ? 'bg-slate-50 border-yellow-500 shadow-lg'
-                : 'bg-white border-slate-300 hover:border-slate-400'
-            )}
-          >
-            <div className="text-3xl mb-3">🗺️</div>
-            <div className="font-bold text-slate-900 text-sm">Mindmap</div>
-            <div className="text-slate-500 text-xs mt-1">Structured concepts</div>
-          </div>
-
-          {/* Flash cards */}
-          <div
-            onClick={async () => {
-              setSelectedOption('flashcard');
-
-              if (flashcardSections && flashcardSections.length > 0) return;
-
-              try {
-                setFlashcardLoading(true);
-
-                const studyText = module.content || '';
-                const res = await fetchWithAuth(`${API_BASE}/api/generate-flashcards-gemini`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ content: studyText }),
-                });
-
-                const raw = await res.clone().text();
-                let data: any = null;
+                setMindmapLoading(true);
                 try {
-                  data = await res.json();
-                } catch {
-                  data = JSON.parse(raw);
-                }
+                  const studyText = module.content || '';
+                  const res = await fetchWithAuth(`${API_BASE}/api/generate-mindmap`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: studyText, title: module.title }),
+                  });
 
-                if (res.ok && Array.isArray(data)) {
-                  setFlashcardSections(data);
+                  const data = await res.json();
 
-                  if (employeeId) {
-                    await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
-                      body: JSON.stringify({ flashcard_data: data }),
-                    });
+                  if (res.ok && data && data.nodes && data.edges) {
+                    setMindmapData(data);
 
-                    if (onModuleUpdate) {
-                      onModuleUpdate((prev: any) => ({ ...prev, flashcard_data: data }));
+                    if (employeeId) {
+                      await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
+                        body: JSON.stringify({ mindmap_data: data }),
+                      });
+
+                      if (onModuleUpdate) {
+                        onModuleUpdate((prev: any) => ({ ...prev, mindmap_data: data }));
+                      }
                     }
                   }
-                } else {
-                  setFlashcardSections([{ heading: 'Generation failed', points: [data?.error || 'Check console'] }]);
+                } catch (e) {
+                  console.error('Error generating mindmap', e);
+                  setMindmapData(null);
+                } finally {
+                  setMindmapLoading(false);
                 }
-              } catch (e) {
-                console.error('Error generating flashcards', e);
-              } finally {
-                setFlashcardLoading(false);
-              }
-            }}
-            className={clsx(
-              'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
-              selectedOption === 'flashcard'
-                ? 'bg-slate-50 border-green-500 shadow-lg'
-                : 'bg-white border-slate-300 hover:border-slate-400'
-            )}
-          >
-            <div className="text-3xl mb-3">🃏</div>
-            <div className="font-bold text-slate-900 text-sm">Flash cards</div>
-            <div className="text-slate-500 text-xs mt-1">Quick revision</div>
-          </div>
+              }}
+              className={clsx(
+                'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
+                selectedOption === 'mindmap'
+                  ? 'bg-slate-50 border-yellow-500 shadow-lg'
+                  : 'bg-white border-slate-300 hover:border-slate-400'
+              )}
+            >
+              <div className="text-3xl mb-3">🗺️</div>
+              <div className="font-bold text-slate-900 text-sm">Mindmap</div>
+              <div className="text-slate-500 text-xs mt-1">Structured concepts</div>
+            </div>
+          )}
+          {/* Flash cards */}
+          {canUseFlashcards && (
+            <div
+              onClick={async () => {
+                setSelectedOption('flashcard');
+
+                if (flashcardSections && flashcardSections.length > 0) return;
+
+                try {
+                  setFlashcardLoading(true);
+
+                  const studyText = module.content || '';
+                  const res = await fetchWithAuth(`${API_BASE}/api/generate-flashcards-gemini`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: studyText }),
+                  });
+
+                  const raw = await res.clone().text();
+                  let data: any = null;
+                  try {
+                    data = await res.json();
+                  } catch {
+                    data = JSON.parse(raw);
+                  }
+
+                  if (res.ok && Array.isArray(data)) {
+                    setFlashcardSections(data);
+
+                    if (employeeId) {
+                      await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
+                        body: JSON.stringify({ flashcard_data: data }),
+                      });
+
+                      if (onModuleUpdate) {
+                        onModuleUpdate((prev: any) => ({ ...prev, flashcard_data: data }));
+                      }
+                    }
+                  } else {
+                    setFlashcardSections([{ heading: 'Generation failed', points: [data?.error || 'Check console'] }]);
+                  }
+                } catch (e) {
+                  console.error('Error generating flashcards', e);
+                } finally {
+                  setFlashcardLoading(false);
+                }
+              }}
+              className={clsx(
+                'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
+                selectedOption === 'flashcard'
+                  ? 'bg-slate-50 border-green-500 shadow-lg'
+                  : 'bg-white border-slate-300 hover:border-slate-400'
+              )}
+            >
+              <div className="text-3xl mb-3">🃏</div>
+              <div className="font-bold text-slate-900 text-sm">Flash cards</div>
+              <div className="text-slate-500 text-xs mt-1">Quick revision</div>
+            </div>
+          )}
 
           {/* Infographic button */}
-          <div
-            onClick={async () => {
-              setSelectedOption('infographic');
+          {canUseInfographic && (
+            <div
+              onClick={async () => {
+                setSelectedOption('infographic');
 
-              if (infographicData) return;
+                if (infographicData) return;
 
-              try {
-                setInfographicLoading(true);
-                const contentText = module.content || '';
-
-                const res = await fetchWithAuth(`${API_BASE}/api/generate-infographic`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    content: contentText,
-                    title: module.title,
-                    processed_module_id: module.processed_module_id,
-                  }),
-                });
-
-                let data: any = null;
                 try {
-                  data = await res.json();
-                } catch {
-                  console.error('Failed to parse JSON');
-                }
+                  setInfographicLoading(true);
+                  const contentText = module.content || '';
 
-                if (res.ok && data && !data.error) {
-                  setInfographicData(data);
+                  const res = await fetchWithAuth(`${API_BASE}/api/generate-infographic`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      content: contentText,
+                      title: module.title,
+                      processed_module_id: module.processed_module_id,
+                    }),
+                  });
 
-                  if (employeeId) {
-                    await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
-                      body: JSON.stringify({ infographic_data: data }),
-                    });
-
-                    if (onModuleUpdate) {
-                      onModuleUpdate((prev: any) => ({ ...prev, infographic_data: data }));
-                    }
+                  let data: any = null;
+                  try {
+                    data = await res.json();
+                  } catch {
+                    console.error('Failed to parse JSON');
                   }
-                } else {
-                  alert(`Failed to generate visual guide: ${data?.error || 'Unknown error'}`);
+
+                  if (res.ok && data && !data.error) {
+                    setInfographicData(data);
+
+                    if (employeeId) {
+                      await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
+                        body: JSON.stringify({ infographic_data: data }),
+                      });
+
+                      if (onModuleUpdate) {
+                        onModuleUpdate((prev: any) => ({ ...prev, infographic_data: data }));
+                      }
+                    }
+                  } else {
+                    alert(`Failed to generate visual guide: ${data?.error || 'Unknown error'}`);
+                  }
+                } catch (e: any) {
+                  console.error('[infographic] Error:', e);
+                  alert(`Error generating visual guide: ${e.message || 'Unknown error'}`);
+                } finally {
+                  setInfographicLoading(false);
                 }
-              } catch (e: any) {
-                console.error('[infographic] Error:', e);
-                alert(`Error generating visual guide: ${e.message || 'Unknown error'}`);
-              } finally {
-                setInfographicLoading(false);
-              }
-            }}
-            className={clsx(
-              'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
-              selectedOption === 'infographic'
-                ? 'bg-slate-50 border-purple-500 shadow-lg'
-                : 'bg-white border-slate-300 hover:border-slate-400'
-            )}
-          >
-            <div className="text-3xl mb-3">📊</div>
-            <div className="font-bold text-slate-900 text-sm">Visual Guide</div>
-            <div className="text-slate-500 text-xs mt-1">Structured overview</div>
-          </div>
+              }}
+              className={clsx(
+                'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
+                selectedOption === 'infographic'
+                  ? 'bg-slate-50 border-purple-500 shadow-lg'
+                  : 'bg-white border-slate-300 hover:border-slate-400'
+              )}
+            >
+              <div className="text-3xl mb-3">📊</div>
+              <div className="font-bold text-slate-900 text-sm">Visual Guide</div>
+              <div className="text-slate-500 text-xs mt-1">Structured overview</div>
+            </div>
+          )}
 
           {/* Flashcards button removed - keep only Flash cards button */}
           {/*<div

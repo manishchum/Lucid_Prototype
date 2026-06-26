@@ -20,6 +20,12 @@ type Company = {
 export type Tier = 'tier_1' | 'tier_2' | 'tier_3'
 export type Addon =
   | 'lucid_studio'
+  | 'lucid_studio_textual'
+  | 'lucid_studio_podcast'
+  | 'lucid_studio_video'
+  | 'lucid_studio_mindmap'
+  | 'lucid_studio_infographic'
+  | 'lucid_studio_flashcards'
   | 'chat_in_studio'
   | 'task_management'
   | 'kpi'
@@ -28,6 +34,12 @@ export type Addon =
 // Feature constants - single source of truth for feature names
 export const FEATURES = {
   LUCID_STUDIO: "lucidStudio",
+  LUCID_STUDIO_TEXTUAL: "lucidStudioTextual",
+  LUCID_STUDIO_PODCAST: "lucidStudioPodcast",
+  LUCID_STUDIO_VIDEO: "lucidStudioVideo",
+  LUCID_STUDIO_MINDMAP: "lucidStudioMindmap",
+  LUCID_STUDIO_INFOGRAPHIC: "lucidStudioInfographic",
+  LUCID_STUDIO_FLASHCARDS: "lucidstudioflashcards",
   CHAT_IN_STUDIO: "chatInStudio",
   TASK_MANAGEMENT: "taskManagement",
   KPI: "kpi",
@@ -39,6 +51,12 @@ export type FeatureName = typeof FEATURES[keyof typeof FEATURES]
 // Feature to requirement mapping
 const FEATURE_CONFIG: Record<FeatureName, { requiredAddons?: Addon[] }> = {
   [FEATURES.LUCID_STUDIO]: { requiredAddons: ["lucid_studio"] },
+  [FEATURES.LUCID_STUDIO_TEXTUAL]: { requiredAddons: ["lucid_studio_textual"] },
+  [FEATURES.LUCID_STUDIO_PODCAST]: { requiredAddons: ["lucid_studio_podcast"] },
+  [FEATURES.LUCID_STUDIO_VIDEO]: { requiredAddons: ["lucid_studio_video"] },
+  [FEATURES.LUCID_STUDIO_MINDMAP]: { requiredAddons: ["lucid_studio_mindmap"] },
+  [FEATURES.LUCID_STUDIO_INFOGRAPHIC]: { requiredAddons: ["lucid_studio_infographic"] },
+  [FEATURES.LUCID_STUDIO_FLASHCARDS]: { requiredAddons: ["lucid_studio_flashcards"] },
   [FEATURES.CHAT_IN_STUDIO]: { requiredAddons: ["chat_in_studio"] },
   [FEATURES.TASK_MANAGEMENT]: { requiredAddons: ["task_management"] },
   [FEATURES.KPI]: { requiredAddons: ["kpi"] },
@@ -102,6 +120,12 @@ const normalizeAddonKey = (value: string) => String(value || "").trim().toLowerC
 const isAddon = (value: string): value is Addon => {
   return [
     "lucid_studio",
+    "lucid_studio_textual",
+    "lucid_studio_podcast",
+    "lucid_studio_video",
+    "lucid_studio_mindmap",
+    "lucid_studio_infographic",
+    "lucid_studio_flashcards",
     "chat_in_studio",
     "task_management",
     "kpi",
@@ -113,7 +137,15 @@ const deriveFrontendTier = (addons: Addon[]): Tier | null => {
   const current = new Set(addons)
   if (current.has("task_management")) return "tier_3"
   if (current.has("chat_in_studio")) return "tier_2"
-  if (current.has("lucid_studio")) return "tier_1"
+  if (
+    current.has("lucid_studio") ||
+    current.has("lucid_studio_textual") ||
+    current.has("lucid_studio_podcast") ||
+    current.has("lucid_studio_video") ||
+    current.has("lucid_studio_mindmap") ||
+    current.has("lucid_studio_infographic") ||
+    current.has("lucid_studio_flashcards")
+  ) return "tier_1"
   return null
 }
 

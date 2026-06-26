@@ -21,6 +21,12 @@ const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL
 type SubscriptionTier = "tier_1" | "tier_2" | "tier_3"
 type AddonKey =
   | "lucid_studio"
+  | "lucid_studio_textual"
+  | "lucid_studio_podcast"
+  | "lucid_studio_video"
+  | "lucid_studio_mindmap"
+  | "lucid_studio_infographic"
+  |"lucid_studio_flashcard"
   | "chat_in_studio"
   | "task_management"
   | "kpi"
@@ -40,6 +46,7 @@ type FeatureDefinition = {
   label: string
   description: string
   category: "core" | "addon"
+  parentId?: AddonKey
 }
 
 const FEATURE_DEFINITIONS: FeatureDefinition[] = [
@@ -48,6 +55,48 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     label: "Lucid Studio",
     description: "Unlock the main Lucid Studio workspace.",
     category: "core",
+  },
+  {
+    id: "lucid_studio_textual",
+    label: "Textual",
+    description: "Enable text-based Lucid Studio generation and insights.",
+    category: "core",
+    parentId: "lucid_studio",
+  },
+  {
+    id: "lucid_studio_podcast",
+    label: "Podcast",
+    description: "Enable Lucid Studio audio/podcast generation.",
+    category: "core",
+    parentId: "lucid_studio",
+  },
+  {
+    id: "lucid_studio_video",
+    label: "Video",
+    description: "Enable Lucid Studio video generation.",
+    category: "core",
+    parentId: "lucid_studio",
+  },
+  {
+    id: "lucid_studio_mindmap",
+    label: "Mindmap",
+    description: "Enable Lucid Studio mindmap generation.",
+    category: "core",
+    parentId: "lucid_studio",
+  },
+  {
+    id: "lucid_studio_infographic",
+    label: "Infographic",
+    description: "Enable Lucid Studio infographic generation.",
+    category: "core",
+    parentId: "lucid_studio",
+  },
+  {
+    id: "lucid_studio_flashcard",
+    label: "Flashcard",
+    description: "Enable lucid studio flashcard generation.",
+    category: "core",
+    parentID: "lucid_studio",
   },
   {
     id: "chat_in_studio",
@@ -82,6 +131,15 @@ const FEATURE_LABELS: Record<AddonKey, string> = FEATURE_DEFINITIONS.reduce((acc
 
 const VALID_ADDON_KEYS = new Set<AddonKey>(FEATURE_DEFINITIONS.map((feature) => feature.id))
 
+const LUCID_STUDIO_CHILDREN: AddonKey[] = [
+  "lucid_studio_textual",
+  "lucid_studio_podcast",
+  "lucid_studio_video",
+  "lucid_studio_mindmap",
+  "lucid_studio_infographic",
+  "lucid_studio_flashcard",
+]
+
 function normalizeAddonKey(value: string): AddonKey | null {
   const normalized = String(value || "").trim().toLowerCase().replace(/[-\s]+/g, "_")
   return VALID_ADDON_KEYS.has(normalized as AddonKey) ? (normalized as AddonKey) : null
@@ -111,8 +169,28 @@ function normalizeAddons(values?: string[] | string | null): AddonKey[] {
 }
 
 function getEffectiveAddons(company?: CompanyRecord | null): AddonKey[] {
-  if (!company) return []
-  return Array.from(new Set(normalizeAddons(company.subscription_addons)))
+  if (!company) return ["lucid_studio", "lucid_studio_textual"]
+
+  const effectiveAddons = new Set(normalizeAddons(company.subscription_addons))
+
+  // Default Lucid Studio and Textual to enabled on the company access page
+  effectiveAddons.add("lucid_studio")
+  effectiveAddons.add("lucid_studio_textual")
+
+  const hasLucidChild = [
+    "lucid_studio_textual",
+    "lucid_studio_podcast",
+    "lucid_studio_video",
+    "lucid_studio_mindmap",
+    "lucid_studio_infographic",
+    "lucid_studio_flashcard",
+  ].some((child) => effectiveAddons.has(child))
+
+  if (hasLucidChild) {
+    effectiveAddons.add("lucid_studio")
+  }
+
+  return Array.from(effectiveAddons)
 }
 
 function deriveFrontendTier(addons: AddonKey[]): SubscriptionTier | null {
@@ -121,6 +199,11 @@ function deriveFrontendTier(addons: AddonKey[]): SubscriptionTier | null {
   if (current.has("chat_in_studio")) return "tier_2"
   if (current.has("lucid_studio")) return "tier_1"
   return null
+}
+
+function isLucidStudioEnabled(addons: AddonKey[]) {
+  const current = new Set(addons)
+  return current.has("lucid_studio")
 }
 
 export default function CompanyAccessPage() {
@@ -192,10 +275,21 @@ export default function CompanyAccessPage() {
 
   const handleToggleAddon = (addon: AddonKey, enabled: boolean) => {
     setDraftAddons((current) => {
+      const next = new Set(current)
+
       if (enabled) {
-        return Array.from(new Set([...current, addon]))
+        next.add(addon)
+        if (LUCID_STUDIO_CHILDREN.includes(addon)) {
+          next.add("lucid_studio")
+        }
+      } else {
+        next.delete(addon)
+        if (addon === "lucid_studio") {
+          LUCID_STUDIO_CHILDREN.forEach((child) => next.delete(child))
+        }
       }
-      return current.filter((item) => item !== addon)
+
+      return Array.from(next)
     })
   }
 
@@ -429,12 +523,19 @@ export default function CompanyAccessPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 {FEATURE_DEFINITIONS.map((feature) => {
                   const checked = draftAddons.includes(feature.id)
+                  const isLucidChild = feature.parentId === "lucid_studio"
+                  const parentEnabled = draftAddons.includes("lucid_studio")
+
+                  if (isLucidChild && !parentEnabled) {
+                    return null
+                  }
+
                   return (
                     <div
                       key={feature.id}
                       className={`rounded-3xl border p-5 transition-all ${
                         checked ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white"
-                      }`}
+                      } ${isLucidChild ? "ml-8 md:ml-0" : ""}`}
                     >
                       <div className="flex items-center justify-between gap-4">
                         <div>
@@ -457,8 +558,12 @@ export default function CompanyAccessPage() {
                         <Switch
                           checked={checked}
                           onCheckedChange={(value) => handleToggleAddon(feature.id, Boolean(value))}
+                          disabled={isLucidChild && !parentEnabled}
                         />
                       </div>
+                      {isLucidChild && !parentEnabled && (
+                        <p className="mt-2 text-xs text-slate-500">Enable Lucid Studio to unlock this feature.</p>
+                      )}
                     </div>
                   )
                 })}
