@@ -621,7 +621,7 @@ export default function ScoreHistoryPage() {
             >
               🎭 Role-Play Sessions
             </button>
-            <button
+            {/* <button
               onClick={() => setActiveTab('tasks')}
               className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
                 activeTab === 'tasks'
@@ -630,7 +630,7 @@ export default function ScoreHistoryPage() {
               }`}
             >
               📋 Task Management
-            </button>
+            </button> */}
           </div>
         
         {activeTab === 'assessments' && (
