@@ -11,6 +11,7 @@ from utils.auth_bridge import get_service_supabase_client
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
 import google.generativeai as genai
+from utils.redis_limiter import check_rate_limit
 
 
 router = APIRouter()
@@ -58,7 +59,7 @@ async def POST(request: Request):
                 content={"error": "user_id does not match authenticated token"},
                 status_code=403
             )
-
+        await check_rate_limit(user_id=user_id, endpoint="gpt-feedback")
         # Fetch the assessment questions
         assessmentRes = (
             user_supabase

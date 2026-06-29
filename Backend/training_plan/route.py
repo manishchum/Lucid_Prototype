@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from utils.auth import get_request_auth_required_from_request
 from utils.auth_bridge import get_service_supabase_client
 from utils.redis_client import get_cache, set_cache, redis_client
+from utils.redis_limiter import check_rate_limit
 
 # from db import create_client, Client
 import google.generativeai as genai
@@ -796,6 +797,10 @@ async def POST(request: Request):
         # Call Gemini
         planJsonRaw = ""
         try:
+            await check_rate_limit(
+                user_id=auth_ctx.user_id,
+                endpoint="training-plan"
+            )
             model = genai.GenerativeModel("gemini-3.1-pro-preview")
             result = model.generate_content(prompt)
             planJsonRaw = (result.text or "").strip()
