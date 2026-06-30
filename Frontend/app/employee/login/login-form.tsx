@@ -3,7 +3,12 @@
 import type React from "react"
 import { useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { signInWithPopup, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from "firebase/auth"
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  sendEmailVerification,
+} from "firebase/auth"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,15 +16,19 @@ import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { auth, googleProvider } from "@/lib/firebase"
 import { supabase } from "@/lib/supabase"
-import { Users, Mail } from "lucide-react"
+import { Building2 } from "lucide-react"
 
-const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-export default function EmployeeLoginForm() {
+export default function AdminLoginForm() {
+  const [isLogin, setIsLogin] = useState(true)
   const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [companyName, setCompanyName] = useState("")
+  const [companyDomain, setCompanyDomain] = useState("")
+  const [adminName, setAdminName] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  const [success, setSuccess] = useState("")
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -28,7 +37,7 @@ export default function EmployeeLoginForm() {
     if (urlError) {
       switch (urlError) {
         case "access_denied":
-          setError("Access denied. Your Google account email is not in the allowed employees list.")
+          setError("Access denied. Admin account not found for this Google account.")
           break
         case "auth_failed":
           setError("Authentication failed. Please try again.")
@@ -40,49 +49,25 @@ export default function EmployeeLoginForm() {
           setError("An error occurred during login.")
       }
     }
-
-    // Check if this is a sign-in with email link
-    if (isSignInWithEmailLink(auth, window.location.href)) {
-      handleEmailLinkSignIn()
-    }
   }, [searchParams])
 
-  const checkEmployeeAccess = async (userEmail: string) => {
-    try {
-      const res = await fetch(`${API_BASE}/api/users/by-email/${encodeURIComponent(userEmail)}`)
-      if (!res.ok) {
-        throw new Error("Access denied. Your email is not in the allowed employees list.")
-      }
-      const payload = await res.json()
-      let employeeData = payload?.user ?? payload
-      if (Array.isArray(employeeData)) employeeData = employeeData[0]
-      
-      if (!employeeData) {
-        throw new Error("Access denied. Your email is not in the allowed employees list.")
-      }
-      
-      return employeeData
-    } catch (error: any) {
-      throw new Error(error.message || "Access denied. Your email is not in the allowed employees list.")
-    }
+  const checkAdminAccess = async (userEmail: string) => {
+    // console.log("Not a valid admin login page")
+
   }
 
-  const handleEmailLinkSignIn = async () => {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
     setLoading(true)
+    setError("")
+
     try {
-      const email = window.localStorage.getItem("emailForSignIn")
-      if (!email) {
-        setError("Email not found. Please try signing in again.")
-        return
-      }
+      const userCredential = await signInWithEmailAndPassword(auth, email, password)
 
-      const result = await signInWithEmailLink(auth, email, window.location.href)
+      // Check if user is an admin in Supabase
+      await checkAdminAccess(userCredential.user.email!)
 
-      // Check if user is an allowed employee
-      await checkEmployeeAccess(result.user.email!)
-
-      window.localStorage.removeItem("emailForSignIn")
-      router.push("/employee/welcome")
+      router.push("/admin/dashboard")
     } catch (error: any) {
       setError(error.message)
     } finally {
@@ -90,28 +75,42 @@ export default function EmployeeLoginForm() {
     }
   }
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError("")
-    setSuccess("")
 
     try {
-      // First check if email is in allowed employees list
-      await checkEmployeeAccess(email)
-
-      // Send sign-in link to email
-      const actionCodeSettings = {
-        url: `${window.location.origin}/login`,
-        handleCodeInApp: true,
+      const compRes = await fetch(`${API_BASE}/api/companies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: companyName, domain: companyDomain }),
+      })
+      if (!compRes.ok) {
+        const txt = await compRes.text().catch(() => "")
+        throw new Error(`Error creating company: ${compRes.status} ${txt}`)
       }
 
-      await sendSignInLinkToEmail(auth, email, actionCodeSettings)
+      const payload = await compRes.json().catch(() => null)
+      const companyData = payload?.company ?? payload
+      if (!companyData || !companyData.company_id) throw new Error("Invalid company data returned from server")
+        
+      // Create Firebase user
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password)
 
-      // Save email locally for the sign-in completion
-      window.localStorage.setItem("emailForSignIn", email)
+      // Send email verification
+      await sendEmailVerification(userCredential.user)
 
-      setSuccess("Check your email for the login link!")
+      // Create admin record in Supabase
+      // const { error: adminError } = await supabase.from("admins").insert({
+      //   email,
+      //   name: adminName,
+      //   company_id: companyData.company_id,
+      // })
+
+      // if (adminError) throw adminError
+
+      setError("Account created successfully! Please check your email to verify your account.")
     } catch (error: any) {
       setError(error.message)
     } finally {
@@ -122,18 +121,17 @@ export default function EmployeeLoginForm() {
   const handleGoogleSignIn = async () => {
     setLoading(true)
     setError("")
-    setSuccess("")
 
     try {
       const result = await signInWithPopup(auth, googleProvider)
 
-      // Check if user is an allowed employee
-      await checkEmployeeAccess(result.user.email!)
+      // Check if user is an admin in Supabase
+      await checkAdminAccess(result.user.email!)
 
-      router.push("/employee/welcome")
+      router.push("/admin/dashboard")
     } catch (error: any) {
       if (error.message.includes("Access denied")) {
-        setError("Access denied. Your Google account email is not in the allowed employees list.")
+        setError("Access denied. Admin account not found for this Google account.")
       } else {
         setError(error.message)
       }
@@ -145,22 +143,64 @@ export default function EmployeeLoginForm() {
   return (
     <Card>
       <CardHeader className="text-center">
-        {/* <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4"> */}
-          {/* <Users className="w-8 h-8 text-green-600" /> */}
-        {/* </div> */}
-        <CardTitle className="text-xl">Learner Login</CardTitle>
-        <CardDescription>While others are building AI that replaces humans, we built Lucid that makes humans extraordinary.</CardDescription>
+        <div className="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+          <Building2 className="w-8 h-8 text-blue-600" />
+        </div>
+        <CardTitle className="text-2xl">{isLogin ? "Console Login" : "Create Console Account"}</CardTitle>
+        <CardDescription>
+          {isLogin ? "Sign in to your console" : "Set up your company and console account"}
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div className="space-y-2"> 
-            <Label htmlFor="email">Email Address</Label>
+        <form onSubmit={isLogin ? handleLogin : handleSignup} className="space-y-4">
+          {!isLogin && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="companyName">Company Name</Label>
+                <Input
+                  id="companyName"
+                  type="text"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="companyDomain">Company Domain</Label>
+                <Input
+                  id="companyDomain"
+                  type="text"
+                  placeholder="company.com"
+                  value={companyDomain}
+                  onChange={(e) => setCompanyDomain(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="adminName">Your Name</Label>
+                <Input
+                  id="adminName"
+                  type="text"
+                  value={adminName}
+                  onChange={(e) => setAdminName(e.target.value)}
+                  required
+                />
+              </div>
+            </>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
             <Input
-              id="email"
-              type="email"
-              placeholder="your.email@company.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               required
             />
           </div>
@@ -171,15 +211,8 @@ export default function EmployeeLoginForm() {
             </Alert>
           )}
 
-          {success && (
-            <Alert>
-              <Mail className="w-4 h-4" />
-              <AlertDescription>{success}</AlertDescription>
-            </Alert>
-          )}
-
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Sending login link..." : "Send Login Link"}
+            {loading ? "Processing..." : isLogin ? "Sign In" : "Create Account"}
           </Button>
         </form>
 
@@ -220,9 +253,14 @@ export default function EmployeeLoginForm() {
           Continue with Google
         </Button>
 
-        <div className="mt-6 text-center text-sm text-gray-600">
-          <p>We'll send you a secure login link via email or sign in with Google.</p>
-          <p className="mt-2">Don't have access? Contact us via mail at manish.chum@workfloww.ai</p>
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            onClick={() => setIsLogin(!isLogin)}
+            className="text-blue-600 hover:text-blue-800 text-sm"
+          >
+            {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
+          </button>
         </div>
       </CardContent>
     </Card>

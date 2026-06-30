@@ -10,7 +10,6 @@ class QuizQuestion(BaseModel):
     type: Literal[
         "single",
         "multiple",
-        "written"
     ] = "single"
     options: List[str] = []
     correctAnswer: Optional[str] = None
@@ -21,8 +20,10 @@ class QuizQuestion(BaseModel):
 class TaskCreate(BaseModel):
     title: str = Field(..., min_length=5)
     description: Optional[str] = None
+    expected_answer: Optional[str] = None
     submission_format: Union[str, List[str]]
     questions: Optional[List[QuizQuestion]] = []
+    bundle_tasks: Optional[List[dict]] = []
     level: str
     target_module_id: Optional[str] = None
     target_function_id: Optional[str] = None
@@ -39,8 +40,10 @@ class TaskResponse(BaseModel):
     company_id: str
     title: str
     description: Optional[str]
+    expected_answer: Optional[str] = None
     submission_format: List[str]
     questions: List[dict]
+    bundle_tasks: Optional[List[dict]] = []
     status: str
     due_date: str
     recurrence: str
@@ -49,6 +52,8 @@ class TaskResponse(BaseModel):
     total_target_count: int
     completion_count: int
     created_at: str
+    submitted: Optional[bool] = False
+    submission: Optional[dict] = None
 
 
 class TaskListResponse(BaseModel):

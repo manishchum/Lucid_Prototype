@@ -1,9 +1,4 @@
-from ultralytics import YOLO
-
-# Load once when server starts
-model = YOLO("yolov8n.pt")
-
-
+from analysis.models import yolo_model as model
 def detect_objects(image_path: str):
     """
     Detect objects from image using YOLO.

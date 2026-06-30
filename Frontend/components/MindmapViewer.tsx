@@ -19,6 +19,9 @@ export default function MindmapViewer({
   const nodes = data.nodes;
   const edges = data.edges || [];
 
+  const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
+  const [viewport, setViewport] = useState({ w: 800, h: 600 });
+
   // Compute a deterministic top-down tree layout once per data change.
   // This replaces any incoming x/y coordinates and forces a single
   // hierarchical layout (root at top, children beneath in columns) so
@@ -31,6 +34,14 @@ export default function MindmapViewer({
   // overlap based on node heights.
   const layoutNodes = useMemo(() => {
     if (!nodes || nodes.length === 0) return nodes;
+
+    const sanitizeLabel = (lbl: string) => {
+      return String(lbl || '')
+        .replace(/<\/?[^>]+(>|$)/g, "")
+        .replace(/&nbsp;/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    };
 
     const idKey = (id: any) => String(id);
 
@@ -50,9 +61,27 @@ export default function MindmapViewer({
       parent.set(c, p);
     }
 
+    // Prune children of collapsed nodes
+    const visibleNodes = new Set<string>();
+    const dfsVisible = (id: string) => {
+      visibleNodes.add(id);
+      if (!collapsedNodes.has(id)) {
+        for (const c of children.get(id) || []) dfsVisible(c);
+      }
+    };
+
     // Find root (node without a parent) or fallback to first node
     const roots = nodes.filter((n) => parent.get(idKey(n.id)) === null).map((n) => idKey(n.id));
     const rootId = roots[0] || idKey(nodes[0].id);
+
+    dfsVisible(rootId);
+
+    // Adjust `children` map to hide children of collapsed nodes
+    for (const [id, ch] of children.entries()) {
+      if (collapsedNodes.has(id)) {
+        children.set(id, []);
+      }
+    }
 
     // Helper to estimate rect size for a label (matches render logic)
     const estimateRect = (label: string) => {
@@ -79,7 +108,8 @@ export default function MindmapViewer({
     // Precompute rect sizes for all nodes
     const rectSizes = new Map<string, { w: number; h: number }>();
     for (const n of nodes) {
-      const e = estimateRect(n.label || '');
+      const cleanLbl = sanitizeLabel(n.label || '');
+      const e = estimateRect(cleanLbl);
       rectSizes.set(idKey(n.id), { w: e.rectW, h: e.rectH });
     }
 
@@ -147,11 +177,14 @@ export default function MindmapViewer({
     assignPositions(rootId, 0);
 
     // Step 3: build final node list with x/y
-    const built = nodes.map((n) => {
+    const built = nodes
+      .filter((n) => visibleNodes.has(idKey(n.id)))
+      .map((n) => {
       const id = idKey(n.id);
       const x = xMap.get(id) ?? 0;
       const y = (depths.get(id) ?? 0) * levelHeight;
-      return { ...n, x, y };
+      const cleanLbl = sanitizeLabel(n.label || '');
+      return { ...n, label: cleanLbl, x, y };
     });
 
     // Center the whole layout around x=0
@@ -160,7 +193,7 @@ export default function MindmapViewer({
     const maxX = Math.max(...xsList);
     const center = (minX + maxX) / 2;
     return built.map((n) => ({ ...n, x: n.x - center }));
-  }, [nodes, edges]);
+  }, [nodes, edges, collapsedNodes]);
 
   const xs = layoutNodes.map((n) => n.x);
   const ys = layoutNodes.map((n) => n.y);
@@ -192,6 +225,43 @@ export default function MindmapViewer({
     const [selectedNode, setSelectedNode] = useState<Node | null>(null);
     const [relatedOpen, setRelatedOpen] = useState(false);
     const [relatedFull, setRelatedFull] = useState<string | null>(null);
+
+    // Auto-load summary when node is selected
+    useEffect(() => {
+      if (!selectedNode) {
+        setRelatedOpen(false);
+        setRelatedFull(null);
+        return;
+      }
+
+      const loadSummary = async () => {
+        setRelatedOpen(true);
+        setRelatedFull('Loading related content...');
+        try {
+          const res = await fetch('/api/mindmap-node-summary', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label: selectedNode.label, source }),
+          });
+          if (res.ok) {
+            const json = await res.json();
+            const text = (json?.summary || json?.text || '').toString();
+            if (text && text.trim()) {
+              setRelatedFull(text.trim());
+              return;
+            }
+          }
+        } catch (e) {
+          // ignore and fallback
+        }
+
+        // fallback local extraction
+        const full = extractFullSnippetForLabel(selectedNode.label, source || '');
+        setRelatedFull(full);
+      };
+
+      loadSummary();
+    }, [selectedNode, source]);
 
     // decode HTML entities (runs only in browser, this is a client component)
     const decodeHtmlEntities = (str: string) => {
@@ -509,6 +579,15 @@ export default function MindmapViewer({
       if (onDownloadReady) onDownloadReady(downloadPNG);
     }, [downloadPNG, onDownloadReady]);
 
+    useEffect(() => {
+      if (!svgRef.current) return;
+      const observer = new ResizeObserver((entries) => {
+        setViewport({ w: entries[0].contentRect.width, h: entries[0].contentRect.height });
+      });
+      observer.observe(svgRef.current);
+      return () => observer.disconnect();
+    }, []);
+
     return (
       <div className="relative w-full h-full bg-white select-none">
         <div className="absolute top-2 right-2 z-10 flex gap-2">
@@ -539,6 +618,9 @@ export default function MindmapViewer({
           onMouseUp={onMouseUp}
           onMouseLeave={onMouseUp}
           onWheel={onWheel}
+          onClick={(e) => {
+            if (e.target === svgRef.current) setSelectedNode(null);
+          }}
         >
           <defs>
             <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
@@ -556,12 +638,15 @@ export default function MindmapViewer({
           </defs>
 
           {/* group transformed by pan/zoom */}
-          <g transform={`translate(${panX}, ${panY}) scale(${scale})`}>
+          <g transform={`translate(${panX}, ${panY}) scale(${scale})`} style={{ transition: 'transform 0.4s ease-out' }}>
             {/* edges */}
             {edges.map((e, i) => {
               const a = findNode(e.from);
               const b = findNode(e.to);
               if (!a || !b) return null;
+              
+              const isFaded = selectedNode && (a.id !== selectedNode.id && b.id !== selectedNode.id);
+
               return (
                 <line
                   key={i}
@@ -572,6 +657,7 @@ export default function MindmapViewer({
                   stroke="#CBD5E1"
                   strokeWidth={2}
                   strokeLinecap="round"
+                  style={{ opacity: isFaded ? 0.15 : 1, transition: 'opacity 0.4s ease-out' }}
                 />
               );
             })}
@@ -605,6 +691,10 @@ export default function MindmapViewer({
               const gradFill = idx % 2 === 0 ? 'url(#grad-blue)' : 'url(#grad-purple)';
               // Use a solid black border for node rectangles per design request
               const stroke = '#000';
+              
+              const isFaded = selectedNode && selectedNode.id !== n.id;
+              const hasHiddenChildren = collapsedNodes.has(n.id) && edges.some(e => String(e.from) === String(n.id));
+
               return (
                 <g
                   key={n.id}
@@ -626,7 +716,16 @@ export default function MindmapViewer({
                     setPanY(newPanY);
                     setSelectedNode(n);
                   }}
-                  style={{ cursor: 'pointer' }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setCollapsedNodes(prev => {
+                      const next = new Set(prev);
+                      if (next.has(n.id)) next.delete(n.id);
+                      else next.add(n.id);
+                      return next;
+                    });
+                  }}
+                  style={{ cursor: 'pointer', opacity: isFaded ? 0.3 : 1, transition: 'opacity 0.4s ease-out' }}
                 >
                   <rect width={rectW} height={rectH} rx={8} ry={8} fill={gradFill} stroke={stroke} strokeWidth={1.5} />
                   <text
@@ -643,6 +742,13 @@ export default function MindmapViewer({
                       </tspan>
                     ))}
                   </text>
+                  
+                  {hasHiddenChildren && (
+                    <g transform={`translate(${rectW / 2}, ${rectH})`}>
+                      <circle cx={0} cy={0} r={10} fill="#fff" stroke="#000" strokeWidth={1.5} />
+                      <text x={0} y={4} fontSize={14} textAnchor="middle" fontWeight="bold" fill="#000" style={{ pointerEvents: 'none' }}>+</text>
+                    </g>
+                  )}
                 </g>
               );
             })}
@@ -678,59 +784,58 @@ export default function MindmapViewer({
               <h3 className="text-lg font-bold text-black text-left w-full mt-1" style={{ textAlign: 'left' }}>{selectedNode.label}</h3>
             </div>
             <div className="mt-3 text-sm text-gray-700 text-left" style={{ textAlign: 'left' }}>
-              {/* Short snippet */}
-              <p className="mb-3 text-sm text-gray-800 text-left" style={{ textAlign: 'left' }}>{extractSnippetForLabel(selectedNode.label, source || '')}</p>
-
-              {/* Show related content button */}
-              {!relatedOpen ? (
-                <button
-                  className="text-sm text-blue-600 hover:underline"
-                  onClick={async () => {
-                    // Try server-side LLM summary first, fallback to local extraction
-                    setRelatedOpen(true);
-                    setRelatedFull('Loading related content...');
-                    try {
-                      const res = await fetch('/api/mindmap-node-summary', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ label: selectedNode.label, source }),
-                      });
-                      if (res.ok) {
-                        const json = await res.json();
-                        const text = (json?.summary || json?.text || '').toString();
-                        if (text && text.trim()) {
-                          setRelatedFull(text.trim());
-                          return;
-                        }
-                      }
-                    } catch (e) {
-                      // ignore and fallback
-                    }
-
-                    // fallback local extraction
-                    const full = extractFullSnippetForLabel(selectedNode.label, source || '');
-                    setRelatedFull(full);
-                  }}
-                >
-                  Show related content
-                </button>
-              ) : (
-                <div className="mt-3 text-sm text-gray-800 text-left" style={{ textAlign: 'left' }}>
-                  <div className="whitespace-pre-line text-left" style={{ textAlign: 'left' }}>{relatedFull}</div>
-                  <button
-                    className="mt-3 text-sm text-blue-600 hover:underline"
-                    onClick={() => {
-                      setRelatedOpen(false);
-                      setRelatedFull(null);
-                    }}
-                  >
-                    Hide related content
-                  </button>
+              {/* Show crunchable content */}
+              {relatedOpen && (
+                <div className="text-sm text-gray-800 text-left" style={{ textAlign: 'left' }}>
+                  <div className="whitespace-pre-line text-left leading-relaxed text-gray-600" style={{ textAlign: 'left' }}>
+                    {relatedFull}
+                  </div>
                 </div>
               )}
             </div>
           </div>
         )}
+
+        {/* Interactive Minimap */}
+        <div className="absolute bottom-4 left-4 w-48 h-32 bg-white border border-slate-200 shadow-md rounded overflow-hidden z-10 hidden sm:block">
+          <svg
+            className="w-full h-full cursor-pointer"
+            viewBox={`${minX} ${minY} ${naturalWidth} ${naturalHeight}`}
+            onMouseDown={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const clickX = (e.clientX - rect.left) / rect.width;
+              const clickY = (e.clientY - rect.top) / rect.height;
+              const targetX = minX + clickX * naturalWidth;
+              const targetY = minY + clickY * naturalHeight;
+              
+              setPanX(viewport.w / 2 - targetX * scale);
+              setPanY(viewport.h / 2 - targetY * scale);
+            }}
+          >
+            <rect x={minX} y={minY} width={naturalWidth} height={naturalHeight} fill="#f8fafc" />
+            {edges.map((e, i) => {
+              const a = findNode(e.from);
+              const b = findNode(e.to);
+              if (!a || !b) return null;
+              return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#cbd5e1" strokeWidth={4} />
+            })}
+            {layoutNodes.map((n) => (
+              <circle key={n.id} cx={n.x} cy={n.y} r={16} fill="#94a3b8" />
+            ))}
+            
+            {/* Viewport Box */}
+            <rect
+              x={-panX / scale}
+              y={-panY / scale}
+              width={viewport.w / scale}
+              height={viewport.h / scale}
+              fill="rgba(59, 130, 246, 0.15)"
+              stroke="#3b82f6"
+              strokeWidth={4}
+              style={{ transition: 'all 0.4s ease-out', pointerEvents: 'none' }}
+            />
+          </svg>
+        </div>
       </div>
     );
   }
@@ -739,16 +844,16 @@ export default function MindmapViewer({
   function htmlToPlainParagraphs(source: string): string[] {
     let text = source;
     try {
-      // Replace block-level tags with newlines BEFORE stripping, so structure is preserved
+      // Decode entities first, then replace block-level tags with newlines to preserve structure
       text = text
-        .replace(/<\/?(p|div|br|h[1-6]|li|tr|section|article|blockquote)[^>]*>/gi, '\n')
-        .replace(/<[^>]+>/g, ' ')
         .replace(/&nbsp;/g, ' ')
         .replace(/&amp;/g, '&')
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
         .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'");
+        .replace(/&#39;/g, "'")
+        .replace(/<\/?(p|div|br|h[1-6]|ul|ol|li|table|tr|td|th|section|article|blockquote)[^>]*>/gi, '\n')
+        .replace(/<[^>]+>/g, ' ');
     } catch (e) {
       text = source.replace(/<[^>]+>/g, ' ');
     }
@@ -831,10 +936,18 @@ export default function MindmapViewer({
     const bestScore = scores[bestIdx];
 
     if (bestScore > 0) {
-      // Return a window of lines around the best match (up to ~6 lines of context)
-      const start = Math.max(0, bestIdx - 1);
-      const end = Math.min(lines.length, bestIdx + 5);
-      return lines.slice(start, end).join('\n');
+      // Find the first substantive paragraph starting from bestIdx to avoid just returning short headings
+      let contentIdx = bestIdx;
+      while (contentIdx < lines.length && lines[contentIdx].split(/\s+/).length < 10) {
+        contentIdx++;
+      }
+      if (contentIdx >= lines.length) contentIdx = bestIdx;
+
+      // Return a window of lines from the substantive match
+      const start = contentIdx;
+      const end = Math.min(lines.length, contentIdx + 3);
+      const summary = lines.slice(start, end).join('\n\n');
+      return `Definition:\n${summary}`;
     }
 
     // Final fallback: first occurrence of any keyword

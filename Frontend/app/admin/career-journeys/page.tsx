@@ -184,7 +184,7 @@ export default function CareerJourneysPage() {
       if (draftsResult.data) setDraftJourneys(draftsResult.data.map(db => transformDBToUI(db, 'draft')));
       if (publishedResult.data) setPublishedJourneys(publishedResult.data.map(db => transformDBToUI(db, 'published')));
     } catch (error) {
-      console.error('Failed to load journeys:', error);
+      // console.error('Failed to load journeys:', error);
       notify('error', 'Failed to load journeys');
     }
   };
@@ -281,7 +281,7 @@ export default function CareerJourneysPage() {
     setIsSaving(true);
     try {
       const journeyData = transformUIToDB({ id: editingDraftId || `temp-${Date.now()}`, roleName, levels: JSON.parse(JSON.stringify(levels)) });
-      console.debug('Submitting career journey payload:', journeyData);
+      // console.debug('Submitting career journey payload:', journeyData);
       const result = editingDraftId
         ? await updateCareerJourney(editingDraftId, journeyData, userId)
         : await createCareerJourney(journeyData, userId);

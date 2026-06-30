@@ -1398,15 +1398,25 @@ function ContentTransformer({
 
         {selectedOption === 'audio' && audioOpen && (
           <div className="space-y-3 flex flex-col">
-             <div className="flex items-center gap-3">
-              <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value as 'en' | 'hinglish')}
-                className="px-3 py-1 rounded border text-sm bg-white"
+                        <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg w-max mb-2">
+              <button
+                onClick={() => setLanguage('en')}
+                className={clsx(
+                  "px-4 py-1.5 text-sm font-medium rounded-md transition-all",
+                  language === 'en' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                )}
               >
-                <option value="en">English</option>
-                <option value="hinglish">हिंदी</option>
-              </select>
+                English
+              </button>
+              <button
+                onClick={() => setLanguage('hinglish')}
+                className={clsx(
+                  "px-4 py-1.5 text-sm font-medium rounded-md transition-all",
+                  language === 'hinglish' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                )}
+              >
+                हिंदी
+              </button>
             </div>
 
             {hasCurrentLanguageAudio(language) && (
@@ -1424,22 +1434,52 @@ function ContentTransformer({
                 </div>
 
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                                  <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg w-max mb-3">
                   <button
-                    type="button"
-                    onClick={() => setTranscriptOpen((v) => !v)}
-                    className="flex items-center justify-between w-full text-xs font-semibold text-slate-600"
+                    onClick={() => {
+                      setLanguage('en');
+                      const video = document.getElementById('module-video') as HTMLVideoElement;
+                      if (!video) return;
+                      const currentTime = video.currentTime;
+                      const isPaused = video.paused;
+                      video.src = module.video_url;
+                      video.onloadedmetadata = () => {
+                        video.currentTime = currentTime;
+                        if (!isPaused) video.play();
+                        video.onloadedmetadata = null;
+                      };
+                    }}
+                    className={clsx(
+                      "px-4 py-1.5 text-sm font-medium rounded-md transition-all",
+                      language === 'en' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                    )}
                   >
-                    <span>Live transcript</span>
-                    <span
-                      className={clsx(
-                        'transition-transform',
-                        transcriptOpen ? 'rotate-180' : 'rotate-0'
-                      )}
-                      aria-hidden
-                    >
-                      ▾
-                    </span>
+                    English
                   </button>
+                  {module.video_url_hinglish && (
+                    <button
+                      onClick={() => {
+                        setLanguage('hinglish');
+                        const video = document.getElementById('module-video') as HTMLVideoElement;
+                        if (!video) return;
+                        const currentTime = video.currentTime;
+                        const isPaused = video.paused;
+                        video.src = module.video_url_hinglish;
+                        video.onloadedmetadata = () => {
+                          video.currentTime = currentTime;
+                          if (!isPaused) video.play();
+                          video.onloadedmetadata = null;
+                        };
+                      }}
+                      className={clsx(
+                        "px-4 py-1.5 text-sm font-medium rounded-md transition-all",
+                        language === 'hinglish' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                      )}
+                    >
+                      हिंदी
+                    </button>
+                  )}
+                </div>
 
                   {transcriptOpen && (
                     <div className="mt-3 h-72 sm:h-96 overflow-y-auto space-y-3 flex flex-col px-3">
@@ -1534,30 +1574,53 @@ function ContentTransformer({
           <div className="space-y-3 flex flex-col">
             {module.video_url && (
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex justify-start gap-2 mb-2">
-                  <select 
-                    onChange={(e) => {
+                                <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg w-max mb-3">
+                  <button
+                    onClick={() => {
+                      setLanguage('en');
                       const video = document.getElementById('module-video') as HTMLVideoElement;
                       if (!video) return;
                       const currentTime = video.currentTime;
                       const isPaused = video.paused;
-                      video.src = e.target.value === 'hinglish' ? module.video_url_hinglish : module.video_url;
+                      video.src = module.video_url;
                       video.onloadedmetadata = () => {
                         video.currentTime = currentTime;
                         if (!isPaused) video.play();
                         video.onloadedmetadata = null;
                       };
                     }}
-                    className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold cursor-pointer outline-none w-28 appearance-none text-center shadow-sm"
-                    defaultValue="en"
-                  >
-                    <option value="en">English</option>
-                    {module.video_url_hinglish && (
-                      <option value="hinglish">हिंदी</option>
+                    className={clsx(
+                      "px-4 py-1.5 text-sm font-medium rounded-md transition-all",
+                      language === 'en' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
                     )}
-                  </select>
+                  >
+                    English
+                  </button>
+                  {module.video_url_hinglish && (
+                    <button
+                      onClick={() => {
+                        setLanguage('hinglish');
+                        const video = document.getElementById('module-video') as HTMLVideoElement;
+                        if (!video) return;
+                        const currentTime = video.currentTime;
+                        const isPaused = video.paused;
+                        video.src = module.video_url_hinglish;
+                        video.onloadedmetadata = () => {
+                          video.currentTime = currentTime;
+                          if (!isPaused) video.play();
+                          video.onloadedmetadata = null;
+                        };
+                      }}
+                      className={clsx(
+                        "px-4 py-1.5 text-sm font-medium rounded-md transition-all",
+                        language === 'hinglish' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                      )}
+                    >
+                      हिंदी
+                    </button>
+                  )}
                 </div>
-                <video id="module-video" controls className="w-full rounded-lg">
+                  <video id="module-video" controls className="w-full rounded-lg shadow-md border border-slate-200">
                   <source src={module.video_url} type="video/mp4" />
                   Your browser does not support video playback.
                 </video>

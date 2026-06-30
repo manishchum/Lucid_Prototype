@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import TaskDashboard from "@/components/task-manager/TaskDashboard";
-import TaskCreatorWizard from "@/components/task-manager/TaskCreatorWizard";
-import type { ReportItem } from "@/components/task-manager/TaskReports";
+import TaskCreatorWizard, { type CorporateLevels } from "@/components/task-manager/TaskCreatorWizard";
+// import type { ReportItem } from "@/components/task-manager/TaskReports";
 import { useAuth } from "@/contexts/auth-context";
 import { useTenant } from "@/contexts/tenant-context";
 import {
@@ -17,6 +17,8 @@ import {
   fetchCohorts,
   submitTaskResponse,
   reassignTask,
+  fetchAudienceFunctions,
+  fetchAudienceSubFunctions,
   type CreateTaskPayload,
   type SubmitTaskPayload,
   type Task,
@@ -27,6 +29,7 @@ import type {
   Sprint,
   SubmissionFormat,
   TeamMember,
+  QuizQuestion,
 } from "@/types/task";
 
 function mapBackendLevel(level?: string): AssignmentLevel {
@@ -39,30 +42,67 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
   return backendTasks.map((task) => {
     const level = mapBackendLevel(task.level);
     const audienceName = task.audience_display_name || "";
-    const normalizeSubmissionFormat = (taskObj: any) => {
-      const raw = taskObj.submission_format;
-      if (Array.isArray(raw)) return (raw[0] as string) || 'text';
-      return (raw as string) || (taskObj.submissionFormat as string) || 'text';
-    };
+    let subtasks: {
+      id: string;
+      title: string;
+      description: string;
+      submissionFormat: SubmissionFormat;
+      questions: QuizQuestion[];
+    }[] = [];
+    let isMultiple = false;
 
-  const submission = (task as any).submission || null;
-  const statusNormalized = String(task.status || "").toLowerCase();
-  const statusIsCompleted = statusNormalized.includes("completed") || statusNormalized.includes("submitted") || statusNormalized.includes("reviewed");
-  const hasSubmission = task.submitted === true || Boolean(submission) || statusIsCompleted;
+    if (task.bundle_tasks && Array.isArray(task.bundle_tasks) && task.bundle_tasks.length > 0) {
+      isMultiple = true;
+      const normalizeFormat = (val: any): SubmissionFormat => {
+        if (Array.isArray(val)) return (val[0] || 'text') as SubmissionFormat;
+        return (val || 'text') as SubmissionFormat;
+      };
 
-  const mapped = {
-  id: task.assignment_id || task.task_id,
+      subtasks = task.bundle_tasks.map((sub, index) => ({
+        id: index === 0 ? task.task_id : `${task.task_id}-${index}`,
+        title: sub.title || "",
+        description: sub.description || "",
+        submissionFormat: normalizeFormat(sub.submission_format),
+        questions: (sub.questions || []) as QuizQuestion[],
+      }));
+    } else {
+      const rawFormats = task.submission_format;
+      let formats: string[] = [];
+      if (Array.isArray(rawFormats)) {
+        formats = rawFormats;
+      } else if (typeof rawFormats === 'string') {
+        if (rawFormats.startsWith('[')) {
+          try {
+            formats = JSON.parse(rawFormats);
+          } catch (e) {
+            formats = [rawFormats];
+          }
+        } else {
+          formats = [rawFormats];
+        }
+      } else {
+        formats = ['text'];
+      }
+
+      subtasks = formats.map((fmt, index) => ({
+        id: index === 0 ? task.task_id : `${task.task_id}-${fmt}`,
+        title: task.title,
+        description: task.description ?? "",
+        submissionFormat: fmt as SubmissionFormat,
+        questions: task.questions || [],
+      }));
+    }
+
+    const submission = (task as any).submission || null;
+    const statusNormalized = String(task.status || "").toLowerCase();
+    const statusIsCompleted = statusNormalized.includes("completed") || statusNormalized.includes("submitted") || statusNormalized.includes("reviewed");
+    const hasSubmission = task.submitted === true || Boolean(submission) || statusIsCompleted;
+
+    const mapped = {
+      id: task.assignment_id || task.task_id,
       level,
-      mode: "single" as const,
-      tasks: [
-        {
-          id: task.task_id,
-          title: task.title,
-          description: task.description ?? "",
-            submissionFormat: normalizeSubmissionFormat(task) as SubmissionFormat,
-            questions: task.questions || [],
-        },
-      ],
+      mode: isMultiple ? ("multiple" as const) : ("single" as const),
+      tasks: subtasks,
       targetSprints: level === "sprint" ? [audienceName].filter(Boolean) : [],
       targetOrgs: level === "org" ? [audienceName].filter(Boolean) : [],
       targetFunctions: level === "function" ? [audienceName].filter(Boolean) : [],
@@ -76,15 +116,10 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
       recurrence: task.recurrence as AssignedTask["recurrence"],
       submitted: hasSubmission,
       submission: submission,
+      bundle_tasks: task.bundle_tasks || [],
     } as AssignedTask;
 
-    try {
-      // eslint-disable-next-line no-console
-      console.log("CHECK SUBMISSION MAP", mapped.id, { id: mapped.id, status: mapped.status, submitted: mapped.submitted, submission: mapped.submission });
-    } catch (e) {}
-
     return mapped;
-    
   });
 }
 
@@ -100,7 +135,7 @@ function mapCohortsToSprints(cohorts: { module_id: string; title: string }[]): S
   }));
 }
 
-function mapMembersToTeamMembers(members: any[]): TeamMember[] {
+function mapMembersToTeamMembers(members: any[], companyName?: string): TeamMember[] {
   return members.map((member) => {
     const name = member.name || member.email || "Unnamed User";
     return {
@@ -108,7 +143,7 @@ function mapMembersToTeamMembers(members: any[]): TeamMember[] {
       name,
       email: member.email || "",
       avatar: name.slice(0, 1).toUpperCase(),
-      org: member.company ?? "",
+      org: companyName || member.company || "Company",
       function: member.function_name ?? "",
       subFunction: member.sub_function_name ?? "",
     };
@@ -117,7 +152,7 @@ function mapMembersToTeamMembers(members: any[]): TeamMember[] {
 
 function TaskManagerContent() {
   const { user, loading: authLoading, userId, employeeData, isAdmin, isManager, isSuperAdmin, isDeveloper } = useAuth();
-  const { activeCompanyId, isDeveloperMode } = useTenant();
+  const { activeCompanyId, activeCompany, isDeveloperMode } = useTenant();
 
   const effectiveUserId = employeeData?.user_id || userId || "";
   const companyId = useMemo(
@@ -128,7 +163,7 @@ function TaskManagerContent() {
     isAdmin || isSuperAdmin || isDeveloper || isManager ? "admin" : "employee";
 
   const [assignedTasks, setAssignedTasks] = useState<AssignedTask[]>([]);
-  const [reports, setReports] = useState<ReportItem[]>([]);
+  // const [reports, setReports] = useState<ReportItem[]>([]);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const searchParams = useSearchParams();
   const createParam = searchParams.get("create");
@@ -139,62 +174,105 @@ function TaskManagerContent() {
 
   const [sprints, setSprints] = useState<Sprint[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [corporateLevels, setCorporateLevels] = useState<CorporateLevels | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const lastFetchedRef = useRef<string | null>(null);
 
   const loadTaskManagerData = useCallback(async () => {
     if (authLoading || !user || !effectiveUserId || !companyId) return;
 
+    const fetchKey = `${effectiveUserId}-${companyId}-${role}`;
+    if (lastFetchedRef.current === fetchKey) return;
+    
+    lastFetchedRef.current = fetchKey;
+
     setIsLoading(true);
     setError(null);
     try {
-      const [tasks, cohorts, members] = await Promise.all([
+      const [tasks, cohorts, members, apiFunctions] = await Promise.all([
         fetchActiveTasks({ userId: effectiveUserId, companyId }),
         fetchCohorts({ userId: effectiveUserId, companyId }),
         fetchAudienceMembers({ userId: effectiveUserId, companyId }),
+        fetchAudienceFunctions({ userId: effectiveUserId, companyId }),
       ]);
 
-      // If admin, also fetch submissions for reporting
-      if (role === 'admin') {
-        try {
-          const subsRes = await fetchTaskSubmissions({ companyId });
-          const mapped = (subsRes.submissions || []).map((r: any) => ({
-            id: r.submission_id,
-            title: (r.tasks && r.tasks[0] && r.tasks[0].title) || r.task_id || 'Task Submission',
-            category: 'tasks',
-            score: r.score || 0,
-            totalQuestions: r.max_score || 0,
-            dateCompleted: r.submitted_at ? new Date(r.submitted_at).toISOString().split('T')[0] : 'N/A',
-            status: r.status === 'submitted' ? 'Completed' : (r.status === 'reviewed' ? 'Completed' : 'In Progress'),
-            image_url: r.image_url,
-            video_url: r.video_url,
-            audio_url: r.audio_url,
-            aiValidation: {
-              pass: r.ai_validation_pass,
-              verdict: r.ai_validation_verdict,
-              reason: r.ai_validation_reason,
-              suggestion: r.ai_validation_suggestion,
-              confidence: r.ai_validation_confidence,
-              status: r.ai_status,
-            },
-            assignment_id: r.assignment_id,
-          })) as ReportItem[];
-
-          setReports(mapped);
-        } catch (e) {
-          console.warn('Failed to fetch submissions for admin reports', e);
-        }
+      const subFunctionsMap: Record<string, string[]> = {};
+      if (apiFunctions && apiFunctions.length > 0) {
+        const subFuncsResults = await Promise.all(
+          apiFunctions.map(async (f) => {
+            try {
+              const subFuncs = await fetchAudienceSubFunctions(f.function_id, {
+                userId: effectiveUserId,
+                companyId,
+              });
+              return {
+                functionName: f.function_name,
+                subFunctionNames: subFuncs.map((sf) => sf.sub_function_name),
+              };
+            } catch (err) {
+              return {
+                functionName: f.function_name,
+                subFunctionNames: [],
+              };
+            }
+          })
+        );
+        subFuncsResults.forEach((res) => {
+          subFunctionsMap[res.functionName] = res.subFunctionNames;
+        });
       }
+
+      const companyName = activeCompany?.name || "Company";
+
+      // If admin, also fetch submissions for reporting
+      // if (role === 'admin') {
+      //   try {
+      //     const subsRes = await fetchTaskSubmissions({ companyId });
+      //     const mapped = (subsRes.submissions || []).map((r: any) => ({
+      //       id: r.submission_id,
+      //       title: (r.tasks && r.tasks[0] && r.tasks[0].title) || r.task_id || 'Task Submission',
+      //       category: 'tasks',
+      //       score: r.score || 0,
+      //       totalQuestions: r.max_score || 0,
+      //       dateCompleted: r.submitted_at ? new Date(r.submitted_at).toISOString().split('T')[0] : 'N/A',
+      //       status: r.status === 'submitted' ? 'Completed' : (r.status === 'reviewed' ? 'Completed' : 'In Progress'),
+      //       image_url: r.image_url,
+      //       video_url: r.video_url,
+      //       audio_url: r.audio_url,
+      //       aiValidation: {
+      //         pass: r.ai_validation_pass,
+      //         verdict: r.ai_validation_verdict,
+      //         reason: r.ai_validation_reason,
+      //         suggestion: r.ai_validation_suggestion,
+      //         confidence: r.ai_validation_confidence,
+      //         status: r.ai_status,
+      //       },
+      //       assignment_id: r.assignment_id,
+      //     })) as ReportItem[];
+
+      //     setReports(mapped);
+      //   } catch (e) {
+      //     // console.warn('Failed to fetch submissions for admin reports', e);
+      //   }
+      // }
 
       setAssignedTasks(mapBackendTasksToAssignedTasks(tasks));
       setSprints(mapCohortsToSprints(cohorts));
-      setTeamMembers(mapMembersToTeamMembers(members));
+      setTeamMembers(mapMembersToTeamMembers(members, companyName));
+      setCorporateLevels({
+        orgs: [companyName],
+        functions: apiFunctions.map((f) => f.function_name),
+        subFunctions: subFunctionsMap,
+      });
     } catch (err: any) {
+      lastFetchedRef.current = null;
       setError(err?.message ?? "Failed to load task manager data.");
     } finally {
       setIsLoading(false);
     }
-  }, [authLoading, companyId, effectiveUserId, user]);
+  }, [authLoading, companyId, effectiveUserId, user, role, activeCompany]);
 
   useEffect(() => {
     loadTaskManagerData();
@@ -218,6 +296,9 @@ function TaskManagerContent() {
 
   const handleTaskCreated = (newTask: AssignedTask) => {
     setAssignedTasks((prev) => {
+      if (effectiveUserId && newTask.id.startsWith("task-assigned-")) {
+        return prev;
+      }
       if (prev.some((task) => task.id === newTask.id)) return prev;
       return [newTask, ...prev];
     });
@@ -229,17 +310,24 @@ function TaskManagerContent() {
     primaryTitle: string,
     score: number,
     maxScore: number,
-    questionsList: any[]
+    questionsList: any[],
+    submission?: any
   ) => {
-    // Minimal local update for UI: increment completionCount and log event
+    // Minimal local update for UI: mark the current assignment completed immediately
     setAssignedTasks((prev) =>
       prev.map((t) =>
         t.id === assignmentId
-          ? { ...t, completionCount: (t.completionCount || 0) + 1 }
+          ? {
+              ...t,
+              completionCount: (t.completionCount || 0) + 1,
+              status: "Completed",
+              submitted: true,
+              submission: submission || t.submission,
+            }
           : t
       )
     );
-    console.log("Task submitted:", { assignmentId, primaryTitle, score, maxScore });
+    // console.log("Task submitted:", { assignmentId, primaryTitle, score, maxScore });
   };
 
   const handleBackendSubmit = async (
@@ -269,7 +357,21 @@ function TaskManagerContent() {
 
       companyId,
     }
-  );
+  ).then((response) => {
+    setAssignedTasks((prev) =>
+      prev.map((task) =>
+        task.id === payload.assignment_id
+          ? {
+              ...task,
+              status: "Completed",
+              submitted: true,
+              submission: response?.submission || { submission_id: response?.submission_id },
+            }
+          : task
+      )
+    );
+    return response;
+  });
 };
 
   const handleTaskReassigned = async (
@@ -320,12 +422,9 @@ function TaskManagerContent() {
 
   if (authLoading || isLoading) {
     return (
-      <main className="min-h-screen px-6 py-16 md:px-8">
-        <div className="mx-auto max-w-7xl space-y-4">
-          <div className="h-24 rounded-3xl bg-white/70 border border-slate-100 animate-pulse" />
-          <div className="h-72 rounded-3xl bg-white/70 border border-slate-100 animate-pulse" />
-        </div>
-      </main>
+      <LoadingProgress
+        label="Loading task manager"
+      />
     );
   }
 
@@ -347,6 +446,7 @@ function TaskManagerContent() {
           onCancel={() => setIsCreatingTask(false)}
           sprints={sprints}
           teamMembers={teamMembers}
+          corporateLevels={corporateLevels}
           onBackendCreate={handleBackendCreate}
         />
       ) : (
@@ -365,15 +465,30 @@ function TaskManagerContent() {
   );
 }
 
+function LoadingProgress({
+  label,
+}: {
+  label: string;
+}) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 flex flex-col items-center justify-center space-y-4">
+        <div className="w-8 h-8 md:w-10 md:h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-sm font-semibold text-slate-700">{label}</p>
+        <p className="text-xs text-slate-500 font-medium">
+          Loading your data securely...
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function TaskManagerPage() {
   return (
     <Suspense fallback={
-      <main className="min-h-screen px-6 py-16 md:px-8">
-        <div className="mx-auto max-w-7xl space-y-4">
-          <div className="h-24 rounded-3xl bg-white/70 border border-slate-100 animate-pulse" />
-          <div className="h-72 rounded-3xl bg-white/70 border border-slate-100 animate-pulse" />
-        </div>
-      </main>
+      <LoadingProgress
+        label="Loading task manager"
+      />
     }>
       <TaskManagerContent />
     </Suspense>

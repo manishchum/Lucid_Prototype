@@ -280,8 +280,38 @@ async def create_user(
             user_data['password'] = hashed_password
         # If it already looks like a bcrypt hash, leave it as-is
 
-        response = service_client.table('users').insert(user_data).execute()
+        response = service_client.table("users").insert(user_data).execute()
+
+        # ------------------------------
+        # Auto-create default learning style
+        # ------------------------------
+        if response.data:
+            created_user = response.data[0]
+            company_id = created_user.get("company_id")
+
+            company_resp = (
+                service_client
+                .table("companies")
+                .select("learning_style")
+                .eq("company_id", company_id)
+                .maybe_single()
+                .execute()
+            )
+
+            company = company_resp.data or {}
+
+            # Company does NOT use learning styles
+            if company.get("learning_style") is False:
+
+                service_client.table("employee_learning_style").insert({
+                    "user_id": created_user["user_id"],
+                    "answers": {},
+                    "learning_style": "default",
+                    "gpt_analysis": None,
+                }).execute()
+
         return {"data": response.data, "error": None}
+
     except Exception as e:
         import traceback
         traceback.print_exc()
