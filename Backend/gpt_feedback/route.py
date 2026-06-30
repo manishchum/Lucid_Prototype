@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
 import google.generativeai as genai
+from utils.redis_limiter import check_rate_limit
 
 
 router = APIRouter()
@@ -63,6 +64,8 @@ async def POST(request: Request):
                 content={"error": "Missing required fields: user_id, assessment_id, and answers are required"},
                 status_code=400
             )
+        await check_rate_limit(user_id=normalizedUserId, endpoint="gpt-feedback")
+
 
         submit_url = f"{API_BASE}/api/submit-assessment"
         print("Submit URL:", submit_url)
