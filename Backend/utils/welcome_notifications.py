@@ -150,7 +150,7 @@ async def send_welcome_email(
         company_name,
         app_frontend_url,
         recipient_email,
-        "workfloww2025",
+        "workfloww@2025",
     )
 
     try:
