@@ -207,9 +207,18 @@ export default function RolePlayConversation({
         if (ws.readyState !== WebSocket.OPEN) return;
 
         const pcm16 = new Int16Array(audioData.length);
+        let sumSq = 0;
+        
         for (let i = 0; i < audioData.length; i++) {
+          sumSq += audioData[i] * audioData[i];
           const s = Math.max(-1, Math.min(1, audioData[i]));
           pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+
+        // Noise gate: if RMS volume is very low, send pure silence to explicitly tell VAD to stop
+        const rms = Math.sqrt(sumSq / audioData.length);
+        if (rms < 0.005) {
+          pcm16.fill(0);
         }
 
         const audioB64 = encodePcmToBase64(pcm16);
@@ -281,7 +290,25 @@ export default function RolePlayConversation({
           }
           break;
 
+        case "bot_transcription":
+          if (data.text) {
+            const transcript = conversationTranscriptRef.current;
+            if (transcript.length > 0 && transcript[transcript.length - 1].role === "bot_chunk") {
+                transcript.pop(); // Remove the ongoing chunk now that we have the final text
+            }
+            conversationTranscriptRef.current.push({ role: "bot", text: data.text });
+          }
+          break;
+
         case "transcript_chunk":
+          if (data.text) {
+            const transcript = conversationTranscriptRef.current;
+            if (transcript.length > 0 && transcript[transcript.length - 1].role === "bot_chunk") {
+              transcript[transcript.length - 1].text += data.text;
+            } else {
+              conversationTranscriptRef.current.push({ role: "bot_chunk", text: data.text });
+            }
+          }
           break;
 
         case "response.done":
@@ -351,7 +378,14 @@ export default function RolePlayConversation({
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: true, 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
       setVideoStream(stream);
 
       if (videoRef.current) {
@@ -366,6 +400,44 @@ export default function RolePlayConversation({
       };
       videoRecorder.start();
       mediaRecorderRef.current = videoRecorder;
+
+      // Start Web Speech API as fallback for user transcription (with auto-restart)
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        let isStopped = false;
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        
+        recognition.onresult = (event: any) => {
+          // Explicitly ignore interim (incomplete) results to prevent cascading duplicates
+          const latestResult = event.results[event.results.length - 1];
+          if (!latestResult.isFinal) return;
+
+          const transcript = latestResult[0].transcript.trim();
+          if (transcript && !isBotSpeakingRef.current) {
+            // Only add if we didn't just receive this exact text
+            const currentTranscript = conversationTranscriptRef.current;
+            const lastUserMsg = currentTranscript.slice().reverse().find(m => m.role === "user");
+            if (!lastUserMsg || lastUserMsg.text !== transcript) {
+               conversationTranscriptRef.current.push({ role: "user", text: transcript });
+            }
+          }
+        };
+        
+        recognition.onend = () => {
+          if (!isStopped) {
+            try { recognition.start(); } catch {}
+          }
+        };
+
+        try {
+          recognition.start();
+          (speechRecognitionRef as any).current = { stop: () => { isStopped = true; recognition.stop(); } };
+        } catch (e) {
+          console.warn("Speech recognition failed to start", e);
+        }
+      }
 
       connectToRealtime(stream);
       setConversationActive(true);
@@ -413,13 +485,15 @@ export default function RolePlayConversation({
       items: transcript.map(t => `${t.role}: ${t.text.substring(0, 30)}...`)
     });
 
-    const messages: Message[] = transcript.map((item, idx) => ({
-      text:      item.text,
-      sender:    item.role === "user" ? "user" : "avatar",
-      timestamp: new Date(
-        Date.now() - (transcript.length - idx) * 1000
-      ).toISOString(),
-    }));
+    const messages: Message[] = transcript
+      .filter(item => item.role === "user" || item.role === "bot" || item.role === "bot_chunk")
+      .map((item, idx) => ({
+        text:      item.text,
+        sender:    item.role === "user" ? "user" : "avatar",
+        timestamp: new Date(
+          Date.now() - (transcript.length - idx) * 1000
+        ).toISOString(),
+      }));
 
     console.log("[handleEndSession] ✅ Final transcript:", {
       sessionEndedReceived: sessionEndedRef.current,

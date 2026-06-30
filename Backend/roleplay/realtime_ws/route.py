@@ -141,7 +141,8 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
 
             # Trigger the opening greeting without overriding the session system prompt
             if scenario_context.get("initial_prompt"):
-                # 1. Add a system message telling it to start
+                # 1. Add a system message telling it to start WITH THE FULL PROMPT
+                full_prompt = build_system_prompt(scenario_context)
                 await openai_ws.send(json.dumps({
                     "type": "conversation.item.create",
                     "item": {
@@ -150,16 +151,13 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                         "content": [
                             {
                                 "type": "input_text",
-                                "text": (
-                                    f"Please begin the roleplay now. You are playing the {scenario_context['scenario_role']}. "
-                                    f"Say your opening line based on this context: {scenario_context['initial_prompt']}"
-                                )
+                                "text": f"{full_prompt}\n\nPlease begin the roleplay now. Say your opening line based on this context: {scenario_context['initial_prompt']}"
                             }
                         ]
                     }
                 }))
                 
-                # 2. Tell it to generate a response (using the session instructions)
+                # 2. Tell it to generate a response
                 await openai_ws.send(json.dumps({
                     "type": "response.create"
                 }))
@@ -306,3 +304,20 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
 
     finally:
         sid = scenario_context.get("session_id") if scenario_context else "unknown"
+        
+        # Build the final transcript robustly if it wasn't requested via end_session
+        final_transcript = []
+        for iid in item_ids_order:
+            if iid in items_dict:
+                msg_text = items_dict[iid]["text"].strip()
+                if msg_text:
+                    final_transcript.append({
+                        "role": items_dict[iid]["role"],
+                        "text": msg_text
+                    })
+        if not final_transcript and conversation_transcript:
+            final_transcript = conversation_transcript
+            
+        logger.info(f"[Realtime] 🔌 Disconnected, session {sid}. Final backend transcript has {len(final_transcript)} messages.")
+        if len(final_transcript) > 0:
+            logger.info(f"[Realtime] Last message: {final_transcript[-1]['text'][:100]}")
