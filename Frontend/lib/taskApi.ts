@@ -8,7 +8,7 @@ export interface Task {
   company_id: string;
   title: string;
   description: string;
-  submission_format: "text" | "image" | "multiple_choice" | "audio" | "video";
+  submission_format: string | string[];
   questions: { id: string; question: string; options: string[] }[];
   status: string;
   due_date: string;
@@ -21,12 +21,18 @@ export interface Task {
   // optional fields attached by backend when returning user-specific tasks
   submitted?: boolean;
   submission?: any;
+  bundle_tasks?: {
+    title: string;
+    description: string;
+    submission_format: string | string[];
+    questions?: any[];
+  }[];
 }
 
 export interface CreateTaskPayload {
   title: string;
   description?: string;
-  submission_format: string;
+  submission_format: string | string[];
   questions?: { id: string; question: string; options: string[] }[];
   level: string;
   target_module_id?: string;
@@ -36,6 +42,7 @@ export interface CreateTaskPayload {
   due_date: string;
   recurrence: string;
   created_by?: string;
+  bundle_tasks?: any[];
 }
 
 export interface SubmitTaskPayload {
@@ -45,6 +52,8 @@ export interface SubmitTaskPayload {
   submission_type: string;
   text_response?: string;
   image_url?: string;
+  audio_url?: string;
+  video_url?: string;
   answers?: { question_id: string; selected_option: string }[];
   score?: number;
   max_score?: number;
@@ -137,7 +146,7 @@ export async function createTask(
 export async function submitTask(
   payload: SubmitTaskPayload,
   params?: { userId?: string; companyId?: string }
-): Promise<{ submission_id: string }> {
+): Promise<any> {
   const res = await fetchWithAuth(`${BACKEND_URL}/api/task-manager/tasks/submit`, {
     method: "POST",
     headers: buildHeaders(params),
@@ -153,9 +162,14 @@ export async function submitTask(
 export async function submitTaskResponse(
   payload: SubmitTaskPayload,
   params?: { userId?: string; companyId?: string }
-): Promise<{ submission_id: string }> {
+): Promise<any> {
+  const submissionType = (payload.submission_type || "").toLowerCase();
+  if (submissionType === "text" || submissionType === "multiple_choice") {
+    return submitTextAnalysis(payload as any, params);
+  }
   return submitTask(payload, params);
 }
+
 
 export async function fetchAudienceFunctions(params?: {
   userId?: string;
@@ -280,3 +294,29 @@ export async function reassignTask(
   return res.json();
 }
 
+export async function submitTextAnalysis(
+  payload: {
+    assignment_id: string;
+    task_id: string;
+    submission_type: "text" | "multiple_choice";
+    text_response?: string;
+    answers?: {
+      question_id: string;
+      question: string;
+      selected_option: string;
+      correct_answer: string;
+    }[];
+  },
+  params?: { userId?: string; companyId?: string }
+): Promise<any> {
+  const res = await fetchWithAuth(`${BACKEND_URL}/api/text-analysis/submit`, {
+    method: "POST",
+    headers: buildHeaders(params),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(formatApiError(err, `Failed to submit text analysis: ${res.statusText}`));
+  }
+  return res.json();
+}

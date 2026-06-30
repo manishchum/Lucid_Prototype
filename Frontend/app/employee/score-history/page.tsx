@@ -11,7 +11,7 @@ import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import RolePlayReports from "@/components/roleplay/RolePlayReports";
-import TaskReports from "@/components/task-manager/TaskReports";
+
 
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -621,7 +621,7 @@ export default function ScoreHistoryPage() {
             >
               🎭 Role-Play Sessions
             </button>
-            <button
+            {/* <button
               onClick={() => setActiveTab('tasks')}
               className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
                 activeTab === 'tasks'
@@ -630,7 +630,7 @@ export default function ScoreHistoryPage() {
               }`}
             >
               📋 Task Management
-            </button>
+            </button> */}
           </div>
         
         {activeTab === 'assessments' && (

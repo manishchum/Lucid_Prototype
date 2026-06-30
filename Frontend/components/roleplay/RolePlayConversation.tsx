@@ -331,6 +331,7 @@ export default function RolePlayConversation({
   };
 
   const startConversation = async () => {
+    conversationTranscriptRef.current = [];
     if (employeeId) {
       try {
         const { data, error } = await createRolePlaySession(
@@ -486,7 +487,7 @@ export default function RolePlayConversation({
             className="bg-red-500 hover:bg-red-600 text-white flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-4 py-1 sm:py-2 h-auto"
           >
             <Phone className="w-3 sm:w-4 h-3 sm:h-4 flex-shrink-0" />
-            <span className="hidden xs:inline">End Meeting</span>
+            <span className="hidden sm:inline">End Meeting</span>
           </Button>
         </div>
       </div>
@@ -567,7 +568,7 @@ export default function RolePlayConversation({
               <div className="absolute bottom-2 sm:bottom-3 md:bottom-6 lg:bottom-8 right-2 sm:right-3 md:right-6 lg:right-8 bg-red-900/80 backdrop-blur-sm px-2 sm:px-3 md:px-6 py-1 sm:py-2 md:py-3 rounded-full animate-pulse">
                 <div className="text-white font-medium text-xs sm:text-xs md:text-base lg:text-lg flex items-center gap-1 sm:gap-1 md:gap-2">
                   <div className="w-1 sm:w-1.5 md:w-2 h-1 sm:h-1.5 md:h-2 bg-red-500 rounded-full" />
-                  <span className="hidden xs:inline">Recording</span>
+                  <span className="hidden sm:inline">Recording</span>
                 </div>
               </div>
             )}
@@ -593,18 +594,18 @@ export default function RolePlayConversation({
             </p>
             <Button
               onClick={startConversation}
-              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-sm sm:text-base lg:text-lg px-4 sm:px-8 py-2 sm:py-3 lg:py-6 w-full sm:w-auto h-auto"
+              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-sm sm:text-base lg:text-lg px-6 sm:px-8 py-4 sm:py-3 lg:py-6 w-full sm:w-auto h-auto flex items-center justify-center gap-2 mx-auto"
               disabled={isProcessing}
             >
               {isProcessing ? (
                 <>
-                  <Loader2 className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-2 sm:mr-3 animate-spin" />
-                  <span className="hidden xs:inline">Starting...</span>
+                  <Loader2 className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-0 animate-spin" />
+                  <span className="hidden sm:inline">Starting...</span>
                 </>
               ) : (
                 <>
-                  <Mic className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-2 sm:mr-3" />
-                  <span className="hidden xs:inline">Start Conversation</span>
+                  <Mic className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-0" />
+                  <span className="hidden sm:inline">Start Conversation</span>
                 </>
               )}
             </Button>

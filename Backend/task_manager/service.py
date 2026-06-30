@@ -1,57 +1,263 @@
+import base64
 import json
 import os
-import re
+import tempfile
 from typing import Optional
 from uuid import uuid4
-
-import google.generativeai as genai
-
-from utils.supabase_client import supabase
-
+# from utils.supabase_client import supabase
+from utils.auth_bridge import get_service_supabase_client
+from utils.db.permissions import check_user_permission, check_company_access
+from utils.exceptions import AuthorizationError, NotFoundError
 from .models import SubmissionCreate, TaskCreate
+# from audio_analysis.scoring import generate_audio_score
+# from audio_analysis.services.acoustic_analysis import analyze_audio_features
+# from audio_analysis.services.gemini_audio import analyze_audio_with_gemini
+# from audio_analysis.services.speech_quality import analyze_speech_quality
+# from video_analysis.services.video_analyzer import analyze_video
 
 
-def _gemini_model():
-    api_key = os.getenv("GEMINI_API_KEY") or ""
-    if not api_key:
-        return None
+# def _gemini_model():
+#     api_key = os.getenv("GEMINI_API_KEY") or ""
+#     if not api_key:
+#         return None
 
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-3-pro-preview")
+#     genai.configure(api_key=api_key)
+#     return genai.GenerativeModel("gemini-1.5-flash")
 
 
-def resolve_company_id(user_id: str | None, fallback_company_id: Optional[str]) -> Optional[str]:
-    if fallback_company_id:
-        return fallback_company_id
+def _normalize_submission_format(raw_submission_format) -> list:
+    if isinstance(raw_submission_format, list):
+        return raw_submission_format
+    if raw_submission_format is None:
+        return []
+    if isinstance(raw_submission_format, str):
+        raw_submission_format = raw_submission_format.strip()
+        if raw_submission_format.startswith("["):
+            try:
+                val = json.loads(raw_submission_format)
+                if isinstance(val, list):
+                    return val
+            except Exception:
+                pass
+        return [raw_submission_format]
+    return [str(raw_submission_format)]
 
-    if not user_id:
+
+def _extract_media_bytes(media_input: str | None, default_mime: str) -> tuple[bytes, str]:
+    if not media_input:
+        raise ValueError("Missing media payload")
+
+    value = media_input.strip()
+    if value.startswith("data:"):
+        header, encoded = value.split(",", 1)
+        mime_type = header.split("data:", 1)[1].split(";", 1)[0] or default_mime
+        return base64.b64decode(encoded), mime_type
+
+    if value.startswith("http://") or value.startswith("https://"):
+        import httpx
+        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+            resp = client.get(value, headers=headers)
+            resp.raise_for_status()
+            mime_type = resp.headers.get("content-type", default_mime).split(";")[0]
+            return resp.content, mime_type
+
+    return base64.b64decode(value), default_mime
+
+
+def _media_suffix(mime_type: str, fallback: str) -> str:
+    if "mpeg" in mime_type or "mp3" in mime_type: return ".mp3"
+    if "wav" in mime_type: return ".wav"
+    if "ogg" in mime_type: return ".ogg"
+    if "m4a" in mime_type: return ".m4a"
+    if "png" in mime_type: return ".png"
+    if "gif" in mime_type: return ".gif"
+    if "webp" in mime_type: return ".webp"
+    if "jpeg" in mime_type or "jpg" in mime_type: return ".jpg"
+    if "webm" in mime_type: return ".webm"
+    if "quicktime" in mime_type or "mov" in mime_type: return ".mov"
+    if "mp4" in mime_type: return ".mp4"
+    return fallback
+
+
+def _store_media(payload: SubmissionCreate, company_id: str, submission_id: str, media_input: str | None, media_type: str, default_mime: str, fallback_suffix: str) -> str | None:
+    if not media_input:
         return None
 
     try:
-        company_res = (
-            supabase.table("users")
-            .select("company_id")
+        media_bytes, mime_type = _extract_media_bytes(media_input, default_mime)
+    except Exception as exc:
+        print(f"[task-manager] {media_type} storage decode failed:", exc)
+        return None
+
+    bucket = os.getenv("TASK_SUBMISSIONS_BUCKET") or os.getenv("SUPABASE_TASK_SUBMISSIONS_BUCKET") or "task-submissions"
+    path = "/".join([
+        str(company_id),
+        str(payload.assignment_id or "unassigned"),
+        str(payload.user_id),
+        f"{submission_id}{_media_suffix(mime_type, fallback_suffix)}",
+    ])
+
+    try:
+        db = get_service_supabase_client()
+        db.storage.from_(bucket).upload(
+            path,
+            media_bytes,
+            file_options={
+                "content-type": mime_type,
+                "upsert": "true",
+            },
+        )
+        public_url = db.storage.from_(bucket).get_public_url(path)
+        return str(public_url) if public_url else None
+    except Exception as exc:
+        print(f"[task-manager] {media_type} storage upload failed:", exc)
+        return None
+
+
+def _extract_audio_bytes(audio_input: str | None) -> tuple[bytes, str]:
+    return _extract_media_bytes(audio_input, "audio/webm")
+
+def _audio_suffix(mime_type: str) -> str:
+    return _media_suffix(mime_type, ".webm")
+
+def _store_audio_media(payload: SubmissionCreate, company_id: str, submission_id: str) -> str | None:
+    audio_input = payload.audio_url or payload.text_response
+    return _store_media(payload, company_id, submission_id, audio_input, "audio", "audio/webm", ".webm")
+
+
+def _extract_image_bytes(image_input: str | None) -> tuple[bytes, str]:
+    return _extract_media_bytes(image_input, "image/jpeg")
+
+def _image_suffix(mime_type: str) -> str:
+    return _media_suffix(mime_type, ".jpg")
+
+def _store_image_media(payload: SubmissionCreate, company_id: str, submission_id: str) -> str | None:
+    return _store_media(payload, company_id, submission_id, payload.image_url, "image", "image/jpeg", ".jpg")
+
+
+def _extract_video_bytes(video_input: str | None) -> tuple[bytes, str]:
+    return _extract_media_bytes(video_input, "video/mp4")
+
+def _video_suffix(mime_type: str) -> str:
+    return _media_suffix(mime_type, ".mp4")
+
+def _store_video_media(payload: SubmissionCreate, company_id: str, submission_id: str) -> str | None:
+    video_input = payload.video_url or payload.text_response
+    return _store_media(payload, company_id, submission_id, video_input, "video", "video/mp4", ".mp4")
+
+
+# def resolve_company_id(user_id: str | None, fallback_company_id: Optional[str]) -> Optional[str]:
+#     if fallback_company_id:
+#         import uuid
+#         try:
+#             uuid.UUID(str(fallback_company_id))
+#             return fallback_company_id
+#         except ValueError:
+#             pass
+
+#     if not user_id:
+#         return None
+
+#     try:
+#         company_res = (
+#             supabase.table("users")
+#             .select("company_id")
+#             .eq("user_id", user_id)
+#             .single()
+#             .execute()
+#         )
+#         if company_res.data:
+#             return company_res.data.get("company_id")
+#     except Exception as lookup_error:
+#         print("[task-manager] Failed to resolve company_id:", lookup_error)
+
+#     return None
+
+
+async def is_user_admin(user_id: str | None) -> bool:
+    if not user_id:
+        return False
+    try:
+        db = get_service_supabase_client()
+        res = (
+            db.table("user_role_assignments")
+            .select("role:roles(name)")
             .eq("user_id", user_id)
-            .single()
+            .eq("is_active", True)
             .execute()
         )
-        if company_res.data:
-            return company_res.data.get("company_id")
-    except Exception as lookup_error:
-        print("[task-manager] Failed to resolve company_id:", lookup_error)
+        if res.data:
+            for row in res.data:
+                role_dict = row.get("role")
+                if role_dict:
+                    role_name = str(role_dict.get("name") or "").lower()
+                    if role_name in ("admin", "manager", "super_admin", "developer"):
+                        return True
+        return False
+    except Exception as exc:
+        print("[task-manager] Error checking admin status:", exc)
+        return False
 
-    return None
+
+def scrub_submission_for_employee(sub: dict) -> dict:
+    if not sub:
+        return sub
+    clean_sub = dict(sub)
+    for field in [
+        "score", "max_score", "ai_validation_pass", "ai_validation_verdict", 
+        "ai_validation_reason", "ai_validation_suggestion", "ai_validation_confidence",
+        "ai_status", "transcript", "audio_analysis", "ai_analysis", "ai_validation",
+        "analysis_status"
+    ]:
+        clean_sub.pop(field, None)
+    return clean_sub
 
 
-def get_active_tasks(company_id: str) -> list:
+def _format_submission_row(sub: dict, caller_is_admin: bool = False) -> dict:
+    if not sub:
+        return sub
+    if not caller_is_admin:
+        return scrub_submission_for_employee(sub)
+
+    stype = str(sub.get("submission_type") or "").lower()
+    if stype in ("text", "multiple_choice") and sub.get("audio_analysis"):
+        val = sub["audio_analysis"]
+        if isinstance(val, str):
+            try:
+                sub["ai_validation"] = json.loads(val)
+            except Exception:
+                sub["ai_validation"] = val
+        else:
+            sub["ai_validation"] = val
+    else:
+        sub["ai_validation"] = {
+            "pass": sub.get("ai_validation_pass"),
+            "verdict": sub.get("ai_validation_verdict"),
+            "reason": sub.get("ai_validation_reason"),
+            "suggestion": sub.get("ai_validation_suggestion"),
+            "confidence": sub.get("ai_validation_confidence"),
+            "status": sub.get("ai_status") or "completed",
+            "scores": {"overall": sub.get("score"), "max_score": sub.get("max_score")},
+        }
+    return sub
+
+
+async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
     """
     Returns active tasks with audience resolved and completion count.
     Uses v_active_assignments view (created in migration).
     """
+    if user_id:
+        if not await check_company_access(user_id, company_id):
+            raise AuthorizationError("Access denied to this company")
+
+    db = get_service_supabase_client()
+
     def _select_assignments(source_name: str, table_name: str) -> list:
         try:
             response = (
-                supabase.table(table_name)
+                db.table(table_name)
                 .select("*")
                 .eq("company_id", company_id)
                 .execute()
@@ -63,6 +269,28 @@ def get_active_tasks(company_id: str) -> list:
 
     try:
         assignments = _select_assignments("v_active_assignments", "v_active_assignments")
+        if assignments:
+            # Supplement missing target fields from task_assignments
+            assignment_ids = [a.get("assignment_id") for a in assignments if a.get("assignment_id")]
+            if assignment_ids:
+                try:
+                    ta_res = (
+                        db.table("task_assignments")
+                        .select("assignment_id, target_user_ids, target_function_id, target_sub_function_id, target_module_id")
+                        .in_("assignment_id", assignment_ids)
+                        .execute()
+                    )
+                    ta_data = ta_res.data or []
+                    ta_map = {row["assignment_id"]: row for row in ta_data if "assignment_id" in row}
+                    for a in assignments:
+                        aid = a.get("assignment_id")
+                        if aid in ta_map:
+                            a["target_user_ids"] = ta_map[aid].get("target_user_ids")
+                            a["target_function_id"] = ta_map[aid].get("target_function_id")
+                            a["target_sub_function_id"] = ta_map[aid].get("target_sub_function_id")
+                            a["target_module_id"] = ta_map[aid].get("target_module_id")
+                except Exception as ta_error:
+                    print("[task-manager] Supplementing target fields failed:", ta_error)
     except Exception as view_error:
         print("[task-manager] Falling back to task_assignments:", view_error)
         assignments = []
@@ -73,15 +301,63 @@ def get_active_tasks(company_id: str) -> list:
     if not assignments:
         return []
 
+    caller_is_admin = await is_user_admin(user_id) if user_id else False
+
+    # Secure role visibility mapping
+    if user_id and not caller_is_admin:
+        user_func = None
+        user_subfunc = None
+        assigned_modules = set()
+        try:
+            user_res = db.table("users").select("function_id, sub_function_id").eq("user_id", user_id).maybe_single().execute()
+            user_data = user_res.data if (user_res and hasattr(user_res, 'data')) else {}
+            if not user_data:
+                user_data = {}
+            user_func = user_data.get("function_id")
+            user_subfunc = user_data.get("sub_function_id")
+            
+            lp_res = db.table("learning_plan").select("module_id").eq("user_id", user_id).execute()
+            if lp_res.data:
+                assigned_modules = {row["module_id"] for row in lp_res.data}
+        except Exception as e:
+            print("[task-manager] Failed to fetch user target validation criteria:", e)
+
+        assigned_ids = set()
+        for a in assignments:
+            level = a.get("level")
+            assignment_id = a.get("assignment_id")
+            if not assignment_id:
+                continue
+            if level == "org":
+                assigned_ids.add(assignment_id)
+            elif level == "individual":
+                target_users = a.get("target_user_ids") or []
+                if user_id in target_users:
+                    assigned_ids.add(assignment_id)
+            elif level == "function":
+                target_func = a.get("target_function_id")
+                if target_func and target_func == user_func:
+                    assigned_ids.add(assignment_id)
+            elif level == "sub_function":
+                target_subfunc = a.get("target_sub_function_id")
+                if target_subfunc and target_subfunc == user_subfunc:
+                    assigned_ids.add(assignment_id)
+            elif level == "cohort":
+                target_module = a.get("target_module_id")
+                if target_module and target_module in assigned_modules:
+                    assigned_ids.add(assignment_id)
+                    
+        assignments = [a for a in assignments if a.get("assignment_id") in assigned_ids]
+
     assignment_ids = [str(a.get("assignment_id")) for a in assignments if a.get("assignment_id")]
     if not assignment_ids:
         return []
 
     try:
         tasks = (
-            supabase.table("tasks")
+            db.table("tasks")
             .select(
-                "task_id, assignment_id, title, description, submission_format, questions, status"
+                "task_id, assignment_id, title, description, expected_answer, submission_format, questions, status, bundle_tasks"
             )
             .in_("assignment_id", assignment_ids)
             .eq("company_id", company_id)
@@ -91,9 +367,9 @@ def get_active_tasks(company_id: str) -> list:
         print("[task-manager] tasks query with company filter failed, retrying without company_id:", task_error)
         try:
             tasks = (
-                supabase.table("tasks")
+                db.table("tasks")
                 .select(
-                    "task_id, assignment_id, title, description, submission_format, questions, status"
+                    "task_id, assignment_id, title, description, expected_answer, submission_format, questions, status, bundle_tasks"
                 )
                 .in_("assignment_id", assignment_ids)
                 .execute()
@@ -103,30 +379,34 @@ def get_active_tasks(company_id: str) -> list:
             tasks = []
 
     try:
-        submissions = (
-            supabase.table("task_submissions")
-            .select("assignment_id")
+        submission_query = (
+            db.table("task_submissions")
+            .select("*")
             .in_("assignment_id", assignment_ids)
             .eq("company_id", company_id)
-            .execute()
-        ).data or []
+        )
+        if user_id and not caller_is_admin:
+            submission_query = submission_query.eq("user_id", user_id)
+        submissions = submission_query.execute().data or []
     except Exception as submission_error:
         print("[task-manager] submissions query with company filter failed, retrying without company_id:", submission_error)
         try:
-            submissions = (
-                supabase.table("task_submissions")
-                .select("assignment_id")
-                .in_("assignment_id", assignment_ids)
-                .execute()
-            ).data or []
+            submission_query = db.table("task_submissions").select("*").in_("assignment_id", assignment_ids)
+            if user_id and not caller_is_admin:
+                submission_query = submission_query.eq("user_id", user_id)
+            submissions = submission_query.execute().data or []
         except Exception as retry_error:
             print("[task-manager] submissions query failed completely:", retry_error)
             submissions = []
 
-    completion_map = {}
+    # Group submissions by assignment_id and user_id to correctly count child submissions
+    submissions_by_assign_user = {}
     for submission in submissions:
-        assignment_id = submission["assignment_id"]
-        completion_map[assignment_id] = completion_map.get(assignment_id, 0) + 1
+        assignment_id = submission.get("assignment_id")
+        sub_user_id = submission.get("user_id")
+        if not assignment_id or not sub_user_id:
+            continue
+        submissions_by_assign_user.setdefault(str(assignment_id), {}).setdefault(str(sub_user_id), []).append(submission)
 
     task_map = {}
     for task in tasks:
@@ -141,15 +421,31 @@ def get_active_tasks(company_id: str) -> list:
         if not assignment_id:
             continue
         for task in task_map.get(assignment_id, []):
-            # Normalize submission_format to a list for response validation
-            raw_submission_format = task.get("submission_format", "text")
-            if isinstance(raw_submission_format, list):
-                submission_format_list = raw_submission_format
-            elif raw_submission_format is None:
-                submission_format_list = []
-            else:
-                # Coerce single-string formats into a single-item list
-                submission_format_list = [raw_submission_format]
+            submission_format_list = _normalize_submission_format(task.get("submission_format", "text"))
+            
+            # Determine required submissions
+            is_bundle = "bundle" in submission_format_list
+            bundle_tasks_list = task.get("bundle_tasks") or []
+            num_required = len(bundle_tasks_list) if is_bundle else 1
+            if num_required == 0:
+                num_required = 1
+
+            assign_users_subs = submissions_by_assign_user.get(assignment_id, {})
+            
+            # Count users who have completed ALL child tasks in the bundle
+            comp_count = 0
+            for uid, user_subs in assign_users_subs.items():
+                if len(user_subs) >= num_required:
+                    comp_count += 1
+
+            # Check if active user has completed the entire bundle
+            user_completed = False
+            user_sub_row = None
+            if user_id:
+                user_subs = assign_users_subs.get(str(user_id), [])
+                if len(user_subs) >= num_required:
+                    user_completed = True
+                    user_sub_row = _format_submission_row(user_subs[0], caller_is_admin) if user_subs else None
 
             result.append({
                 "task_id": task.get("task_id"),
@@ -157,84 +453,190 @@ def get_active_tasks(company_id: str) -> list:
                 "company_id": company_id,
                 "title": task.get("title", ""),
                 "description": task.get("description", ""),
+                "expected_answer": task.get("expected_answer") if caller_is_admin else None,
                 "submission_format": submission_format_list,
                 "questions": task.get("questions") or [],
+                "bundle_tasks": task.get("bundle_tasks") or [],
                 "status": assignment.get("status", "active"),
                 "due_date": str(assignment.get("due_date", "")),
                 "recurrence": assignment.get("recurrence", "none"),
                 "level": assignment.get("level", ""),
                 "audience_display_name": assignment.get("audience_display_name") or assignment.get("level", ""),
                 "total_target_count": assignment.get("total_target_count", 0),
-                "completion_count": completion_map.get(assignment_id, 0),
+                "completion_count": comp_count,
                 "created_at": str(assignment.get("created_at", "")),
+                "submitted": user_completed,
+                "submission": user_sub_row,
             })
 
     return result
 
 
-def get_tasks_for_user(user_id: str, company_id: str) -> list:
-    """Employee view — tasks assigned to this user with urgency."""
-    rows = (
-        supabase.table("v_employee_task_list")
-        .select("*")
-        .eq("company_id", company_id)
-        .execute()
-    ).data or []
+async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: str | None = None) -> list:
+    """Employee view — tasks assigned to this user."""
+    req_uid = requesting_user_id or user_id
+    if not await check_company_access(req_uid, company_id):
+        raise AuthorizationError("Access denied to this company")
 
-    # Fetch existing submissions for this user (group by assignment_id)
+    if req_uid != user_id:
+        if not await check_user_permission(req_uid, 'manager'):
+            raise AuthorizationError("Permission denied: Manager role required to view other user's tasks")
+        if not await check_company_access(user_id, company_id):
+            raise AuthorizationError("Target user does not belong to this company")
+
+    db = get_service_supabase_client()
+    caller_is_admin = await is_user_admin(user_id)
+
+    # 1. Fetch active assignments to determine assigned_ids for the employee
+    try:
+        assignments_res = (
+            db.table("task_assignments")
+            .select("*")
+            .eq("company_id", company_id)
+            .eq("status", "active")
+            .execute()
+        )
+        assignments = assignments_res.data or []
+    except Exception as e:
+        print("[task-manager] assignments query failed:", e)
+        assignments = []
+
+    user_func = None
+    user_subfunc = None
+    assigned_modules = set()
+    if not caller_is_admin:
+        try:
+            user_res = db.table("users").select("function_id, sub_function_id").eq("user_id", user_id).maybe_single().execute()
+            user_data = user_res.data if (user_res and hasattr(user_res, 'data')) else {}
+            if not user_data:
+                user_data = {}
+            user_func = user_data.get("function_id")
+            user_subfunc = user_data.get("sub_function_id")
+            
+            lp_res = db.table("learning_plan").select("module_id").eq("user_id", user_id).execute()
+            if lp_res.data:
+                assigned_modules = {row["module_id"] for row in lp_res.data}
+        except Exception as e:
+            print("[task-manager] Failed to fetch user target validation criteria:", e)
+
+    assigned_ids = set()
+    assignment_map = {}
+    for a in assignments:
+        level = a.get("level")
+        assignment_id = a.get("assignment_id")
+        if not assignment_id:
+            continue
+        
+        # Check audience alignment
+        is_assigned = False
+        if caller_is_admin:
+            is_assigned = True
+        elif level == "org":
+            is_assigned = True
+        elif level == "individual":
+            target_users = a.get("target_user_ids") or []
+            if user_id in target_users:
+                is_assigned = True
+        elif level == "function":
+            target_func = a.get("target_function_id")
+            if target_func and target_func == user_func:
+                is_assigned = True
+        elif level == "sub_function":
+            target_subfunc = a.get("target_sub_function_id")
+            if target_subfunc and target_subfunc == user_subfunc:
+                is_assigned = True
+        elif level == "cohort":
+            target_module = a.get("target_module_id")
+            if target_module and target_module in assigned_modules:
+                is_assigned = True
+                
+        if is_assigned:
+            assigned_ids.add(assignment_id)
+            assignment_map[str(assignment_id)] = a
+
+    if not assigned_ids:
+        return []
+
+    # 2. Fetch tasks corresponding to assigned_ids directly from tasks table
+    try:
+        tasks_res = (
+            db.table("tasks")
+            .select("task_id, assignment_id, company_id, title, description, submission_format, questions, status, bundle_tasks")
+            .in_("assignment_id", list(assigned_ids))
+            .eq("company_id", company_id)
+            .execute()
+        )
+        tasks = tasks_res.data or []
+    except Exception as e:
+        print("[task-manager] Failed to fetch tasks:", e)
+        tasks = []
+
+    # 3. Fetch existing submissions for this user (group by assignment_id)
     try:
         submissions_res = (
-            supabase.table("task_submissions")
+            db.table("task_submissions")
             .select("*")
             .eq("company_id", company_id)
             .eq("user_id", user_id)
-            .order("submitted_at", ascending=False)
+            .order("submitted_at", desc=True)  # Fix: desc=True instead of ascending=False
             .execute()
         )
         submissions = submissions_res.data or []
-    except Exception:
+    except Exception as e:
+        print("[task-manager] submissions query failed:", e)
         submissions = []
 
-    submission_by_assignment = {}
+    user_submissions_by_assignment = {}
     for s in submissions:
         aid = str(s.get("assignment_id") or "")
-        # keep latest submission per assignment
         if not aid:
             continue
-        if aid not in submission_by_assignment:
-            submission_by_assignment[aid] = s
+        user_submissions_by_assignment.setdefault(aid, []).append(s)
 
-    # Only include assignments where either submitted_by matches user or submitted_by is None
+    # 4. Construct response objects matching frontend expectations
     filtered = []
-    for row in rows:
-        try:
-            if not (row.get("submitted_by") == user_id or row.get("submitted_by") is None):
-                continue
-        except Exception:
-            continue
+    for task in tasks:
+        assignment_id = str(task.get("assignment_id") or "")
+        assignment = assignment_map.get(assignment_id) or {}
+        
+        submission_format_list = _normalize_submission_format(task.get("submission_format", "text"))
+        is_bundle = "bundle" in submission_format_list
+        bundle_tasks_list = task.get("bundle_tasks") or []
+        num_required = len(bundle_tasks_list) if is_bundle else 1
+        if num_required == 0:
+            num_required = 1
 
-        assignment_id = str(row.get("assignment_id") or "")
-        # Default: no submission attached
-        row["submitted"] = False
-        row["submission"] = None
+        user_subs = user_submissions_by_assignment.get(assignment_id, [])
+        user_completed = len(user_subs) >= num_required
+        user_sub_row = _format_submission_row(user_subs[0], caller_is_admin) if (user_completed and user_subs) else None
 
-        if assignment_id and assignment_id in submission_by_assignment:
-            # Attach submission details and mark status as completed
-            sub = submission_by_assignment[assignment_id]
-            # Attach the entire submission row (consumer can read needed fields)
-            row["submission"] = sub
-            row["submitted"] = True
-            # Normalize status for frontend
-            row["status"] = "completed"
-
+        row = {
+            "task_id": task.get("task_id"),
+            "assignment_id": assignment_id,
+            "company_id": company_id,
+            "title": task.get("title", ""),
+            "description": task.get("description", ""),
+            "submission_format": submission_format_list,
+            "questions": task.get("questions") or [],
+            "bundle_tasks": task.get("bundle_tasks") or [],
+            "due_date": str(assignment.get("due_date", "")),
+            "assignment_status": assignment.get("status", "active"),
+            "status": "completed" if user_completed else assignment.get("status", "active"),
+            "submitted": user_completed,
+            "submission": user_sub_row
+        }
         filtered.append(row)
 
     return filtered
 
 
-def resolve_audience_count(payload: TaskCreate, company_id: str) -> int:
+async def resolve_audience_count(payload: TaskCreate, company_id: str, requesting_user_id: str) -> int:
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    db = get_service_supabase_client()
     base = (
-        supabase.table("users")
+        db.table("users")
         .select("user_id", count="exact")
         .eq("company_id", company_id)
         .eq("is_active", True)
@@ -243,7 +645,7 @@ def resolve_audience_count(payload: TaskCreate, company_id: str) -> int:
 
     if payload.level == "cohort" and payload.target_module_id:
         learning_plan = (
-            supabase.table("learning_plan")
+            db.table("learning_plan")
             .select("user_id")
             .eq("module_id", payload.target_module_id)
             .in_("status", ["ASSIGNED", "IN_PROGRESS"])
@@ -270,18 +672,26 @@ def resolve_audience_count(payload: TaskCreate, company_id: str) -> int:
     return 0
 
 
-def create_task_and_assignment(payload: TaskCreate, company_id: str) -> dict:
+async def create_task_and_assignment(payload: TaskCreate, company_id: str, requesting_user_id: str) -> dict:
+    if not await check_user_permission(requesting_user_id, 'manager'):
+        raise AuthorizationError("Permission denied: Manager role required to create tasks")
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
     assignment_id = str(uuid4())
     task_id = str(uuid4())
-    audience_count = resolve_audience_count(payload, company_id)
-    # frontend sends ["image"], DB needs "image"
-    submission_format = (
-        payload.submission_format[0]
-        if isinstance(payload.submission_format, list)
-        else payload.submission_format
-    )
+    audience_count = await resolve_audience_count(payload, company_id, requesting_user_id)
+    # Storing list as JSON string or single string
+    db_submission_format = payload.submission_format
+    if isinstance(db_submission_format, list):
+        if len(db_submission_format) == 1:
+            db_submission_format = db_submission_format[0]
+        else:
+            db_submission_format = json.dumps(db_submission_format)
 
-    supabase.table("task_assignments").insert({
+    db = get_service_supabase_client()
+
+    db.table("task_assignments").insert({
         "assignment_id": assignment_id,
         "company_id": company_id,
         "created_by": payload.created_by,
@@ -296,17 +706,33 @@ def create_task_and_assignment(payload: TaskCreate, company_id: str) -> dict:
         "total_target_count": audience_count,
     }).execute()
 
-    supabase.table("tasks").insert({
-    "task_id": task_id,
-    "company_id": company_id,
-    "assignment_id": assignment_id,
-    "created_by": payload.created_by,
-    "title": payload.title,
-    "description": payload.description,
-    "submission_format": submission_format,
-    "questions": [q.model_dump() for q in (payload.questions or [])],
-    "status": "active",
-}).execute()
+    is_bundle = False
+    if isinstance(payload.submission_format, list):
+        is_bundle = "bundle" in payload.submission_format
+    elif isinstance(payload.submission_format, str):
+        is_bundle = payload.submission_format == "bundle"
+
+    db_bundle_tasks = []
+    if is_bundle:
+        db_bundle_tasks = [t for t in (payload.bundle_tasks or [])]
+
+    db.table("tasks").insert({
+        "task_id": task_id,
+        "company_id": company_id,
+        "assignment_id": assignment_id,
+        "created_by": payload.created_by,
+        "title": payload.title,
+        "description": payload.description,
+        "expected_answer": payload.expected_answer,
+        "submission_format": db_submission_format,
+        "questions": [q.model_dump() for q in (payload.questions or [])],
+        "status": "active",
+        "bundle_tasks": db_bundle_tasks,
+    }).execute()
+
+    returned_submission_format = payload.submission_format
+    if not isinstance(returned_submission_format, list):
+        returned_submission_format = [returned_submission_format]
 
     return {
         "task_id": task_id,
@@ -314,8 +740,9 @@ def create_task_and_assignment(payload: TaskCreate, company_id: str) -> dict:
         "company_id": company_id,
         "title": payload.title,
         "description": payload.description,
-        "submission_format": submission_format,
+        "submission_format": returned_submission_format,
         "questions": [q.model_dump() for q in (payload.questions or [])],
+        "bundle_tasks": db_bundle_tasks,
         "status": "active",
         "due_date": str(payload.due_date),
         "recurrence": payload.recurrence,
@@ -327,401 +754,256 @@ def create_task_and_assignment(payload: TaskCreate, company_id: str) -> dict:
     }
 
 
-def submit_task_response(payload: SubmissionCreate, company_id: str) -> dict:
+async def submit_task_response(payload: SubmissionCreate, company_id: str, background_tasks, requesting_user_id: str) -> dict:
+    from datetime import datetime
+    from analysis.background import run_ai_pipeline_bg
+
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
     submission_id = str(uuid4())
 
-    # Prevent duplicate submissions
-    # Check by assignment_id + user_id to avoid duplicate submissions for same assignment
-    if payload.assignment_id:
-        existing = (
-            supabase
+    # Resolve child task ID to parent task UUID if suffix exists
+    resolved_task_id = payload.task_id
+    is_bundle_submission = False
+    if payload.task_id and "-" in payload.task_id:
+        parts = payload.task_id.rsplit("-", 1)
+        if parts[1].isdigit() or parts[1] in ["image", "text", "audio", "video", "multiple_choice"]:
+            resolved_task_id = parts[0]
+            is_bundle_submission = True
+
+    db = get_service_supabase_client()
+
+    # Fetch existing submission to check if already completed for this format
+    existing_row = None
+    if payload.task_id and payload.user_id:
+        existing_res = (
+            db
             .table("task_submissions")
-            .select("submission_id")
-            .eq("company_id", company_id)
-            .eq("assignment_id", payload.assignment_id)
+            .select("*")
+            .eq("task_id", resolved_task_id)
             .eq("user_id", payload.user_id)
             .execute()
         )
+        rows = existing_res.data or []
+        if is_bundle_submission:
+            for row in rows:
+                answers = row.get("answers") or []
+                if any(isinstance(ans, dict) and ans.get("child_task_id") == payload.task_id for ans in answers):
+                    existing_row = row
+                    break
+        else:
+            if rows:
+                existing_row = rows[0]
 
-        if existing.data:
+    if existing_row:
+        # Check if the specific format is already submitted in the existing row
+        is_completed = False
+        stype = (payload.submission_type or "").lower()
+        if stype == "video" and existing_row.get("video_url"):
+            is_completed = True
+        elif stype == "image" and existing_row.get("image_url"):
+            is_completed = True
+        elif stype == "audio" and existing_row.get("audio_url"):
+            is_completed = True
+        elif stype == "text" and existing_row.get("text_response"):
+            is_completed = True
+        elif stype == "multiple_choice" and existing_row.get("answers"):
+            is_completed = True
+            
+        if is_completed:
             raise Exception("Task already completed")
 
     # Fetch task details for AI evaluation
     task_res = (
-        supabase
+        db
         .table("tasks")
         .select(
             "task_id, assignment_id, title, description, submission_format, questions"
         )
-        .eq("task_id", payload.task_id)
+        .eq("task_id", resolved_task_id)
         .eq("company_id", company_id)
         .maybe_single()
         .execute()
     )
-
     task = task_res.data or {}
 
-    # default values
-    score = int(payload.score or 0)
-    max_score = int(payload.max_score or 0)
+    # Define scratch/saved_submissions directory
+    saved_dir = "scratch/saved_submissions"
+    os.makedirs(saved_dir, exist_ok=True)
 
-    ai_validation_pass = payload.ai_validation_pass
-    ai_validation_verdict = payload.ai_validation_verdict
-    ai_validation_reason = payload.ai_validation_reason
-    ai_validation_suggestion = payload.ai_validation_suggestion
-    ai_validation_confidence = payload.ai_validation_confidence
-    ai_status = payload.ai_status
+    input_data = None
+    stored_audio_url = None
+    stored_video_url = None
+    stored_image_url = None
 
+    submission_type = (payload.submission_type or "").lower()
 
-    # Gemini evaluation
-    if task and (
-        ai_validation_pass is None
-        or ai_validation_verdict is None
-        or ai_validation_reason is None
-    ):
+    if submission_type == "image" and payload.image_url:
+        try:
+            image_bytes, mime_type = _extract_image_bytes(payload.image_url)
+            suffix = _image_suffix(mime_type)
+            local_path = os.path.join(saved_dir, f"{submission_id}{suffix}")
+            with open(local_path, "wb") as f:
+                f.write(image_bytes)
+            input_data = local_path
+            # Upload to Supabase Storage
+            stored_image_url = _store_image_media(payload, company_id, submission_id)
+        except Exception as e:
+            print("[task-manager] image extraction/storage failed:", e)
+            
+    elif submission_type == "audio" and (payload.audio_url or payload.text_response):
+        try:
+            audio_input = payload.audio_url or payload.text_response
+            audio_bytes, mime_type = _extract_audio_bytes(audio_input)
+            suffix = _audio_suffix(mime_type)
+            local_path = os.path.join(saved_dir, f"{submission_id}{suffix}")
+            with open(local_path, "wb") as f:
+                f.write(audio_bytes)
+            input_data = local_path
+            # Upload to Supabase Storage
+            stored_audio_url = _store_audio_media(payload, company_id, submission_id)
+        except Exception as e:
+            print("[task-manager] audio extraction/storage failed:", e)
 
-        submission_type = (
-            payload.submission_type or ""
-        ).lower()
+    elif submission_type == "video" and (payload.video_url or payload.text_response):
+        try:
+            video_input = payload.video_url or payload.text_response
+            video_bytes, mime_type = _extract_video_bytes(video_input)
+            suffix = _video_suffix(mime_type)
+            local_path = os.path.join(saved_dir, f"{submission_id}{suffix}")
+            with open(local_path, "wb") as f:
+                f.write(video_bytes)
+            input_data = local_path
+            # Upload to Supabase Storage
+            stored_video_url = _store_video_media(payload, company_id, submission_id)
+        except Exception as e:
+            print("[task-manager] video extraction/storage failed:", e)
 
-        model = _gemini_model()
+    elif submission_type == "text":
+        input_data = payload.text_response
 
+    elif submission_type == "multiple_choice":
+        input_data = [ans.model_dump() if hasattr(ans, "model_dump") else dict(ans) for ans in (payload.answers or [])]
 
-        if model and submission_type in {
-            "text",
-            "multiple_choice"
-        }:
+    db_answers = [ans.model_dump() if hasattr(ans, "model_dump") else dict(ans) for ans in (payload.answers or [])]
+    if is_bundle_submission:
+        db_answers.append({"child_task_id": payload.task_id})
 
-            try:
+    # Save submission record with pending status
+    insert_data = {
+        "submission_id": submission_id,
+        "company_id": company_id,
+        "task_id": resolved_task_id,
+        "user_id": payload.user_id,
+        "assignment_id": payload.assignment_id,
+        "submission_type": payload.submission_type,
+        "text_response": payload.text_response if submission_type not in ("video", "audio") else None,
+        "image_url": stored_image_url or payload.image_url,
+        "audio_url": stored_audio_url or payload.audio_url or (
+            payload.text_response
+            if submission_type == "audio"
+            else None
+        ),
+        "video_url": stored_video_url or payload.video_url or (
+            payload.text_response
+            if submission_type == "video"
+            else None
+        ),
+        "answers": db_answers,
+        "score": 0,
+        "max_score": len(payload.answers) if submission_type == "multiple_choice" and payload.answers else 100,
+        "ai_validation_pass": False,
+        "ai_validation_verdict": "PENDING",
+        "ai_validation_reason": "AI evaluation is running in background...",
+        "ai_validation_suggestion": "",
+        "ai_validation_confidence": "medium",
+        "ai_status": "pending",
+        "analysis_status": "pending",
+        "status": "submitted",
+        "submitted_at": datetime.utcnow().isoformat()
+    }
 
-                prompt = {
-
-                    "task_title":
-                        task.get("title", ""),
-
-                    "task_description":
-                        task.get(
-                            "description",
-                            ""
-                        ),
-
-                    "submission_type":
-                        submission_type,
-
-                    "questions":
-                        task.get(
-                            "questions"
-                        ) or [],
-
-
-                    "text_response":
-                        payload.text_response,
-
-
-                    "answers":
-                        payload.answers or [],
-
-
-                    "instructions": (
-                        "Return ONLY JSON with "
-                        "score,max_score,"
-                        "ai_validation_pass,"
-                        "ai_validation_verdict,"
-                        "ai_validation_reason,"
-                        "ai_validation_suggestion,"
-                        "ai_validation_confidence"
-                    )
-                }
-
-
-                response = model.generate_content(
-                    json.dumps(
-                        prompt,
-                        ensure_ascii=False
-                    )
-                )
-
-                raw_text = (
-                    getattr(
-                        response,
-                        "text",
-                        ""
-                    )
-                    or ""
-                )
-
-                match = re.search(
-                    r"\{[\s\S]*\}",
-                    raw_text
-                )
-
-                cleaned = (
-                    match.group(0)
-                    if match
-                    else raw_text
-                )
-
-                parsed = json.loads(cleaned)
-
-
-                score = int(
-                    parsed.get(
-                        "score",
-                        score
-                    )
-                )
-
-
-                max_score = int(
-                    parsed.get(
-                        "max_score",
-                        max_score or 10
-                    )
-                )
-
-
-                ai_validation_pass = bool(
-                    parsed.get(
-                        "ai_validation_pass"
-                    )
-                )
-
-
-                ai_validation_verdict = str(
-                    parsed.get(
-                        "ai_validation_verdict"
-                    )
-                    or (
-                        "PASS"
-                        if ai_validation_pass
-                        else "REVIEW"
-                    )
-                )
-
-
-                ai_validation_reason = str(
-                    parsed.get(
-                        "ai_validation_reason"
-                    )
-                    or ""
-                )
-
-
-                ai_validation_suggestion = str(
-                    parsed.get(
-                        "ai_validation_suggestion"
-                    )
-                    or ""
-                )
-
-
-                ai_validation_confidence = str(
-                    parsed.get(
-                        "ai_validation_confidence"
-                    )
-                    or "medium"
-                )
-
-                ai_status = str(
-                    parsed.get(
-                        "ai_status"
-                    )
-                    or "completed"
-                )
-
-
-            except Exception as exc:
-
-                print(
-                    "[task-manager] Gemini failed:",
-                    exc
-                )
-
-
-    # fallback validation
-
-    if ai_validation_pass is None:
-
-        if max_score > 0:
-
-            ai_validation_pass = (
-                score >= max_score
+    if not existing_row:
+        try:
+            result = (
+                db
+                .table("task_submissions")
+                .insert(insert_data)
+                .execute()
             )
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "duplicate key" in err_msg or "23505" in err_msg or "already exists" in err_msg:
+                # Retrieve the row that was just inserted by the concurrent request
+                existing_res = (
+                    db
+                    .table("task_submissions")
+                    .select("*")
+                    .eq("task_id", resolved_task_id)
+                    .eq("user_id", payload.user_id)
+                    .execute()
+                )
+                rows = existing_res.data or []
+                if is_bundle_submission:
+                    for row in rows:
+                        answers = row.get("answers") or []
+                        if any(isinstance(ans, dict) and ans.get("child_task_id") == payload.task_id for ans in answers):
+                            existing_row = row
+                            break
+                else:
+                    if rows:
+                        existing_row = rows[0]
+                if not existing_row:
+                    raise e
+            else:
+                raise e
 
-        else:
-
-            ai_validation_pass = bool(
-                payload.text_response
-                or payload.answers
-                or payload.image_url
-                or payload.audio_url
-                or payload.video_url
-            )
-
-
-    if ai_validation_verdict is None:
-        ai_validation_verdict = (
-            "PASS"
-            if ai_validation_pass
-            else "REVIEW"
+    if existing_row:
+        update_data = {}
+        for field in ["text_response", "image_url", "audio_url", "video_url", "answers",
+                      "score", "max_score", "ai_validation_pass", "ai_validation_verdict",
+                      "ai_validation_reason", "ai_validation_suggestion", "ai_validation_confidence",
+                      "ai_status", "analysis_status", "status", "submission_type", "submitted_at"]:
+            val = insert_data.get(field)
+            if val is not None:
+                update_data[field] = val
+        
+        result = (
+            db
+            .table("task_submissions")
+            .update(update_data)
+            .eq("submission_id", existing_row["submission_id"])
+            .execute()
         )
+        submission_id = existing_row["submission_id"]
 
-
-    if ai_validation_reason is None:
-        ai_validation_reason = (
-            "Submission recorded successfully."
-        )
-
-
-    if ai_validation_suggestion is None:
-        ai_validation_suggestion = ""
-
-
-    if ai_validation_confidence is None:
-        ai_validation_confidence = "medium"
-
-
-
-    # save submission
-
-    result = (
-        supabase
-        .table("task_submissions")
-        .insert({
-
-            "submission_id":
-                submission_id,
-
-            "company_id":
-                company_id,
-
-            "task_id":
-                payload.task_id,
-
-            "user_id":
-                payload.user_id,
-
-            "assignment_id":
-                payload.assignment_id,
-
-
-            "submission_type":
-                payload.submission_type,
-
-
-            # submissions
-
-            "text_response":
-                payload.text_response,
-
-
-            "image_url":
-                payload.image_url,
-
-
-            "audio_url":
-                payload.audio_url,
-
-
-            "video_url":
-                payload.video_url,
-
-
-            "answers":
-                payload.answers,
-
-
-
-            # AI
-
-            "score":
-                score,
-
-            "max_score":
-                max_score,
-
-            "ai_validation_pass":
-                ai_validation_pass,
-
-
-            "ai_validation_verdict":
-                ai_validation_verdict,
-
-
-            "ai_validation_reason":
-                ai_validation_reason,
-
-
-            "ai_validation_suggestion":
-                ai_validation_suggestion,
-
-
-            "ai_validation_confidence":
-                ai_validation_confidence,
-
-            "ai_status":
-                ai_status or "completed",
-
-
-            "status":
-                "submitted"
-
-        })
-        .execute()
+    # Queue background task
+    background_tasks.add_task(
+        run_ai_pipeline_bg,
+        submission_id,
+        company_id,
+        payload.task_id,
+        payload.submission_type,
+        input_data
     )
 
-
-    row = (
-        result.data[0]
-        if result.data
-        else {
-            "submission_id":
-                submission_id
-        }
-    )
+    return {
+        "status": "success",
+        "message": "Task submitted successfully",
+        "submission_id": submission_id
+    }
 
 
-    row.update({
+async def get_report_summary(assignment_id: str, company_id: str, requesting_user_id: str) -> dict:
+    if not await check_user_permission(requesting_user_id, 'manager'):
+        raise AuthorizationError("Permission denied: Manager role required to view reports")
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
 
-        "score":
-            score,
-
-
-        "max_score":
-            max_score,
-
-
-        "ai_validation_pass":
-            ai_validation_pass,
-
-
-        "ai_validation_verdict":
-            ai_validation_verdict,
-
-
-        "ai_validation_reason":
-            ai_validation_reason,
-
-
-        "ai_validation_suggestion":
-            ai_validation_suggestion,
-
-
-        "ai_validation_confidence":
-            ai_validation_confidence,
-
-        "ai_status":
-            ai_status or "completed",
-
-    })
-
-
-    return row
-
-
-def get_report_summary(assignment_id: str, company_id: str) -> dict:
+    db = get_service_supabase_client()
     result = (
-        supabase.table("task_report_summaries")
+        db.table("task_report_summaries")
         .select("*")
         .eq("assignment_id", assignment_id)
         .eq("company_id", company_id)
@@ -731,19 +1013,66 @@ def get_report_summary(assignment_id: str, company_id: str) -> dict:
     return result.data or {}
 
 
-def get_audience_functions(company_id: str) -> list:
-    return (
-        supabase.table("function")
+async def get_audience_functions(company_id: str, requesting_user_id: str) -> list:
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    db = get_service_supabase_client()
+    
+    # Fetch unique function_ids assigned to active users of this company
+    users_res = (
+        db.table("users")
+        .select("function_id")
+        .eq("company_id", company_id)
+        .eq("is_active", True)
+        .execute()
+    )
+    user_function_ids = list({u["function_id"] for u in (users_res.data or []) if u.get("function_id")})
+
+    # Fetch functions explicitly owned by this company
+    company_funcs_res = (
+        db.table("function")
         .select("function_id, function_name")
         .eq("company_id", company_id)
         .eq("is_active", True)
         .execute()
-    ).data or []
+    )
+    funcs = company_funcs_res.data or []
+    existing_ids = {f["function_id"] for f in funcs}
+
+    # Fetch any additional functions that are referenced by the company's active users (e.g. global ones)
+    additional_ids = [fid for fid in user_function_ids if fid not in existing_ids]
+    if additional_ids:
+        additional_funcs_res = (
+            db.table("function")
+            .select("function_id, function_name")
+            .in_("function_id", additional_ids)
+            .eq("is_active", True)
+            .execute()
+        )
+        funcs.extend(additional_funcs_res.data or [])
+
+    return funcs
 
 
-def get_audience_sub_functions(function_id: str) -> list:
+async def get_audience_sub_functions(function_id: str, requesting_user_id: str) -> list:
+    db = get_service_supabase_client()
+    func_res = (
+        db.table("function")
+        .select("company_id")
+        .eq("function_id", function_id)
+        .maybe_single()
+        .execute()
+    )
+    if not func_res.data:
+        raise NotFoundError("Function", function_id)
+    company_id = func_res.data.get("company_id")
+    if company_id:
+        if not await check_company_access(requesting_user_id, company_id):
+            raise AuthorizationError("Access denied to this company")
+
     return (
-        supabase.table("sub_function")
+        db.table("sub_function")
         .select("sub_function_id, sub_function_name")
         .eq("function_id", function_id)
         .eq("is_active", True)
@@ -751,9 +1080,13 @@ def get_audience_sub_functions(function_id: str) -> list:
     ).data or []
 
 
-def get_audience_cohorts(company_id: str) -> list:
+async def get_audience_cohorts(company_id: str, requesting_user_id: str) -> list:
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    db = get_service_supabase_client()
     return (
-        supabase.table("training_modules")
+        db.table("training_modules")
         .select("module_id, title")
         .eq("company_id", company_id)
         .in_("processing_status", ["completed", "ready"])
@@ -761,9 +1094,13 @@ def get_audience_cohorts(company_id: str) -> list:
     ).data or []
 
 
-def get_audience_members(company_id: str) -> list:
+async def get_audience_members(company_id: str, requesting_user_id: str) -> list:
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    db = get_service_supabase_client()
     users = (
-        supabase.table("users")
+        db.table("users")
         .select("user_id, name, email, company_id, function_id, sub_function_id")
         .eq("company_id", company_id)
         .eq("is_active", True)
@@ -776,7 +1113,7 @@ def get_audience_members(company_id: str) -> list:
     functions = {}
     if function_ids:
         function_rows = (
-            supabase.table("function")
+            db.table("function")
             .select("function_id, function_name")
             .in_("function_id", function_ids)
             .execute()
@@ -786,7 +1123,7 @@ def get_audience_members(company_id: str) -> list:
     sub_functions = {}
     if sub_function_ids:
         sub_function_rows = (
-            supabase.table("sub_function")
+            db.table("sub_function")
             .select("sub_function_id, sub_function_name")
             .in_("sub_function_id", sub_function_ids)
             .execute()
@@ -809,23 +1146,31 @@ def get_audience_members(company_id: str) -> list:
     ]
 
 
-def delete_task_assignment(assignment_id: str, company_id: str) -> bool:
+async def delete_task_assignment(assignment_id: str, company_id: str, requesting_user_id: str) -> bool:
     """
     Deletes a task assignment, its associated tasks, and any submissions for it.
     """
+    if not await check_user_permission(requesting_user_id, 'manager'):
+        raise AuthorizationError("Permission denied: Manager role required to delete task assignments")
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    db = get_service_supabase_client()
     # 1. Delete associated submissions
-    supabase.table("task_submissions").delete().eq("assignment_id", assignment_id).eq("company_id", company_id).execute()
+    db.table("task_submissions").delete().eq("assignment_id", assignment_id).eq("company_id", company_id).execute()
     # 2. Delete tasks
-    supabase.table("tasks").delete().eq("assignment_id", assignment_id).eq("company_id", company_id).execute()
+    db.table("tasks").delete().eq("assignment_id", assignment_id).eq("company_id", company_id).execute()
     # 3. Delete the assignment
-    supabase.table("task_assignments").delete().eq("assignment_id", assignment_id).eq("company_id", company_id).execute()
+    db.table("task_assignments").delete().eq("assignment_id", assignment_id).eq("company_id", company_id).execute()
     return True
 
 
-def fetch_task_submissions(
+async def fetch_task_submissions(
     company_id: str,
     assignment_id: str | None = None,
-    user_id: str | None = None
+    user_id: str | None = None,
+    caller_is_admin: bool = False,
+    requesting_user_id: str | None = None
 ) -> list:
     """
     Fetch task submissions for reports.
@@ -835,6 +1180,16 @@ def fetch_task_submissions(
     - task details
     - user details
     """
+    if not requesting_user_id:
+        raise AuthorizationError("Authentication required")
+    if not await check_company_access(requesting_user_id, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    if user_id and str(user_id) != str(requesting_user_id):
+        if not await check_user_permission(requesting_user_id, 'manager'):
+            raise AuthorizationError("Permission denied: Manager role required to view other user's submissions")
+
+    db = get_service_supabase_client()
 
     try:
         print("========== REPORT DEBUG ==========")
@@ -844,7 +1199,7 @@ def fetch_task_submissions(
 
         # 1. Fetch submissions only
         query = (
-            supabase
+            db
             .table("task_submissions")
             .select("*")
         )
@@ -886,64 +1241,36 @@ def fetch_task_submissions(
         )
 
 
-        # 2. Attach task + user manually
+        # 2. Bulk fetch tasks and users
+        task_ids = list(set([s.get("task_id") for s in submissions if s.get("task_id")]))
+        user_ids = list(set([s.get("user_id") for s in submissions if s.get("user_id")]))
+
+        tasks_map = {}
+        if task_ids:
+            try:
+                task_res = db.table("tasks").select("*").in_("task_id", task_ids).execute()
+                for t in (task_res.data or []):
+                    tasks_map[t["task_id"]] = t
+            except Exception as e:
+                print("Bulk task fetch failed:", e)
+
+        users_map = {}
+        if user_ids:
+            try:
+                user_res = db.table("users").select("*").in_("user_id", user_ids).execute()
+                for u in (user_res.data or []):
+                    users_map[u["user_id"]] = u
+            except Exception as e:
+                print("Bulk user fetch failed:", e)
+
         for submission in submissions:
+            _format_submission_row(submission, caller_is_admin)
 
+            tid = submission.get("task_id")
+            submission["tasks"] = tasks_map.get(tid) if tid else None
 
-            # attach task details
-            task_id = submission.get("task_id")
-
-            if task_id:
-                try:
-                    task_res = (
-                        supabase
-                        .table("tasks")
-                        .select("*")
-                        .eq(
-                            "task_id",
-                            task_id
-                        )
-                        .single()
-                        .execute()
-                    )
-
-                    submission["tasks"] = task_res.data
-
-                except Exception as e:
-                    print(
-                        "task fetch failed:",
-                        e
-                    )
-                    submission["tasks"] = None
-
-
-
-            # attach employee details
             uid = submission.get("user_id")
-
-            if uid:
-                try:
-                    user_res = (
-                        supabase
-                        .table("users")
-                        .select("*")
-                        .eq(
-                            "user_id",
-                            uid
-                        )
-                        .single()
-                        .execute()
-                    )
-
-                    submission["users"] = user_res.data
-
-                except Exception as e:
-                    print(
-                        "user fetch failed:",
-                        e
-                    )
-                    submission["users"] = None
-
+            submission["users"] = users_map.get(uid) if uid else None
 
         return submissions
 
@@ -958,7 +1285,7 @@ def fetch_task_submissions(
         return []
 
 
-def reassign_task_assignment(
+async def reassign_task_assignment(
     company_id: str,
     original_assignment_id: str,
     mode: str,
@@ -972,6 +1299,15 @@ def reassign_task_assignment(
     recurrence: str,
     created_by: str | None = None
 ) -> dict:
+    if not created_by:
+        raise AuthorizationError("Authentication required")
+    if not await check_user_permission(created_by, 'manager'):
+        raise AuthorizationError("Permission denied: Manager role required to reassign tasks")
+    if not await check_company_access(created_by, company_id):
+        raise AuthorizationError("Access denied to this company")
+
+    db = get_service_supabase_client()
+
     # 1. Resolve database level and target IDs
     db_level = "individual"
     target_module_id = None
@@ -983,7 +1319,7 @@ def reassign_task_assignment(
         db_level = "cohort"
         if target_sprints:
             modules = (
-                supabase.table("training_modules")
+                db.table("training_modules")
                 .select("module_id")
                 .eq("company_id", company_id)
                 .in_("title", target_sprints)
@@ -995,7 +1331,7 @@ def reassign_task_assignment(
         if target_individuals:
             db_level = "individual"
             users = (
-                supabase.table("users")
+                db.table("users")
                 .select("user_id")
                 .eq("company_id", company_id)
                 .in_("name", target_individuals)
@@ -1006,7 +1342,7 @@ def reassign_task_assignment(
         elif target_sub_functions:
             db_level = "sub_function"
             sub_funcs = (
-                supabase.table("sub_function")
+                db.table("sub_function")
                 .select("sub_function_id")
                 .in_("sub_function_name", target_sub_functions)
                 .execute()
@@ -1016,7 +1352,7 @@ def reassign_task_assignment(
         elif target_functions:
             db_level = "function"
             funcs = (
-                supabase.table("function")
+                db.table("function")
                 .select("function_id")
                 .eq("company_id", company_id)
                 .in_("function_name", target_functions)
@@ -1036,11 +1372,11 @@ def reassign_task_assignment(
         target_sub_function_id=target_sub_function_id,
         target_user_ids=target_user_ids
     )
-    audience_count = resolve_audience_count(mock_payload, company_id)
+    audience_count = await resolve_audience_count(mock_payload, company_id, created_by)
 
     if mode == "copy":
         orig_assign = (
-            supabase.table("task_assignments")
+            db.table("task_assignments")
             .select("*")
             .eq("assignment_id", original_assignment_id)
             .eq("company_id", company_id)
@@ -1051,7 +1387,7 @@ def reassign_task_assignment(
             raise Exception("Original assignment not found")
 
         orig_tasks = (
-            supabase.table("tasks")
+            db.table("tasks")
             .select("*")
             .eq("assignment_id", original_assignment_id)
             .eq("company_id", company_id)
@@ -1059,7 +1395,7 @@ def reassign_task_assignment(
         ).data or []
 
         new_assignment_id = str(uuid4())
-        supabase.table("task_assignments").insert({
+        db.table("task_assignments").insert({
             "assignment_id": new_assignment_id,
             "company_id": company_id,
             "created_by": created_by or orig_assign.get("created_by"),
@@ -1078,7 +1414,7 @@ def reassign_task_assignment(
         for t in orig_tasks:
             new_task_id = str(uuid4())
             t_inserted = (
-                supabase.table("tasks").insert({
+                db.table("tasks").insert({
                     "task_id": new_task_id,
                     "company_id": company_id,
                     "assignment_id": new_assignment_id,
@@ -1088,6 +1424,7 @@ def reassign_task_assignment(
                     "submission_format": t.get("submission_format"),
                     "questions": t.get("questions") or [],
                     "status": "active",
+                    "bundle_tasks": t.get("bundle_tasks") or [],
                 }).execute()
             ).data
             if t_inserted:
@@ -1101,8 +1438,9 @@ def reassign_task_assignment(
             "company_id": company_id,
             "title": primary_task.get("title", ""),
             "description": primary_task.get("description", ""),
-            "submission_format": [primary_task.get("submission_format", "text")] if not isinstance(primary_task.get("submission_format"), list) else primary_task.get("submission_format"),
+            "submission_format": _normalize_submission_format(primary_task.get("submission_format", "text")),
             "questions": primary_task.get("questions") or [],
+            "bundle_tasks": primary_task.get("bundle_tasks") or [],
             "status": "active",
             "due_date": due_date,
             "recurrence": recurrence,
@@ -1115,7 +1453,7 @@ def reassign_task_assignment(
 
     else:
         # Update existing assignment
-        supabase.table("task_assignments").update({
+        db.table("task_assignments").update({
             "level": db_level,
             "target_module_id": target_module_id,
             "target_function_id": target_function_id,
@@ -1126,11 +1464,10 @@ def reassign_task_assignment(
             "total_target_count": audience_count,
         }).eq("assignment_id", original_assignment_id).eq("company_id", company_id).execute()
 
-        # Delete any existing submissions for this assignment so it becomes active again
-        supabase.table("task_submissions").delete().eq("assignment_id", original_assignment_id).eq("company_id", company_id).execute()
+        # Bugfix: Removed silent deletion of task_submissions to prevent data loss.
 
         updated_tasks = (
-            supabase.table("tasks")
+            db.table("tasks")
             .select("*")
             .eq("assignment_id", original_assignment_id)
             .eq("company_id", company_id)
@@ -1145,8 +1482,9 @@ def reassign_task_assignment(
             "company_id": company_id,
             "title": primary_task.get("title", ""),
             "description": primary_task.get("description", ""),
-            "submission_format": [primary_task.get("submission_format", "text")] if not isinstance(primary_task.get("submission_format"), list) else primary_task.get("submission_format"),
+            "submission_format": _normalize_submission_format(primary_task.get("submission_format", "text")),
             "questions": primary_task.get("questions") or [],
+            "bundle_tasks": primary_task.get("bundle_tasks") or [],
             "status": "active",
             "due_date": due_date,
             "recurrence": recurrence,
@@ -1156,5 +1494,3 @@ def reassign_task_assignment(
             "completion_count": 0,
             "created_at": "",
         }
-
-

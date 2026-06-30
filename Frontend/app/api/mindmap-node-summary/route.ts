@@ -25,7 +25,7 @@ export async function POST(req: Request) {
 Output ONLY plain text with three sections separated by a blank line:\n\nDefinition: (1-2 sentences)\n\nKey points:\n- point 1\n- point 2\n- point 3\n\nPractical tip: (1 short actionable tip)\n\nWhen possible, ground content strictly in the provided module content. If the content lacks detail, provide concise, accurate best-practice guidance and prepend '\\(Inferred\\)' to the Definition line. Keep total length under 140 words. No JSON, no extra explanation.`;
 
         const prompt = `Label: ${label}\n\nContent:\n${source}`;
-        const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
         const result = await model.generateContent(`${system}\n\n${prompt}`);
         const response = await result.response;
         let aiText = '';
@@ -42,10 +42,18 @@ Output ONLY plain text with three sections separated by a blank line:\n\nDefinit
     }
 
     // Fallback heuristic: return paragraph(s) containing label words or a sizeable excerpt
-    const plain = source.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  const labelWords = label.toLowerCase().split(/\s+/).filter(Boolean).map((w: string) => w.replace(/[^a-z0-9]/gi, ''));
+    let cleanText = source
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/<\/?(p|div|br|h[1-6]|ul|ol|li|table|tr|td|th|section|article|blockquote)[^>]*>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ');
 
-  const paragraphs = plain.split(/(?:\n\s*\n|\r\n\r\n)/).map((p: string) => p.trim()).filter(Boolean);
+    const labelWords = label.toLowerCase().split(/\s+/).filter(Boolean).map((w: string) => w.replace(/[^a-z0-9]/gi, ''));
+    const paragraphs = cleanText.split(/\n/).map((p: string) => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
     let bestIdx = -1;
     let bestScore = 0;
     for (let i = 0; i < paragraphs.length; i++) {
@@ -60,13 +68,23 @@ Output ONLY plain text with three sections separated by a blank line:\n\nDefinit
       }
     }
     if (bestIdx >= 0 && bestScore > 0) {
-      const start = bestIdx;
-      const end = Math.min(paragraphs.length, bestIdx + 2);
-      return NextResponse.json({ summary: paragraphs.slice(start, end).join('\n\n') });
+      // Find the first substantive paragraph starting from bestIdx to avoid just returning short headings
+      let contentIdx = bestIdx;
+      while (contentIdx < paragraphs.length && paragraphs[contentIdx].split(/\s+/).length < 10) {
+        contentIdx++;
+      }
+      if (contentIdx >= paragraphs.length) contentIdx = bestIdx;
+
+      // Return a window of lines from the substantive match
+      const start = contentIdx;
+      const end = Math.min(paragraphs.length, contentIdx + 2);
+      const summary = paragraphs.slice(start, end).join('\n\n');
+      return NextResponse.json({ summary: `Definition:\n${summary}` });
     }
 
     // Sentence-level fallback
-  const sentences = plain.match(/[^.!?]+[.!?]+/g) || [plain];
+    const plain = paragraphs.join(' ');
+    const sentences = plain.match(/[^.!?]+[.!?]+/g) || [plain];
     let bestSIdx = -1;
     bestScore = 0;
     for (let i = 0; i < sentences.length; i++) {
