@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
@@ -28,7 +28,7 @@ interface AssessmentReport {
   recommendations: string[];
 }
 
-export default function RolePlayPage({ params }: { params: { module_id: string, moduleTitle: string, custom: string } }) {
+function RolePlayPageContent({ params }: { params: { module_id: string, moduleTitle: string, custom: string } }) {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -995,5 +995,20 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         </div>
       )}
     </div>
+  );
+}
+
+export default function RolePlayPage({ params }: { params: { module_id: string, moduleTitle: string, custom: string } }) {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-slate-600">Loading...</p>
+        </div>
+      </div>
+    }>
+      <RolePlayPageContent params={params} />
+    </Suspense>
   );
 }

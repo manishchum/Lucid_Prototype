@@ -42,36 +42,23 @@ def build_system_prompt(scenario_context: dict) -> str:
     ai_personality = scenario_context.get("ai_personality") or ""
     ai_objectives = scenario_context.get("ai_objectives") or ""
 
-    return f"""You are an expert role-play simulation engine.
-You are roleplaying as the AI character: {scenario_role}.
-The human learner is roleplaying as: {user_role}.
-Scenario: "{scenario_context.get('scenario_title')}".
+    return f"""You are an AI actor in a role-play simulation.
 
-ROLE ASSIGNMENT - THIS IS NON-NEGOTIABLE:
-- You speak ONLY as: {scenario_role}
-- The human speaks as: {user_role}
-- Never introduce yourself as the {user_role}
-- Never say lines that belong to the {user_role}
-- Never evaluate, coach, or explain the scenario during the live roleplay
+YOUR ROLE: You are playing the {scenario_role}.
+THE USER'S ROLE: The human is playing the {user_role}.
+SCENARIO: "{scenario_context.get('scenario_title')}"
 
-CRITICAL RULES FOR CLARITY AND SPEED:
-1. STAY IN CHARACTER as the {scenario_role} at all times
-2. NEVER break character or acknowledge you are an AI
-3. NEVER provide coaching or advice to the user
-4. KEEP RESPONSES EXTREMELY SHORT - 1-2 sentences ONLY. Be concise and direct.
-5. Use simple, common words. Avoid complex vocabulary.
-6. Speak in natural pauses. One thought per sentence.
-7. Raise realistic objections and concerns
-8. Show realistic emotions based on what the user says
-9. DO NOT roleplay as the {user_role}. That is the human learner's role.
-10. DO NOT answer for the learner or tell the learner what to say.
+CRITICAL INSTRUCTIONS:
+- You must ONLY speak and act as the {scenario_role}.
+- NEVER play the user's role.
+- Wait for the user to respond before speaking again.
+- Keep your responses short, conversational, and natural (1-2 sentences).
+- Do not provide coaching, evaluation, or advice. Just stay in character.
+- Raise realistic objections or concerns based on the scenario.
 
 CHARACTER TONE: {tone_instruction}
 AI character personality/context: {ai_personality}
-AI character objective: {ai_objectives}
-Opening line or situation for the AI character ({scenario_role}) to express: {initial_prompt}
-
-IMPORTANT: Quality over quantity. Each sentence should be clear and easy to understand when spoken aloud."""
+AI character objective: {ai_objectives}"""
 
 
 @router.websocket("/roleplay/realtime")
@@ -147,44 +134,41 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                 "session": {
                     "type": "realtime",
                     "model": OPENAI_REALTIME_MODEL,
-                    "modalities": ["text", "audio"],
-                    "instructions": build_system_prompt(scenario_context),
-                    "voice": voice,
-                    "input_audio_format": "pcm16",
-                    "output_audio_format": "pcm16",
-                    "temperature": 0.6,
-                    "turn_detection": {
-                        "type": "server_vad",
-                        "threshold": 0.6,
-                        "silence_duration_ms": 800,
-                        "prefix_padding_ms": 500,
-                    },
-                    "input_audio_transcription": {
-                        "model": "whisper-1"
-                    }
+                    "instructions": build_system_prompt(scenario_context)
                 }
             }))
             logger.info(f"[Realtime] ✅ Session configured — voice: {voice}")
 
-            # ✅ FIX 2: Correct way to trigger opening greeting
+            # Trigger the opening greeting without overriding the session system prompt
             if scenario_context.get("initial_prompt"):
+                # 1. Add a system message telling it to start
                 await openai_ws.send(json.dumps({
-                    "type": "response.create",
-                    "response": {
-                        "output_modalities": ["audio"],
-                        "instructions": (
-                            f"Start the roleplay now. Speak only as {scenario_context['scenario_role']}. "
-                            f"The human learner is {scenario_context['user_role']}; do not speak as them. "
-                            f"Say a short opening line from the perspective of {scenario_context['scenario_role']} "
-                            f"using this situation: {scenario_context['initial_prompt']}"
-                        ),
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "message",
+                        "role": "system",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": (
+                                    f"Please begin the roleplay now. You are playing the {scenario_context['scenario_role']}. "
+                                    f"Say your opening line based on this context: {scenario_context['initial_prompt']}"
+                                )
+                            }
+                        ]
                     }
+                }))
+                
+                # 2. Tell it to generate a response (using the session instructions)
+                await openai_ws.send(json.dumps({
+                    "type": "response.create"
                 }))
                 logger.info("[Realtime] 🎤 Requested opening greeting")
 
             # --- Bidirectional tasks ---
 
             async def forward_client_to_openai():
+                nonlocal conversation_transcript
                 try:
                     while True:
                         msg = json.loads(await websocket.receive_text())
@@ -216,6 +200,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                     logger.error(f"[Realtime] ❌ Forward error: {e}")
 
             async def receive_openai_to_client():
+                nonlocal conversation_transcript
                 try:
                     while True:
                         response = json.loads(await openai_ws.recv())
