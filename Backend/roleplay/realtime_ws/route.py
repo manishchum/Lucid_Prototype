@@ -79,6 +79,8 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
     await websocket.accept()
 
     conversation_transcript = []
+    items_dict = {}
+    item_ids_order = []
     scenario_context = None
 
     try:
@@ -195,22 +197,20 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                             }))
 
                         elif msg_type == "end_session":
-                            logger.info(f"[Realtime] 📞 Session end requested - transcript contains {len(conversation_transcript)} messages")
+                            final_transcript = []
+                            for iid in item_ids_order:
+                               if iid in items_dict:
+                                   msg_text = items_dict[iid]["text"].strip()
+                                   if msg_text:
+                                       final_transcript.append({
+                                           "role": items_dict[iid]["role"],
+                                           "text": msg_text
+                                        })
+                            if not final_transcript and conversation_transcript:
+                               final_transcript = conversation_transcript
+                            conversation_transcript = final_transcript
 
-                            # Log the transcript structure for verification
-                            user_msgs = [m for m in conversation_transcript if m.get("role") == "user"]
-                            bot_msgs = [m for m in conversation_transcript if m.get("role") == "bot"]
-                            logger.info(f"[Realtime] 📊 Transcript breakdown: {len(user_msgs)} user messages, {len(bot_msgs)} bot messages")
-
-                            # Send complete transcript back to frontend
-                            await websocket.send_json({
-                                "type": "session_ended",
-                                "transcript": conversation_transcript,
-                                "session_id": scenario_context["session_id"]
-                            })
-
-                            logger.info(f"[Realtime] ✅ session_ended payload sent to frontend with {len(conversation_transcript)} messages")
-                            break
+                            logger.info(f"[Realtime] 📞 Session end requested - transcript contains {len(conversation_transcript)} messages")  
 
                 except Exception as e:
                     logger.error(f"[Realtime] ❌ Forward error: {e}")
@@ -235,24 +235,36 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                                 "role": "bot"
                             })
 
+                        elif response_type == "conversation.item.created":
+                            item = response.get("item", {})
+                            item_id = item.get("id")
+                            role = item.get("role")
+                            if item_id and role in ("user", "assistant"):
+                               mapped_role = "user" if role == "user" else "bot"
+                               items_dict[item_id] = {"role": mapped_role, "text": ""}
+                               item_ids_order.append(item_id)
+
                         elif response_type in ("response.output_audio_transcript.done", "response.audio_transcript.done"):
-                            text = response.get("transcript", "")
-                            if text:
-                                conversation_transcript.append({"role": "bot", "text": text})
-                                logger.info(f"[Realtime] 💬 Bot: {text[:60]}...")
-                                logger.info(f"[Realtime] 📝 Transcript count: {len(conversation_transcript)} messages")
+                           text = response.get("transcript", "")
+                           item_id = response.get("item_id")
+                           if item_id and item_id in items_dict:
+                               items_dict[item_id]["text"] = text
+                           elif text:
+                               conversation_transcript.append({"role": "bot", "text": text})
+                           logger.info(f"[Realtime] 💬 Bot: {text[:60]}...")
 
                         elif response_type == "conversation.item.input_audio_transcription.completed":
-                            # ✅ Correct event for user speech transcript
-                            text = response.get("transcript", "")
-                            if text:
-                                conversation_transcript.append({"role": "user", "text": text})
-                                logger.info(f"[Realtime] 👤 User: {text[:60]}...")
-                                logger.info(f"[Realtime] 📝 Transcript count: {len(conversation_transcript)} messages")
-                                await websocket.send_json({
-                                    "type": "user_transcription",
-                                    "text": text
-                                })
+                           text = response.get("transcript", "")
+                           item_id = response.get("item_id")
+                           if item_id and item_id in items_dict:
+                               items_dict[item_id]["text"] = text
+                           elif text:
+                               conversation_transcript.append({"role": "user", "text": text})
+                           logger.info(f"[Realtime] 👤 User: {text[:60]}...")
+                           await websocket.send_json({
+                               "type": "user_transcription",
+                               "text": text
+                           })
 
                         elif response_type == "input_audio_buffer.speech_started":
                             logger.info("[Realtime] 🎙️ User started speaking")
