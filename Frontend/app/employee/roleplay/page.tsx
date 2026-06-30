@@ -90,7 +90,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     if (userId) {
       fetchScenarios();
     }
-  }, [isAdmin]); // Depend on both userId and isAdmin
+  }, [isAdmin, searchParams]); // Depend on both userId and isAdmin
 
   useEffect(() => {
     if (!authLoading) {
