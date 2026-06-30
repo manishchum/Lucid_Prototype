@@ -1589,9 +1589,21 @@ function ContentTransformer({
                         video.onloadedmetadata = null;
                       };
                     }}
-                    className={clsx(
-                      "px-4 py-1.5 text-sm font-medium rounded-md transition-all",
-                      language === 'en' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                    className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold cursor-pointer outline-none w-28 appearance-none text-center shadow-sm"
+                    defaultValue="en"
+                  >
+                    <span
+                      className={clsx(
+                        'transition-transform',
+                        transcriptOpen ? 'rotate-180' : 'rotate-0'
+                      )}
+                      aria-hidden
+                    >
+                      ▾
+                    </span>
+                    <option value="en">English</option>
+                    {module.video_url_hinglish && (
+                      <option value="hinglish">हिंदी</option>
                     )}
                   >
                     English
