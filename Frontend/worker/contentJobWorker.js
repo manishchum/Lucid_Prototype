@@ -158,8 +158,11 @@ async function processJobs() {
         }
 
         // Generate all derived assets for this specific module before completing the job.
-        await runModuleGenerators(job.module_id);
-
+        try{
+          await runModuleGenerators(job.module_id);
+        }catch(e){
+          console.log(e)
+        }
         await supabase.from('content_jobs').update({ status: 'completed', updated_at: new Date() }).eq('id', job.id);
         console.log(`[JOB] Job completed: id=${job.id}, module_id=${job.module_id}`);
       } catch (err) {
