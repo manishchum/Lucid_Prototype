@@ -1605,7 +1605,6 @@ function ContentTransformer({
                     {module.video_url_hinglish && (
                       <option value="hinglish">हिंदी</option>
                     )}
-                  >
                     English
                   </button>
                   {module.video_url_hinglish && (
