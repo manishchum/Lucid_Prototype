@@ -4,9 +4,11 @@ import json
 import base64
 import httpx
 from datetime import datetime
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 from utils.supabase_client import supabase
+from utils.auth import get_request_auth_required
+from utils.redis_limiter import check_rate_limit
 
 router = APIRouter()
 
@@ -153,11 +155,13 @@ def cleanFormatting(s: str):
 # MAIN ROUTE
 # -----------------------------------------------------
 @router.post("/assistant")
-async def POST(request: Request):
+async def POST(request: Request, auth=Depends(get_request_auth_required)):
 
     try:
 
         body = await request.json()
+        
+        await check_rate_limit(user_id=auth.user_id, endpoint="assistant")
 
         query = str(body.get("query") or "").strip()
 

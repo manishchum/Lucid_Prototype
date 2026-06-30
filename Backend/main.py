@@ -31,16 +31,15 @@ from assistant.route import router as assistant_router
 from assistant.chat.route import router as assistant_chat_router
 from change_password.route import router as change_password_router
 from task_manager.router import router as task_manager_router
-# REMOVED: photo_analysis route is dead code — frontend only uses /api/task-manager/tasks/submit
-# image analysis now runs via analysis/image_analyzer.py which uses photo_analysis/services/ directly
-# from photo_analysis.route import router as photo_analysis_router
 from text_analysis.route import router as text_analysis_router
+# from stt.route import router as stt_router
 from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications, employees, reports
 from routes.analytics_export import router as analytics_export_router
 from routes.career_journeys import router as career_journeys_router
 from routes.employee_dashboard import router as employee_dashboard_router
 from routes.analytics import router as analytics_router
 from routes.admin_uploads import router as admin_uploads_router
+from voice_document.route import router as voice_document_router
 
 # Import user routes
 # from routes.users import router as users_router
@@ -209,12 +208,12 @@ app.include_router(assistant_chat_router, prefix="/api", tags=["assistant-chat"]
 app.include_router(change_password_router, prefix="/api", tags=["change-password"])
 app.include_router(task_manager_router, prefix="/api", tags=["task-manager"])
 app.include_router(career_journeys_router, prefix="/api", tags=["career-journeys"])
-# REMOVED: photo_analysis route is unused — see analysis/image_analyzer.py
-# app.include_router(photo_analysis_router, prefix="/api/photo-analysis", tags=["photo-analysis"])
+# app.include_router(stt_router, prefix="/api", tags=["speech-to-text"])
 app.include_router(text_analysis_router, prefix="/api/text-analysis", tags=["text-analysis"])
 app.include_router(employee_dashboard_router)  # employee dashboard summary router
 app.include_router(analytics_router)  # analytics router with dashboard and other analytics endpoints
 app.include_router(admin_uploads_router)  # admin uploads router
+app.include_router(voice_document_router)  # voice-to-document agent router
 
 
 # Router Includes are here
