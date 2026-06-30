@@ -8,19 +8,19 @@ LIMITS = {
         "window": 60,          # 30 requests/min
     },
     "tts": {
-        "limit": 20,
+        "limit": 10,
         "window": 3600,        # 20/hour
     },
     "gpt-feedback": {
-        "limit": 10,
+        "limit": 5,
         "window": 3600,
     },
     "training-plan": {
-        "limit": 3,
+        "limit": 2,
         "window": 3600,
     },
     "image-analysis": {
-        "limit": 50,
+        "limit": 1,
         "window": 86400,       # 50/day
     },
     "default": {
@@ -28,11 +28,11 @@ LIMITS = {
         "window": 60,
     },
     "module-chat": {
-        "limit": 15,
+        "limit": 10,
         "window": 3600,
     },
     "speech-to-text": {
-        "limit": 3,
+        "limit": 10,
         "window": 3600,
     }
 }
