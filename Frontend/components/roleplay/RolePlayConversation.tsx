@@ -331,6 +331,7 @@ export default function RolePlayConversation({
   };
 
   const startConversation = async () => {
+    conversationTranscriptRef.current = [];
     if (employeeId) {
       try {
         const { data, error } = await createRolePlaySession(

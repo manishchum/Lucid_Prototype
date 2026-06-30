@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
@@ -28,13 +28,13 @@ interface AssessmentReport {
   recommendations: string[];
 }
 
-export default function RolePlayPage({ params }: { params: { module_id: string, moduleTitle: string, custom: string } }) {
+function RolePlayPageContent({ params }: { params: { module_id: string, moduleTitle: string, custom: string } }) {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-  // const searchParams = useSearchParams();
+  const searchParams = useSearchParams();
   const moduleId = params.module_id;
   const moduleTitle = params.moduleTitle;
-  const isCustom = (params.custom) === 'true';
+  const isCustom = searchParams.get('custom') === 'true';
   
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('scenarioSelection');
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
@@ -90,7 +90,7 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
     if (userId) {
       fetchScenarios();
     }
-  }, [isAdmin]); // Depend on both userId and isAdmin
+  }, [isAdmin, searchParams]); // Depend on both userId and isAdmin
 
   useEffect(() => {
     if (!authLoading) {
@@ -995,5 +995,20 @@ export default function RolePlayPage({ params }: { params: { module_id: string, 
         </div>
       )}
     </div>
+  );
+}
+
+export default function RolePlayPage({ params }: { params: { module_id: string, moduleTitle: string, custom: string } }) {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-slate-600">Loading...</p>
+        </div>
+      </div>
+    }>
+      <RolePlayPageContent params={params} />
+    </Suspense>
   );
 }

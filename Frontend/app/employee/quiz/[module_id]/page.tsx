@@ -655,10 +655,10 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                               key={oIdx}
                               onClick={() => handleSelect(globalIdx, oIdx)}
                               disabled={submitted}
-                              className={`w-full p-3 sm:p-4 text-left border-2 rounded-lg transition-all duration-200 hover:shadow-md ${
+                                className={`w-full p-3 sm:p-4 text-left border-2 rounded-lg transition-all duration-200 hover:shadow-md active:scale-[0.99] ${
                                 answers[globalIdx] === oIdx
-                                  ? "border-blue-500 bg-blue-50 shadow-sm"
-                                  : "border-gray-200 hover:border-gray-300"
+                                  ? "border-blue-500 bg-blue-50 shadow-sm ring-1 ring-blue-500/50"
+                                  : "border-gray-200 hover:border-gray-300 hover:bg-slate-50"
                               } ${submitted ? "cursor-not-allowed" : "cursor-pointer"}`}
                             >
                               <div className="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-3">
@@ -667,8 +667,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                                     ? "border-blue-500 bg-blue-500"
                                     : "border-gray-300"
                                   }`}>
-                                  {answers[globalIdx] === oIdx && (
-                                    <div className="w-2 h-2 rounded-full bg-white"></div>
+                                    {answers[globalIdx] === oIdx && (
+                                    <div className="w-2 h-2 rounded-full bg-white animate-in zoom-in duration-200 ease-out"></div>
                                   )}
                                 </div>
                                 <span className="min-w-0 text-sm sm:text-base leading-snug break-words">{opt}</span>
@@ -718,7 +718,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                   )}
                 </Button>
               ) : (
-                <Button
+                                                <Button
                   onClick={handleNext}
                   disabled={currentQuestions.some((_, idx) => {
                     const globalIdx = currentPage * questionsPerPage + idx;
