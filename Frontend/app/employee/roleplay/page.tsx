@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
@@ -31,10 +31,10 @@ interface AssessmentReport {
 export default function RolePlayPage({ params }: { params: { module_id: string, moduleTitle: string, custom: string } }) {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-  // const searchParams = useSearchParams();
+  const searchParams = useSearchParams();
   const moduleId = params.module_id;
   const moduleTitle = params.moduleTitle;
-  const isCustom = (params.custom) === 'true';
+  const isCustom = searchParams.get('custom') === 'true';
   
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('scenarioSelection');
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);

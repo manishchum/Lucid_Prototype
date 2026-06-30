@@ -1456,7 +1456,7 @@ className="border rounded-lg text-xs p-2"
                     </div>
 
                     {/* Summary Card */}
-                    <div className="p-5 bg-gradient-to-br from-[#0F172A] to-[#1E293B] text-white rounded-2xl space-y-4">
+                    {/* <div className="p-5 bg-gradient-to-br from-[#0F172A] to-[#1E293B] text-white rounded-2xl space-y-4">
                       <span className="text-[10px] uppercase font-bold tracking-widest text-[#2F63FF] block font-mono">PIPELINE VERIFICATION SUMMARY</span>
                       
                       <div className="space-y-4 text-xs">
@@ -1494,7 +1494,7 @@ className="border rounded-lg text-xs p-2"
                         <Award size={14} className="text-[#2F63FF]" />
                         <span>Meets standard system validation metrics.</span>
                       </div>
-                    </div>
+                    </div> */}
                   </div>
 
                   {/* Submission validation state message */}
@@ -1582,7 +1582,7 @@ className="border rounded-lg text-xs p-2"
       </div>
 
       {/* RIGHT PORTION: Dynamic visual tablet preview device */}
-      <div className="w-full xl:w-80 bg-slate-50 rounded-2xl border border-[#E2E8F0] p-4 flex flex-col justify-between max-h-[700px] shadow-inner font-sans">
+      {/* <div className="w-full xl:w-80 bg-slate-50 rounded-2xl border border-[#E2E8F0] p-4 flex flex-col justify-between max-h-[700px] shadow-inner font-sans">
         <div>
           <div className="flex items-center justify-between border-b border-gray-200 pb-3 mb-4">
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider font-mono">📱 MOBILE PREVIEW</span>
@@ -1602,9 +1602,9 @@ className="border rounded-lg text-xs p-2"
               <div 
                 key={taskItem.id} 
                 className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm relative overflow-hidden"
-              >
+              > */}
                 {/* Decorative status accent */}
-                <div className="absolute top-0 left-0 w-1 h-full bg-[#2F63FF]"></div>
+                {/* <div className="absolute top-0 left-0 w-1 h-full bg-[#2F63FF]"></div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -1620,10 +1620,10 @@ className="border rounded-lg text-xs p-2"
 
                   <p className="text-[10px] text-[#475569] leading-relaxed line-clamp-3">
                     {taskItem.description.trim() === '' ? 'Fulfillment guidelines will render here.' : taskItem.description}
-                  </p>
+                  </p> */}
 
                   {/* Submission box render representation */}
-                  <div className="border-t border-dashed border-gray-100 pt-3 mt-3">
+                  {/* <div className="border-t border-dashed border-gray-100 pt-3 mt-3">
                     <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-2">Required Validation Action:</span>
                     
                     {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('image') : taskItem.submissionFormat === 'image') && (
@@ -1724,7 +1724,7 @@ className="border rounded-lg text-xs p-2"
           </div>
         </div>
 
-      </div>
+      </div> */}
 
     </div>
   );
