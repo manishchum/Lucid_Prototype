@@ -208,15 +208,15 @@ export default function VoiceInput({
       // Whisper requires a proper filename with extension — send as audio.webm directly
       fd.append("audio", new File([blob], "audio.webm", { type: "audio/webm;codecs=opus" }));
 
-      // const res = await fetchWithAuth(`${API_URL}/api/speech-to-text`, {
-      //   method: "POST",
-      //   body: fd,
-      // });
-
-      const res = await fetchWithAuth(`/api/speech-to-text-async`, {
+      const res = await fetchWithAuth(`${API_URL}/api/speech-to-text`, {
         method: "POST",
         body: fd,
       });
+
+      // const res = await fetchWithAuth(`/api/speech-to-text-async`, {
+      //   method: "POST",
+      //   body: fd,
+      // });
 
       const data = await res.json();
 

@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from utils.supabase_client import supabase
 import google.generativeai as genai
 from utils.redis_limiter import check_rate_limit
+from utils.redis_client import delete_cache_pattern
 
 
 router = APIRouter()
@@ -129,6 +130,8 @@ async def POST(request: Request):
         # print("Assessment result:", assessmentResult)
 
         # Return response in the format expected by legacy clients
+        
+        delete_cache_pattern(f"dashboard_summar:{user_id}*")
         return JSONResponse(content={
             "success": True,
             "score": assessmentResult.get("score"),
