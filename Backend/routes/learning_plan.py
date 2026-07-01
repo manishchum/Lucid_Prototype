@@ -25,6 +25,16 @@ class CreateLearningPlanRequest(BaseModel):
     baseline_assessment: Optional[bool] = True
 
 
+class BulkCreateLearningPlanRequest(BaseModel):
+    user_ids: list[str]
+    module_ids: list[str]
+
+    due_date: Optional[str] = None
+    priority: Optional[int] = 1
+    status: Optional[str] = "ASSIGNED"
+    baseline_assessment: Optional[bool] = True
+    
+    
 class UpdateLearningPlanRequest(BaseModel):
     due_date: Optional[str] = None
     priority: Optional[int] = None
@@ -162,13 +172,42 @@ async def create_learning_plan(
         status_code = 400 if "required" in result["error"].lower() else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
     delete_cache_pattern(f"learning plans:{user_id}:*")
+    delete_cache_pattern(f"dashboard_users:{user_id}:*")
+
     return {
         "success": True,
         "plan": result["data"],
         "message": "Learning plan created successfully"
     }
 
+@router.post("/bulk")
+async def create_learning_plans_bulk(
+    request: BulkCreateLearningPlanRequest,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+):
+    result = await learning_plan_db.bulk_create_learning_plans(
+        auth_ctx.user_id,
+        request.dict()
+    )
 
+    if result.get("error"):
+        raise HTTPException(
+            status_code=400,
+            detail=result["error"]
+        )
+
+    delete_cache_pattern("learning plans:*")
+    for user_id in request.user_ids:
+        delete_cache_pattern(f"dashboard_users:{user_id}:*")
+
+
+    return {
+        "success": True,
+        "created": result["created"],
+        "skipped": result["skipped"]
+    }
+    
+    
 @router.put("/{learning_plan_id}")
 async def update_learning_plan(
     learning_plan_id: str,

@@ -2977,59 +2977,32 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
 
     setShowDuplicateModal(false);
 
-    const learningPlans = [];
-
-    for (const userId of assignableUsers) {
-      for (const moduleId of selectedModules) {
-        learningPlans.push({
-          user_id: userId,
-          module_id: moduleId,
-          assigned_on: new Date().toISOString(),
+    const bulkRes = await fetchWithAuth(
+      `${API_URL}/api/learning-plans/bulk`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": adminId,
+        },
+        body: JSON.stringify({
+          user_ids: assignableUsers,
+          module_ids: selectedModules,
           due_date: dueDate || null,
-          baseline_assessment: false,
-          status: 'ASSIGNED'
-        });
+          baseline_settings: moduleBaselineSettings,
+          status: "ASSIGNED",
+        }),
       }
+    );
+    const bulkData = await bulkRes.json();;
+    if (bulkData.error) {
+      throw new Error(bulkData.error);
     }
 
-    // Existing createRes loop can be reused here
-      let successCount = 0;
-      let failCount = 0;
-
-      for (const plan of learningPlans) {
-        try {
-          const createRes = await fetchWithAuth(
-            `${API_URL}/api/learning-plans/`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-User-ID': adminId
-              },
-              body: JSON.stringify(plan)
-            }
-          );
-
-          if (createRes.ok) {
-            successCount++;
-          } else {
-            const errorData = await createRes.json();
-
-            if (
-              errorData.detail?.includes('23505') ||
-              errorData.detail?.includes('duplicate')
-            ) {
-              // duplicate skip
-            } else {
-              failCount++;
-              console.error('Failed to create assignment:', errorData);
-            }
-          }
-        } catch (e) {
-          failCount++;
-          console.error('Error creating assignment:', e);
-        }
-      }
+    if (!bulkRes.ok) {
+      const err = await bulkRes.json();
+      throw new Error(err.detail || "Bulk assignment failed");
+    }
 
       // ADD THIS BLOCK HERE
       sharedDataClient.invalidateByPrefix("v1|dashboard");
@@ -3275,58 +3248,27 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       }
 
       // Create learning plan entries for each user-module combination
-      const learningPlans = [];
-      
-      for (const userId of selectedUsers) {
-        for (const moduleId of selectedModules) {
-          learningPlans.push({
-            user_id: userId,
-            module_id: moduleId,
-            assigned_on: new Date().toISOString(),
+      const bulkRes = await fetchWithAuth(
+        `${API_URL}/api/learning-plans/bulk`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-ID": adminId,
+          },
+          body: JSON.stringify({
+            user_ids: selectedUsers,
+            module_ids: selectedModules,
             due_date: dueDate || null,
-            baseline_assessment: false,
-            status: 'ASSIGNED'
-          });
+            baseline_settings: moduleBaselineSettings,
+            status: "ASSIGNED",
+          }),
         }
-      }
+      );
 
-      // Create learning plans via backend API
-      if (!adminId) {
-        setError('Admin user ID not found');
-        setLoading(false);
-        return;
-      }
-
-      let successCount = 0;
-      let failCount = 0;
-
-      for (const plan of learningPlans) {
-        try {
-          const createRes = await fetchWithAuth(`${API_URL}/api/learning-plans/`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-User-ID': adminId
-            },
-            body: JSON.stringify(plan)
-          });
-
-          if (createRes.ok) {
-            successCount++;
-          } else {
-            const errorData = await createRes.json();
-            if (errorData.detail?.includes('23505') || errorData.detail?.includes('duplicate')) {
-              // Handle duplicates silently or log
-              // console.log('Duplicate assignment skipped:', plan);
-            } else {
-              failCount++;
-              console.error('Failed to create assignment:', errorData);
-            }
-          }
-        } catch (e) {
-          failCount++;
-          console.error('Error creating assignment:', e);
-        }
+      if (!bulkRes.ok) {
+        const err = await bulkRes.json();
+        throw new Error(err.detail || "Bulk assignment failed");
       }
       
       // Invalidate the cache for user dashboards globally when assignments change
@@ -3334,11 +3276,11 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       sharedDataClient.invalidateByPrefix("v1|training-plan");
     
 
-      if (failCount > 0) {
-        setError(`Created ${successCount} assignments, ${failCount} failed`);
-        setLoading(false);
-        return;
-      }
+      // if (failCount > 0) {
+      //   setError(`Created ${successCount} assignments, ${failCount} failed`);
+      //   setLoading(false);
+      //   return;
+      // }
 
       try {
         // Use the shared Radix-based toast so all toasters render the same UI
