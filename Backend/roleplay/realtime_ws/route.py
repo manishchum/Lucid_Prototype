@@ -42,36 +42,23 @@ def build_system_prompt(scenario_context: dict) -> str:
     ai_personality = scenario_context.get("ai_personality") or ""
     ai_objectives = scenario_context.get("ai_objectives") or ""
 
-    return f"""You are an expert role-play simulation engine.
-You are roleplaying as the AI character: {scenario_role}.
-The human learner is roleplaying as: {user_role}.
-Scenario: "{scenario_context.get('scenario_title')}".
+    return f"""You are an AI actor in a role-play simulation.
 
-ROLE ASSIGNMENT - THIS IS NON-NEGOTIABLE:
-- You speak ONLY as: {scenario_role}
-- The human speaks as: {user_role}
-- Never introduce yourself as the {user_role}
-- Never say lines that belong to the {user_role}
-- Never evaluate, coach, or explain the scenario during the live roleplay
+YOUR ROLE: You are playing the {scenario_role}.
+THE USER'S ROLE: The human is playing the {user_role}.
+SCENARIO: "{scenario_context.get('scenario_title')}"
 
-CRITICAL RULES FOR CLARITY AND SPEED:
-1. STAY IN CHARACTER as the {scenario_role} at all times
-2. NEVER break character or acknowledge you are an AI
-3. NEVER provide coaching or advice to the user
-4. KEEP RESPONSES EXTREMELY SHORT - 1-2 sentences ONLY. Be concise and direct.
-5. Use simple, common words. Avoid complex vocabulary.
-6. Speak in natural pauses. One thought per sentence.
-7. Raise realistic objections and concerns
-8. Show realistic emotions based on what the user says
-9. DO NOT roleplay as the {user_role}. That is the human learner's role.
-10. DO NOT answer for the learner or tell the learner what to say.
+CRITICAL INSTRUCTIONS:
+- You must ONLY speak and act as the {scenario_role}.
+- NEVER play the user's role.
+- Wait for the user to respond before speaking again.
+- Keep your responses short, conversational, and natural (1-2 sentences).
+- Do not provide coaching, evaluation, or advice. Just stay in character.
+- Raise realistic objections or concerns based on the scenario.
 
 CHARACTER TONE: {tone_instruction}
 AI character personality/context: {ai_personality}
-AI character objective: {ai_objectives}
-Opening line or situation for the AI character ({scenario_role}) to express: {initial_prompt}
-
-IMPORTANT: Quality over quantity. Each sentence should be clear and easy to understand when spoken aloud."""
+AI character objective: {ai_objectives}"""
 
 
 @router.websocket("/roleplay/realtime")
@@ -79,6 +66,8 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
     await websocket.accept()
 
     conversation_transcript = []
+    items_dict = {}
+    item_ids_order = []
     scenario_context = None
 
     try:
@@ -145,57 +134,39 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                 "session": {
                     "type": "realtime",
                     "model": OPENAI_REALTIME_MODEL,
-                    "instructions": build_system_prompt(scenario_context),
-
-                    "output_modalities": ["audio"],
-                    "audio": {
-                        "input": {
-                            "format": {
-                                "type": "audio/pcm",
-                                "rate": 24000,
-                            },
-                            "turn_detection": {
-                                "type": "server_vad",
-                                "threshold": 0.6,  # Higher threshold to avoid interruptions
-                                "silence_duration_ms": 800,  # Longer silence required before turn ends (slower speech)
-                                "prefix_padding_ms": 500,  # More prefix padding for clarity
-                            },
-                            "transcription": {
-                                "model": "whisper-1",
-                            },
-                        },
-                        "output": {
-                            "format": {
-                                "type": "audio/pcm",
-                                "rate": 24000,
-                            },
-                            "voice": voice,  # Dynamic voice selection based on gender
-                        },
-
-                    }
+                    "instructions": build_system_prompt(scenario_context)
                 }
             }))
             logger.info(f"[Realtime] ✅ Session configured — voice: {voice}")
 
-            # ✅ FIX 2: Correct way to trigger opening greeting
+            # Trigger the opening greeting without overriding the session system prompt
             if scenario_context.get("initial_prompt"):
+                # 1. Add a system message telling it to start WITH THE FULL PROMPT
+                full_prompt = build_system_prompt(scenario_context)
                 await openai_ws.send(json.dumps({
-                    "type": "response.create",
-                    "response": {
-                        "output_modalities": ["audio"],
-                        "instructions": (
-                            f"Start the roleplay now. Speak only as {scenario_context['scenario_role']}. "
-                            f"The human learner is {scenario_context['user_role']}; do not speak as them. "
-                            f"Say a short opening line from the perspective of {scenario_context['scenario_role']} "
-                            f"using this situation: {scenario_context['initial_prompt']}"
-                        ),
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "message",
+                        "role": "system",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": f"{full_prompt}\n\nPlease begin the roleplay now. Say your opening line based on this context: {scenario_context['initial_prompt']}"
+                            }
+                        ]
                     }
+                }))
+                
+                # 2. Tell it to generate a response
+                await openai_ws.send(json.dumps({
+                    "type": "response.create"
                 }))
                 logger.info("[Realtime] 🎤 Requested opening greeting")
 
             # --- Bidirectional tasks ---
 
             async def forward_client_to_openai():
+                nonlocal conversation_transcript
                 try:
                     while True:
                         msg = json.loads(await websocket.receive_text())
@@ -208,27 +179,26 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                             }))
 
                         elif msg_type == "end_session":
-                            logger.info(f"[Realtime] 📞 Session end requested - transcript contains {len(conversation_transcript)} messages")
+                            final_transcript = []
+                            for iid in item_ids_order:
+                               if iid in items_dict:
+                                   msg_text = items_dict[iid]["text"].strip()
+                                   if msg_text:
+                                       final_transcript.append({
+                                           "role": items_dict[iid]["role"],
+                                           "text": msg_text
+                                        })
+                            if not final_transcript and conversation_transcript:
+                               final_transcript = conversation_transcript
+                            conversation_transcript = final_transcript
 
-                            # Log the transcript structure for verification
-                            user_msgs = [m for m in conversation_transcript if m.get("role") == "user"]
-                            bot_msgs = [m for m in conversation_transcript if m.get("role") == "bot"]
-                            logger.info(f"[Realtime] 📊 Transcript breakdown: {len(user_msgs)} user messages, {len(bot_msgs)} bot messages")
-
-                            # Send complete transcript back to frontend
-                            await websocket.send_json({
-                                "type": "session_ended",
-                                "transcript": conversation_transcript,
-                                "session_id": scenario_context["session_id"]
-                            })
-
-                            logger.info(f"[Realtime] ✅ session_ended payload sent to frontend with {len(conversation_transcript)} messages")
-                            break
+                            logger.info(f"[Realtime] 📞 Session end requested - transcript contains {len(conversation_transcript)} messages")  
 
                 except Exception as e:
                     logger.error(f"[Realtime] ❌ Forward error: {e}")
 
             async def receive_openai_to_client():
+                nonlocal conversation_transcript
                 try:
                     while True:
                         response = json.loads(await openai_ws.recv())
@@ -248,24 +218,36 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                                 "role": "bot"
                             })
 
+                        elif response_type == "conversation.item.created":
+                            item = response.get("item", {})
+                            item_id = item.get("id")
+                            role = item.get("role")
+                            if item_id and role in ("user", "assistant"):
+                               mapped_role = "user" if role == "user" else "bot"
+                               items_dict[item_id] = {"role": mapped_role, "text": ""}
+                               item_ids_order.append(item_id)
+
                         elif response_type in ("response.output_audio_transcript.done", "response.audio_transcript.done"):
-                            text = response.get("transcript", "")
-                            if text:
-                                conversation_transcript.append({"role": "bot", "text": text})
-                                logger.info(f"[Realtime] 💬 Bot: {text[:60]}...")
-                                logger.info(f"[Realtime] 📝 Transcript count: {len(conversation_transcript)} messages")
+                           text = response.get("transcript", "")
+                           item_id = response.get("item_id")
+                           if item_id and item_id in items_dict:
+                               items_dict[item_id]["text"] = text
+                           elif text:
+                               conversation_transcript.append({"role": "bot", "text": text})
+                           logger.info(f"[Realtime] 💬 Bot: {text[:60]}...")
 
                         elif response_type == "conversation.item.input_audio_transcription.completed":
-                            # ✅ Correct event for user speech transcript
-                            text = response.get("transcript", "")
-                            if text:
-                                conversation_transcript.append({"role": "user", "text": text})
-                                logger.info(f"[Realtime] 👤 User: {text[:60]}...")
-                                logger.info(f"[Realtime] 📝 Transcript count: {len(conversation_transcript)} messages")
-                                await websocket.send_json({
-                                    "type": "user_transcription",
-                                    "text": text
-                                })
+                           text = response.get("transcript", "")
+                           item_id = response.get("item_id")
+                           if item_id and item_id in items_dict:
+                               items_dict[item_id]["text"] = text
+                           elif text:
+                               conversation_transcript.append({"role": "user", "text": text})
+                           logger.info(f"[Realtime] 👤 User: {text[:60]}...")
+                           await websocket.send_json({
+                               "type": "user_transcription",
+                               "text": text
+                           })
 
                         elif response_type == "input_audio_buffer.speech_started":
                             logger.info("[Realtime] 🎙️ User started speaking")
@@ -322,3 +304,20 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
 
     finally:
         sid = scenario_context.get("session_id") if scenario_context else "unknown"
+        
+        # Build the final transcript robustly if it wasn't requested via end_session
+        final_transcript = []
+        for iid in item_ids_order:
+            if iid in items_dict:
+                msg_text = items_dict[iid]["text"].strip()
+                if msg_text:
+                    final_transcript.append({
+                        "role": items_dict[iid]["role"],
+                        "text": msg_text
+                    })
+        if not final_transcript and conversation_transcript:
+            final_transcript = conversation_transcript
+            
+        logger.info(f"[Realtime] 🔌 Disconnected, session {sid}. Final backend transcript has {len(final_transcript)} messages.")
+        if len(final_transcript) > 0:
+            logger.info(f"[Realtime] Last message: {final_transcript[-1]['text'][:100]}")

@@ -1326,10 +1326,55 @@ export default function EditModulePage() {
     }
   };
 
+  // Apply consistent table styling to arbitrary HTML content (client-side only)
+  const styleHtmlTables = (content: string) => {
+    if (typeof window === 'undefined') return content;
+    try {
+      const container = document.createElement('div');
+      container.innerHTML = content || '';
+
+      const tables = container.querySelectorAll('table');
+      tables.forEach((table) => {
+        table.className = 'w-full border-2 border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
+        table.setAttribute('style', 'border-collapse: collapse; border: 2px solid rgb(0, 0, 0); table-layout: fixed; word-wrap: break-word;');
+
+        // Style table headers
+        const headers = table.querySelectorAll('thead th, thead td');
+        headers.forEach((header) => {
+          header.className = 'bg-blue-50 border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900 text-sm';
+          (header as HTMLElement).style.cssText = 'border: 1px solid rgb(0, 0, 0); padding: 12px 16px; background-color: #eff6ff; font-weight: 600;';
+        });
+
+        // Style table rows
+        const rows = table.querySelectorAll('tr');
+        rows.forEach((row) => {
+          (row as HTMLElement).style.cssText = 'border-bottom: 2px solid rgb(21, 22, 22);';
+        });
+
+        // Style table body
+        const bodyRows = table.querySelectorAll('tbody tr');
+        const cells = table.querySelectorAll('tbody td, tbody th');
+        cells.forEach((cell, idx) => {
+          const cols = (bodyRows[0]?.children.length) || 1;
+          const isEvenRow = Math.floor(idx / cols) % 2;
+          cell.className = `border border-gray-300 px-4 py-3 text-gray-800 text-sm ${isEvenRow ? 'bg-white' : 'bg-gray-50'}`;
+          (cell as HTMLElement).style.cssText = `border: 1px solid rgb(11, 12, 12); padding: 12px 16px; ${isEvenRow ? 'background-color: #ffffff;' : 'background-color: #f9fafb;'}`;
+        });
+      });
+
+      return container.innerHTML;
+    } catch (error) {
+      console.error('Error styling tables:', error);
+      return content;
+    }
+  };
+
   const ContentRenderer = ({ htmlContent }: { htmlContent: string }) => {
+    const styledHtml = styleHtmlTables(htmlContent || '');
+
     return (
       <MediaAwareHtml
-        html={htmlContent}
+        html={styledHtml}
         className="prose prose-sm max-w-none
           prose-headings:font-bold prose-headings:text-[#1E293B]
           prose-h1:text-3xl prose-h1:mb-6 prose-h1:mt-8

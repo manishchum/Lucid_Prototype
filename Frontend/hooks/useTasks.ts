@@ -20,11 +20,11 @@ export function useTasks(
     return;
   }
 
-  console.log("useTasks called with:", {
-    userId,
-    companyId,
-    isAdmin
-  });
+  // console.log("useTasks called with:", {
+  //   userId,
+  //   companyId,
+  //   isAdmin
+  // });
 
   if (!userId) {
     console.log("NO USER ID - stopping");
@@ -39,7 +39,7 @@ export function useTasks(
       ? await fetchActiveTasks({ userId, companyId })
       : await fetchUserTasks(userId, companyId);
 
-    console.log("TASK API RESPONSE:", data);
+    // console.log("TASK API RESPONSE:", data);
 
     setTasks(data);
 

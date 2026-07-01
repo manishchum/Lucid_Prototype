@@ -39,7 +39,7 @@ import {
   WizardStep
 } from '@/types/task';
 
-type CorporateLevels = {
+export type CorporateLevels = {
   orgs: string[];
   functions: string[];
   subFunctions: Record<string, string[]>;
@@ -68,7 +68,7 @@ export default function TaskCreatorWizard({
   const [activeStep, setActiveStep] = useState<WizardStep>('level');
 
   // Draft Data State
-  const [level, setLevel] = useState<AssignmentLevel>('individual');
+  // const [level, setLevel] = useState<AssignmentLevel>('individual');
   const [associateWithSprint, setAssociateWithSprint] = useState<boolean>(true);
   const [taskMode, setTaskMode] = useState<'single' | 'multiple'>('single');
   const [dueDate, setDueDate] = useState<string>(() => {
@@ -230,27 +230,32 @@ export default function TaskCreatorWizard({
     }));
   };
   const updateQuestionType = (
- taskId:string,
- questionId:string,
- type:'single'|'multiple'|'written'
-)=>{
-
-setTasks(prev =>
- prev.map(task => ({
- ...task,
- questions: task.questions.map(q =>
- q.id === questionId
- ? {
-    ...q,
-    type,
-    correctAnswer:'',
-    correctAnswers:[]
-   }
- : q
- )
- }))
-);
-
+  taskId: string,
+  questionId: string,
+  type: 'single' | 'multiple' | 'written'
+) => {
+  setTasks(prev =>
+    prev.map(task =>
+      task.id === taskId
+        ? {
+            ...task,
+            questions: task.questions.map(q =>
+              q.id === questionId
+                ? {
+                    ...q,
+                    type,
+                    correctAnswer: '',
+                    correctAnswers:
+                      type === 'multiple'
+                        ? []
+                        : []
+                  }
+                : q
+            )
+          }
+        : task
+    )
+  );
 };
 const updateCorrectAnswer = (
   taskId: string,
@@ -279,25 +284,29 @@ const toggleCorrectAnswer = (
   answer: string
 ) => {
   setTasks(prev =>
-    prev.map(task => ({
-      ...task,
-      questions: task.questions.map(q =>
-        q.id === questionId
-          ? {
-              ...q,
-              correctAnswers:
-                q.correctAnswers?.includes(answer)
-                  ? q.correctAnswers.filter(
-                      item => item !== answer
-                    )
-                  : [
-                      ...(q.correctAnswers || []),
-                      answer
-                    ]
-            }
-          : q
-      )
-    }))
+    prev.map(task =>
+      task.id === taskId
+        ? {
+            ...task,
+            questions: task.questions.map(q =>
+              q.id === questionId
+                ? {
+                    ...q,
+                    correctAnswers:
+                      q.correctAnswers?.includes(answer)
+                        ? q.correctAnswers.filter(
+                            item => item !== answer
+                          )
+                        : [
+                            ...(q.correctAnswers || []),
+                            answer
+                          ]
+                  }
+                : q
+            )
+          }
+        : task
+    )
   );
 };
 
@@ -401,26 +410,26 @@ const toggleCorrectAnswer = (
     }
   };
 
-  const handleSelectPresets = (preset: 'all-hq' | 'all-engineering' | 'clear') => {
-    if (preset === 'all-hq') {
-      setSelectedOrgs(['Workfloww HQ']);
-      setSelectedFunctions([]);
-      setSelectedSubFunctions([]);
-      const ids = teamMembers.filter(m => m.org === 'Workfloww HQ').map(m => m.id);
-      setSelectedIndividualIds(ids);
-    } else if (preset === 'all-engineering') {
-      setSelectedOrgs([]);
-      setSelectedFunctions(['Engineering']);
-      setSelectedSubFunctions(['Frontend Engine', 'Backend Engine']);
-      const ids = teamMembers.filter(m => m.function === 'Engineering').map(m => m.id);
-      setSelectedIndividualIds(ids);
-    } else if (preset === 'clear') {
-      setSelectedOrgs([]);
-      setSelectedFunctions([]);
-      setSelectedSubFunctions([]);
-      setSelectedIndividualIds([]);
-    }
-  };
+  // const handleSelectPresets = (preset: 'all-hq' | 'all-engineering' | 'clear') => {
+  //   if (preset === 'all-hq') {
+  //     setSelectedOrgs(['Workfloww HQ']);
+  //     setSelectedFunctions([]);
+  //     setSelectedSubFunctions([]);
+  //     const ids = teamMembers.filter(m => m.org === 'Workfloww HQ').map(m => m.id);
+  //     setSelectedIndividualIds(ids);
+  //   } else if (preset === 'all-engineering') {
+  //     setSelectedOrgs([]);
+  //     setSelectedFunctions(['Engineering']);
+  //     setSelectedSubFunctions(['Frontend Engine', 'Backend Engine']);
+  //     const ids = teamMembers.filter(m => m.function === 'Engineering').map(m => m.id);
+  //     setSelectedIndividualIds(ids);
+  //   } else if (preset === 'clear') {
+  //     setSelectedOrgs([]);
+  //     setSelectedFunctions([]);
+  //     setSelectedSubFunctions([]);
+  //     setSelectedIndividualIds([]);
+  //   }
+  // };
 
   // Validation function
   const isStepValid = (step: WizardStep): boolean => {
@@ -479,7 +488,7 @@ const toggleCorrectAnswer = (
         id: t.id,
         title: t.title,
         description: t.description,
-        submissionFormat: Array.isArray(t.submissionFormat) ? (t.submissionFormat[0] as SubmissionFormat) : (t.submissionFormat as SubmissionFormat),
+        submissionFormat: t.submissionFormat as any,
         questions: t.questions
       })),
       targetSprints: targetSprintsNames,
@@ -496,39 +505,72 @@ const toggleCorrectAnswer = (
     };
 
     if (onBackendCreate) {
-      const primaryTask = tasks[0];
       try {
-        const normalizeFormat = (val: any) => (Array.isArray(val) ? String(val[0] || 'text') : String(val || 'text'));
+        const normalizeFormat = (val: any) => (Array.isArray(val) ? val : String(val || 'text'));
 
-        const payloadBase = {
-          title: primaryTask.title.trim(),
-          description: primaryTask.description.trim(),
-          submission_format: normalizeFormat(primaryTask.submissionFormat),
-          questions:
-          primaryTask.submissionFormat === 'multiple_choice'
-            ? primaryTask.questions.map(q => ({
-                ...q,
-                question: q.question.trim(),
-                options: q.options.map(option => option.trim()).filter(Boolean)
-              }))
-            : [],
-          level: 'individual',
-          target_user_ids: selectedIndividualIds,
-          due_date: dueDate,
-          recurrence
-        };
+        if (taskMode === 'multiple') {
+          const payloadBase = {
+            title: `Task Bundle (${tasks.length} tasks)`,
+            description: 'Multiple task bundle',
+            submission_format: 'bundle',
+            bundle_tasks: tasks.map(t => ({
+              title: t.title.trim(),
+              description: t.description.trim(),
+              submission_format: normalizeFormat(t.submissionFormat),
+              questions: (t.submissionFormat === 'multiple_choice' || (Array.isArray(t.submissionFormat) && t.submissionFormat.includes('multiple_choice')))
+                ? t.questions.map(q => ({
+                    ...q,
+                    question: q.question.trim(),
+                    options: q.options.map(option => option.trim()).filter(Boolean)
+                  }))
+                : []
+            })),
+            level: 'individual',
+            target_user_ids: selectedIndividualIds,
+            due_date: dueDate,
+            recurrence
+          };
 
-        if (associateWithSprint && selectedSprintIds.length > 0) {
-          // Loop over selected sprints and create one task assignment for each
-          for (const sprintId of selectedSprintIds) {
-            await onBackendCreate({
-              ...payloadBase,
-              target_module_id: sprintId
-            });
+          if (associateWithSprint && selectedSprintIds.length > 0) {
+            for (const sprintId of selectedSprintIds) {
+              await onBackendCreate({
+                ...payloadBase,
+                target_module_id: sprintId
+              });
+            }
+          } else {
+            await onBackendCreate(payloadBase);
           }
         } else {
-          // No sprint association, create one task assignment
-          await onBackendCreate(payloadBase);
+          // single task
+          const primaryTask = tasks[0];
+          const payloadBase = {
+            title: primaryTask.title.trim(),
+            description: primaryTask.description.trim(),
+            submission_format: normalizeFormat(primaryTask.submissionFormat),
+            questions: (primaryTask.submissionFormat === 'multiple_choice' || (Array.isArray(primaryTask.submissionFormat) && primaryTask.submissionFormat.includes('multiple_choice')))
+              ? primaryTask.questions.map(q => ({
+                  ...q,
+                  question: q.question.trim(),
+                  options: q.options.map(option => option.trim()).filter(Boolean)
+                }))
+              : [],
+            level: 'individual',
+            target_user_ids: selectedIndividualIds,
+            due_date: dueDate,
+            recurrence
+          };
+
+          if (associateWithSprint && selectedSprintIds.length > 0) {
+            for (const sprintId of selectedSprintIds) {
+              await onBackendCreate({
+                ...payloadBase,
+                target_module_id: sprintId
+              });
+            }
+          } else {
+            await onBackendCreate(payloadBase);
+          }
         }
       } catch (error: any) {
         alert(error?.message || 'Task could not be created. Please review the task details and try again.');
@@ -559,7 +601,6 @@ const toggleCorrectAnswer = (
             <h2 className="font-display font-medium text-lg tracking-tight">Task Flow Configuration Console</h2>
           </div>
           <div className="bg-white/10 px-3 py-1 rounded-full text-xs font-mono font-medium flex items-center space-x-1.5 backdrop-blur-md">
-            <Sparkles size={13} />
             <span>Designer Mode</span>
           </div>
         </div>
@@ -838,15 +879,9 @@ const toggleCorrectAnswer = (
                               {/* Submit Image */}
                               <button
                                 type="button"
-                                onClick={() =>
-                                  updateTaskField(
-                                   taskItem.id,
-                                   'submissionFormat',
-                                   'image'
-                                  )
-                                }
+                                onClick={() => toggleSubmissionFormat(taskItem.id, 'image')}
                                 className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
-                                  taskItem.submissionFormat === 'image'
+                                  (Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('image') : taskItem.submissionFormat === 'image')
                                     ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
                                     : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                 }`}
@@ -858,15 +893,9 @@ const toggleCorrectAnswer = (
                               {/* Submit Text */}
                               <button
                                 type="button"
-                                onClick={() =>
-                                updateTaskField(
-                                 taskItem.id,
-                                 'submissionFormat',
-                                'text'
-                                )
-                                }
+                                onClick={() => toggleSubmissionFormat(taskItem.id, 'text')}
                                 className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
-                                  taskItem.submissionFormat === 'text'
+                                  (Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('text') : taskItem.submissionFormat === 'text')
                                     ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
                                     : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                 }`}
@@ -878,15 +907,9 @@ const toggleCorrectAnswer = (
                               {/* Submit Quiz Form */}
                               <button
                                 type="button"
-                                onClick={() =>
-                                 updateTaskField(
-                                   taskItem.id,
-                                   'submissionFormat',
-                                   'multiple_choice'
-                                    )
-                                  }
+                                onClick={() => toggleSubmissionFormat(taskItem.id, 'multiple_choice')}
                                 className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
-                                  taskItem.submissionFormat === 'multiple_choice'
+                                  (Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('multiple_choice') : taskItem.submissionFormat === 'multiple_choice')
                                     ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
                                     : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                 }`}
@@ -898,15 +921,9 @@ const toggleCorrectAnswer = (
                               {/* Submit Audio */}
                               <button
                                 type="button"
-                                onClick={() =>
-                                 updateTaskField(
-                                   taskItem.id,
-                                   'submissionFormat',
-                                   'audio'
-                                    )
-                                  }
+                                onClick={() => toggleSubmissionFormat(taskItem.id, 'audio')}
                                 className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
-                                  taskItem.submissionFormat === 'audio'
+                                  (Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('audio') : taskItem.submissionFormat === 'audio')
                                     ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
                                     : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                 }`}
@@ -918,15 +935,9 @@ const toggleCorrectAnswer = (
                               {/* Submit Video */}
                               <button
                                 type="button"
-                                onClick={() =>
-                                 updateTaskField(
-                                   taskItem.id,
-                                   'submissionFormat',
-                                   'video'
-                                    )
-                                  }
+                                onClick={() => toggleSubmissionFormat(taskItem.id, 'video')}
                                 className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
-                                  taskItem.submissionFormat === 'video'
+                                  (Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('video') : taskItem.submissionFormat === 'video')
                                     ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
                                     : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                 }`}
@@ -938,7 +949,7 @@ const toggleCorrectAnswer = (
                           </div>
 
                           {/* MULTIPLE CHOICE FORM BUILDER */}
-                          {taskItem.submissionFormat === 'multiple_choice' && (
+                          {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('multiple_choice') : taskItem.submissionFormat === 'multiple_choice') && (
                             <div className="bg-slate-50 rounded-xl p-4 border border-[#E2E8F0] space-y-4">
                               <div className="flex items-center justify-between">
                                 <span className="text-xs font-bold text-[#0F172A] flex items-center space-x-2">
@@ -1008,10 +1019,6 @@ className="border rounded-lg text-xs p-2"
 <option value="multiple">
  Multiple Answer
 </option>
-
-<option value="written">
- Written Answer
-</option>
 </select>
                                       </div>
 
@@ -1027,31 +1034,35 @@ className="border rounded-lg text-xs p-2"
     {/* Correct answer selector */}
     {quizQ.type !== 'written' && (
       <input
-        type={quizQ.type === 'multiple' ? "checkbox" : "radio"}
-        name={quizQ.id}
+  type={quizQ.type === 'multiple' ? "checkbox" : "radio"}
+  name={
+    quizQ.type === "single"
+      ? quizQ.id
+      : undefined
+  }
 
-        checked={
-          quizQ.type === 'multiple'
-            ? quizQ.correctAnswers?.includes(opt)
-            : quizQ.correctAnswer === opt
-        }
+  checked={
+    quizQ.type === 'multiple'
+      ? quizQ.correctAnswers?.includes(opt)
+      : quizQ.correctAnswer === opt
+  }
 
-        onChange={() => {
-          if (quizQ.type === 'multiple') {
-            toggleCorrectAnswer(
-              taskItem.id,
-              quizQ.id,
-              opt
-            );
-          } else {
-            updateCorrectAnswer(
-              taskItem.id,
-              quizQ.id,
-              opt
-            );
-          }
-        }}
-      />
+  onChange={() => {
+    if (quizQ.type === 'multiple') {
+      toggleCorrectAnswer(
+        taskItem.id,
+        quizQ.id,
+        opt
+      );
+    } else {
+      updateCorrectAnswer(
+        taskItem.id,
+        quizQ.id,
+        opt
+      );
+    }
+  }}
+/>
     )}
 
 
@@ -1140,14 +1151,13 @@ className="border rounded-lg text-xs p-2"
                       Define target parameters below to assign direct business divisions, departments, or custom individual employees.
                     </p>
                   </div>
-                    /* COMPREHENSIVE SEGMENTATION ROUTER (Non-Sprint) */
                     <div className="space-y-4">
                       
                       {/* Presets and filters bar */}
                       <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-[#E2E8F0]">
                         <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest font-mono">Audience Selection Shortcuts:</span>
                         <div className="flex items-center space-x-2">
-                          <button
+                          {/* <button
                             type="button"
                             onClick={() => handleSelectPresets('all-hq')}
                             className="bg-white hover:bg-[#EEF2FF] border border-gray-200 text-gray-700 text-[10px] font-semibold px-2 py-1 rounded transition-colors cursor-pointer"
@@ -1160,7 +1170,7 @@ className="border rounded-lg text-xs p-2"
                             className="bg-white hover:bg-[#EEF2FF] border border-gray-100 text-gray-700 text-[10px] font-semibold px-2 py-1 rounded transition-colors cursor-pointer"
                           >
                             All Builders Team
-                          </button>
+                          </button> */}
                           <button
                             type="button"
                             onClick={() => handleSelectPresets('clear')}
@@ -1446,7 +1456,7 @@ className="border rounded-lg text-xs p-2"
                     </div>
 
                     {/* Summary Card */}
-                    <div className="p-5 bg-gradient-to-br from-[#0F172A] to-[#1E293B] text-white rounded-2xl space-y-4">
+                    {/* <div className="p-5 bg-gradient-to-br from-[#0F172A] to-[#1E293B] text-white rounded-2xl space-y-4">
                       <span className="text-[10px] uppercase font-bold tracking-widest text-[#2F63FF] block font-mono">PIPELINE VERIFICATION SUMMARY</span>
                       
                       <div className="space-y-4 text-xs">
@@ -1484,7 +1494,7 @@ className="border rounded-lg text-xs p-2"
                         <Award size={14} className="text-[#2F63FF]" />
                         <span>Meets standard system validation metrics.</span>
                       </div>
-                    </div>
+                    </div> */}
                   </div>
 
                   {/* Submission validation state message */}
@@ -1572,7 +1582,7 @@ className="border rounded-lg text-xs p-2"
       </div>
 
       {/* RIGHT PORTION: Dynamic visual tablet preview device */}
-      <div className="w-full xl:w-80 bg-slate-50 rounded-2xl border border-[#E2E8F0] p-4 flex flex-col justify-between max-h-[700px] shadow-inner font-sans">
+      {/* <div className="w-full xl:w-80 bg-slate-50 rounded-2xl border border-[#E2E8F0] p-4 flex flex-col justify-between max-h-[700px] shadow-inner font-sans">
         <div>
           <div className="flex items-center justify-between border-b border-gray-200 pb-3 mb-4">
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider font-mono">📱 MOBILE PREVIEW</span>
@@ -1592,9 +1602,9 @@ className="border rounded-lg text-xs p-2"
               <div 
                 key={taskItem.id} 
                 className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm relative overflow-hidden"
-              >
+              > */}
                 {/* Decorative status accent */}
-                <div className="absolute top-0 left-0 w-1 h-full bg-[#2F63FF]"></div>
+                {/* <div className="absolute top-0 left-0 w-1 h-full bg-[#2F63FF]"></div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -1610,14 +1620,14 @@ className="border rounded-lg text-xs p-2"
 
                   <p className="text-[10px] text-[#475569] leading-relaxed line-clamp-3">
                     {taskItem.description.trim() === '' ? 'Fulfillment guidelines will render here.' : taskItem.description}
-                  </p>
+                  </p> */}
 
                   {/* Submission box render representation */}
-                  <div className="border-t border-dashed border-gray-100 pt-3 mt-3">
+                  {/* <div className="border-t border-dashed border-gray-100 pt-3 mt-3">
                     <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-2">Required Validation Action:</span>
                     
-                    {taskItem.submissionFormat === 'image' && (
-                      <div className="border border-dashed border-gray-200 rounded-lg p-3 text-center bg-slate-50 cursor-not-allowed">
+                    {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('image') : taskItem.submissionFormat === 'image') && (
+                      <div className="border border-dashed border-gray-200 rounded-lg p-3 text-center bg-slate-50 cursor-not-allowed mb-2">
                         <span className="w-6 h-6 rounded-full bg-white border border-gray-100 flex items-center justify-center mx-auto mb-1.5 shadow-sm text-gray-400">
                           <ImageIcon size={12} />
                         </span>
@@ -1626,8 +1636,8 @@ className="border rounded-lg text-xs p-2"
                       </div>
                     )}
 
-                    {taskItem.submissionFormat === 'text' && (
-                      <div className="border border-gray-200 rounded-lg p-2.5 bg-slate-50 relative cursor-not-allowed">
+                    {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('text') : taskItem.submissionFormat === 'text') && (
+                      <div className="border border-gray-200 rounded-lg p-2.5 bg-slate-50 relative cursor-not-allowed mb-2">
                         <div className="space-y-1">
                           <div className="h-1 bg-gray-200 rounded w-full"></div>
                           <div className="h-1 bg-gray-200 rounded w-5/6"></div>
@@ -1636,8 +1646,8 @@ className="border rounded-lg text-xs p-2"
                       </div>
                     )}
 
-                    {taskItem.submissionFormat === 'multiple_choice' && (
-                      <div className="bg-slate-50 rounded-lg p-2.5 border border-gray-100 space-y-2">
+                    {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('multiple_choice') : taskItem.submissionFormat === 'multiple_choice') && (
+                      <div className="bg-slate-50 rounded-lg p-2.5 border border-gray-100 space-y-2 mb-2">
                         {taskItem.questions.length === 0 ? (
                           <div className="text-center py-2 text-[10px] text-gray-400 font-sans">
                             Configure evaluation items in step 2.
@@ -1671,8 +1681,8 @@ className="border rounded-lg text-xs p-2"
                       </div>
                     )}
 
-                    {taskItem.submissionFormat === 'audio' && (
-                      <div className="border border-dashed border-gray-200 rounded-lg p-3 text-center bg-slate-50 cursor-not-allowed">
+                    {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('audio') : taskItem.submissionFormat === 'audio') && (
+                      <div className="border border-dashed border-gray-200 rounded-lg p-3 text-center bg-slate-50 cursor-not-allowed mb-2">
                         <span className="w-6 h-6 rounded-full bg-white border border-gray-100 flex items-center justify-center mx-auto mb-1.5 shadow-sm text-gray-400">
                           <MicIcon size={12} />
                         </span>
@@ -1681,8 +1691,8 @@ className="border rounded-lg text-xs p-2"
                       </div>
                     )}
 
-                    {taskItem.submissionFormat === 'video' && (
-                      <div className="border border-dashed border-gray-200 rounded-lg p-3 text-center bg-slate-50 cursor-not-allowed">
+                    {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('video') : taskItem.submissionFormat === 'video') && (
+                      <div className="border border-dashed border-gray-200 rounded-lg p-3 text-center bg-slate-50 cursor-not-allowed mb-2">
                         <span className="w-6 h-6 rounded-full bg-white border border-gray-100 flex items-center justify-center mx-auto mb-1.5 shadow-sm text-gray-400">
                           <VideoIcon size={12} />
                         </span>
@@ -1714,20 +1724,20 @@ className="border rounded-lg text-xs p-2"
           </div>
         </div>
 
-      </div>
+      </div> */}
 
     </div>
   );
 }
 
-export const CORPORATE_LEVELS_DEFAULT: CorporateLevels = {
-  orgs: ['Workfloww HQ', 'Workfloww Global'],
-  functions: ['Engineering', 'Operations', 'Product Management', 'Sales & Growth', 'Design'],
-  subFunctions: {
-    'Engineering': ['Frontend Engine', 'Backend Engine', 'System Ops'],
-    'Operations': ['Beverage Calibration', 'Inventory Management'],
-    'Product Management': ['UX Strategy', 'Feature Pipeline'],
-    'Sales & Growth': ['Corporate Outreach', 'Lead Gen'],
-    'Design': ['Visual Systems', 'Interactive Design']
-  }
-};
+// export const CORPORATE_LEVELS_DEFAULT: CorporateLevels = {
+//   orgs: ['Workfloww HQ', 'Workfloww Global'],
+//   functions: ['Engineering', 'Operations', 'Product Management', 'Sales & Growth', 'Design'],
+//   subFunctions: {
+//     'Engineering': ['Frontend Engine', 'Backend Engine', 'System Ops'],
+//     'Operations': ['Beverage Calibration', 'Inventory Management'],
+//     'Product Management': ['UX Strategy', 'Feature Pipeline'],
+//     'Sales & Growth': ['Corporate Outreach', 'Lead Gen'],
+//     'Design': ['Visual Systems', 'Interactive Design']
+//   }
+// };

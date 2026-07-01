@@ -207,9 +207,18 @@ export default function RolePlayConversation({
         if (ws.readyState !== WebSocket.OPEN) return;
 
         const pcm16 = new Int16Array(audioData.length);
+        let sumSq = 0;
+        
         for (let i = 0; i < audioData.length; i++) {
+          sumSq += audioData[i] * audioData[i];
           const s = Math.max(-1, Math.min(1, audioData[i]));
           pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+
+        // Noise gate: if RMS volume is very low, send pure silence to explicitly tell VAD to stop
+        const rms = Math.sqrt(sumSq / audioData.length);
+        if (rms < 0.005) {
+          pcm16.fill(0);
         }
 
         const audioB64 = encodePcmToBase64(pcm16);
@@ -281,7 +290,25 @@ export default function RolePlayConversation({
           }
           break;
 
+        case "bot_transcription":
+          if (data.text) {
+            const transcript = conversationTranscriptRef.current;
+            if (transcript.length > 0 && transcript[transcript.length - 1].role === "bot_chunk") {
+                transcript.pop(); // Remove the ongoing chunk now that we have the final text
+            }
+            conversationTranscriptRef.current.push({ role: "bot", text: data.text });
+          }
+          break;
+
         case "transcript_chunk":
+          if (data.text) {
+            const transcript = conversationTranscriptRef.current;
+            if (transcript.length > 0 && transcript[transcript.length - 1].role === "bot_chunk") {
+              transcript[transcript.length - 1].text += data.text;
+            } else {
+              conversationTranscriptRef.current.push({ role: "bot_chunk", text: data.text });
+            }
+          }
           break;
 
         case "response.done":
@@ -331,6 +358,7 @@ export default function RolePlayConversation({
   };
 
   const startConversation = async () => {
+    conversationTranscriptRef.current = [];
     if (employeeId) {
       try {
         const { data, error } = await createRolePlaySession(
@@ -350,7 +378,14 @@ export default function RolePlayConversation({
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: true, 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
       setVideoStream(stream);
 
       if (videoRef.current) {
@@ -365,6 +400,44 @@ export default function RolePlayConversation({
       };
       videoRecorder.start();
       mediaRecorderRef.current = videoRecorder;
+
+      // Start Web Speech API as fallback for user transcription (with auto-restart)
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        let isStopped = false;
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        
+        recognition.onresult = (event: any) => {
+          // Explicitly ignore interim (incomplete) results to prevent cascading duplicates
+          const latestResult = event.results[event.results.length - 1];
+          if (!latestResult.isFinal) return;
+
+          const transcript = latestResult[0].transcript.trim();
+          if (transcript && !isBotSpeakingRef.current) {
+            // Only add if we didn't just receive this exact text
+            const currentTranscript = conversationTranscriptRef.current;
+            const lastUserMsg = currentTranscript.slice().reverse().find(m => m.role === "user");
+            if (!lastUserMsg || lastUserMsg.text !== transcript) {
+               conversationTranscriptRef.current.push({ role: "user", text: transcript });
+            }
+          }
+        };
+        
+        recognition.onend = () => {
+          if (!isStopped) {
+            try { recognition.start(); } catch {}
+          }
+        };
+
+        try {
+          recognition.start();
+          (speechRecognitionRef as any).current = { stop: () => { isStopped = true; recognition.stop(); } };
+        } catch (e) {
+          console.warn("Speech recognition failed to start", e);
+        }
+      }
 
       connectToRealtime(stream);
       setConversationActive(true);
@@ -412,13 +485,15 @@ export default function RolePlayConversation({
       items: transcript.map(t => `${t.role}: ${t.text.substring(0, 30)}...`)
     });
 
-    const messages: Message[] = transcript.map((item, idx) => ({
-      text:      item.text,
-      sender:    item.role === "user" ? "user" : "avatar",
-      timestamp: new Date(
-        Date.now() - (transcript.length - idx) * 1000
-      ).toISOString(),
-    }));
+    const messages: Message[] = transcript
+      .filter(item => item.role === "user" || item.role === "bot" || item.role === "bot_chunk")
+      .map((item, idx) => ({
+        text:      item.text,
+        sender:    item.role === "user" ? "user" : "avatar",
+        timestamp: new Date(
+          Date.now() - (transcript.length - idx) * 1000
+        ).toISOString(),
+      }));
 
     console.log("[handleEndSession] ✅ Final transcript:", {
       sessionEndedReceived: sessionEndedRef.current,
@@ -486,7 +561,7 @@ export default function RolePlayConversation({
             className="bg-red-500 hover:bg-red-600 text-white flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-4 py-1 sm:py-2 h-auto"
           >
             <Phone className="w-3 sm:w-4 h-3 sm:h-4 flex-shrink-0" />
-            <span className="hidden xs:inline">End Meeting</span>
+            <span className="hidden sm:inline">End Meeting</span>
           </Button>
         </div>
       </div>
@@ -567,7 +642,7 @@ export default function RolePlayConversation({
               <div className="absolute bottom-2 sm:bottom-3 md:bottom-6 lg:bottom-8 right-2 sm:right-3 md:right-6 lg:right-8 bg-red-900/80 backdrop-blur-sm px-2 sm:px-3 md:px-6 py-1 sm:py-2 md:py-3 rounded-full animate-pulse">
                 <div className="text-white font-medium text-xs sm:text-xs md:text-base lg:text-lg flex items-center gap-1 sm:gap-1 md:gap-2">
                   <div className="w-1 sm:w-1.5 md:w-2 h-1 sm:h-1.5 md:h-2 bg-red-500 rounded-full" />
-                  <span className="hidden xs:inline">Recording</span>
+                  <span className="hidden sm:inline">Recording</span>
                 </div>
               </div>
             )}
@@ -593,18 +668,18 @@ export default function RolePlayConversation({
             </p>
             <Button
               onClick={startConversation}
-              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-sm sm:text-base lg:text-lg px-4 sm:px-8 py-2 sm:py-3 lg:py-6 w-full sm:w-auto h-auto"
+              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-sm sm:text-base lg:text-lg px-6 sm:px-8 py-4 sm:py-3 lg:py-6 w-full sm:w-auto h-auto flex items-center justify-center gap-2 mx-auto"
               disabled={isProcessing}
             >
               {isProcessing ? (
                 <>
-                  <Loader2 className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-2 sm:mr-3 animate-spin" />
-                  <span className="hidden xs:inline">Starting...</span>
+                  <Loader2 className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-0 animate-spin" />
+                  <span className="hidden sm:inline">Starting...</span>
                 </>
               ) : (
                 <>
-                  <Mic className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-2 sm:mr-3" />
-                  <span className="hidden xs:inline">Start Conversation</span>
+                  <Mic className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 mr-0" />
+                  <span className="hidden sm:inline">Start Conversation</span>
                 </>
               )}
             </Button>

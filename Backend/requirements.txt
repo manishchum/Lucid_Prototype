@@ -1,6 +1,9 @@
 apscheduler==3.11.2
+
 cloudconvert==2.1.0
+
 easyocr==1.7.2
+
 faiss==1.5.3
 fastapi==0.137.2
 ffmpeg==1.4

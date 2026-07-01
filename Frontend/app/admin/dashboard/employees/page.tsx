@@ -2455,11 +2455,10 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
 
     } catch (error: any) {
       console.error('Failed to create user:', error);
-      if (error.code === '23505' && error.message.includes('email')) {
-        setFieldErrors(prev => ({
-          ...prev,
-          email: 'An employee with this email already exists'
-        }));
+      if (error.message.includes('users_email_key') || (error.code === '23505' && error.message.includes('email'))) {
+        setError('Oops! This email already exists.');
+      } else if (error.message.includes('users_phone_key') || error.message.includes('phone')) {
+        setError('Oops! This number already exists.');
       } else {
         setError('Failed to create employee: ' + error.message);
       }

@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from utils.auth import get_request_auth_required_from_request
 from utils.auth_bridge import get_service_supabase_client
 from utils.redis_client import get_cache, set_cache, redis_client
+from utils.redis_limiter import check_rate_limit
 
 # from db import create_client, Client
 import google.generativeai as genai
@@ -217,12 +218,31 @@ async def POST(request: Request):
 
                 if planContent:
                     # ensureProcessedModulesForPlan intentionally commented (same as TS)
+                    additional_readings = []
+                    try:
+                        moduleRes = (
+                            db
+                            .table("training_modules")
+                            .select("additional_readings")
+                            .eq("module_id", module_id)
+                            .maybe_single()
+                            .execute()
+                        )
+
+                        if moduleRes.data:
+                            additional_readings = moduleRes.data.get("additional_readings") or []
+
+                        print("ADDITIONAL READINGS:", additional_readings)
+
+                    except Exception as e:
+                        print("FAILED TO LOAD ADDITIONAL READINGS:", e)
                     return JSONResponse(
                         content={
                             "plan": planContent,
                             "reasoning": existingPlan.get("reasoning"),
                             "planId": existingPlan.get("learning_plan_id"),
                             "status": existingPlan.get("status"),
+                            "additional_readings": additional_readings,
                             "message": "Using existing stable learning plan - no regeneration needed",
                         }
                     )
@@ -417,13 +437,14 @@ async def POST(request: Request):
                 moduleCheckRes = (
                     db
                     .table("training_modules")
-                    .select("module_id, title")
+                    .select("module_id, title, additional_readings")
                     .eq("module_id", module_id)
                     .eq("company_id", company_id)
                     .maybe_single()
                     .execute()
                 )
                 moduleCheck = getattr(moduleCheckRes, "data", None)
+                print("MODULE CHECK: ", moduleCheck)
                 moduleCheckError = getattr(moduleCheckRes, "error", None)
 
                 if moduleCheckError or (not moduleCheck):
@@ -457,7 +478,7 @@ async def POST(request: Request):
                     tmFallbackRes = (
                         db
                         .table("training_modules")
-                        .select("module_id, title, gpt_summary, company_id")
+                        .select("module_id, title, gpt_summary, company_id, additional_readings")
                         .eq("module_id", module_id)
                         .eq("company_id", company_id)
                         .execute()
@@ -531,7 +552,7 @@ async def POST(request: Request):
                     tmFallbackRes = (
                         db
                         .table("training_modules")
-                        .select("module_id, title, content, company_id")
+                        .select("module_id, title, content, company_id, additional_readings")
                         .in_("module_id", tmIds)
                         .eq("company_id", company_id)
                         .execute()
@@ -776,6 +797,10 @@ async def POST(request: Request):
         # Call Gemini
         planJsonRaw = ""
         try:
+            await check_rate_limit(
+                user_id=auth_ctx.user_id,
+                endpoint="training-plan"
+            )
             model = genai.GenerativeModel("gemini-3.1-pro-preview")
             result = model.generate_content(prompt)
             planJsonRaw = (result.text or "").strip()
@@ -1028,9 +1053,28 @@ async def POST(request: Request):
                     # TS does not fail the whole request, it just logs.
                     print("[Training Plan API] module_progress insert failed:", e)
 
-        response_payload ={
+        additional_readings = []
+
+        try:
+            moduleRes = (
+                db
+                .table("training_modules")
+                .select("additional_readings")
+                .eq("module_id", module_id)
+                .maybe_single()
+                .execute()
+            )
+
+            if moduleRes.data:
+                additional_readings = moduleRes.data.get("additional_readings") or []
+
+        except Exception as e:
+            print("Failed loading additional readings", e)
+
+        response_payload = {
             "plan": plan,
-            "reasoning": reasoning
+            "reasoning": reasoning,
+            "additional_readings": additional_readings
         }
         set_cache(
             cache_key,

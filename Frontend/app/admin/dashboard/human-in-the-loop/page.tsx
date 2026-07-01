@@ -322,6 +322,46 @@ export default function HumanInTheLoopPage() {
     }
   };
 
+  // Inject consistent table styles for content rendered with `prose` classes
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.setAttribute('data-hil-table-styles', 'true');
+    style.textContent = `
+      .prose table {
+        width: 100%;
+        border-collapse: collapse;
+        border: 2px solid rgb(11,12,12);
+        table-layout: fixed;
+        word-wrap: break-word;
+        border-radius: 0.5rem;
+        overflow: hidden;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        margin-bottom: 1.5rem;
+      }
+      .prose thead th, .prose thead td {
+        background-color: #eff6ff;
+        border: 1px solid rgb(11,12,12);
+        padding: 12px 16px;
+        text-align: left;
+        font-weight: 600;
+        color: #0f172a;
+        font-size: 0.875rem;
+      }
+      .prose tbody td, .prose tbody th {
+        border: 1px solid rgb(11,12,12);
+        padding: 12px 16px;
+        color: #1f2937;
+        font-size: 0.875rem;
+      }
+      .prose tbody tr:nth-child(odd) td { background-color: #ffffff; }
+      .prose tbody tr:nth-child(even) td { background-color: #f9fafb; }
+      .prose caption { caption-side: top; font-weight: 600; margin-bottom: 0.5rem; color: #1e293b; }
+    `;
+
+    document.head.appendChild(style);
+    return () => { document.head.removeChild(style); };
+  }, []);
+
   if (!currentUserId) {
     return (
       <div className="flex min-h-screen bg-[#FAFBFC] items-center justify-center">

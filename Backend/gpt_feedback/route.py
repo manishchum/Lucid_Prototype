@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
 import google.generativeai as genai
+from utils.redis_limiter import check_rate_limit
+from utils.redis_client import delete_cache_pattern
 
 
 router = APIRouter()
@@ -63,6 +65,8 @@ async def POST(request: Request):
                 content={"error": "Missing required fields: user_id, assessment_id, and answers are required"},
                 status_code=400
             )
+        await check_rate_limit(user_id=normalizedUserId, endpoint="gpt-feedback")
+
 
         submit_url = f"{API_BASE}/api/submit-assessment"
         print("Submit URL:", submit_url)
@@ -126,6 +130,8 @@ async def POST(request: Request):
         # print("Assessment result:", assessmentResult)
 
         # Return response in the format expected by legacy clients
+        
+        delete_cache_pattern(f"dashboard_summar:{user_id}*")
         return JSONResponse(content={
             "success": True,
             "score": assessmentResult.get("score"),
