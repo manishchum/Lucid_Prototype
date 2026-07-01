@@ -163,7 +163,7 @@ export default function KPITurbocharge() {
       }
 
       const backendUser = await fetchBackendUserByEmail(user.email);
-      console.log("Backend User", backendUser)
+      // console.log("Backend User", backendUser)
       setCurrentEmployee(backendUser);
     };
 
@@ -679,16 +679,16 @@ export default function KPITurbocharge() {
           }
         });
 
-        console.log("Response foom the database",res);
+        // console.log("Response foom the database",res);
 
         if (res.ok) {
           const payload = await res.json();
 
-          console.log("This is the payload",payload)
+          // console.log("This is the payload",payload)
           //console.log("This is the payload for scatter plot",payload);
           const allAssessments = payload?.assessments || payload?.data?.assessments || [];
 
-          console.log("This is the parsed data",allAssessments)
+          // console.log("This is the parsed data",allAssessments)
           //console.log("This is for the scatter plot",allAssessments)
           // Filter by userIds and only include rows with valid scores
           assessmentScores = allAssessments.filter(
@@ -701,7 +701,7 @@ export default function KPITurbocharge() {
 
       // Calculate data for each user
       const scatterPoints: ScatterDataPoint[] = [];
-      console.log(users)
+      // console.log(users)
       for (const user of users[0]?.data) {
         // console.log(user)
         // console.log(kpiScores)
@@ -721,13 +721,13 @@ export default function KPITurbocharge() {
           avgKpiScore = userKpiScores.reduce((sum: number, k: { score: number }) => sum + Number(k.score), 0) / userKpiScores.length;
         }
 
-          console.log(avgKpiScore)
+          // console.log(avgKpiScore)
         // Get assessment scores for this user
         const userAssessments = assessmentScores?.filter(a => a.user_id === user.user_id) || [];
        
 
-        console.log(assessmentScores)
-        console.log(userAssessments)
+        // console.log(assessmentScores)
+        // console.log(userAssessments)
         if (userAssessments.length === 0) continue;
 
         // Calculate average module performance (percentage)
@@ -743,7 +743,7 @@ export default function KPITurbocharge() {
           module_performance: Math.round(avgModulePerformance)
         });
       }
-      console.log("Adding the data",scatterPoints);
+      // console.log("Adding the data",scatterPoints);
       setScatterData(scatterPoints);
     } catch (error) {
       console.error('Error fetching scatter plot data:', error);

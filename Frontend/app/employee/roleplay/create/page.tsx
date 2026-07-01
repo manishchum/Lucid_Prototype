@@ -170,7 +170,7 @@ const CreateRoleplayComponent = () => {
   }, [isEditMode]);
 
   const fetchUserData = async () => {
-    console.log('Fetching user data...');
+    // console.log('Fetching user data...');
     if (user) {
       const res = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(user.email || '')}`);
       if (!res.ok) {

@@ -187,7 +187,7 @@ In this exercise, you will interact with a virtual character to practice and imp
               <Button
                 onClick={() => {
                   // Add save draft functionality here
-                  console.log('Draft saved:', config);
+                  // console.log('Draft saved:', config);
                 }}
                 variant="outline"
                 size="lg"

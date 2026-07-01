@@ -55,21 +55,21 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
 
   const loadData = async () => {
     setLoading(true);
-    console.log('📊 Loading role-play reports for employeeId:', employeeId);
+    // console.log('📊 Loading role-play reports for employeeId:', employeeId);
     try {
       const [sessionsResult, statsResult] = await Promise.all([
         getEmployeeRolePlaySessions(employeeId, 20),
         getEmployeeRolePlayStats(employeeId)
       ]);
 
-      console.log('📊 Sessions result:', sessionsResult);
-      console.log('📊 Stats result:', statsResult);
+      // console.log('📊 Sessions result:', sessionsResult);
+      // console.log('📊 Stats result:', statsResult);
 
       if (sessionsResult.error) {
         console.error('Error loading sessions:', sessionsResult.error);
       } else {
         setSessions(sessionsResult.data || []);
-        console.log('✅ Loaded sessions:', sessionsResult.data?.length || 0);
+        // console.log('✅ Loaded sessions:', sessionsResult.data?.length || 0);
       }
 
       if (statsResult.error) {

@@ -114,13 +114,13 @@ async function pollAndSend() {
   const todayStr = utcDateStr(now);
   const currentTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
 
-  console.log(`[email-cron] Polling at ${now.toISOString()} | today = ${todayDay} (${todayStr}) | time = ${currentTime}`);
+  // console.log(`[email-cron] Polling at ${now.toISOString()} | today = ${todayDay} (${todayStr}) | time = ${currentTime}`);
 
   try {
     // ════════════════════════════════════════════════════════════════════════════
     // PART 1: HANDLE ONE-TIME SCHEDULES
     // ════════════════════════════════════════════════════════════════════════════
-    console.log('[email-cron] ── Checking ONE-TIME schedules ──');
+    // console.log('[email-cron] ── Checking ONE-TIME schedules ──');
     
     const { data: oneTimeSchedules, error: oneTimeErr } = await supabase
       .from('scheduled_emails')
@@ -132,14 +132,14 @@ async function pollAndSend() {
     if (oneTimeErr) {
       console.error('[email-cron] Failed to fetch one-time schedules:', oneTimeErr.message);
     } else if (oneTimeSchedules && oneTimeSchedules.length > 0) {
-      console.log(`[email-cron] Found ${oneTimeSchedules.length} one-time schedule(s).`);
+      // console.log(`[email-cron] Found ${oneTimeSchedules.length} one-time schedule(s).`);
 
       for (const schedule of oneTimeSchedules) {
         const { scheduled_email_id, subject, body, recipient_emails, scheduled_date, scheduled_time } = schedule;
         
         // Check if this schedule is due NOW
         if (scheduled_date === todayStr && currentTime >= scheduled_time) {
-          console.log(`[email-cron] ✓ One-time schedule ${scheduled_email_id} is DUE | sending to ${recipient_emails?.length || 0} recipients`);
+          // console.log(`[email-cron] ✓ One-time schedule ${scheduled_email_id} is DUE | sending to ${recipient_emails?.length || 0} recipients`);
           
           let sentCount = 0;
           let failedCount = 0;
@@ -153,7 +153,7 @@ async function pollAndSend() {
                 subject,
                 html: body,
               });
-              console.log(`[email-cron]   ✓ Sent to ${recipientEmail}`);
+              // console.log(`[email-cron]   ✓ Sent to ${recipientEmail}`);
               sentCount++;
             } catch (sendErr) {
               const errorMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
@@ -193,23 +193,23 @@ async function pollAndSend() {
                 sent_at: new Date().toISOString(),
               })
               .eq('scheduled_email_id', scheduled_email_id);
-            console.log(`[email-cron]   ✓ Updated status to 'sent' | sent=${sentCount}, failed=${failedCount}`);
+            // console.log(`[email-cron]   ✓ Updated status to 'sent' | sent=${sentCount}, failed=${failedCount}`);
           } else {
-            console.log(`[email-cron]   ⚠️  Partial failure | sent=${sentCount}, failed=${failedCount}`);
+            // console.log(`[email-cron]   ⚠️  Partial failure | sent=${sentCount}, failed=${failedCount}`);
           }
         } else {
           const dueAt = `${scheduled_date} ${scheduled_time}`;
-          console.log(`[email-cron] ⏳ One-time schedule ${scheduled_email_id} not yet due | due at ${dueAt}`);
+          // console.log(`[email-cron] ⏳ One-time schedule ${scheduled_email_id} not yet due | due at ${dueAt}`);
         }
       }
     } else {
-      console.log('[email-cron] No pending one-time schedules found.');
+      // console.log('[email-cron] No pending one-time schedules found.');
     }
 
     // ════════════════════════════════════════════════════════════════════════════
     // PART 2: HANDLE RECURRING SCHEDULES (original logic)
     // ════════════════════════════════════════════════════════════════════════════
-    console.log('[email-cron] ── Checking RECURRING schedules ──');
+    // console.log('[email-cron] ── Checking RECURRING schedules ──');
 
     const { data: recurringSchedules, error: recurringErr } = await supabase
       .from('scheduled_emails')
@@ -224,7 +224,7 @@ async function pollAndSend() {
     }
 
     if (!recurringSchedules || recurringSchedules.length === 0) {
-      console.log('[email-cron] No pending recurring schedules found.');
+      // console.log('[email-cron] No pending recurring schedules found.');
       return;
     }
 
@@ -237,15 +237,15 @@ async function pollAndSend() {
     });
 
     if (dueRecurringSchedules.length === 0) {
-      console.log(`[email-cron] No recurring schedules due at this time on ${todayDay}.`);
+      // console.log(`[email-cron] No recurring schedules due at this time on ${todayDay}.`);
       return;
     }
 
-    console.log(`[email-cron] ${dueRecurringSchedules.length} recurring schedule(s) due today.`);
+    // console.log(`[email-cron] ${dueRecurringSchedules.length} recurring schedule(s) due today.`);
 
     for (const schedule of dueRecurringSchedules) {
       const { scheduled_email_id, subject, body } = schedule;
-      console.log(`[email-cron] Processing recurring schedule ${scheduled_email_id} | days: ${JSON.stringify(schedule.days_of_week)}`);
+      // console.log(`[email-cron] Processing recurring schedule ${scheduled_email_id} | days: ${JSON.stringify(schedule.days_of_week)}`);
 
       // 3. Fetch ALL log rows for this schedule
       const { data: pendingLogs, error: logErr } = await supabase
@@ -259,25 +259,25 @@ async function pollAndSend() {
       }
 
       if (!pendingLogs || pendingLogs.length === 0) {
-        console.log(`[email-cron] No log rows found for schedule ${scheduled_email_id}.`);
+        // console.log(`[email-cron] No log rows found for schedule ${scheduled_email_id}.`);
         continue;
       }
 
-      console.log(`[email-cron] ${pendingLogs.length} log row(s) found. Checking which need sending…`);
+      // console.log(`[email-cron] ${pendingLogs.length} log row(s) found. Checking which need sending…`);
       pendingLogs.forEach((log) => {
         const skip = alreadySentToday(log, todayStr);
-        console.log(`[email-cron]   email=${log.email_id} status=${log.status} attempted_at=${log.attempted_at} → ${skip ? 'SKIP (sent today)' : 'SEND'}`);
+        // console.log(`[email-cron]   email=${log.email_id} status=${log.status} attempted_at=${log.attempted_at} → ${skip ? 'SKIP (sent today)' : 'SEND'}`);
       });
 
       // Filter: skip only rows that were already SUCCESSFULLY sent today
       const toSend = pendingLogs.filter((log) => !alreadySentToday(log, todayStr));
 
       if (toSend.length === 0) {
-        console.log(`[email-cron] All recipients for schedule ${scheduled_email_id} already handled today.`);
+        // console.log(`[email-cron] All recipients for schedule ${scheduled_email_id} already handled today.`);
         continue;
       }
 
-      console.log(`[email-cron] Sending to ${toSend.length} recipient(s) for schedule ${scheduled_email_id}…`);
+      // console.log(`[email-cron] Sending to ${toSend.length} recipient(s) for schedule ${scheduled_email_id}…`);
 
       // 4. Send and update log per recipient
       for (const log of toSend) {
@@ -297,7 +297,7 @@ async function pollAndSend() {
             subject,
             html: body,
           });
-          console.log(`[email-cron]   ✓ Sent to ${recipientEmail}`);
+          // console.log(`[email-cron]   ✓ Sent to ${recipientEmail}`);
         } catch (sendErr) {
           sendStatus = 'failed';
           errorMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
@@ -320,7 +320,7 @@ async function pollAndSend() {
       }
     }
 
-    console.log('[email-cron] ─────────────────────────────────────');
+    // console.log('[email-cron] ─────────────────────────────────────');
   } catch (err) {
     console.error('[email-cron] Unhandled error in pollAndSend:', err);
   }
@@ -329,8 +329,8 @@ async function pollAndSend() {
 
 // ── Startup ───────────────────────────────────────────────────
 
-console.log('[email-cron] Starting. Poll interval:', POLL_INTERVAL_MS / 1000, 's');
-console.log('[email-cron] SMTP:', SMTP_HOST + ':' + SMTP_PORT, '| From:', FROM_EMAIL);
+// console.log('[email-cron] Starting. Poll interval:', POLL_INTERVAL_MS / 1000, 's');
+// console.log('[email-cron] SMTP:', SMTP_HOST + ':' + SMTP_PORT, '| From:', FROM_EMAIL);
 
 // Run once immediately, then on the interval
 pollAndSend().catch((e) => console.error('[email-cron] Unhandled error on first poll:', e));
