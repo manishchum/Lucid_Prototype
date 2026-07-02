@@ -147,32 +147,33 @@ def _store_video_media(payload: SubmissionCreate, company_id: str, submission_id
     return _store_media(payload, company_id, submission_id, video_input, "video", "video/mp4", ".mp4")
 
 
-# def resolve_company_id(user_id: str | None, fallback_company_id: Optional[str]) -> Optional[str]:
-#     if fallback_company_id:
-#         import uuid
-#         try:
-#             uuid.UUID(str(fallback_company_id))
-#             return fallback_company_id
-#         except ValueError:
-#             pass
+def resolve_company_id(user_id: str | None, fallback_company_id: Optional[str]) -> Optional[str]:
+    if fallback_company_id:
+        import uuid
+        try:
+            uuid.UUID(str(fallback_company_id))
+            return fallback_company_id
+        except ValueError:
+            pass
 
-#     if not user_id:
-#         return None
+    if not user_id:
+        return None
 
-#     try:
-#         company_res = (
-#             supabase.table("users")
-#             .select("company_id")
-#             .eq("user_id", user_id)
-#             .single()
-#             .execute()
-#         )
-#         if company_res.data:
-#             return company_res.data.get("company_id")
-#     except Exception as lookup_error:
-#         print("[task-manager] Failed to resolve company_id:", lookup_error)
+    try:
+        db = get_service_supabase_client()
+        company_res = (
+            db.table("users")
+            .select("company_id")
+            .eq("user_id", user_id)
+            .single()
+            .execute()
+        )
+        if company_res.data:
+            return company_res.data.get("company_id")
+    except Exception as lookup_error:
+        print("[task-manager] Failed to resolve company_id:", lookup_error)
 
-#     return None
+    return None
 
 
 async def is_user_admin(user_id: str | None) -> bool:
@@ -221,8 +222,9 @@ def _format_submission_row(sub: dict, caller_is_admin: bool = False) -> dict:
         return scrub_submission_for_employee(sub)
 
     stype = str(sub.get("submission_type") or "").lower()
-    if stype in ("text", "multiple_choice") and sub.get("audio_analysis"):
-        val = sub["audio_analysis"]
+    val = sub.get("ai_analysis") or sub.get("audio_analysis")
+    
+    if val:
         if isinstance(val, str):
             try:
                 sub["ai_validation"] = json.loads(val)
