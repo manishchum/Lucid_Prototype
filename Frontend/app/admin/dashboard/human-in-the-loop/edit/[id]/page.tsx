@@ -102,12 +102,18 @@ export default function EditModulePage() {
   const [activeMediaMenu, setActiveMediaMenu] = useState<ModuleMediaType | null>(null);
   const [isMediaPanelCollapsed, setIsMediaPanelCollapsed] = useState(true);
 
+  // Translation UI state
+  const [language, setLanguage] = useState<'en' | 'hi'>('en');
+  const [translatedContent, setTranslatedContent] = useState('');
+  const [translating, setTranslating] = useState(false);
+
   const contentEditableRef = useRef<HTMLDivElement>(null);
   const videoUploadInputRef = useRef<HTMLInputElement>(null);
   const imageUploadInputRef = useRef<HTMLInputElement>(null);
   const audioUploadInputRef = useRef<HTMLInputElement>(null);
   const savedSelectionRef = useRef<Range | null>(null);
   const uploadInsertMarkerIdRef = useRef<string | null>(null);
+  const translationCacheRef = useRef<Record<string, string>>({});
 
   // Check authentication on mount
   useEffect(() => {
@@ -140,12 +146,78 @@ export default function EditModulePage() {
     const editor = contentEditableRef.current;
     if (!editor) return;
     if (document.activeElement === editor) return;
-   
-    // Sync editor content with state whenever editedContent changes
-    if (editor.innerHTML !== editedContent) {
-      editor.innerHTML = editedContent || '';
+
+    // Sync editor content with state whenever editedContent or translation changes
+    if (language === 'en') {
+      if (editor.innerHTML !== editedContent) {
+        editor.innerHTML = editedContent || '';
+      }
+      editor.contentEditable = 'true' as any;
+    } else {
+      if (editor.innerText !== translatedContent) {
+        editor.innerText = translatedContent || '';
+      }
+      editor.contentEditable = 'false' as any;
     }
-  }, [activeView, editedContent, selectedSubModule?.processed_module_id, userRole, hasPendingReview, loading]);
+  }, [activeView, editedContent, selectedSubModule?.processed_module_id, userRole, hasPendingReview, loading, language, translatedContent]);
+
+
+  // Translate selected sub-module when language === 'hi'
+  useEffect(() => {
+    const doTranslate = async () => {
+      if (language !== 'hi' || !selectedSubModule) {
+        setTranslatedContent('');
+        setTranslating(false);
+        return;
+      }
+
+      try {
+        setTranslating(true);
+        const sourceHtml = pendingHistoryMap[selectedSubModule.processed_module_id]?.content || selectedSubModule.content || editedContent;
+        const tmp = document.createElement('div');
+        tmp.innerHTML = sourceHtml || '';
+        const plain = (tmp.innerText || tmp.textContent || '').trim();
+        if (!plain) {
+          setTranslatedContent('');
+          setTranslating(false);
+          return;
+        }
+
+        const cacheKey = `${selectedSubModule.processed_module_id}:${plain.slice(0, 400)}`;
+        const cachedTranslation = translationCacheRef.current[cacheKey];
+        if (cachedTranslation) {
+          setTranslatedContent(cachedTranslation);
+          setTranslating(false);
+          return;
+        }
+
+        const res = await fetch('/api/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: plain, target: 'hi' }),
+        });
+
+        if (!res.ok) {
+          console.error('Translate failed', res.status);
+          setTranslatedContent('');
+          setTranslating(false);
+          return;
+        }
+
+        const j = await res.json();
+        const translatedText = j.translated || '';
+        translationCacheRef.current[cacheKey] = translatedText;
+        setTranslatedContent(translatedText);
+      } catch (err) {
+        console.error('Translate error', err);
+        setTranslatedContent('');
+      } finally {
+        setTranslating(false);
+      }
+    };
+
+    doTranslate();
+  }, [language, selectedSubModule, pendingHistoryMap, editedContent]);
 
   useEffect(() => {
       if (!authLoading) {
@@ -1673,27 +1745,38 @@ export default function EditModulePage() {
                           className="hidden"
                           onChange={handleAudioUpload}
                         />
-                        <div className="flex items-center gap-2">
-                          {hasUnsavedChanges && (
-                            <span className="text-xs text-orange-600 font-medium">● Unsaved changes</span>
-                          )}
-                          {/* Admin save + request approval buttons */}
-                          {isUploader && hasUnsavedChanges && (
-                            <Button size="sm" variant="outline" onClick={handleSaveChanges} className="border-slate-300">
-                              Save Draft
-                            </Button>
-                          )}
-                          {/* Reviewer save edits button */}
-                          {isReviewer && hasUnsavedChanges && activeView === 'edit' && (
-                            <Button size="sm" onClick={handleReviewerSave} disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
-                              {submitting ? 'Saving...' : 'Save Edits'}
-                            </Button>
-                          )}
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2">
+                            <label className="text-sm text-slate-500">Language</label>
+                            <select value={language} onChange={(e) => setLanguage(e.target.value as 'en' | 'hi')} className="h-8 px-2 border border-slate-200 rounded-lg text-sm">
+                              <option value="en">English</option>
+                              <option value="hi">Hindi</option>
+                            </select>
+                            {language === 'hi' && <span className="text-xs text-slate-500">{translating ? 'Translating...' : 'Showing Hindi'}</span>}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {hasUnsavedChanges && (
+                              <span className="text-xs text-orange-600 font-medium">● Unsaved changes</span>
+                            )}
+                            {/* Admin save + request approval buttons */}
+                            {isUploader && hasUnsavedChanges && (
+                              <Button size="sm" variant="outline" onClick={handleSaveChanges} className="border-slate-300">
+                                Save Draft
+                              </Button>
+                            )}
+                            {/* Reviewer save edits button */}
+                            {isReviewer && hasUnsavedChanges && activeView === 'edit' && (
+                              <Button size="sm" onClick={handleReviewerSave} disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
+                                {submitting ? 'Saving...' : 'Save Edits'}
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div
                         ref={contentEditableRef}
-                        contentEditable={true}
+                        contentEditable={language === 'en'}
                         onMouseUp={saveCurrentSelection}
                         onKeyUp={saveCurrentSelection}
                         onInput={handleContentEditableChange}

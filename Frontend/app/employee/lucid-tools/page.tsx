@@ -195,7 +195,7 @@ const companyId = employeeData?.company_id;
   const activeDoc = MOCK_DOCUMENTS[activeDocIndex]
   const [selectedModule, setSelectedModule] = useState(activeDoc.modules[0].title)
   useEffect(() => {
-    console.log("employeeData", employeeData)
+    // console.log("employeeData", employeeData)
   }, [employeeData])
 
   useEffect(() => {
@@ -211,9 +211,9 @@ const companyId = employeeData?.company_id;
   }, []);
 
   const handleGenerate = async () => {
-    console.log("employeeData:", employeeData);
-    console.log("userId:", userId);
-    console.log("companyId:", companyId);
+    // console.log("employeeData:", employeeData);
+    // console.log("userId:", userId);
+    // console.log("companyId:", companyId);
     if (!file) {
       alert('Please select a file to upload.');
       return;
@@ -225,11 +225,11 @@ const companyId = employeeData?.company_id;
     formData.append('file', file);
     formData.append('category', category);
     formData.append('contextText', contextText);
-    console.log("Upload Request", {
-        userId,
-        companyId,
-        employeeData
-      });
+    // console.log("Upload Request", {
+    //     userId,
+    //     companyId,
+    //     employeeData
+    //   });
     try {
       const response = await fetch('/api/lucid_tool_upload', {
         method: 'POST',
@@ -249,7 +249,7 @@ const companyId = employeeData?.company_id;
       
 
       const result = await response.json();
-      console.log('Upload successful:', result);
+      // console.log('Upload successful:', result);
 
       // Mocking the results view for now
       setTimeout(() => {

@@ -156,7 +156,7 @@ export function AssignedSprintsSection({
         baselineMaxScore: module.baselineMaxScore ?? null,
         certificateEarned: module.certificateEarned,
       }));
-      console.log("Basic sprints data:", basicSprints);
+      // console.log("Basic sprints data:", basicSprints);
       setSprints(basicSprints);
     } finally {
       setLoading(false);

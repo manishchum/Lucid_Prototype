@@ -12,10 +12,10 @@ export async function POST(request: NextRequest) {
     const userId = request.headers.get('X-User-ID');
     const companyId = request.headers.get('X-Company-ID');
 
-    console.log('Proxy received:', {
-      userId,
-      companyId,
-    });
+    // console.log('Proxy received:', {
+    //   userId,
+    //   companyId,
+    // });
 
     // Forward the form data to the Python backend
     const backendResponse = await fetch(`${PYTHON_BACKEND_URL}/api/lucid_tool_upload`, {

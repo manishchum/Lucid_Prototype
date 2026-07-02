@@ -74,14 +74,14 @@ const fetchUserByEmail = async (email: string | undefined | null) => {
 const normalizeRoleName = (value: string) => value.toLowerCase().replace(/[-_\s]/g, '')
 
 const fetchUserRoles = async (userId: string) => {
-  console.log(`[auth-context] Fetching roles for user ID: ${userId}`)
+  // console.log(`[auth-context] Fetching roles for user ID: ${userId}`)
   const normalizedUserId = (userId || '').toString().trim()
-  console.log(`[auth-context] Normalized user ID: ${normalizedUserId}`)
+  // console.log(`[auth-context] Normalized user ID: ${normalizedUserId}`)
   if (!normalizedUserId || normalizedUserId === 'undefined' || normalizedUserId === 'null') {
     return { roles: [], isAdmin: false, isSuperAdmin: false, isDeveloper: false, isManager: false }
   }
   try {
-    console.log("ROlES API URL", `${API_BASE}/api/roles/users/${encodeURIComponent(normalizedUserId)}`)
+    // console.log("ROlES API URL", `${API_BASE}/api/roles/users/${encodeURIComponent(normalizedUserId)}`)
     const rolesRes = await fetchWithAuth(`${API_BASE}/api/roles/users/${encodeURIComponent(normalizedUserId)}`, {
       headers: { 'X-User-ID': normalizedUserId }
     })
@@ -191,15 +191,15 @@ const loadCachedFullProfile = async (authUser: AuthUserLike) => {
       key,
       async () => {
         const empData = await fetchUserByEmail(authUser.email)
-        console.log(
-          "EMPLOYEE DATA",
-          empData
-        )
+        // console.log(
+        //   "EMPLOYEE DATA",
+        //   empData
+        // )
 
-        console.log(
-          "USER ID",
-          empData?.user_id
-        )
+        // console.log(
+        //   "USER ID",
+        //   empData?.user_id
+        // )
         if (!empData) return null
 
         const resolvedUserId = (empData.user_id || '').toString().trim()
