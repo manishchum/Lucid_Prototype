@@ -315,7 +315,13 @@ export default function CompanyAccessPage() {
           "X-User-ID": userId,
         },
         body: JSON.stringify({
-          subscription_addons: draftAddons,
+          subscription_addons: Array.from(
+            new Set([
+              ...draftAddons,
+              "lucid_studio",
+              "lucid_studio_textual",
+            ])
+          ),
         }),
       })
 
@@ -536,6 +542,9 @@ export default function CompanyAccessPage() {
                   if (isLucidChild && !parentEnabled) {
                     return null
                   }
+                  const isMandatory =
+                    feature.id === "lucid_studio" ||
+                    feature.id === "lucid_studio_textual";
 
                   return (
                     <div
@@ -564,8 +573,12 @@ export default function CompanyAccessPage() {
                         </div>
                         <Switch
                           checked={checked}
-                          onCheckedChange={(value) => handleToggleAddon(feature.id, Boolean(value))}
-                          disabled={isLucidChild && !parentEnabled}
+                          onCheckedChange={(value) => {
+                            if (!isMandatory) {
+                              handleToggleAddon(feature.id, Boolean(value))
+                            }
+                          }}
+                          disabled={isMandatory || (isLucidChild && !parentEnabled)}
                         />
                       </div>
                       {isLucidChild && !parentEnabled && (

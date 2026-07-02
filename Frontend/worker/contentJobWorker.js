@@ -215,7 +215,7 @@ async function processJobs() {
 
         // Generate all derived assets for this specific module before completing the job.
         try{
-          await runModuleGenerators(job.module_id);
+          await runModuleGenerators(job.module_id,enabledAddonSet);
         }catch(e){
           // console.log(e)
         }
