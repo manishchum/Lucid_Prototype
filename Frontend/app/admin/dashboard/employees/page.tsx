@@ -1350,10 +1350,10 @@ export default function EmployeesPage() {
               </Button>
 
               <Button
-                onClick={onAssignNewUsers}
-                className="bg-green-600 hover:bg-green-700"
+                onClick={confirmDeleteUser}
+                className="bg-red-600 hover:bg-red-700"
               >
-                Assign Only to New Users
+                Delete User
               </Button>
             </div>
           </div>
