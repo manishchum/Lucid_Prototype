@@ -172,8 +172,7 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
 export default function EmployeeWelcome() {
   const { user, loading: authLoading, logout, employeeData, isAdmin, isSuperAdmin, isDeveloper, isManager } = useAuth();
   const { activeCompanyId, isDeveloperMode, hasFeature } = useTenant();
-  const router = useRouter();
-  const hasTaskManagementAccess = hasFeature(FEATURES.TASK_MANAGEMENT);
+  const hasTaskManagementAccess = true; // Temporarily bypass feature flag for testing: hasFeature(FEATURES.TASK_MANAGEMENT);
 
   // --- Logic State ---
   const [employee, setEmployee] = useState<Employee | null>(null);
