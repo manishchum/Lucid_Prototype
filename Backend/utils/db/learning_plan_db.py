@@ -6,10 +6,11 @@ Handles CRUD operations with permission checks.
 from typing import Dict, Any, List, Optional
 from utils.supabase_client import supabase
 import uuid
+from datetime import datetime
 from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission
 from utils.assignment_notifications import send_assignment_notification_email
-from utils.redis_client import get_cache, set_cache, redis_client
+from utils.redis_client import get_cache, set_cache, delete_cache_pattern
 
 
 def _resolve_app_user_id(service_supabase, user_id: Optional[str]) -> Optional[str]:
@@ -307,6 +308,7 @@ async def create_learning_plan(
         # Create the learning plan
         resp = supabase.table('learning_plan').insert(plan_data).execute()
         
+        delete_cache_pattern(f"dashboard_summary:{user_id}*")
         if not resp.data:
             return {"data": None, "error": "Failed to create learning plan"}
 
@@ -344,6 +346,299 @@ async def create_learning_plan(
     except Exception as e:
         return {"data": None, "error": str(e)}
 
+
+async def bulk_create_learning_plans(
+    requesting_user_id: str,
+    bulk_data: Dict[str, Any]
+) -> Dict[str, Any]:
+
+    try:
+
+        ####################################################
+        # STEP 1 - Permission
+        ####################################################
+
+        has_permission = await check_user_permission(
+            requesting_user_id,
+            "manager"
+        )
+
+        if not has_permission:
+            return {
+                "created": 0,
+                "skipped": 0,
+                "error": "Permission denied: Manager role required"
+            }
+
+        ####################################################
+        # STEP 2 - Company
+        ####################################################
+
+        company_id = await get_user_company_id(requesting_user_id)
+
+        if not company_id:
+            return {
+                "created": 0,
+                "skipped": 0,
+                "error": "Unable to determine company."
+            }
+
+        user_ids = bulk_data["user_ids"]
+        module_ids = bulk_data["module_ids"]
+
+        ####################################################
+        # STEP 3 - Load modules once
+        ####################################################
+
+        module_resp = (
+            supabase
+            .table("training_modules")
+            .select("*")
+            .in_("module_id", module_ids)
+            .execute()
+        )
+
+        modules = module_resp.data or []
+
+        module_map = {
+            m["module_id"]: m
+            for m in modules
+        }
+
+        ####################################################
+        # STEP 4 - Processed modules once
+        ####################################################
+
+        processed_resp = (
+            supabase
+            .table("processed_modules")
+            .select(
+                "original_module_id,processed_module_id"
+            )
+            .in_(
+                "original_module_id",
+                module_ids
+            )
+            .execute()
+        )
+
+        processed_lookup = {}
+
+        for row in processed_resp.data or []:
+
+            processed_lookup.setdefault(
+                row["original_module_id"],
+                []
+            ).append(
+                row["processed_module_id"]
+            )
+
+        ####################################################
+        # STEP 5 - Existing plans
+        ####################################################
+
+        existing_resp = (
+            supabase
+            .table("learning_plan")
+            .select("user_id,module_id")
+            .in_("user_id", user_ids)
+            .in_("module_id", module_ids)
+            .execute()
+        )
+
+        existing = {
+            (
+                row["user_id"],
+                row["module_id"]
+            )
+            for row in (existing_resp.data or [])
+        }
+
+        ####################################################
+        # STEP 6 - Build payload
+        ####################################################
+
+        payload = []
+
+        email_queue = []
+
+        skipped = 0
+
+        now = datetime.utcnow().isoformat()
+
+        for user_id in user_ids:
+
+            for module_id in module_ids:
+
+                if (
+                    user_id,
+                    module_id
+                ) in existing:
+
+                    skipped += 1
+                    continue
+
+                module = module_map.get(module_id)
+
+                if not module:
+                    skipped += 1
+                    continue
+
+                payload.append({
+
+                    "learning_plan_id": str(uuid.uuid4()),
+
+                    "user_id": user_id,
+
+                    "module_id": module_id,
+
+                    "assigned_on": now,
+
+                    "started_at": now,
+
+                    "status": bulk_data.get(
+                        "status",
+                        "ASSIGNED"
+                    ),
+
+                    "priority": bulk_data.get(
+                        "priority",
+                        1
+                    ),
+
+                    "due_date": bulk_data.get(
+                        "due_date"
+                    ),
+
+                    "baseline_assessment":
+                        bulk_data.get(
+                            "baseline_assessment",
+                            True
+                        ),
+
+                    "processed_module_ids":
+                        processed_lookup.get(
+                            module_id,
+                            []
+                        )
+
+                })
+
+                email_queue.append(
+                    (
+                        user_id,
+                        module
+                    )
+                )
+
+        ####################################################
+        # STEP 7 - Bulk insert
+        ####################################################
+
+        created = 0
+
+        if payload:
+
+            insert_resp = (
+                supabase
+                .table("learning_plan")
+                .insert(payload)
+                .execute()
+            )
+
+            created = len(insert_resp.data or [])
+
+        ####################################################
+        # STEP 8 - Emails
+        ####################################################
+
+        company_name_resp = (
+            supabase
+            .table("companies")
+            .select("name")
+            .eq(
+                "company_id",
+                company_id
+            )
+            .single()
+            .execute()
+        )
+
+        company_name = (
+            company_name_resp.data.get("name")
+            if company_name_resp.data
+            else "Your Company"
+        )
+
+        for user_id, module in email_queue:
+
+            try:
+
+                user_resp = (
+                    supabase
+                    .table("users")
+                    .select(
+                        "user_id,name,email"
+                    )
+                    .eq(
+                        "user_id",
+                        user_id
+                    )
+                    .single()
+                    .execute()
+                )
+
+                if not user_resp.data:
+                    continue
+
+                await send_assignment_notification_email(
+
+                    recipient_email=user_resp.data["email"],
+
+                    recipient_name=user_resp.data["name"],
+
+                    recipient_user_id=user_resp.data["user_id"],
+
+                    assignment_title=module["title"],
+
+                    company_name=company_name,
+
+                    assignment_kind="sprint"
+
+                )
+
+            except Exception as e:
+
+                print(e)
+
+        ####################################################
+        # DONE
+        ####################################################
+        for user_id in user_ids:
+            delete_cache_pattern(f"dashboard_summary:{user_id}*")
+            print(f"cache deleted for ",{user_id})
+            
+        return {
+
+            "created": created,
+
+            "skipped": skipped,
+
+            "error": None
+
+        }
+
+    except Exception as e:
+
+        return {
+
+            "created": 0,
+
+            "skipped": 0,
+
+            "error": str(e)
+
+        }
 
 async def update_learning_plan(
     requesting_user_id: str,

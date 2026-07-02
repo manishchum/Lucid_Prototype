@@ -80,8 +80,8 @@ export async function fetchScenariosForUserAPI(
       };
     }
 
-    console.log('API fetchScenariosForUserAPI result:', result.data);
-    console.log('API fetchScenariosForUserAPI raw response:', response);
+    // console.log('API fetchScenariosForUserAPI result:', result.data);
+    // console.log('API fetchScenariosForUserAPI raw response:', response);
     return {
       data: result.data,
       error: null,

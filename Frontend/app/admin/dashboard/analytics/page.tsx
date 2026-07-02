@@ -235,13 +235,13 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
 
       const data = await response.json();
 
-      console.log("TYPE", typeof data);
-      console.log("RAW", data);
-      console.log("FULL RESPONSE", data);
-      console.log("data.overallStats", data?.overallStats);
-      console.log("data.data?.overallStats", data?.data?.overallStats);
-      setOverallStats(data.overallStats);
-      console.log('Overall stats set:', data.overallStats);
+      // console.log("TYPE", typeof data);
+      // console.log("RAW", data);
+      // console.log("FULL RESPONSE", data);
+      // console.log("data.overallStats", data?.overallStats);
+      // console.log("data.data?.overallStats", data?.data?.overallStats);
+      // setOverallStats(data.overallStats);
+      // console.log('Overall stats set:', data.overallStats);
 
       const learningStyleArray =
         Object.entries(data.learningStyles || {})

@@ -45,16 +45,16 @@ export async function POST(req: Request) {
 						const [rawName, rawDesc, rawFormula,rawBenchmark] = rows[i];
 
 						// console.log('Data for each row',rows[i])
-						console.log(rawName,rawDesc,rawName,rawBenchmark)
-						console.log(rows[i])
+						// console.log(rawName,rawDesc,rawName,rawBenchmark)
+						// console.log(rows[i])
 						const rawDatatype = typeof rows[i][4];
 						
-						console.log(rawDatatype)
-						console.log(rows[i][3])
-						console.log(rows[i][4])
+						// console.log(rawDatatype)
+						// console.log(rows[i][3])
+						// console.log(rows[i][4])
 						// Optional 4th column for datatype
 						if (!rawName || typeof rawName !== "string") {
-							console.log("Inside the skip part",typeof rawName);
+							// console.log("Inside the skip part",typeof rawName);
 							skipped.push({ row: i + 1, reason: "Missing KPI name" });
 							continue;
 						}
@@ -146,7 +146,7 @@ export async function POST(req: Request) {
 						}
 					}
 
-		console.log(skipped);
+		// console.log(skipped);
 		return NextResponse.json({ created, updated, skipped });
 	} catch (err) {
 		return NextResponse.json({ error: "Fatal error", detail: String(err) }, { status: 500 });

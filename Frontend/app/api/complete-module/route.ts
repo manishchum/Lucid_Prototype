@@ -44,14 +44,14 @@ export async function POST(request: NextRequest) {
     // })
 
     // Check if there's already a progress record for this user and processed module
-    console.log("User id", userId)
+    // console.log("User id", userId)
     const { data: existingProgress, error: checkError } = await supabase
       .from('module_progress')
       .select('module_progress_id, completed_at, quiz_score')
       .eq('user_id', userId)
       .eq('processed_module_id', processedModuleId)
 
-    console.log("Data of the just fetched existing progress", existingProgress)
+    // console.log("Data of the just fetched existing progress", existingProgress)
     if (checkError) {
       console.error('📚 DEBUG: Error checking existing progress:', checkError)
       return NextResponse.json(
@@ -95,8 +95,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (existingRecord) {
-      console.log('📚 DEBUG: Updating existing progress record:', existingRecord.module_progress_id)
-      console.log('Resolved Module Id:', resolvedModuleId)
+      // console.log('📚 DEBUG: Updating existing progress record:', existingRecord.module_progress_id)
+      // console.log('Resolved Module Id:', resolvedModuleId)
 
       
       // Update existing progress record - only update columns that exist in the schema
@@ -142,7 +142,7 @@ export async function POST(request: NextRequest) {
       }
 
 
-      console.log("Creating new progress record")
+      // console.log("Creating new progress record")
 
       const { data, error: insertError } = await supabase
         .from('module_progress')
@@ -161,7 +161,7 @@ export async function POST(request: NextRequest) {
 
     // console.log('📚 DEBUG: Module completion recorded successfully:', progressData)
 
-    console.log('📚 DEBUG: Complete module done')
+    // console.log('📚 DEBUG: Complete module done')
 
     // START: Update overall_status in learning_plan
     if (resolvedModuleId) {
@@ -193,7 +193,7 @@ export async function POST(request: NextRequest) {
             }
 
             if (allPassed) {
-              console.log('🏆 Target Sprint Completed! Updating learning_plan overall_status to TRUE.')
+              // console.log('🏆 Target Sprint Completed! Updating learning_plan overall_status to TRUE.')
               await supabase
                 .from('learning_plan')
                 .update({

@@ -78,7 +78,7 @@ function RolePlayPageContent({ params }: { params: { module_id: string, moduleTi
       
       const { data, error } = await fetchScenariosForUserAPI(userId, isAdmin || false);
 
-      console.log('Fetched scenarios:', data);
+      // console.log('Fetched scenarios:', data);
       if (data) {
         setAllScenarios(data);
       }
@@ -193,7 +193,7 @@ function RolePlayPageContent({ params }: { params: { module_id: string, moduleTi
           const rolePayload = await roleRes.json().catch(() => null);
           const roleData = rolePayload?.assignments ?? rolePayload?.data ?? rolePayload ?? [];
           if (!Array.isArray(roleData) || roleData.length === 0) {
-            console.log('No admin role found');
+            // console.log('No admin role found');
             setIsAdmin(false);
             return;
           }
@@ -253,7 +253,7 @@ function RolePlayPageContent({ params }: { params: { module_id: string, moduleTi
 
       // Refresh scenarios list
       const { data, error: fetchError } = await fetchScenariosForUserAPI(userId, isAdmin || false);
-      console.log('scenarios for the admins',data);
+      // console.log('scenarios for the admins',data);
       if (data) {
         setAllScenarios(data);
       }
@@ -385,7 +385,7 @@ function RolePlayPageContent({ params }: { params: { module_id: string, moduleTi
 
   const handleEndSession = async (messages: Message[], sessionId?: string) => {
     //console.log('🏁 Ending session with messages:', messages.length);
-    console.log('[handleEndSession] Ending with', messages.length, 'messages, sessionId:', sessionId);
+    // console.log('[handleEndSession] Ending with', messages.length, 'messages, sessionId:', sessionId);
     
     setConversationHistory(messages);
 
@@ -397,11 +397,11 @@ function RolePlayPageContent({ params }: { params: { module_id: string, moduleTi
 
     try {
       //console.log('📊 Generating fresh assessment...');
-      console.log('[Assessment] Sending request with:', {
-        messagesCount: messages.length,
-        scenarioTitle: selectedScenario?.title,
-        hasScenario: !!selectedScenario
-      });
+      // console.log('[Assessment] Sending request with:', {
+      //   messagesCount: messages.length,
+      //   scenarioTitle: selectedScenario?.title,
+      //   hasScenario: !!selectedScenario
+      // });
 
       // ✅ ALLOW EMPTY MESSAGES - backend will return zero-score assessment
       // This handles abrupt session endings gracefully
@@ -425,7 +425,7 @@ function RolePlayPageContent({ params }: { params: { module_id: string, moduleTi
         }),
       });
 
-      console.log('[Assessment] Response status:', response.status);
+      // console.log('[Assessment] Response status:', response.status);
 
       if (!response.ok) {
         let errorData: any = {};
@@ -439,7 +439,7 @@ function RolePlayPageContent({ params }: { params: { module_id: string, moduleTi
       }
 
       const assessment = await response.json();
-      console.log('[Assessment] Success, score:', assessment?.overallScore);
+      // console.log('[Assessment] Success, score:', assessment?.overallScore);
       
       // ✅ Validate assessment structure - zero score is valid!
       if (assessment.overallScore === undefined || !assessment.summary || !assessment.parameters) {
@@ -460,9 +460,9 @@ function RolePlayPageContent({ params }: { params: { module_id: string, moduleTi
           //   assessment
           // });
           
-          console.log('[Assessment] Saving to DB with sessionId:', sessionId);
+          // console.log('[Assessment] Saving to DB with sessionId:', sessionId);
           await createRolePlayAssessment(sessionId, employeeId, assessment);
-          console.log('[Assessment] ✅ Saved to database');
+          // console.log('[Assessment] ✅ Saved to database');
         } catch (dbError) {
           console.error('❌ Error saving assessment to database:', dbError);
           console.error('Error details:', JSON.stringify(dbError, null, 2));
