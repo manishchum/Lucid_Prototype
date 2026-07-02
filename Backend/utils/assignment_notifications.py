@@ -165,7 +165,70 @@ async def send_assignment_notification_email(
     company_name: str,
     assignment_kind: str,
     frontend_url: Optional[str] = None,
+    send_in_app: bool = True,
 ) -> Dict[str, Any]:
+    # ── 1. Create In-App Notification ──────────────────────────────────────────
+    if send_in_app:
+        try:
+            from utils.supabase_client import supabase
+            from utils.websocket_manager import manager
+            from utils.auth import _ensure_firebase_admin_initialized
+            from firebase_admin import messaging
+
+            # Query user's company_id and fcm_token
+            user_data = supabase.table("users").select("company_id, fcm_token").eq("user_id", recipient_user_id).single().execute()
+            company_id = user_data.data.get("company_id") if user_data.data else None
+            fcm_token = user_data.data.get("fcm_token") if user_data.data else None
+
+            title = "New Sprint Assigned" if assignment_kind == "sprint" else "New Roleplay Coach Assigned"
+            msg_body = f"You have been assigned to sprint '{assignment_title}'." if assignment_kind == "sprint" else f"You have been assigned to roleplay coach '{assignment_title}'."
+
+            notification_payload = {
+                "user_id": recipient_user_id,
+                "title": title,
+                "message": msg_body,
+                "type": f"{assignment_kind}_assigned",
+                "metadata": {
+                    "assignment_title": assignment_title,
+                    "company_id": company_id
+                }
+            }
+            
+            insert_resp = supabase.table("notifications").insert(notification_payload).execute()
+            
+            if insert_resp.data:
+                notification = insert_resp.data[0]
+                
+                # Send WebSocket notification
+                ws_payload = {
+                    "event": "new_notification",
+                    "data": notification
+                }
+                await manager.send_personal_message(recipient_user_id, ws_payload)
+                
+                # Send FCM Push notification
+                if fcm_token:
+                    try:
+                        _ensure_firebase_admin_initialized()
+                        fcm_message = messaging.Message(
+                            notification=messaging.Notification(
+                                title=notification["title"],
+                                body=notification["message"],
+                            ),
+                            data={
+                                "id": str(notification["id"]),
+                                "type": str(notification["type"]),
+                                "assignment_title": str(assignment_title),
+                            },
+                            token=fcm_token,
+                        )
+                        messaging.send(fcm_message)
+                    except Exception as fcm_err:
+                        logger.warning("[FCM] Error sending push notification: %s", fcm_err)
+        except Exception as notif_err:
+            logger.error("Failed to create in-app notification for %s: %s", recipient_user_id, notif_err)
+
+    # ── 2. Send Email Notification ──────────────────────────────────────────────
     should_send, reason = await should_send_email(recipient_email, reason=f"{assignment_kind}_assignment")
     if not should_send:
         return {
@@ -227,6 +290,7 @@ async def send_bulk_assignment_notification_emails(
     company_name: str,
     assignment_kind: str,
     frontend_url: Optional[str] = None,
+    send_in_app: bool = True,
 ) -> Dict[str, Any]:
     results = []
     sent_count = 0
@@ -241,6 +305,7 @@ async def send_bulk_assignment_notification_emails(
             company_name=company_name,
             assignment_kind=assignment_kind,
             frontend_url=frontend_url,
+            send_in_app=send_in_app,
         )
         results.append(result)
         if result.get("success"):
