@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, RefObject, useEffect, useMemo, useRef, useState } from "react";
 import AudioPlayer from "./AudioPlayer";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -21,6 +21,35 @@ import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { MediaAwareHtml } from '@/lib/module-media-embeds';
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+const SECTION_TRANSLATION_CACHE_STORAGE_KEY = "lucid_module_section_translation_cache";
+
+const readSectionTranslationCache = (employeeId?: string, moduleId?: string) => {
+  if (typeof window === "undefined" || !moduleId) return {} as Record<string, SectionBlock>;
+
+  try {
+    const storageKey = `${SECTION_TRANSLATION_CACHE_STORAGE_KEY}:${employeeId || "anonymous"}:${moduleId}`;
+    const raw = window.sessionStorage.getItem(storageKey);
+    if (!raw) return {} as Record<string, SectionBlock>;
+
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    console.warn("[module] Failed to read section translation cache", error);
+    return {} as Record<string, SectionBlock>;
+  }
+};
+
+const writeSectionTranslationCache = (employeeId: string | undefined, moduleId: string | undefined, cache: Record<string, SectionBlock>) => {
+  if (typeof window === "undefined" || !moduleId) return;
+
+  try {
+    // console.log(" writeSectionTranslationCache called");
+    const storageKey = `${SECTION_TRANSLATION_CACHE_STORAGE_KEY}:${employeeId || "anonymous"}:${moduleId}`;
+    window.sessionStorage.setItem(storageKey, JSON.stringify(cache));
+  } catch (error) {
+    console.warn("[module] Failed to persist section translation cache", error);
+  }
+};
 
 const normalizeModulePayload = (raw: any, moduleId: string) => {
   const payload = raw?.data ?? raw;
@@ -86,7 +115,20 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const moduleId = params.module_id;
   const [module, setModule] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [contentLanguage, setContentLanguage] = useState<'en' | 'hi'>('en');
+  const [contentTranslating, setContentTranslating] = useState(false);
   const [audioExpanded, setAudioExpanded] = useState(false);
+  const sectionTranslationCache = useRef<Record<string, SectionBlock>>({});
+
+  useEffect(() => {
+    if (!moduleId) return;
+    sectionTranslationCache.current = readSectionTranslationCache(employeeData?.user_id, moduleId);
+  }, [employeeData?.user_id, moduleId]);
+
+  const persistSectionTranslationCache = (cache: Record<string, SectionBlock>) => {
+    // console.log(" persistSectionTranslationCache called");
+    writeSectionTranslationCache(employeeData?.user_id, moduleId, cache);
+  };
   const [liveTranscript, setLiveTranscript] = useState("");
   const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string; isVoice?: boolean }>>([]);
   const [chatInput, setChatInput] = useState('');
@@ -95,6 +137,14 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   const [voiceLoopActive, setVoiceLoopActive] = useState(false);
   const [autoStartMic, setAutoStartMic] = useState(false);
+  // const { hasFeature } = useTenant();
+
+  // const canUsePodcast = hasFeature(FEATURES.LUCID_STUDIO_PODCAST);
+  // const canUseVideo = hasFeature(FEATURES.LUCID_STUDIO_VIDEO);
+  // const canUseMindmap = hasFeature(FEATURES.LUCID_STUDIO_MINDMAP);
+  // const canUseInfographic = hasFeature(FEATURES.LUCID_STUDIO_INFOGRAPHIC);
+  // const canUseFlashcards = hasFeature(FEATURES.LUCID_STUDIO_FLASHCARDS);
+  // const canUseFlashcard
   const { hasFeature } = useTenant();
 
   const canUsePodcast = hasFeature(FEATURES.LUCID_STUDIO_PODCAST);
@@ -141,6 +191,8 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       loadModule();
     }
   }, [employeeData, moduleId, authLoading]);
+
+  const moduleToUse = module;
 
   const handleSendChat = async (e: FormEvent<HTMLFormElement>, overrideInput?: string) => {
     e.preventDefault();
@@ -261,7 +313,9 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                 <span className="text-base sm:text-lg text-slate-600 font-normal"> [{module.sprint_name}]</span>
               )}
             </h1>
-            <p className="text-slate-600">Professional learning content tailored for you</p>
+            <div className="flex items-center gap-4">
+              <p className="text-slate-600">Professional learning content tailored for you</p>
+            </div>
           </div>
           <div className="w-full mx-auto">
             <main className="w-full">
@@ -325,7 +379,30 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                   }}
                 />
 
-                <ContentCards content={module.content || ''} />
+                <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-semibold text-slate-900">Module Content</h2>
+                    <p className="text-sm text-slate-500">Translate only the textual content sections. Images and videos remain unchanged.</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-slate-500">Content Language</label>
+                    <select value={contentLanguage} onChange={(e) => setContentLanguage(e.target.value as 'en' | 'hi')} className="h-8 px-2 border border-slate-200 rounded-lg text-sm">
+                      <option value="en">English</option>
+                      <option value="hi">Hindi</option>
+                    </select>
+                    {contentLanguage === 'hi' && <span className="text-xs text-slate-500">{contentTranslating ? 'Translating content...' : 'Showing Hindi text'}</span>}
+                  </div>
+                </div>
+
+                <ContentCards
+                  content={module.content || ''}
+                  contentLanguage={contentLanguage}
+                  contentCache={sectionTranslationCache}
+                  onTranslatingChange={setContentTranslating}
+                  onTranslationCacheChange={persistSectionTranslationCache}
+                  moduleId={module.original_module_id || moduleId}
+                  employeeId={employeeData?.user_id}
+                />
 
                 {/* Chat Section - Only visible for Tier 2+ */}
                 <FeatureGate feature={FEATURES.CHAT_IN_STUDIO}>
@@ -501,9 +578,27 @@ function LoadingProgress({ label, progress }: { label: string; progress: number 
   );
 }
 
-function ContentCards({ content }: { content: string }) {
-  const sections = parseContentIntoSections(content);
-  const tabGroups = useMemo(() => groupSectionsForTabs(sections), [sections]);
+function ContentCards({
+  content,
+  contentLanguage,
+  contentCache,
+  onTranslatingChange,
+  onTranslationCacheChange,
+  moduleId,
+  employeeId,
+}: {
+  content: string;
+  contentLanguage: 'en' | 'hi';
+  contentCache?: RefObject<Record<string, SectionBlock>>;
+  onTranslatingChange?: (value: boolean) => void;
+  onTranslationCacheChange?: (cache: Record<string, SectionBlock>) => void;
+  moduleId?: string;
+  employeeId?: string;
+}) {
+  const sections = useMemo(() => parseContentIntoSections(content), [content]);
+  const [translatedSections, setTranslatedSections] = useState<SectionBlock[] | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const tabGroups = useMemo(() => groupSectionsForTabs(translatedSections ?? sections), [sections, translatedSections]);
   const [activeTab, setActiveTab] = useState(tabGroups[0]?.key || '');
 
   useEffect(() => {
@@ -513,6 +608,188 @@ function ContentCards({ content }: { content: string }) {
       setActiveTab(tabGroups[0].key);
     }
   }, [tabGroups, activeTab]);
+
+  useEffect(() => {
+    if (typeof onTranslatingChange === 'function') {
+      onTranslatingChange(isTranslating);
+    }
+  }, [isTranslating, onTranslatingChange]);
+
+  useEffect(() => {
+    setTranslatedSections(null);
+    if (contentLanguage !== 'hi' || sections.length === 0) {
+      setIsTranslating(false);
+      return;
+    }
+
+    let active = true;
+    const translateText = async (text: string) => {
+      if (!text || !text.trim()) return text;
+      try {
+        const res = await fetch('/api/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, target: 'hi', source: 'en' }),
+        });
+        if (!res.ok) {
+          console.error('Translate failed for text chunk', res.status);
+          return text;
+        }
+        const j = await res.json();
+        return String(j.translated || text);
+      } catch (error) {
+        console.error('Translate error for text chunk', error);
+        return text;
+      }
+    };
+
+    const getCacheKey = (section: SectionBlock) => `${section.title || ''}::${section.content || ''}`;
+
+    const translateSection = async (section: SectionBlock): Promise<SectionBlock> => {
+      const cacheKey = getCacheKey(section);
+      if (contentCache?.current?.[cacheKey]) {
+        return contentCache.current[cacheKey];
+      }
+
+      const titleText = section.title?.trim() || '';
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(section.content || '', 'text/html');
+      const textNodes: Text[] = [];
+
+      const walk = (node: Node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const text = node.textContent?.trim();
+          if (text) textNodes.push(node as Text);
+          return;
+        }
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const tagName = (node as Element).tagName.toLowerCase();
+          if (tagName === 'script' || tagName === 'style' || tagName === 'noscript') return;
+          node.childNodes.forEach(walk);
+        }
+      };
+
+      walk(doc.body);
+      const rawTextValues = textNodes.map((node) => node.textContent || '');
+      const allParts = titleText ? [titleText, ...rawTextValues] : rawTextValues;
+      if (allParts.length === 0) {
+        return section;
+      }
+
+      const delimiter = '\uF8FF__TRANSLATE_DELIM__\uF8FF';
+      const combinedText = allParts.join(delimiter);
+      try {
+        const res = await fetch('/api/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: combinedText, target: 'hi', source: 'en' }),
+        });
+        // console.log("API Status", res.status);
+        
+        if (!res.ok) {
+          console.error('Translate failed for section', res.status);
+          const individual = await Promise.all(allParts.map((part) => translateText(part)));
+          let index = 0;
+          const translatedTitle = titleText ? individual[index++] : '';
+          textNodes.forEach((node) => {
+            node.textContent = individual[index++] ?? (node.textContent || '');
+          });
+          return {
+            ...section,
+            title: translatedTitle || section.title,
+            content: doc.body.innerHTML,
+          };
+        }
+        const j = await res.json();
+        const translated = String(j.translated || '');
+        const translatedParts = translated.split(delimiter);
+        
+        if (translatedParts.length !== allParts.length) {
+        const individual = await Promise.all(allParts.map((part) => translateText(part)));
+
+        let index = 0;
+        const translatedTitle = titleText ? individual[index++] : '';
+
+        textNodes.forEach((node) => {
+            node.textContent = individual[index++] ?? (node.textContent || '');
+        });
+
+        const translatedSection = {
+            ...section,
+            title: translatedTitle || section.title,
+            content: doc.body.innerHTML,
+        };
+
+        if (contentCache?.current) {
+            contentCache.current[cacheKey] = translatedSection;
+
+            if (typeof onTranslationCacheChange === 'function') {
+                onTranslationCacheChange(contentCache.current);
+            }
+        }
+
+        return translatedSection;
+    }
+
+        let index = 0;
+        const translatedTitle = titleText ? (translatedParts[index++] || titleText) : '';
+        textNodes.forEach((node) => {
+          node.textContent = translatedParts[index++] ?? (node.textContent || '');
+        });
+        const translatedSection = {
+          ...section,
+          title: translatedTitle || section.title,
+          content: doc.body.innerHTML,
+        };
+        if (contentCache?.current) {
+          contentCache.current[cacheKey] = translatedSection;
+          if (typeof onTranslationCacheChange === 'function') {
+            // console.log("Calling onTranslationCacheChange");
+            onTranslationCacheChange(contentCache.current);
+          }
+        }
+        return translatedSection;
+      } catch (error) {
+        console.error('Translate error for section', error);
+        const individual = await Promise.all(allParts.map((part) => translateText(part)));
+        let index = 0;
+        const translatedTitle = titleText ? individual[index++] : '';
+        textNodes.forEach((node) => {
+          node.textContent = individual[index++] ?? (node.textContent || '');
+        });
+        const translatedSection = {
+          ...section,
+          title: translatedTitle || section.title,
+          content: doc.body.innerHTML,
+        };
+        if (contentCache?.current) {
+          contentCache.current[cacheKey] = translatedSection;
+          if (typeof onTranslationCacheChange === 'function') {
+            onTranslationCacheChange(contentCache.current);
+          }
+        }
+        return translatedSection;
+      }
+    };
+
+    const runTranslation = async () => {
+      setIsTranslating(true);
+      try {
+        const translated = await Promise.all(sections.map(translateSection));
+        if (!active) return;
+        setTranslatedSections(translated);
+      } finally {
+        if (active) {
+          setIsTranslating(false);
+        }
+      }
+    };
+
+    runTranslation();
+    return () => {
+      active = false;
+    };
+  }, [contentLanguage, sections]);
 
   if (sections.length === 0) {
     return (

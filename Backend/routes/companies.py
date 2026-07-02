@@ -262,6 +262,7 @@ async def update_company_route(
         "lucid_studio_video",
         "lucid_studio_mindmap",
         "lucid_studio_infographic",
+        "lucid_studio_flashcard",
         "lucid_studio_flashcards",
         "chat_in_studio",
         "task_management",
@@ -293,6 +294,7 @@ async def update_company_route(
             "lucid_studio_video",
             "lucid_studio_mindmap",
             "lucid_studio_infographic",
+            "lucid_studio_flashcard",
             "lucid_studio_flashcards",
         )) and "lucid_studio" not in normalized_addons:
             normalized_addons.insert(0, "lucid_studio")

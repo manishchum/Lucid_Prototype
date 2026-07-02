@@ -26,7 +26,7 @@ type AddonKey =
   | "lucid_studio_video"
   | "lucid_studio_mindmap"
   | "lucid_studio_infographic"
-  |"lucid_studio_flashcard"
+  | "lucid_studio_flashcard"
   | "chat_in_studio"
   | "task_management"
   | "kpi"
@@ -96,7 +96,7 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     label: "Flashcard",
     description: "Enable lucid studio flashcard generation.",
     category: "core",
-    parentID: "lucid_studio",
+    parentId: "lucid_studio",
   },
   {
     id: "chat_in_studio",
@@ -292,6 +292,13 @@ export default function CompanyAccessPage() {
       return Array.from(next)
     })
   }
+  console.log("Draft Addons:", draftAddons);
+
+  console.log(
+    JSON.stringify({
+      subscription_addons: draftAddons,
+    })
+  );
 
   const handleSave = async () => {
     if (!selectedCompanyId || !userId) return
@@ -612,8 +619,10 @@ export default function CompanyAccessPage() {
                   >
                     Reset
                   </Button>
+                   
                   <Button
                     type="button"
+                    
                     onClick={handleSave}
                     disabled={!selectedCompanyId || saving}
                     className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"

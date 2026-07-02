@@ -25,6 +25,7 @@ export type Addon =
   | 'lucid_studio_video'
   | 'lucid_studio_mindmap'
   | 'lucid_studio_infographic'
+  | 'lucid_studio_flashcard'
   | 'lucid_studio_flashcards'
   | 'chat_in_studio'
   | 'task_management'
@@ -49,14 +50,17 @@ export const FEATURES = {
 export type FeatureName = typeof FEATURES[keyof typeof FEATURES]
 
 // Feature to requirement mapping
-const FEATURE_CONFIG: Record<FeatureName, { requiredAddons?: Addon[] }> = {
+const FEATURE_CONFIG: Record<FeatureName, { requiredAddons?: Addon[]; requiresAnyAddon?: boolean }> = {
   [FEATURES.LUCID_STUDIO]: { requiredAddons: ["lucid_studio"] },
   [FEATURES.LUCID_STUDIO_TEXTUAL]: { requiredAddons: ["lucid_studio_textual"] },
   [FEATURES.LUCID_STUDIO_PODCAST]: { requiredAddons: ["lucid_studio_podcast"] },
   [FEATURES.LUCID_STUDIO_VIDEO]: { requiredAddons: ["lucid_studio_video"] },
   [FEATURES.LUCID_STUDIO_MINDMAP]: { requiredAddons: ["lucid_studio_mindmap"] },
   [FEATURES.LUCID_STUDIO_INFOGRAPHIC]: { requiredAddons: ["lucid_studio_infographic"] },
-  [FEATURES.LUCID_STUDIO_FLASHCARDS]: { requiredAddons: ["lucid_studio_flashcards"] },
+  [FEATURES.LUCID_STUDIO_FLASHCARDS]: {
+    requiredAddons: ["lucid_studio_flashcard", "lucid_studio_flashcards"],
+    requiresAnyAddon: true,
+  },
   [FEATURES.CHAT_IN_STUDIO]: { requiredAddons: ["chat_in_studio"] },
   [FEATURES.TASK_MANAGEMENT]: { requiredAddons: ["task_management"] },
   [FEATURES.KPI]: { requiredAddons: ["kpi"] },
@@ -115,7 +119,15 @@ export const useTenant = () => {
 }
 
 const normalizeRole = (value: string) => value.toLowerCase().replace(/[-_\s]/g, "")
-const normalizeAddonKey = (value: string) => String(value || "").trim().toLowerCase().replace(/[-\s]+/g, "_")
+const normalizeAddonKey = (value: string): Addon => {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[-\s]+/g, "_")
+
+  if (normalized === "lucid_studio_flashcard" || normalized === "lucid_studio_flashcards") {
+    return "lucid_studio_flashcards"
+  }
+
+  return normalized as Addon
+}
 
 const isAddon = (value: string): value is Addon => {
   return [
@@ -125,6 +137,7 @@ const isAddon = (value: string): value is Addon => {
     "lucid_studio_video",
     "lucid_studio_mindmap",
     "lucid_studio_infographic",
+    "lucid_studio_flashcard",
     "lucid_studio_flashcards",
     "chat_in_studio",
     "task_management",
@@ -144,6 +157,7 @@ const deriveFrontendTier = (addons: Addon[]): Tier | null => {
     current.has("lucid_studio_video") ||
     current.has("lucid_studio_mindmap") ||
     current.has("lucid_studio_infographic") ||
+    current.has("lucid_studio_flashcard") ||
     current.has("lucid_studio_flashcards")
   ) return "tier_1"
   return null
